@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "tmux-team",
-      "source": "./plugins/tmux-team",
+      "source": ".",
       "description": "Talk to peer AI agents in different tmux panes",
       "version": "1.0.0",
       "author": {
