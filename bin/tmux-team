@@ -1,44 +1,72 @@
-#!/bin/zsh
-# tmux-team: Unified CLI for AI agent collaboration in tmux
-# Manages agent pane mappings and cross-pane communication
+#!/usr/bin/env node
 
-set -euo pipefail
+const fs = require('fs');
+const path = require('path');
+const { execSync, spawn } = require('child_process');
 
-CONFIG_FILE="./tmux-team.json"
-VERSION="1.0.0"
+const CONFIG_FILE = './tmux-team.json';
+const VERSION = '1.0.0';
 
-# ─────────────────────────────────────────────────────────────
-# Colors
-# ─────────────────────────────────────────────────────────────
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+// ─────────────────────────────────────────────────────────────
+// Colors
+// ─────────────────────────────────────────────────────────────
+const colors = {
+  red: (s) => `\x1b[31m${s}\x1b[0m`,
+  green: (s) => `\x1b[32m${s}\x1b[0m`,
+  yellow: (s) => `\x1b[33m${s}\x1b[0m`,
+  blue: (s) => `\x1b[34m${s}\x1b[0m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+};
 
-# ─────────────────────────────────────────────────────────────
-# Help
-# ─────────────────────────────────────────────────────────────
-show_help() {
-  cat <<EOF
-${CYAN}tmux-team${NC} v${VERSION} - AI agent collaboration in tmux
+// ─────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────
+function error(msg) {
+  console.error(`${colors.red('❌ Error:')} ${msg}`);
+  process.exit(1);
+}
 
-${YELLOW}USAGE${NC}
+function success(msg) {
+  console.log(`${colors.green('✓')} ${msg}`);
+}
+
+function info(msg) {
+  console.log(`${colors.blue('ℹ')} ${msg}`);
+}
+
+function loadConfig() {
+  if (!fs.existsSync(CONFIG_FILE)) {
+    error(`${CONFIG_FILE} not found. Run 'tmux-team init' to create one.`);
+  }
+  return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+}
+
+function saveConfig(config) {
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2) + '\n');
+}
+
+// ─────────────────────────────────────────────────────────────
+// Commands
+// ─────────────────────────────────────────────────────────────
+function showHelp() {
+  console.log(`
+${colors.cyan('tmux-team')} v${VERSION} - AI agent collaboration in tmux
+
+${colors.yellow('USAGE')}
   tmux-team <command> [arguments]
 
-${YELLOW}COMMANDS${NC}
-  ${GREEN}talk${NC} <target> <message>     Send message to an agent (or "all")
-  ${GREEN}check${NC} <target> [lines]      Capture output from agent's pane
-  ${GREEN}list${NC}                        List all configured agents
-  ${GREEN}add${NC} <name> <pane> [remark]  Add a new agent
-  ${GREEN}update${NC} <name> [options]     Update an agent's config
-  ${GREEN}remove${NC} <name>               Remove an agent
-  ${GREEN}init${NC}                        Create empty tmux-team.json
-  ${GREEN}init-claude${NC}                 Show Claude Code plugin install instructions
-  ${GREEN}help${NC}                        Show this help message
+${colors.yellow('COMMANDS')}
+  ${colors.green('talk')} <target> <message>     Send message to an agent (or "all")
+  ${colors.green('check')} <target> [lines]      Capture output from agent's pane
+  ${colors.green('list')}                        List all configured agents
+  ${colors.green('add')} <name> <pane> [remark]  Add a new agent
+  ${colors.green('update')} <name> [options]     Update an agent's config
+  ${colors.green('remove')} <name>               Remove an agent
+  ${colors.green('init')}                        Create empty tmux-team.json
+  ${colors.green('init-claude')}                 Show Claude Code plugin install instructions
+  ${colors.green('help')}                        Show this help message
 
-${YELLOW}EXAMPLES${NC}
+${colors.yellow('EXAMPLES')}
   tmux-team talk codex "Please review the PR"
   tmux-team talk all "Sync meeting in 5 minutes"
   tmux-team check gemini 50
@@ -48,324 +76,243 @@ ${YELLOW}EXAMPLES${NC}
   tmux-team update codex --remark "New description"
   tmux-team remove codex
 
-${YELLOW}CONFIG FILE${NC}
+${colors.yellow('CONFIG FILE')}
   Uses ./tmux-team.json in current directory:
   {
     "codex": { "pane": "10.1", "remark": "Code reviewer" },
     "gemini": { "pane": "10.2", "remark": "Implementation" }
   }
-
-EOF
+`);
 }
 
-# ─────────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────────
-error() {
-  echo -e "${RED}❌ Error:${NC} $1" >&2
-  exit 1
+function cmdInit() {
+  if (fs.existsSync(CONFIG_FILE)) {
+    error(`${CONFIG_FILE} already exists. Remove it first if you want to reinitialize.`);
+  }
+  fs.writeFileSync(CONFIG_FILE, '{}\n');
+  success(`Created ${CONFIG_FILE}`);
 }
 
-success() {
-  echo -e "${GREEN}✓${NC} $1"
+function cmdInitClaude() {
+  console.log(`
+${colors.cyan('To install the tmux-team plugin in Claude Code:')}
+
+  ${colors.green('1.')} Open Claude Code
+  ${colors.green('2.')} Run these commands:
+
+     ${colors.yellow('/plugin marketplace add anthropics/tmux-team')}
+     ${colors.yellow('/plugin install tmux-team@tmux-team')}
+
+  ${colors.green('3.')} Use the slash command:
+
+     ${colors.yellow('/team codex "your message"')}
+     ${colors.yellow('/team gemini "please review this PR"')}
+`);
 }
 
-info() {
-  echo -e "${BLUE}ℹ${NC} $1"
-}
+function cmdList() {
+  const config = loadConfig();
+  const agents = Object.keys(config);
 
-check_config() {
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    error "$CONFIG_FILE not found. Run 'tmux-team init' to create one."
-  fi
-}
-
-check_jq() {
-  if ! command -v jq &> /dev/null; then
-    error "jq is required but not installed. Install with: brew install jq"
-  fi
-}
-
-# ─────────────────────────────────────────────────────────────
-# Commands
-# ─────────────────────────────────────────────────────────────
-
-cmd_init() {
-  if [[ -f "$CONFIG_FILE" ]]; then
-    error "$CONFIG_FILE already exists. Remove it first if you want to reinitialize."
-  fi
-  echo '{}' > "$CONFIG_FILE"
-  success "Created $CONFIG_FILE"
-}
-
-cmd_init_claude() {
-  echo ""
-  echo -e "${CYAN}To install the tmux-team plugin in Claude Code:${NC}"
-  echo ""
-  echo -e "  ${GREEN}1.${NC} Open Claude Code"
-  echo -e "  ${GREEN}2.${NC} Run these commands:"
-  echo ""
-  echo -e "     ${YELLOW}/plugin marketplace add anthropics/tmux-team${NC}"
-  echo -e "     ${YELLOW}/plugin install tmux-team@tmux-team${NC}"
-  echo ""
-  echo -e "  ${GREEN}3.${NC} Use the slash command:"
-  echo ""
-  echo -e "     ${YELLOW}/team codex \"your message\"${NC}"
-  echo -e "     ${YELLOW}/team gemini \"please review this PR\"${NC}"
-  echo ""
-}
-
-cmd_list() {
-  check_config
-  check_jq
-
-  local count=$(jq 'keys | length' "$CONFIG_FILE")
-
-  if [[ "$count" == "0" ]]; then
-    info "No agents configured. Use 'tmux-team add <name> <pane>' to add one."
-    return
-  fi
-
-  echo -e "${CYAN}Configured agents:${NC}"
-  echo ""
-  printf "  ${YELLOW}%-12s${NC} ${YELLOW}%-10s${NC} %s\n" "NAME" "PANE" "REMARK"
-  printf "  %-12s %-10s %s\n" "────────────" "──────────" "────────────────────────────────"
-
-  jq -r 'to_entries[] | "\(.key)\t\(.value.pane)\t\(.value.remark // "-")"' "$CONFIG_FILE" | \
-    while IFS=$'\t' read -r name pane remark; do
-      printf "  %-12s %-10s %s\n" "$name" "$pane" "$remark"
-    done
-  echo ""
-}
-
-cmd_add() {
-  local name="$1"
-  local pane="$2"
-  local remark="${3:-}"
-
-  check_jq
-
-  # Create config if not exists
-  if [[ ! -f "$CONFIG_FILE" ]]; then
-    echo '{}' > "$CONFIG_FILE"
-    info "Created $CONFIG_FILE"
-  fi
-
-  # Check if agent already exists
-  local existing=$(jq -r ".[\"$name\"]" "$CONFIG_FILE")
-  if [[ "$existing" != "null" ]]; then
-    error "Agent '$name' already exists. Use 'tmux-team update' to modify."
-  fi
-
-  # Add agent
-  local tmp=$(mktemp)
-  if [[ -n "$remark" ]]; then
-    jq --arg name "$name" --arg pane "$pane" --arg remark "$remark" \
-      '.[$name] = { pane: $pane, remark: $remark }' "$CONFIG_FILE" > "$tmp"
-  else
-    jq --arg name "$name" --arg pane "$pane" \
-      '.[$name] = { pane: $pane }' "$CONFIG_FILE" > "$tmp"
-  fi
-  mv "$tmp" "$CONFIG_FILE"
-
-  success "Added agent '$name' at pane $pane"
-}
-
-cmd_update() {
-  local name="$1"
-  shift
-
-  check_config
-  check_jq
-
-  # Check if agent exists
-  local existing=$(jq -r ".[\"$name\"]" "$CONFIG_FILE")
-  if [[ "$existing" == "null" ]]; then
-    error "Agent '$name' not found. Use 'tmux-team add' to create."
-  fi
-
-  local new_pane=""
-  local new_remark=""
-
-  # Parse options
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --pane)
-        new_pane="$2"
-        shift 2
-        ;;
-      --remark)
-        new_remark="$2"
-        shift 2
-        ;;
-      *)
-        error "Unknown option: $1"
-        ;;
-    esac
-  done
-
-  if [[ -z "$new_pane" && -z "$new_remark" ]]; then
-    error "No updates specified. Use --pane or --remark."
-  fi
-
-  local tmp=$(mktemp)
-
-  if [[ -n "$new_pane" ]]; then
-    jq --arg name "$name" --arg pane "$new_pane" \
-      '.[$name].pane = $pane' "$CONFIG_FILE" > "$tmp"
-    mv "$tmp" "$CONFIG_FILE"
-    success "Updated '$name' pane to $new_pane"
-  fi
-
-  if [[ -n "$new_remark" ]]; then
-    jq --arg name "$name" --arg remark "$new_remark" \
-      '.[$name].remark = $remark' "$CONFIG_FILE" > "$tmp"
-    mv "$tmp" "$CONFIG_FILE"
-    success "Updated '$name' remark"
-  fi
-}
-
-cmd_remove() {
-  local name="$1"
-
-  check_config
-  check_jq
-
-  # Check if agent exists
-  local existing=$(jq -r ".[\"$name\"]" "$CONFIG_FILE")
-  if [[ "$existing" == "null" ]]; then
-    error "Agent '$name' not found."
-  fi
-
-  local tmp=$(mktemp)
-  jq --arg name "$name" 'del(.[$name])' "$CONFIG_FILE" > "$tmp"
-  mv "$tmp" "$CONFIG_FILE"
-
-  success "Removed agent '$name'"
-}
-
-cmd_talk() {
-  local target="$1"
-  local msg="$2"
-
-  check_config
-  check_jq
-
-  _send_to_pane() {
-    local pane_id=$1
-    local message=$2
-    local agent_name=$3
-
-    # Special handling: Gemini doesn't like exclamation marks
-    if [[ "$agent_name" == "gemini" ]]; then
-      message="${message//!/}"
-    fi
-
-    echo -e "${GREEN}🚀${NC} Sending to ${CYAN}$agent_name${NC} ($pane_id)"
-
-    # Send message
-    tmux send-keys -t "$pane_id" "$message"
-    sleep 0.1
-    # Send Enter
-    tmux send-keys -t "$pane_id" Enter
+  if (agents.length === 0) {
+    info("No agents configured. Use 'tmux-team add <name> <pane>' to add one.");
+    return;
   }
 
-  # Handle "all" mode
-  if [[ "$target" == "all" ]]; then
-    local agents=($(jq -r 'keys[]' "$CONFIG_FILE"))
+  console.log(`\n${colors.cyan('Configured agents:')}\n`);
+  console.log(`  ${colors.yellow('NAME'.padEnd(12))} ${colors.yellow('PANE'.padEnd(10))} REMARK`);
+  console.log(`  ${'─'.repeat(12)} ${'─'.repeat(10)} ${'─'.repeat(32)}`);
 
-    for agent in "${agents[@]}"; do
-      local pane=$(jq -r ".[\"$agent\"].pane" "$CONFIG_FILE")
-      if [[ "$pane" != "null" ]]; then
-        _send_to_pane "$pane" "$msg" "$agent"
-      fi
-    done
-    return
-  fi
-
-  # Handle single target
-  local pane=$(jq -r ".[\"$target\"].pane" "$CONFIG_FILE")
-
-  if [[ "$pane" == "null" ]]; then
-    error "Agent '$target' not found. Available: $(jq -r 'keys | join(", ")' "$CONFIG_FILE")"
-  fi
-
-  _send_to_pane "$pane" "$msg" "$target"
+  for (const [name, data] of Object.entries(config)) {
+    console.log(`  ${name.padEnd(12)} ${data.pane.padEnd(10)} ${data.remark || '-'}`);
+  }
+  console.log();
 }
 
-cmd_check() {
-  local target="$1"
-  local lines="${2:-100}"
+function cmdAdd(name, pane, remark) {
+  let config = {};
 
-  check_config
-  check_jq
+  if (fs.existsSync(CONFIG_FILE)) {
+    config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+  } else {
+    info(`Created ${CONFIG_FILE}`);
+  }
 
-  local pane=$(jq -r ".[\"$target\"].pane" "$CONFIG_FILE")
+  if (config[name]) {
+    error(`Agent '${name}' already exists. Use 'tmux-team update' to modify.`);
+  }
 
-  if [[ "$pane" == "null" ]]; then
-    error "Agent '$target' not found. Available: $(jq -r 'keys | join(", ")' "$CONFIG_FILE")"
-  fi
+  config[name] = { pane };
+  if (remark) {
+    config[name].remark = remark;
+  }
 
-  echo -e "${CYAN}─── Output from $target ($pane) ───${NC}"
-  tmux capture-pane -t "$pane" -p -S -"$lines"
+  saveConfig(config);
+  success(`Added agent '${name}' at pane ${pane}`);
 }
 
-# ─────────────────────────────────────────────────────────────
-# Main
-# ─────────────────────────────────────────────────────────────
+function cmdUpdate(name, args) {
+  const config = loadConfig();
 
-if [[ $# -eq 0 ]]; then
-  show_help
-  exit 0
-fi
+  if (!config[name]) {
+    error(`Agent '${name}' not found. Use 'tmux-team add' to create.`);
+  }
 
-command="$1"
-shift
+  let newPane = null;
+  let newRemark = null;
 
-case "$command" in
-  help|--help|-h)
-    show_help
-    ;;
-  init)
-    cmd_init
-    ;;
-  init-claude)
-    cmd_init_claude
-    ;;
-  list|ls)
-    cmd_list
-    ;;
-  add)
-    if [[ $# -lt 2 ]]; then
-      error "Usage: tmux-team add <name> <pane> [remark]"
-    fi
-    cmd_add "$@"
-    ;;
-  update)
-    if [[ $# -lt 1 ]]; then
-      error "Usage: tmux-team update <name> --pane <pane> | --remark <remark>"
-    fi
-    cmd_update "$@"
-    ;;
-  remove|rm)
-    if [[ $# -lt 1 ]]; then
-      error "Usage: tmux-team remove <name>"
-    fi
-    cmd_remove "$1"
-    ;;
-  talk|send)
-    if [[ $# -lt 2 ]]; then
-      error "Usage: tmux-team talk <target> <message>"
-    fi
-    cmd_talk "$1" "$2"
-    ;;
-  check|read)
-    if [[ $# -lt 1 ]]; then
-      error "Usage: tmux-team check <target> [lines]"
-    fi
-    cmd_check "$@"
-    ;;
-  *)
-    error "Unknown command: $command. Run 'tmux-team help' for usage."
-    ;;
-esac
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--pane' && args[i + 1]) {
+      newPane = args[++i];
+    } else if (args[i] === '--remark' && args[i + 1]) {
+      newRemark = args[++i];
+    }
+  }
+
+  if (!newPane && !newRemark) {
+    error('No updates specified. Use --pane or --remark.');
+  }
+
+  if (newPane) {
+    config[name].pane = newPane;
+    success(`Updated '${name}' pane to ${newPane}`);
+  }
+
+  if (newRemark) {
+    config[name].remark = newRemark;
+    success(`Updated '${name}' remark`);
+  }
+
+  saveConfig(config);
+}
+
+function cmdRemove(name) {
+  const config = loadConfig();
+
+  if (!config[name]) {
+    error(`Agent '${name}' not found.`);
+  }
+
+  delete config[name];
+  saveConfig(config);
+  success(`Removed agent '${name}'`);
+}
+
+function sendToPane(paneId, message, agentName) {
+  // Special handling: Gemini doesn't like exclamation marks
+  if (agentName === 'gemini') {
+    message = message.replace(/!/g, '');
+  }
+
+  console.log(`${colors.green('🚀')} Sending to ${colors.cyan(agentName)} (${paneId})`);
+
+  try {
+    execSync(`tmux send-keys -t "${paneId}" ${JSON.stringify(message)}`, { stdio: 'inherit' });
+    execSync(`tmux send-keys -t "${paneId}" Enter`, { stdio: 'inherit' });
+  } catch (e) {
+    error(`Failed to send to pane ${paneId}. Is tmux running?`);
+  }
+}
+
+function cmdTalk(target, message) {
+  const config = loadConfig();
+
+  if (target === 'all') {
+    for (const [name, data] of Object.entries(config)) {
+      sendToPane(data.pane, message, name);
+    }
+    return;
+  }
+
+  if (!config[target]) {
+    const available = Object.keys(config).join(', ');
+    error(`Agent '${target}' not found. Available: ${available}`);
+  }
+
+  sendToPane(config[target].pane, message, target);
+}
+
+function cmdCheck(target, lines = 100) {
+  const config = loadConfig();
+
+  if (!config[target]) {
+    const available = Object.keys(config).join(', ');
+    error(`Agent '${target}' not found. Available: ${available}`);
+  }
+
+  const pane = config[target].pane;
+  console.log(`${colors.cyan(`─── Output from ${target} (${pane}) ───`)}`);
+
+  try {
+    execSync(`tmux capture-pane -t "${pane}" -p -S -${lines}`, { stdio: 'inherit' });
+  } catch (e) {
+    error(`Failed to capture pane ${pane}. Is tmux running?`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Main
+// ─────────────────────────────────────────────────────────────
+const args = process.argv.slice(2);
+const command = args[0];
+
+if (!command || command === 'help' || command === '--help' || command === '-h') {
+  showHelp();
+  process.exit(0);
+}
+
+switch (command) {
+  case 'init':
+    cmdInit();
+    break;
+
+  case 'init-claude':
+    cmdInitClaude();
+    break;
+
+  case 'list':
+  case 'ls':
+    cmdList();
+    break;
+
+  case 'add':
+    if (args.length < 3) {
+      error('Usage: tmux-team add <name> <pane> [remark]');
+    }
+    cmdAdd(args[1], args[2], args[3]);
+    break;
+
+  case 'update':
+    if (args.length < 2) {
+      error('Usage: tmux-team update <name> --pane <pane> | --remark <remark>');
+    }
+    cmdUpdate(args[1], args.slice(2));
+    break;
+
+  case 'remove':
+  case 'rm':
+    if (args.length < 2) {
+      error('Usage: tmux-team remove <name>');
+    }
+    cmdRemove(args[1]);
+    break;
+
+  case 'talk':
+  case 'send':
+    if (args.length < 3) {
+      error('Usage: tmux-team talk <target> <message>');
+    }
+    cmdTalk(args[1], args[2]);
+    break;
+
+  case 'check':
+  case 'read':
+    if (args.length < 2) {
+      error('Usage: tmux-team check <target> [lines]');
+    }
+    cmdCheck(args[1], parseInt(args[2]) || 100);
+    break;
+
+  default:
+    error(`Unknown command: ${command}. Run 'tmux-team help' for usage.`);
+}

@@ -10,9 +10,8 @@ npm install -g tmux-team
 
 ## Requirements
 
+- Node.js 16+
 - tmux
-- jq (`brew install jq` on macOS)
-- zsh or bash
 
 ## Quick Start
 
