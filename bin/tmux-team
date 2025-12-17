@@ -8,14 +8,15 @@ const CONFIG_FILE = './tmux-team.json';
 const VERSION = '1.0.0';
 
 // ─────────────────────────────────────────────────────────────
-// Colors
+// Colors (only when stdout is a TTY)
 // ─────────────────────────────────────────────────────────────
+const isTTY = process.stdout.isTTY;
 const colors = {
-  red: (s) => `\x1b[31m${s}\x1b[0m`,
-  green: (s) => `\x1b[32m${s}\x1b[0m`,
-  yellow: (s) => `\x1b[33m${s}\x1b[0m`,
-  blue: (s) => `\x1b[34m${s}\x1b[0m`,
-  cyan: (s) => `\x1b[36m${s}\x1b[0m`,
+  red: (s) => isTTY ? `\x1b[31m${s}\x1b[0m` : s,
+  green: (s) => isTTY ? `\x1b[32m${s}\x1b[0m` : s,
+  yellow: (s) => isTTY ? `\x1b[33m${s}\x1b[0m` : s,
+  blue: (s) => isTTY ? `\x1b[34m${s}\x1b[0m` : s,
+  cyan: (s) => isTTY ? `\x1b[36m${s}\x1b[0m` : s,
 };
 
 // ─────────────────────────────────────────────────────────────
