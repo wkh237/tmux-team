@@ -62,6 +62,23 @@ Agent pane mappings are stored in `./tmux-team.json`:
 
 ## Use Cases
 
+### From Claude Code (Slash Command)
+
+After installing the plugin, you can communicate with other agents directly from Claude Code:
+
+```
+/team codex "Can you review the authentication changes I just made?"
+
+/team gemini "I've finished the frontend. Please start writing tests for src/auth/"
+
+/team all "I'm about to refactor the database schema. Please pause your current work."
+```
+
+This is especially useful when:
+- You want Claude to coordinate with other agents mid-task
+- You need to ask another agent for help without leaving your current context
+- You want to broadcast status updates to the whole team
+
 ### Multi-Agent Feature Development
 
 Run multiple AI agents in parallel, each handling different aspects of a feature:
