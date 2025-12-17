@@ -13,6 +13,22 @@ npm install -g tmux-team
 - Node.js 16+
 - tmux
 
+## Shell Completion
+
+Enable tab auto-completion for commands and agent names:
+
+**Zsh** (add to `~/.zshrc`):
+```bash
+eval "$(tmux-team completion zsh)"
+```
+
+**Bash** (add to `~/.bashrc`):
+```bash
+eval "$(tmux-team completion bash)"
+```
+
+Then restart your shell or run `source ~/.zshrc` (or `~/.bashrc`).
+
 ## Quick Start
 
 ```bash
@@ -40,7 +56,8 @@ tmux-team remove gemini
 |---------|-------------|
 | `tmux-team help` | Show help message |
 | `tmux-team init` | Create empty tmux-team.json |
-| `tmux-team init-claude` | Install Claude Code slash command |
+| `tmux-team init-claude` | Show Claude Code plugin install instructions |
+| `tmux-team completion [shell]` | Output shell completion script |
 | `tmux-team list` | List all configured agents |
 | `tmux-team add <name> <pane> [remark]` | Add a new agent |
 | `tmux-team update <name> [options]` | Update agent config |
