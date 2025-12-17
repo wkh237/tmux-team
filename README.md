@@ -30,6 +30,9 @@ tmux-team talk codex "Please review the PR"
 
 # Read agent's response
 tmux-team check codex
+
+# Remove an agent
+tmux-team remove gemini
 ```
 
 ## Commands
