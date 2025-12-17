@@ -38,6 +38,7 @@ tmux-team check codex
 |---------|-------------|
 | `tmux-team help` | Show help message |
 | `tmux-team init` | Create empty tmux-team.json |
+| `tmux-team init-claude` | Install Claude Code slash command |
 | `tmux-team list` | List all configured agents |
 | `tmux-team add <name> <pane> [remark]` | Add a new agent |
 | `tmux-team update <name> [options]` | Update agent config |
@@ -99,6 +100,21 @@ tmux list-panes -a
 
 # Output format: session:window.pane
 # Example: 10:0.1 means session 10, window 0, pane 1
+```
+
+## Claude Code Integration
+
+Install the slash command for Claude Code:
+
+```bash
+tmux-team init-claude
+```
+
+This creates `~/.claude/commands/tmux/team.md`, enabling:
+
+```
+/tmux/team codex "請幫我review這個PR"
+/tmux/team gemini "進度如何？"
 ```
 
 ## License

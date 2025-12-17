@@ -35,6 +35,7 @@ ${YELLOW}COMMANDS${NC}
   ${GREEN}update${NC} <name> [options]     Update an agent's config
   ${GREEN}remove${NC} <name>               Remove an agent
   ${GREEN}init${NC}                        Create empty tmux-team.json
+  ${GREEN}init-claude${NC}                 Install Claude Code slash command
   ${GREEN}help${NC}                        Show this help message
 
 ${YELLOW}EXAMPLES${NC}
@@ -95,6 +96,72 @@ cmd_init() {
   fi
   echo '{}' > "$CONFIG_FILE"
   success "Created $CONFIG_FILE"
+}
+
+cmd_init_claude() {
+  local claude_dir="$HOME/.claude/commands/tmux"
+  local command_file="$claude_dir/team.md"
+
+  # Create directory if not exists
+  if [[ ! -d "$claude_dir" ]]; then
+    mkdir -p "$claude_dir"
+    info "Created $claude_dir"
+  fi
+
+  # Check if file already exists
+  if [[ -f "$command_file" ]]; then
+    error "$command_file already exists. Remove it first if you want to reinstall."
+  fi
+
+  # Write slash command file
+  cat > "$command_file" <<'SLASHCMD'
+---
+allowed-tools: Bash(tmux-team:*)
+description: Talk to peer agents in different tmux panes
+---
+
+$ARGUMENTS
+
+You are working in a multi-agent tmux environment.
+Use the `tmux-team` CLI to communicate with other agents.
+
+## Commands
+
+```bash
+# Send message to an agent
+tmux-team talk codex "你的訊息"
+tmux-team talk gemini "你的訊息"
+tmux-team talk all "廣播訊息"
+
+# Read agent's response (default: 100 lines)
+tmux-team check codex
+tmux-team check gemini
+
+# Read more lines if needed
+tmux-team check codex 200
+
+# List all configured agents
+tmux-team list
+```
+
+## Workflow
+
+1. Send message: `tmux-team talk codex "Hi, 進度如何？"`
+2. Wait for response (5-15 seconds depending on complexity)
+3. Read response: `tmux-team check codex`
+4. If response is cut off, increase lines: `tmux-team check codex 200`
+
+## Notes
+
+- `tmux-team talk` automatically sends Enter key after the message
+- `tmux-team talk` automatically filters `!` for Gemini (avoids bash mode trigger)
+- Run `tmux-team help` for full CLI documentation
+SLASHCMD
+
+  success "Installed Claude slash command: /tmux/team"
+  echo ""
+  info "Usage: /tmux/team codex \"你的訊息\""
+  info "       /tmux/team gemini \"請幫我review這個PR\""
 }
 
 cmd_list() {
@@ -310,6 +377,9 @@ case "$command" in
     ;;
   init)
     cmd_init
+    ;;
+  init-claude)
+    cmd_init_claude
     ;;
   list|ls)
     cmd_list
