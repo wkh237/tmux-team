@@ -129,9 +129,9 @@ Use the `tmux-team` CLI to communicate with other agents.
 
 ```bash
 # Send message to an agent
-tmux-team talk codex "你的訊息"
-tmux-team talk gemini "你的訊息"
-tmux-team talk all "廣播訊息"
+tmux-team talk codex "your message"
+tmux-team talk gemini "your message"
+tmux-team talk all "broadcast message"
 
 # Read agent's response (default: 100 lines)
 tmux-team check codex
@@ -146,7 +146,7 @@ tmux-team list
 
 ## Workflow
 
-1. Send message: `tmux-team talk codex "Hi, 進度如何？"`
+1. Send message: `tmux-team talk codex "Hi, how is progress?"`
 2. Wait for response (5-15 seconds depending on complexity)
 3. Read response: `tmux-team check codex`
 4. If response is cut off, increase lines: `tmux-team check codex 200`
@@ -160,8 +160,8 @@ SLASHCMD
 
   success "Installed Claude slash command: /tmux/team"
   echo ""
-  info "Usage: /tmux/team codex \"你的訊息\""
-  info "       /tmux/team gemini \"請幫我review這個PR\""
+  info "Usage: /tmux/team codex \"your message\""
+  info "       /tmux/team gemini \"please review this PR\""
 }
 
 cmd_list() {
