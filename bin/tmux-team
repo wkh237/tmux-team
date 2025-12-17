@@ -35,7 +35,7 @@ ${YELLOW}COMMANDS${NC}
   ${GREEN}update${NC} <name> [options]     Update an agent's config
   ${GREEN}remove${NC} <name>               Remove an agent
   ${GREEN}init${NC}                        Create empty tmux-team.json
-  ${GREEN}init-claude${NC}                 Install Claude Code slash command
+  ${GREEN}init-claude${NC}                 Show Claude Code plugin install instructions
   ${GREEN}help${NC}                        Show this help message
 
 ${YELLOW}EXAMPLES${NC}
@@ -99,69 +99,20 @@ cmd_init() {
 }
 
 cmd_init_claude() {
-  local claude_dir="$HOME/.claude/commands/tmux"
-  local command_file="$claude_dir/team.md"
-
-  # Create directory if not exists
-  if [[ ! -d "$claude_dir" ]]; then
-    mkdir -p "$claude_dir"
-    info "Created $claude_dir"
-  fi
-
-  # Check if file already exists
-  if [[ -f "$command_file" ]]; then
-    error "$command_file already exists. Remove it first if you want to reinstall."
-  fi
-
-  # Write slash command file
-  cat > "$command_file" <<'SLASHCMD'
----
-allowed-tools: Bash(tmux-team:*)
-description: Talk to peer agents in different tmux panes
----
-
-$ARGUMENTS
-
-You are working in a multi-agent tmux environment.
-Use the `tmux-team` CLI to communicate with other agents.
-
-## Commands
-
-```bash
-# Send message to an agent
-tmux-team talk codex "your message"
-tmux-team talk gemini "your message"
-tmux-team talk all "broadcast message"
-
-# Read agent's response (default: 100 lines)
-tmux-team check codex
-tmux-team check gemini
-
-# Read more lines if needed
-tmux-team check codex 200
-
-# List all configured agents
-tmux-team list
-```
-
-## Workflow
-
-1. Send message: `tmux-team talk codex "Hi, how is progress?"`
-2. Wait for response (5-15 seconds depending on complexity)
-3. Read response: `tmux-team check codex`
-4. If response is cut off, increase lines: `tmux-team check codex 200`
-
-## Notes
-
-- `tmux-team talk` automatically sends Enter key after the message
-- `tmux-team talk` automatically filters `!` for Gemini (avoids bash mode trigger)
-- Run `tmux-team help` for full CLI documentation
-SLASHCMD
-
-  success "Installed Claude slash command: /tmux/team"
   echo ""
-  info "Usage: /tmux/team codex \"your message\""
-  info "       /tmux/team gemini \"please review this PR\""
+  echo -e "${CYAN}To install the tmux-team plugin in Claude Code:${NC}"
+  echo ""
+  echo -e "  ${GREEN}1.${NC} Open Claude Code"
+  echo -e "  ${GREEN}2.${NC} Run these commands:"
+  echo ""
+  echo -e "     ${YELLOW}/plugin marketplace add anthropics/tmux-team${NC}"
+  echo -e "     ${YELLOW}/plugin install tmux-team@tmux-team${NC}"
+  echo ""
+  echo -e "  ${GREEN}3.${NC} Use the slash command:"
+  echo ""
+  echo -e "     ${YELLOW}/team codex \"your message\"${NC}"
+  echo -e "     ${YELLOW}/team gemini \"please review this PR\"${NC}"
+  echo ""
 }
 
 cmd_list() {

@@ -104,7 +104,23 @@ tmux list-panes -a
 
 ## Claude Code Integration
 
-Install the slash command for Claude Code:
+### Option 1: Plugin Marketplace (Recommended)
+
+Install from GitHub using Claude Code's plugin system:
+
+```
+/plugin marketplace add anthropics/tmux-team
+/plugin install tmux-team@tmux-team
+```
+
+Then use:
+
+```
+/team codex "please review this PR"
+/team gemini "how is progress?"
+```
+
+### Option 2: Manual Installation
 
 ```bash
 tmux-team init-claude
@@ -113,8 +129,8 @@ tmux-team init-claude
 This creates `~/.claude/commands/tmux/team.md`, enabling:
 
 ```
-/tmux/team codex "請幫我review這個PR"
-/tmux/team gemini "進度如何？"
+/tmux/team codex "please review this PR"
+/tmux/team gemini "how is progress?"
 ```
 
 ## License

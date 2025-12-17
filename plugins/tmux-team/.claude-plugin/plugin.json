@@ -1,0 +1,11 @@
+{
+  "name": "tmux-team",
+  "version": "1.0.0",
+  "description": "Talk to peer AI agents in different tmux panes using tmux-team CLI",
+  "author": {
+    "name": "Ben Hsieh",
+    "email": "xeiyan@gmail.com"
+  },
+  "homepage": "https://github.com/anthropics/tmux-team",
+  "license": "MIT"
+}
