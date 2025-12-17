@@ -1,6 +1,6 @@
 {
   "name": "tmux-team",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "CLI tool for AI agent collaboration in tmux - manage cross-pane communication",
   "bin": {
     "tmux-team": "./bin/tmux-team"
@@ -20,7 +20,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/anthropics/tmux-team.git"
+    "url": "git+https://github.com/wkh237/tmux-team.git"
   },
   "engines": {
     "node": ">=16"

@@ -21,7 +21,7 @@ eval "$(tmux-team completion bash)"
 ### Claude Code Plugin
 
 ```
-/plugin marketplace add anthropics/tmux-team
+/plugin marketplace add wkh237/tmux-team
 /plugin install tmux-team@tmux-team
 ```
 
@@ -48,8 +48,8 @@ tmux-team remove gemini
 ## From Claude Code
 
 ```
-/team codex "Can you review my changes?"
-/team all "I'm refactoring the database schema"
+/tmux-team:team codex "Can you review my changes?"
+/tmux-team:team all "I'm refactoring the database schema"
 ```
 
 ## Commands
