@@ -1,12 +1,15 @@
 {
   "name": "tmux-team",
-  "version": "1.1.0",
+  "version": "2.0.0-alpha.1",
   "description": "CLI tool for AI agent collaboration in tmux - manage cross-pane communication",
+  "type": "module",
   "bin": {
     "tmux-team": "./bin/tmux-team"
   },
   "scripts": {
-    "test": "echo \"No tests yet\" && exit 0"
+    "dev": "tsx src/cli.ts",
+    "test": "vitest",
+    "test:run": "vitest run"
   },
   "keywords": [
     "tmux",
@@ -23,13 +26,19 @@
     "url": "git+https://github.com/wkh237/tmux-team.git"
   },
   "engines": {
-    "node": ">=16"
+    "node": ">=18"
   },
   "os": [
     "darwin",
     "linux"
   ],
   "files": [
-    "bin"
-  ]
+    "bin",
+    "src"
+  ],
+  "devDependencies": {
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.2.0"
+  }
 }
