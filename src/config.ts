@@ -5,7 +5,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import type { GlobalConfig, LocalConfig, ResolvedConfig, Paths, ConfigDefaults } from './types.js';
+import type { GlobalConfig, LocalConfig, ResolvedConfig, Paths } from './types.js';
 
 const CONFIG_FILENAME = 'config.json';
 const LOCAL_CONFIG_FILENAME = 'tmux-team.json';
@@ -83,6 +83,16 @@ export function resolvePaths(cwd: string = process.cwd()): Paths {
   };
 }
 
+export class ConfigParseError extends Error {
+  constructor(
+    public readonly filePath: string,
+    public readonly cause: Error
+  ) {
+    super(`Invalid JSON in ${filePath}: ${cause.message}`);
+    this.name = 'ConfigParseError';
+  }
+}
+
 function loadJsonFile<T>(filePath: string): T | null {
   if (!fs.existsSync(filePath)) {
     return null;
@@ -90,8 +100,9 @@ function loadJsonFile<T>(filePath: string): T | null {
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
     return JSON.parse(content) as T;
-  } catch {
-    return null;
+  } catch (err) {
+    // Throw on parse errors - don't silently ignore invalid config
+    throw new ConfigParseError(filePath, err as Error);
   }
 }
 
