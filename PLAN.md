@@ -17,32 +17,94 @@ The implementation is divided into 5 phases, each building on the previous.
 
 ---
 
+## Tech Stack & Conventions
+
+### Runtime
+
+- **TypeScript** with **tsx** for runtime execution (fast, zero-config)
+- **vitest** for testing with mocks (devDependency only)
+- Runtime dependencies: zero (tsx is a dev/runtime tool, not bundled)
+
+### Config Path Resolution (XDG Support)
+
+Support both XDG and legacy paths with smart detection:
+
+```
+1. If TMUX_TEAM_HOME env set        → use it (escape hatch)
+2. If XDG_CONFIG_HOME env set       → use ${XDG_CONFIG_HOME}/tmux-team
+3. If ~/.config/tmux-team/ exists   → use XDG style
+4. If ~/.tmux-team/ exists          → use legacy
+5. Else (new install)               → default to XDG (~/.config/tmux-team/)
+```
+
+**Edge case**: If both paths exist, prefer the one with `config.json`. Print warning suggesting migration.
+
+### Config Precedence (Lowest → Highest)
+
+```
+Defaults (hardcoded) → Global config → Local config → CLI flags
+```
+
+CLI flags always win.
+
+### Time Values
+
+Default to **seconds** (no suffix needed):
+- `--delay 5` → 5 seconds
+- `--timeout 60` → 60 seconds
+- `--delay 500ms` → 500 milliseconds (suffix supported)
+
+### Locking Strategy
+
+**Soft detection with warning** (no hard locks):
+- Check `state.json` for active requests on same agent
+- If found, print warning: `⚠️ Agent 'codex' is in waiting state (since 10:30 AM)`
+- Continue anyway (user controls conversation)
+- `--force` flag to suppress warning
+
+### State Cleanup
+
+Auto-prune `state.json` on each run:
+- Remove completed entries immediately
+- Sweep entries older than 1 hour (stale)
+
+### Command Shorthands
+
+| Shorthand | Full Command |
+|-----------|--------------|
+| `pm m` | `pm milestone` |
+| `pm t` | `pm task` |
+| `pm ls` | `pm list` |
+
+---
+
 ## Architecture
 
 ```
-bin/tmux-team              # Thin command router + argument parsing
-
-lib/
-├── context.js             # Context object passed to all commands
-├── ui.js                  # Logging, colors, --json output
-├── config.js              # 3-tier config hierarchy
-├── tmux.js                # Pure tmux wrapper (send-keys, capture-pane)
-├── talk.js                # Enhanced talk with --delay, --wait
-├── state.js               # State management (locks, request tracking)
-├── exits.js               # Exit code registry
+src/
+├── cli.ts                 # Entry point, command router
+├── context.ts             # Context object passed to all commands
+├── ui.ts                  # Logging, colors, --json output
+├── config.ts              # 3-tier config hierarchy + XDG resolution
+├── tmux.ts                # Pure tmux wrapper (send-keys, capture-pane)
+├── talk.ts                # Enhanced talk with --delay, --wait
+├── state.ts               # State management (soft locks, request tracking)
+├── exits.ts               # Exit code registry
+├── types.ts               # Shared TypeScript interfaces
 └── pm/                    # Project management
-    ├── index.js           # Main entry, adapter selection
-    ├── teams.js
-    ├── tasks.js
-    ├── milestones.js
-    ├── models/            # Shared Task/Milestone schemas
-    │   └── index.js
+    ├── index.ts           # Main entry, adapter selection
+    ├── teams.ts
+    ├── tasks.ts
+    ├── milestones.ts
+    ├── models.ts          # Shared Task/Milestone types
     └── storage/           # Storage adapters
-        ├── adapter.js     # Abstract interface
-        ├── fs.js          # Filesystem implementation
-        └── github.js      # GitHub Issues implementation (Phase 5)
+        ├── adapter.ts     # Abstract interface
+        ├── fs.ts          # Filesystem implementation
+        └── github.ts      # GitHub Issues implementation (Phase 5)
 
-~/.tmux-team/              # Global config directory
+bin/tmux-team              # Shebang entry: #!/usr/bin/env tsx
+
+~/.config/tmux-team/       # Global config directory (XDG default)
 ├── config.json            # Global settings + agent profiles
 ├── state.json             # Runtime state (locks, request tracking)
 ├── locks/                 # Per-agent lock files
@@ -76,57 +138,57 @@ Extract modules from monolithic `bin/tmux-team`, establish context pattern, add 
 
 | File | Purpose |
 |------|---------|
-| `lib/context.js` | Central `ctx` object passed to all commands |
-| `lib/ui.js` | Logging with `--json` support, TTY-aware colors |
-| `lib/config.js` | 3-tier hierarchy: global → local → CLI flags |
-| `lib/tmux.js` | Pure wrapper for `send-keys`, `capture-pane` |
-| `lib/exits.js` | Exit code registry |
+| `src/context.ts` | Central `ctx` object passed to all commands |
+| `src/ui.ts` | Logging with `--json` support, TTY-aware colors |
+| `src/config.ts` | Config hierarchy + XDG path resolution |
+| `src/tmux.ts` | Pure wrapper for `send-keys`, `capture-pane` |
+| `src/exits.ts` | Exit code registry |
+| `src/types.ts` | Shared TypeScript interfaces |
+| `tsconfig.json` | TypeScript configuration |
+| `vitest.config.ts` | Test configuration |
 
 ### Context Object
 
-```javascript
-// lib/context.js
-ctx = {
-  argv: [],                    // Raw arguments
-  flags: {                     // Global flags
-    json: false,
-    verbose: false,
-    config: null,              // Override config path
-  },
-  ui: {                        // From lib/ui.js
-    info(msg),
-    success(msg),
-    error(msg),
-    table(data),
-    render(data),              // Respects --json
-  },
-  config: {                    // From lib/config.js
-    mode: 'polling',
-    preambleMode: 'always',
-    defaults: { timeout: 60000, pollInterval: 1000, captureLines: 500 },
-    agents: {},                // Per-agent config (preambles, etc.)
-    local: {},                 // Raw local config
-    global: {},                // Raw global config
-  },
-  tmux: {                      // From lib/tmux.js
-    send(pane, message),
-    capture(pane, lines),
-    listPanes(),
-  },
+```typescript
+// src/types.ts
+interface Context {
+  argv: string[];
+  flags: {
+    json: boolean;
+    verbose: boolean;
+    config?: string;           // Override config path
+    force?: boolean;           // Suppress warnings
+  };
+  ui: {
+    info(msg: string): void;
+    success(msg: string): void;
+    error(msg: string): void;
+    warn(msg: string): void;
+    table(data: any[]): void;
+    render(data: any): void;   // Respects --json
+  };
+  config: {
+    mode: 'polling' | 'wait';
+    preambleMode: 'always' | 'disabled';
+    defaults: {
+      timeout: number;         // seconds
+      pollInterval: number;    // seconds
+      captureLines: number;
+    };
+    agents: Record<string, AgentConfig>;
+    paneRegistry: Record<string, PaneEntry>;  // From local config
+  };
+  tmux: {
+    send(pane: string, message: string): void;
+    capture(pane: string, lines?: number): string;
+  };
   paths: {
-    globalDir: '~/.tmux-team',
-    globalConfig: '~/.tmux-team/config.json',
-    localConfig: './tmux-team.json',
-    stateFile: '~/.tmux-team/state.json',
-    locksDir: '~/.tmux-team/locks',
-  },
-  exits: {                     // From lib/exits.js
-    SUCCESS: 0,
-    ERROR: 1,
-    CONFIG_MISSING: 2,
-    PANE_NOT_FOUND: 3,
-    TIMEOUT: 4,
-  },
+    globalDir: string;         // XDG-resolved
+    globalConfig: string;
+    localConfig: string;
+    stateFile: string;
+  };
+  exits: typeof ExitCodes;
 }
 ```
 
@@ -138,19 +200,18 @@ ctx = {
 | 1 | `ERROR` | General error (invalid JSON, unknown command, etc.) |
 | 2 | `CONFIG_MISSING` | Required config missing (local pane registry not found) |
 | 3 | `PANE_NOT_FOUND` | Tmux pane not found or tmux not running |
-| 4 | `TIMEOUT` | `--wait` timed out (reserved for Phase 2) |
+| 4 | `TIMEOUT` | `--wait` timed out |
+| 5 | `CONFLICT` | GitHub state differs from expected (Phase 5) |
 
 ### Config Hierarchy
 
+See [Config Precedence](#config-precedence-lowest--highest) in Tech Stack section.
+
 ```
-Defaults (hardcoded)
-    ↓ override
-Global (~/.tmux-team/config.json)
-    ↓ override
-Local (./tmux-team.json)
-    ↓ override
-CLI flags (--timeout, --no-preamble, etc.)
+Defaults → Global (~/.config/tmux-team/config.json) → Local (./tmux-team.json) → CLI flags
 ```
+
+CLI flags always win.
 
 ### `--json` Output Contract
 
@@ -820,3 +881,4 @@ tmux-team pm task update 1 --status pending --force
 - **2025-12-19**: Initial plan drafted with team consensus (Claude, Codex, Gemini)
 - **2025-12-19**: Added Phase 5 (GitHub Integration) with storage adapter pattern, status mapping via labels, and audit via issue comments
 - **2025-12-19**: Resolved all open questions—label colors (yellow/blue/green), offline mode (fail fast), GitHub Projects (use native automation, document setup)
+- **2025-12-19**: Added Tech Stack section—tsx runtime, vitest, XDG support, time defaults to seconds, soft locking with warnings, command shorthands (pm m/t/ls), TypeScript architecture
