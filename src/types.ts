@@ -44,6 +44,7 @@ export interface Flags {
   delay?: number;    // seconds
   wait?: boolean;
   timeout?: number;  // seconds
+  noPreamble?: boolean;
 }
 
 export interface Paths {

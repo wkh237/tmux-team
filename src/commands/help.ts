@@ -32,6 +32,7 @@ ${colors.yellow('TALK OPTIONS')} ${colors.dim('(v2)')}
   ${colors.green('--delay')} <seconds>           Wait before sending (default: seconds)
   ${colors.green('--wait')}                      Wait for agent response (nonce-based)
   ${colors.green('--timeout')} <seconds>         Max wait time (default: 60)
+  ${colors.green('--no-preamble')}               Skip agent preamble for this message
 
 ${colors.yellow('EXAMPLES')}
   tmux-team talk codex "Please review the PR"

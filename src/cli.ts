@@ -47,6 +47,8 @@ function parseArgs(argv: string[]): { command: string; args: string[]; flags: Fl
       flags.wait = true;
     } else if (arg === '--timeout') {
       flags.timeout = parseTime(argv[++i]);
+    } else if (arg === '--no-preamble') {
+      flags.noPreamble = true;
     } else if (arg.startsWith('--pane=')) {
       // Handled in update command
       positional.push(arg);

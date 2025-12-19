@@ -26,6 +26,33 @@ function renderWaitLine(agent: string, elapsedSeconds: number): string {
   return `⏳ Waiting for ${agent}... (${s}s)`;
 }
 
+/**
+ * Build the final message with optional preamble.
+ * Format: [SYSTEM: <preamble>]\n\n<message>
+ */
+function buildMessage(
+  message: string,
+  agentName: string,
+  ctx: Context
+): string {
+  const { config, flags } = ctx;
+
+  // Skip preamble if disabled or --no-preamble flag
+  if (config.preambleMode === 'disabled' || flags.noPreamble) {
+    return message;
+  }
+
+  // Get agent-specific preamble
+  const agentConfig = config.agents[agentName];
+  const preamble = agentConfig?.preamble;
+
+  if (!preamble) {
+    return message;
+  }
+
+  return `[SYSTEM: ${preamble}]\n\n${message}`;
+}
+
 export async function cmdTalk(ctx: Context, target: string, message: string): Promise<void> {
   const { ui, config, tmux, flags, exit } = ctx;
   const waitEnabled = Boolean(flags.wait) || config.mode === 'wait';
@@ -50,8 +77,9 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
 
     for (const [name, data] of agents) {
       try {
-        // Special handling: Gemini doesn't like exclamation marks
-        const msg = name === 'gemini' ? message.replace(/!/g, '') : message;
+        // Build message with preamble, then apply Gemini filter
+        let msg = buildMessage(message, name, ctx);
+        if (name === 'gemini') msg = msg.replace(/!/g, '');
         tmux.send(data.pane, msg);
         results.push({ agent: name, pane: data.pane, status: 'sent' });
         if (!flags.json) {
@@ -86,7 +114,9 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
 
   if (!waitEnabled) {
     try {
-      const msg = target === 'gemini' ? message.replace(/!/g, '') : message;
+      // Build message with preamble, then apply Gemini filter
+      let msg = buildMessage(message, target, ctx);
+      if (target === 'gemini') msg = msg.replace(/!/g, '');
       tmux.send(pane, msg);
 
       if (flags.json) {
@@ -110,12 +140,14 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
   const nonce = makeNonce();
   const marker = `{tmux-team-end:${nonce}}`;
 
-  const fullMessage = `${message}\n\n[IMPORTANT: When your response is complete, print exactly: ${marker}]`;
+  // Build message with preamble, then append nonce instruction
+  const messageWithPreamble = buildMessage(message, target, ctx);
+  const fullMessage = `${messageWithPreamble}\n\n[IMPORTANT: When your response is complete, print exactly: ${marker}]`;
 
   // Best-effort cleanup and soft-lock warning
-  const state = cleanupState(ctx.paths, 24 * 60 * 60);
+  const state = cleanupState(ctx.paths, 60 * 60); // 1 hour TTL
   const existing = state.requests[target];
-  if (existing && !flags.json) {
+  if (existing && !flags.json && !flags.force) {
     ui.warn(
       `Another recent wait request exists for '${target}' (id: ${existing.id}). Results may interleave.`
     );
@@ -153,15 +185,19 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
       if (elapsedSeconds >= timeoutSeconds) {
         clearActiveRequest(ctx.paths, target, requestId);
         if (flags.json) {
+          // Single JSON output with error field (don't call ui.error separately)
           ui.json({
             target,
             pane,
             status: 'timeout',
+            error: `Timed out waiting for ${target} after ${Math.floor(timeoutSeconds)}s`,
             requestId,
             nonce,
             marker,
           });
-        } else if (isTTY) {
+          exit(ExitCodes.TIMEOUT);
+        }
+        if (isTTY) {
           process.stdout.write('\r' + ' '.repeat(80) + '\r');
         }
         ui.error(`Timed out waiting for ${target} after ${Math.floor(timeoutSeconds)}s.`);
