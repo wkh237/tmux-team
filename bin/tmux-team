@@ -10,11 +10,12 @@ import { existsSync } from 'fs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cliPath = join(__dirname, '..', 'src', 'cli.ts');
 
-// Find tsx in our own node_modules (not user's cwd)
-const localTsx = join(__dirname, '..', 'node_modules', '.bin', 'tsx');
-const tsxBin = existsSync(localTsx) ? localTsx : 'tsx';
+// Prefer Node's --import hook over the tsx CLI (sandbox-friendly).
+// Use an absolute path so it works regardless of the user's cwd.
+const localTsxImport = join(__dirname, '..', 'node_modules', 'tsx', 'dist', 'esm', 'index.mjs');
+const tsxImport = existsSync(localTsxImport) ? localTsxImport : 'tsx';
 
-const child = spawn(tsxBin, [cliPath, ...process.argv.slice(2)], {
+const child = spawn(process.execPath, ['--import', tsxImport, cliPath, ...process.argv.slice(2)], {
   stdio: 'inherit',
   cwd: process.cwd(),
 });

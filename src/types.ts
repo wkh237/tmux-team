@@ -67,6 +67,13 @@ export interface Tmux {
   capture: (paneId: string, lines: number) => string;
 }
 
+export interface WaitResult {
+  requestId: string;
+  nonce: string;
+  marker: string;
+  response: string;
+}
+
 export interface Context {
   argv: string[];
   flags: Flags;

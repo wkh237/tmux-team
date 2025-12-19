@@ -116,7 +116,8 @@ function main(): void {
   // Create context for all other commands
   const ctx = createContext({ argv, flags });
 
-  switch (command) {
+  const run = async (): Promise<void> => {
+    switch (command) {
     case 'init':
       cmdInit(ctx);
       break;
@@ -171,7 +172,7 @@ function main(): void {
         ctx.ui.error('Usage: tmux-team talk <target> <message>');
         ctx.exit(ExitCodes.ERROR);
       }
-      cmdTalk(ctx, args[0], args[1]);
+      await cmdTalk(ctx, args[0], args[1]);
       break;
 
     case 'check':
@@ -186,7 +187,17 @@ function main(): void {
     default:
       ctx.ui.error(`Unknown command: ${command}. Run 'tmux-team help' for usage.`);
       ctx.exit(ExitCodes.ERROR);
-  }
+    }
+  };
+
+  run().catch((err) => {
+    if (!flags.json) {
+      console.error(err);
+    } else {
+      console.error(JSON.stringify({ error: String(err?.message ?? err) }));
+    }
+    process.exit(ExitCodes.ERROR);
+  });
 }
 
 main();
