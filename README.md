@@ -30,7 +30,7 @@ Unlike heavyweight frameworks that require specific SDKs or cloud infrastructure
 
 ## 🧠 Design Philosophy
 
-> *The following principles guide our v2 development. These features are currently being implemented.*
+> *These principles guide our design decisions.*
 
 ### 1. Deterministic Transport (`--delay` vs. `sleep`)
 
@@ -131,12 +131,18 @@ Once the plugin is installed, coordinate directly from your Claude Code session:
 | Command | Description |
 |---------|-------------|
 | `talk <agent> "<msg>"` | Send message to agent (or `all` for broadcast) |
+| `talk ... --delay 5` | Wait 5 seconds before sending |
+| `talk ... --wait` | Wait for agent response (nonce-based) |
 | `check <agent> [lines]` | Read agent's terminal output (default: 100 lines) |
 | `list` | Show all configured agents |
 | `add <name> <pane> [remark]` | Register a new agent |
 | `update <name> --pane/--remark` | Update agent configuration |
 | `remove <name>` | Unregister an agent |
 | `init` | Create `tmux-team.json` in current directory |
+| `pm init --name "Project"` | Initialize project management |
+| `pm m add/list/done` | Manage milestones |
+| `pm t add/list/update/done` | Manage tasks |
+| `pm log` | View audit event log |
 | `completion [zsh\|bash]` | Output shell completion script |
 
 ---
@@ -154,7 +160,7 @@ Per-project agent registry:
 }
 ```
 
-### Global Config (`~/.tmux-team/config.json`) — Coming in v2
+### Global Config (`~/.config/tmux-team/config.json`)
 
 ```json
 {
@@ -174,25 +180,21 @@ Per-project agent registry:
 
 ---
 
-## ✨ Roadmap (v2)
+## ✨ v2 Features
 
 ### 📡 Enhanced `talk` Command
 
 ```bash
 # Delay before sending (safe alternative to sleep)
-tmux-team talk codex "message" --delay 5s
+tmux-team talk codex "message" --delay 5
 
 # Wait for response with nonce-based completion detection
-tmux-team talk codex "message" --wait --timeout 60s
+tmux-team talk codex "message" --wait --timeout 60
 ```
-
-*Accepts units like `500ms`, `2s`, or raw milliseconds.*
-
-**Design note**: `--wait` appends a completion instruction with a unique nonce, then polls `tmux capture-pane` until it sees the marker. Streaming output shows progress (`Waiting for codex...`) with TTY-aware updates.
 
 ### 📜 Agent Preambles
 
-Inject hidden instructions into every message for specific agents:
+Inject hidden instructions into every message:
 
 ```json
 {
@@ -204,26 +206,21 @@ Inject hidden instructions into every message for specific agents:
 }
 ```
 
-**Design note**: Preambles are prepended to every `talk` message when `preambleMode: "always"`. This ensures consistent agent behavior without manual repetition.
-
-### 🎯 Project Management (`tmux-team pm`)
-
-Lightweight task tracking that agents can update programmatically:
+### 🎯 Project Management
 
 ```bash
 # Initialize a team project
 tmux-team pm init --name "Auth Refactor"
 
 # Manage milestones and tasks
-tmux-team pm milestone add "MVP Release"
-tmux-team pm task add "Implement login flow" --milestone 1
-tmux-team pm task done 1
+tmux-team pm m add "MVP Release"
+tmux-team pm t add "Implement login" --milestone 1
+tmux-team pm t update 1 --status in_progress
+tmux-team pm t done 1
 
-# Agents can self-report progress
-tmux-team pm task update 2 --status in_progress
+# View audit log
+tmux-team pm log --limit 10
 ```
-
-**Design note**: Task IDs are opaque strings—numeric IDs (`1`, `2`, `3`) and milestone notation (`1-2`) are just conventions, not enforced formats. All changes are logged to `events.jsonl` for auditability—agents can update status, but history is never silently rewritten.
 
 ---
 
