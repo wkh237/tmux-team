@@ -5,3 +5,4 @@ tmux-team.json
 lib/
 dist/
 .claude/settings.json
+.tmux-team-id
