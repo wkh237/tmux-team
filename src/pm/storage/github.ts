@@ -538,7 +538,14 @@ export class GitHubAdapter implements StorageAdapter {
   }
 
   async listTasks(filter?: ListTasksFilter): Promise<Task[]> {
-    const cache = this.loadCache();
+    let cache = this.loadCache();
+
+    // Rebuild milestone cache if empty (e.g., after cache reset)
+    if (Object.keys(cache.milestones).length === 0) {
+      await this.listMilestones(); // This populates the cache
+      cache = this.loadCache(); // Reload updated cache
+    }
+
     const args = [
       'issue',
       'list',
