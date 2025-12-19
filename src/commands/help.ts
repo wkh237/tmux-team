@@ -20,6 +20,7 @@ ${colors.yellow('COMMANDS')}
   ${colors.green('update')} <name> [options]     Update an agent's config
   ${colors.green('remove')} <name>               Remove an agent
   ${colors.green('init')}                        Create empty tmux-team.json
+  ${colors.green('pm')} <subcommand>             Project management (run 'pm help')
   ${colors.green('completion')}                  Output shell completion script
   ${colors.green('help')}                        Show this help message
 
