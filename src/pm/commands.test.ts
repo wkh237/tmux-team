@@ -2,157 +2,917 @@
 // PM Commands Tests
 // ─────────────────────────────────────────────────────────────
 
-import { describe, it } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import type { Context } from '../types.js';
+import type { UI } from '../types.js';
+// ExitCodes imported for reference but tested via ctx.exit mock
+import {
+  cmdPm,
+  cmdPmInit,
+  cmdPmMilestone,
+  cmdPmTask,
+  cmdPmDoc,
+  cmdPmLog,
+  cmdPmList,
+} from './commands.js';
+import { findCurrentTeamId, linkTeam, getTeamsDir } from './manager.js';
+
+// ─────────────────────────────────────────────────────────────
+// Test helpers
+// ─────────────────────────────────────────────────────────────
+
+function createMockUI(): UI & { logs: string[]; errors: string[]; jsonData: unknown[] } {
+  const logs: string[] = [];
+  const errors: string[] = [];
+  const jsonData: unknown[] = [];
+
+  return {
+    logs,
+    errors,
+    jsonData,
+    info: vi.fn((msg: string) => logs.push(`[info] ${msg}`)),
+    success: vi.fn((msg: string) => logs.push(`[success] ${msg}`)),
+    warn: vi.fn((msg: string) => logs.push(`[warn] ${msg}`)),
+    error: vi.fn((msg: string) => errors.push(msg)),
+    table: vi.fn((_headers: string[], _rows: string[][]) => logs.push('[table]')),
+    json: vi.fn((data: unknown) => jsonData.push(data)),
+  };
+}
+
+function createMockContext(
+  globalDir: string,
+  options: { json?: boolean; cwd?: string } = {}
+): Context & { ui: ReturnType<typeof createMockUI>; exitCode: number | null } {
+  const ui = createMockUI();
+  let exitCode: number | null = null;
+
+  // Override cwd for tests
+  const originalCwd = process.cwd;
+  if (options.cwd) {
+    vi.spyOn(process, 'cwd').mockReturnValue(options.cwd);
+  }
+
+  return {
+    ui,
+    exitCode,
+    flags: { json: options.json ?? false },
+    paths: { globalDir, configFile: path.join(globalDir, 'config.json') },
+    exit: vi.fn((code: number) => {
+      exitCode = code;
+      throw new Error(`Exit: ${code}`);
+    }),
+    restoreCwd: () => {
+      if (options.cwd) {
+        vi.spyOn(process, 'cwd').mockImplementation(originalCwd);
+      }
+    },
+  } as unknown as Context & { ui: ReturnType<typeof createMockUI>; exitCode: number | null };
+}
+
+// ─────────────────────────────────────────────────────────────
+// requireTeam tests
+// ─────────────────────────────────────────────────────────────
 
 describe('requireTeam', () => {
-  // Test finds team from .tmux-team-id file
-  it.todo('finds team ID from .tmux-team-id file in cwd');
+  let testDir: string;
+  let globalDir: string;
 
-  // Test finds team from TMUX_TEAM_ID env
-  it.todo('finds team ID from TMUX_TEAM_ID environment variable');
+  beforeEach(() => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-test-'));
+    globalDir = path.join(testDir, 'global');
+    fs.mkdirSync(globalDir, { recursive: true });
+  });
 
-  // Test validates team.json exists
-  it.todo('validates team.json exists for team ID');
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+  });
 
-  // Test error for missing team link
-  it.todo('exits with error when no .tmux-team-id found');
+  it('finds team ID from .tmux-team-id file in cwd', () => {
+    const projectDir = path.join(testDir, 'project');
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.writeFileSync(path.join(projectDir, '.tmux-team-id'), 'test-team-123\n');
 
-  // Test error for stale team ID
-  it.todo('exits with error when team.json does not exist (stale ID)');
+    const teamId = findCurrentTeamId(projectDir, globalDir);
+    expect(teamId).toBe('test-team-123');
+  });
+
+  it('finds team ID from TMUX_TEAM_ID environment variable', () => {
+    const originalEnv = process.env.TMUX_TEAM_ID;
+    process.env.TMUX_TEAM_ID = 'env-team-456';
+
+    try {
+      const teamId = findCurrentTeamId(testDir, globalDir);
+      expect(teamId).toBe('env-team-456');
+    } finally {
+      if (originalEnv) {
+        process.env.TMUX_TEAM_ID = originalEnv;
+      } else {
+        delete process.env.TMUX_TEAM_ID;
+      }
+    }
+  });
+
+  it('validates team.json exists for team ID', async () => {
+    const projectDir = path.join(testDir, 'project');
+    fs.mkdirSync(projectDir, { recursive: true });
+
+    // Create team directory with team.json
+    const teamId = 'valid-team-id';
+    const teamDir = path.join(globalDir, 'teams', teamId);
+    fs.mkdirSync(teamDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(teamDir, 'team.json'),
+      JSON.stringify({ id: teamId, name: 'Test', createdAt: new Date().toISOString() })
+    );
+
+    // Link project to team
+    linkTeam(projectDir, teamId);
+
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    // Should not throw - team is valid
+    await cmdPmTask(ctx, ['list']);
+    expect(ctx.ui.logs.some((l) => l.includes('[info]') || l.includes('[table]'))).toBe(true);
+  });
+
+  it('exits with error when no .tmux-team-id found', async () => {
+    const projectDir = path.join(testDir, 'empty-project');
+    fs.mkdirSync(projectDir, { recursive: true });
+
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await expect(cmdPmTask(ctx, ['list'])).rejects.toThrow('Exit');
+    expect(ctx.ui.errors[0]).toContain('No team found');
+  });
+
+  it('exits with error when team.json does not exist (stale ID)', async () => {
+    const projectDir = path.join(testDir, 'stale-project');
+    fs.mkdirSync(projectDir, { recursive: true });
+
+    // Create .tmux-team-id pointing to non-existent team
+    fs.writeFileSync(path.join(projectDir, '.tmux-team-id'), 'stale-team-id\n');
+
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await expect(cmdPmTask(ctx, ['list'])).rejects.toThrow('Exit');
+    expect(ctx.ui.errors[0]).toContain('not found');
+  });
 });
+
+// ─────────────────────────────────────────────────────────────
+// cmdPmInit tests
+// ─────────────────────────────────────────────────────────────
 
 describe('cmdPmInit', () => {
-  // Test creates team with UUID
-  it.todo('creates team with generated UUID');
+  let testDir: string;
+  let globalDir: string;
+  let projectDir: string;
 
-  // Test creates team with custom name
-  it.todo('uses --name flag for team name');
+  beforeEach(() => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-test-'));
+    globalDir = path.join(testDir, 'global');
+    projectDir = path.join(testDir, 'project');
+    fs.mkdirSync(globalDir, { recursive: true });
+    fs.mkdirSync(projectDir, { recursive: true });
+  });
 
-  // Test creates .tmux-team-id link file
-  it.todo('creates .tmux-team-id file in current directory');
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+  });
 
-  // Test logs team_created event
-  it.todo('logs team_created event to audit log');
+  it('creates team with generated UUID', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
 
-  // Test JSON output
-  it.todo('outputs team info in JSON when --json flag set');
+    await cmdPmInit(ctx, []);
+
+    // Check that a team directory was created
+    const teamsDir = getTeamsDir(globalDir);
+    const teamDirs = fs.readdirSync(teamsDir);
+    expect(teamDirs.length).toBe(1);
+
+    // UUID format validation
+    expect(teamDirs[0]).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('uses --name flag for team name', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmInit(ctx, ['--name', 'My Custom Project']);
+
+    expect(ctx.ui.logs.some((l) => l.includes('My Custom Project'))).toBe(true);
+  });
+
+  it('creates .tmux-team-id file in current directory', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmInit(ctx, ['--name', 'Test']);
+
+    const idFile = path.join(projectDir, '.tmux-team-id');
+    expect(fs.existsSync(idFile)).toBe(true);
+
+    const teamId = fs.readFileSync(idFile, 'utf-8').trim();
+    expect(teamId).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('logs team_created event to audit log', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmInit(ctx, ['--name', 'Test']);
+
+    // Read the events file
+    const teamsDir = getTeamsDir(globalDir);
+    const teamDirs = fs.readdirSync(teamsDir);
+    const eventsFile = path.join(teamsDir, teamDirs[0], 'events.jsonl');
+
+    expect(fs.existsSync(eventsFile)).toBe(true);
+    const events = fs
+      .readFileSync(eventsFile, 'utf-8')
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l));
+    expect(events[0].event).toBe('team_created');
+  });
+
+  it('outputs team info in JSON when --json flag set', async () => {
+    const ctx = createMockContext(globalDir, { json: true, cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmInit(ctx, ['--name', 'JSON Test']);
+
+    expect(ctx.ui.jsonData.length).toBe(1);
+    const data = ctx.ui.jsonData[0] as { team: { name: string } };
+    expect(data.team.name).toBe('JSON Test');
+  });
 });
+
+// ─────────────────────────────────────────────────────────────
+// cmdPmMilestone tests
+// ─────────────────────────────────────────────────────────────
 
 describe('cmdPmMilestone', () => {
-  // Test milestone add
-  it.todo('creates milestone with given name');
+  let testDir: string;
+  let globalDir: string;
+  let projectDir: string;
+  let teamId: string;
 
-  // Test milestone list
-  it.todo('lists all milestones in table format');
+  beforeEach(async () => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-test-'));
+    globalDir = path.join(testDir, 'global');
+    projectDir = path.join(testDir, 'project');
+    fs.mkdirSync(globalDir, { recursive: true });
+    fs.mkdirSync(projectDir, { recursive: true });
 
-  // Test milestone done
-  it.todo('marks milestone as done');
+    // Initialize a team
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+    await cmdPmInit(ctx, ['--name', 'Test Project']);
+    vi.restoreAllMocks();
 
-  // Test milestone not found error
-  it.todo('exits with error for non-existent milestone');
+    teamId = fs.readFileSync(path.join(projectDir, '.tmux-team-id'), 'utf-8').trim();
+  });
 
-  // Test shorthand "m" routing
-  it.todo('routes "pm m add" to milestone add');
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('creates milestone with given name', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmMilestone(ctx, ['add', 'Sprint 1']);
+
+    expect(ctx.ui.logs.some((l) => l.includes('Sprint 1'))).toBe(true);
+
+    // Verify file was created
+    const milestonePath = path.join(globalDir, 'teams', teamId, 'milestones', '1.json');
+    expect(fs.existsSync(milestonePath)).toBe(true);
+  });
+
+  it('lists all milestones in table format', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmMilestone(ctx, ['add', 'Phase 1']);
+    await cmdPmMilestone(ctx, ['add', 'Phase 2']);
+    await cmdPmMilestone(ctx, ['list']);
+
+    expect(ctx.ui.table).toHaveBeenCalled();
+  });
+
+  it('marks milestone as done', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmMilestone(ctx, ['add', 'Sprint 1']);
+    await cmdPmMilestone(ctx, ['done', '1']);
+
+    expect(ctx.ui.logs.some((l) => l.includes('done'))).toBe(true);
+
+    // Verify status was updated
+    const milestonePath = path.join(globalDir, 'teams', teamId, 'milestones', '1.json');
+    const milestone = JSON.parse(fs.readFileSync(milestonePath, 'utf-8'));
+    expect(milestone.status).toBe('done');
+  });
+
+  it('exits with error for non-existent milestone', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await expect(cmdPmMilestone(ctx, ['done', '999'])).rejects.toThrow('Exit');
+    expect(ctx.ui.errors[0]).toContain('not found');
+  });
+
+  it('routes "pm m add" to milestone add', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPm(ctx, ['m', 'add', 'Shorthand Test']);
+
+    expect(ctx.ui.logs.some((l) => l.includes('Shorthand Test'))).toBe(true);
+  });
 });
+
+// ─────────────────────────────────────────────────────────────
+// cmdPmTask tests
+// ─────────────────────────────────────────────────────────────
 
 describe('cmdPmTask', () => {
-  // Test task add
-  it.todo('creates task with given title');
+  let testDir: string;
+  let globalDir: string;
+  let projectDir: string;
+  let teamId: string;
 
-  // Test task add with --milestone
-  it.todo('creates task with milestone reference');
+  beforeEach(async () => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-test-'));
+    globalDir = path.join(testDir, 'global');
+    projectDir = path.join(testDir, 'project');
+    fs.mkdirSync(globalDir, { recursive: true });
+    fs.mkdirSync(projectDir, { recursive: true });
 
-  // Test task add with --assignee
-  it.todo('creates task with assignee');
+    // Initialize a team
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+    await cmdPmInit(ctx, ['--name', 'Test Project']);
+    vi.restoreAllMocks();
 
-  // Test task list
-  it.todo('lists all tasks in table format');
+    teamId = fs.readFileSync(path.join(projectDir, '.tmux-team-id'), 'utf-8').trim();
+  });
 
-  // Test task list with --status filter
-  it.todo('filters task list by status');
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+  });
 
-  // Test task list with --milestone filter
-  it.todo('filters task list by milestone');
+  it('creates task with given title', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
 
-  // Test task show
-  it.todo('displays task details');
+    await cmdPmTask(ctx, ['add', 'Implement login']);
 
-  // Test task update --status
-  it.todo('updates task status');
+    expect(ctx.ui.logs.some((l) => l.includes('Implement login'))).toBe(true);
+  });
 
-  // Test task update --assignee
-  it.todo('updates task assignee');
+  it('creates task with milestone reference', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
 
-  // Test task done
-  it.todo('marks task as done');
+    // Create milestone first
+    await cmdPmMilestone(ctx, ['add', 'Sprint 1']);
+    await cmdPmTask(ctx, ['add', 'Task with milestone', '--milestone', '1']);
 
-  // Test task not found error
-  it.todo('exits with error for non-existent task');
+    const taskPath = path.join(globalDir, 'teams', teamId, 'tasks', '1.json');
+    const task = JSON.parse(fs.readFileSync(taskPath, 'utf-8'));
+    expect(task.milestone).toBe('1');
+  });
 
-  // Test shorthand "t" routing
-  it.todo('routes "pm t add" to task add');
+  it('creates task with assignee', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmTask(ctx, ['add', 'Assigned task', '--assignee', 'claude']);
+
+    const taskPath = path.join(globalDir, 'teams', teamId, 'tasks', '1.json');
+    const task = JSON.parse(fs.readFileSync(taskPath, 'utf-8'));
+    expect(task.assignee).toBe('claude');
+  });
+
+  it('lists all tasks in table format', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmTask(ctx, ['add', 'Task 1']);
+    await cmdPmTask(ctx, ['add', 'Task 2']);
+    await cmdPmTask(ctx, ['list']);
+
+    expect(ctx.ui.table).toHaveBeenCalled();
+  });
+
+  it('filters task list by status', async () => {
+    const ctx = createMockContext(globalDir, { json: true, cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmTask(ctx, ['add', 'Pending task']);
+    await cmdPmTask(ctx, ['add', 'Another task']);
+    await cmdPmTask(ctx, ['done', '1']);
+    await cmdPmTask(ctx, ['list', '--status', 'pending']);
+
+    const lastJson = ctx.ui.jsonData[ctx.ui.jsonData.length - 1] as { id: string }[];
+    expect(lastJson).toHaveLength(1);
+    expect(lastJson[0].id).toBe('2');
+  });
+
+  it('filters task list by milestone', async () => {
+    const ctx = createMockContext(globalDir, { json: true, cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmMilestone(ctx, ['add', 'Sprint 1']);
+    await cmdPmMilestone(ctx, ['add', 'Sprint 2']);
+    await cmdPmTask(ctx, ['add', 'Task in Sprint 1', '--milestone', '1']);
+    await cmdPmTask(ctx, ['add', 'Task in Sprint 2', '--milestone', '2']);
+    await cmdPmTask(ctx, ['list', '--milestone', '1']);
+
+    const lastJson = ctx.ui.jsonData[ctx.ui.jsonData.length - 1] as { milestone: string }[];
+    expect(lastJson).toHaveLength(1);
+    expect(lastJson[0].milestone).toBe('1');
+  });
+
+  it('displays task details', async () => {
+    const ctx = createMockContext(globalDir, { json: true, cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmTask(ctx, ['add', 'Show me', '--assignee', 'claude']);
+    await cmdPmTask(ctx, ['show', '1']);
+
+    const lastJson = ctx.ui.jsonData[ctx.ui.jsonData.length - 1] as { title: string };
+    expect(lastJson.title).toBe('Show me');
+  });
+
+  it('updates task status', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmTask(ctx, ['add', 'Update me']);
+    await cmdPmTask(ctx, ['update', '1', '--status', 'in_progress']);
+
+    const taskPath = path.join(globalDir, 'teams', teamId, 'tasks', '1.json');
+    const task = JSON.parse(fs.readFileSync(taskPath, 'utf-8'));
+    expect(task.status).toBe('in_progress');
+  });
+
+  it('updates task assignee', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmTask(ctx, ['add', 'Reassign me']);
+    await cmdPmTask(ctx, ['update', '1', '--assignee', 'codex']);
+
+    const taskPath = path.join(globalDir, 'teams', teamId, 'tasks', '1.json');
+    const task = JSON.parse(fs.readFileSync(taskPath, 'utf-8'));
+    expect(task.assignee).toBe('codex');
+  });
+
+  it('marks task as done', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmTask(ctx, ['add', 'Complete me']);
+    await cmdPmTask(ctx, ['done', '1']);
+
+    const taskPath = path.join(globalDir, 'teams', teamId, 'tasks', '1.json');
+    const task = JSON.parse(fs.readFileSync(taskPath, 'utf-8'));
+    expect(task.status).toBe('done');
+  });
+
+  it('exits with error for non-existent task', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await expect(cmdPmTask(ctx, ['show', '999'])).rejects.toThrow('Exit');
+    expect(ctx.ui.errors[0]).toContain('not found');
+  });
+
+  it('routes "pm t add" to task add', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPm(ctx, ['t', 'add', 'Shorthand task']);
+
+    expect(ctx.ui.logs.some((l) => l.includes('Shorthand task'))).toBe(true);
+  });
 });
+
+// ─────────────────────────────────────────────────────────────
+// cmdPmDoc tests
+// ─────────────────────────────────────────────────────────────
 
 describe('cmdPmDoc', () => {
-  // Test doc print mode
-  it.todo('prints task documentation with --print flag');
+  let testDir: string;
+  let globalDir: string;
+  let projectDir: string;
 
-  // Test doc edit mode (spawns editor)
-  it.todo('opens documentation in $EDITOR');
+  beforeEach(async () => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-test-'));
+    globalDir = path.join(testDir, 'global');
+    projectDir = path.join(testDir, 'project');
+    fs.mkdirSync(globalDir, { recursive: true });
+    fs.mkdirSync(projectDir, { recursive: true });
 
-  // Test doc for non-existent task
-  it.todo('exits with error for non-existent task');
+    // Initialize a team and create a task
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+    await cmdPmInit(ctx, ['--name', 'Test Project']);
+    await cmdPmTask(ctx, ['add', 'Test Task']);
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('prints task documentation with --print flag', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    // Capture console.log output
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (msg: string) => logs.push(msg);
+
+    await cmdPmDoc(ctx, ['1', '--print']);
+
+    console.log = originalLog;
+
+    expect(logs.some((l) => l.includes('Test Task'))).toBe(true);
+  });
+
+  it('opens documentation in $EDITOR', async () => {
+    // This test is tricky because it spawns an editor
+    // We'll just verify the command doesn't throw
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    // Set a no-op editor
+    const originalEditor = process.env.EDITOR;
+    process.env.EDITOR = 'true'; // 'true' command exists and does nothing
+
+    try {
+      await cmdPmDoc(ctx, ['1']);
+      expect(ctx.ui.logs.some((l) => l.includes('Saved'))).toBe(true);
+    } finally {
+      if (originalEditor) {
+        process.env.EDITOR = originalEditor;
+      } else {
+        delete process.env.EDITOR;
+      }
+    }
+  });
+
+  it('exits with error for non-existent task', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await expect(cmdPmDoc(ctx, ['999'])).rejects.toThrow('Exit');
+    expect(ctx.ui.errors[0]).toContain('not found');
+  });
 });
+
+// ─────────────────────────────────────────────────────────────
+// cmdPmLog tests
+// ─────────────────────────────────────────────────────────────
 
 describe('cmdPmLog', () => {
-  // Test log display
-  it.todo('displays audit events');
+  let testDir: string;
+  let globalDir: string;
+  let projectDir: string;
 
-  // Test log with --limit
-  it.todo('limits number of events displayed');
+  beforeEach(async () => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-test-'));
+    globalDir = path.join(testDir, 'global');
+    projectDir = path.join(testDir, 'project');
+    fs.mkdirSync(globalDir, { recursive: true });
+    fs.mkdirSync(projectDir, { recursive: true });
 
-  // Test log JSON output
-  it.todo('outputs events in JSON when --json flag set');
+    // Initialize a team
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+    await cmdPmInit(ctx, ['--name', 'Test Project']);
+    vi.restoreAllMocks();
+  });
 
-  // Test empty log message
-  it.todo('shows info message when no events');
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('displays audit events', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    // Create some events
+    await cmdPmTask(ctx, ['add', 'Task 1']);
+    await cmdPmTask(ctx, ['done', '1']);
+
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (msg: string) => logs.push(String(msg));
+
+    await cmdPmLog(ctx, []);
+
+    console.log = originalLog;
+
+    // Should show team_created and task events
+    expect(logs.some((l) => l.includes('team_created') || l.includes('task'))).toBe(true);
+  });
+
+  it('limits number of events displayed', async () => {
+    const ctx = createMockContext(globalDir, { json: true, cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    // Create multiple events
+    await cmdPmTask(ctx, ['add', 'Task 1']);
+    await cmdPmTask(ctx, ['add', 'Task 2']);
+    await cmdPmTask(ctx, ['add', 'Task 3']);
+    await cmdPmLog(ctx, ['--limit', '2']);
+
+    const lastJson = ctx.ui.jsonData[ctx.ui.jsonData.length - 1] as unknown[];
+    expect(lastJson.length).toBe(2);
+  });
+
+  it('outputs events in JSON when --json flag set', async () => {
+    const ctx = createMockContext(globalDir, { json: true, cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmLog(ctx, []);
+
+    expect(ctx.ui.jsonData.length).toBeGreaterThan(0);
+    expect(Array.isArray(ctx.ui.jsonData[ctx.ui.jsonData.length - 1])).toBe(true);
+  });
+
+  it('shows info message when no events', async () => {
+    // Create a new project without events
+    const newProjectDir = path.join(testDir, 'empty-project');
+    fs.mkdirSync(newProjectDir, { recursive: true });
+
+    const initCtx = createMockContext(globalDir, { cwd: newProjectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(newProjectDir);
+    await cmdPmInit(initCtx, ['--name', 'Empty']);
+    vi.restoreAllMocks();
+
+    // Clear events file
+    const teamId = fs.readFileSync(path.join(newProjectDir, '.tmux-team-id'), 'utf-8').trim();
+    const eventsFile = path.join(globalDir, 'teams', teamId, 'events.jsonl');
+    fs.writeFileSync(eventsFile, '');
+
+    const ctx = createMockContext(globalDir, { cwd: newProjectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(newProjectDir);
+
+    await cmdPmLog(ctx, []);
+
+    expect(ctx.ui.logs.some((l) => l.includes('No events'))).toBe(true);
+  });
 });
+
+// ─────────────────────────────────────────────────────────────
+// cmdPmList tests
+// ─────────────────────────────────────────────────────────────
 
 describe('cmdPmList', () => {
-  // Test lists all teams
-  it.todo('lists all teams in table format');
+  let testDir: string;
+  let globalDir: string;
 
-  // Test no teams message
-  it.todo('shows info message when no teams');
+  beforeEach(() => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-test-'));
+    globalDir = path.join(testDir, 'global');
+    fs.mkdirSync(globalDir, { recursive: true });
+  });
 
-  // Test JSON output
-  it.todo('outputs teams in JSON when --json flag set');
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('lists all teams in table format', async () => {
+    // Create multiple teams
+    const project1 = path.join(testDir, 'project1');
+    const project2 = path.join(testDir, 'project2');
+    fs.mkdirSync(project1, { recursive: true });
+    fs.mkdirSync(project2, { recursive: true });
+
+    const ctx1 = createMockContext(globalDir, { cwd: project1 });
+    vi.spyOn(process, 'cwd').mockReturnValue(project1);
+    await cmdPmInit(ctx1, ['--name', 'Project 1']);
+    vi.restoreAllMocks();
+
+    const ctx2 = createMockContext(globalDir, { cwd: project2 });
+    vi.spyOn(process, 'cwd').mockReturnValue(project2);
+    await cmdPmInit(ctx2, ['--name', 'Project 2']);
+    vi.restoreAllMocks();
+
+    const ctx = createMockContext(globalDir);
+    await cmdPmList(ctx, []);
+
+    expect(ctx.ui.table).toHaveBeenCalled();
+  });
+
+  it('shows info message when no teams', async () => {
+    const ctx = createMockContext(globalDir);
+    await cmdPmList(ctx, []);
+
+    expect(ctx.ui.logs.some((l) => l.includes('No teams'))).toBe(true);
+  });
+
+  it('outputs teams in JSON when --json flag set', async () => {
+    // Create a team first
+    const project = path.join(testDir, 'project');
+    fs.mkdirSync(project, { recursive: true });
+
+    const initCtx = createMockContext(globalDir, { cwd: project });
+    vi.spyOn(process, 'cwd').mockReturnValue(project);
+    await cmdPmInit(initCtx, ['--name', 'JSON Team']);
+    vi.restoreAllMocks();
+
+    const ctx = createMockContext(globalDir, { json: true });
+    await cmdPmList(ctx, []);
+
+    expect(ctx.ui.jsonData.length).toBe(1);
+    expect(Array.isArray(ctx.ui.jsonData[0])).toBe(true);
+  });
 });
+
+// ─────────────────────────────────────────────────────────────
+// cmdPm router tests
+// ─────────────────────────────────────────────────────────────
 
 describe('cmdPm router', () => {
-  // Test command routing
-  it.todo('routes to correct subcommand');
+  let testDir: string;
+  let globalDir: string;
+  let projectDir: string;
 
-  // Test shorthand expansion
-  it.todo('expands m to milestone, t to task');
+  beforeEach(async () => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-test-'));
+    globalDir = path.join(testDir, 'global');
+    projectDir = path.join(testDir, 'project');
+    fs.mkdirSync(globalDir, { recursive: true });
+    fs.mkdirSync(projectDir, { recursive: true });
 
-  // Test unknown command error
-  it.todo('exits with error for unknown subcommand');
+    // Initialize a team
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+    await cmdPmInit(ctx, ['--name', 'Test Project']);
+    vi.restoreAllMocks();
+  });
 
-  // Test help command
-  it.todo('displays help for pm help');
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('routes to correct subcommand', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPm(ctx, ['task', 'add', 'Routed task']);
+
+    expect(ctx.ui.logs.some((l) => l.includes('Routed task'))).toBe(true);
+  });
+
+  it('expands m to milestone, t to task', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPm(ctx, ['m', 'add', 'Milestone via m']);
+    await cmdPm(ctx, ['t', 'add', 'Task via t']);
+
+    expect(ctx.ui.logs.some((l) => l.includes('Milestone via m'))).toBe(true);
+    expect(ctx.ui.logs.some((l) => l.includes('Task via t'))).toBe(true);
+  });
+
+  it('exits with error for unknown subcommand', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await expect(cmdPm(ctx, ['unknown'])).rejects.toThrow('Exit');
+    expect(ctx.ui.errors[0]).toContain('Unknown pm command');
+  });
+
+  it('displays help for pm help', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (msg: string) => logs.push(String(msg));
+
+    await cmdPm(ctx, ['help']);
+
+    console.log = originalLog;
+
+    expect(logs.some((l) => l.includes('tmux-team pm'))).toBe(true);
+  });
 });
 
+// ─────────────────────────────────────────────────────────────
+// parseStatus tests
+// ─────────────────────────────────────────────────────────────
+
 describe('parseStatus', () => {
-  // Test valid statuses
-  it.todo('parses pending, in_progress, done');
+  let testDir: string;
+  let globalDir: string;
+  let projectDir: string;
 
-  // Test hyphen to underscore normalization
-  it.todo('normalizes in-progress to in_progress');
+  beforeEach(async () => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-test-'));
+    globalDir = path.join(testDir, 'global');
+    projectDir = path.join(testDir, 'project');
+    fs.mkdirSync(globalDir, { recursive: true });
+    fs.mkdirSync(projectDir, { recursive: true });
 
-  // Test case insensitivity
-  it.todo('handles case insensitive input');
+    // Initialize a team
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+    await cmdPmInit(ctx, ['--name', 'Test Project']);
+    await cmdPmTask(ctx, ['add', 'Test task']);
+    vi.restoreAllMocks();
+  });
 
-  // Test invalid status error
-  it.todo('throws error for invalid status');
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('parses pending, in_progress, done', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmTask(ctx, ['update', '1', '--status', 'pending']);
+    await cmdPmTask(ctx, ['update', '1', '--status', 'in_progress']);
+    await cmdPmTask(ctx, ['update', '1', '--status', 'done']);
+
+    // If we got here without errors, parsing worked
+    expect(true).toBe(true);
+  });
+
+  it('normalizes in-progress to in_progress', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmTask(ctx, ['update', '1', '--status', 'in-progress']);
+
+    const teamId = fs.readFileSync(path.join(projectDir, '.tmux-team-id'), 'utf-8').trim();
+    const taskPath = path.join(globalDir, 'teams', teamId, 'tasks', '1.json');
+    const task = JSON.parse(fs.readFileSync(taskPath, 'utf-8'));
+    expect(task.status).toBe('in_progress');
+  });
+
+  it('handles case insensitive input', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmTask(ctx, ['update', '1', '--status', 'DONE']);
+
+    const teamId = fs.readFileSync(path.join(projectDir, '.tmux-team-id'), 'utf-8').trim();
+    const taskPath = path.join(globalDir, 'teams', teamId, 'tasks', '1.json');
+    const task = JSON.parse(fs.readFileSync(taskPath, 'utf-8'));
+    expect(task.status).toBe('done');
+  });
+
+  it('throws error for invalid status', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await expect(cmdPmTask(ctx, ['update', '1', '--status', 'invalid'])).rejects.toThrow(
+      'Invalid status'
+    );
+  });
 });
