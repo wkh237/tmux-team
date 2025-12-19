@@ -4,3 +4,4 @@ node_modules/
 tmux-team.json
 lib/
 dist/
+.claude/settings.json
