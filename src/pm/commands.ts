@@ -6,6 +6,13 @@ import type { Context } from '../types.js';
 import { ExitCodes } from '../exits.js';
 import { colors } from '../ui.js';
 import {
+  checkPermission,
+  getCurrentActor,
+  buildPermissionPath,
+  PermissionChecks,
+  type PermissionCheck,
+} from './permissions.js';
+import {
   findCurrentTeamId,
   getStorageAdapter,
   generateTeamId,
@@ -62,11 +69,22 @@ function parseStatus(s: string): TaskStatus {
   throw new Error(`Invalid status: ${s}. Use: pending, in_progress, done`);
 }
 
+function requirePermission(ctx: Context, check: PermissionCheck): void {
+  if (!checkPermission(ctx.config, check)) {
+    const actor = getCurrentActor();
+    const path = buildPermissionPath(check);
+    ctx.ui.error(`Permission denied: ${actor} cannot perform ${path}`);
+    ctx.exit(ExitCodes.ERROR);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────
 // Commands
 // ─────────────────────────────────────────────────────────────
 
 export async function cmdPmInit(ctx: Context, args: string[]): Promise<void> {
+  requirePermission(ctx, PermissionChecks.teamCreate());
+
   const { ui, flags, paths } = ctx;
 
   // Parse flags: --name, --backend, --repo
@@ -157,6 +175,8 @@ export async function cmdPmMilestone(ctx: Context, args: string[]): Promise<void
 }
 
 async function cmdMilestoneAdd(ctx: Context, args: string[]): Promise<void> {
+  requirePermission(ctx, PermissionChecks.milestoneCreate());
+
   const { ui, flags } = ctx;
   const { storage } = await requireTeam(ctx);
 
@@ -184,6 +204,8 @@ async function cmdMilestoneAdd(ctx: Context, args: string[]): Promise<void> {
 }
 
 async function cmdMilestoneList(ctx: Context, _args: string[]): Promise<void> {
+  requirePermission(ctx, PermissionChecks.milestoneList());
+
   const { ui, flags } = ctx;
   const { storage } = await requireTeam(ctx);
 
@@ -208,6 +230,8 @@ async function cmdMilestoneList(ctx: Context, _args: string[]): Promise<void> {
 }
 
 async function cmdMilestoneDone(ctx: Context, args: string[]): Promise<void> {
+  requirePermission(ctx, PermissionChecks.milestoneUpdate(['status']));
+
   const { ui, flags } = ctx;
   const { storage } = await requireTeam(ctx);
 
@@ -264,6 +288,8 @@ export async function cmdPmTask(ctx: Context, args: string[]): Promise<void> {
 }
 
 async function cmdTaskAdd(ctx: Context, args: string[]): Promise<void> {
+  requirePermission(ctx, PermissionChecks.taskCreate());
+
   const { ui, flags } = ctx;
   const { storage } = await requireTeam(ctx);
 
@@ -315,6 +341,8 @@ async function cmdTaskAdd(ctx: Context, args: string[]): Promise<void> {
 }
 
 async function cmdTaskList(ctx: Context, args: string[]): Promise<void> {
+  requirePermission(ctx, PermissionChecks.taskList());
+
   const { ui, flags } = ctx;
   const { storage } = await requireTeam(ctx);
 
@@ -355,6 +383,8 @@ async function cmdTaskList(ctx: Context, args: string[]): Promise<void> {
 }
 
 async function cmdTaskShow(ctx: Context, args: string[]): Promise<void> {
+  requirePermission(ctx, PermissionChecks.taskShow());
+
   const { ui, flags } = ctx;
   const { storage } = await requireTeam(ctx);
 
@@ -387,7 +417,6 @@ async function cmdTaskShow(ctx: Context, args: string[]): Promise<void> {
 
 async function cmdTaskUpdate(ctx: Context, args: string[]): Promise<void> {
   const { ui, flags } = ctx;
-  const { storage } = await requireTeam(ctx);
 
   // Parse: <id> --status <status> [--assignee <name>]
   const id = args[0];
@@ -411,6 +440,15 @@ async function cmdTaskUpdate(ctx: Context, args: string[]): Promise<void> {
     }
   }
 
+  // Check permissions based on which fields are being updated
+  const fields: string[] = [];
+  if (status) fields.push('status');
+  if (assignee) fields.push('assignee');
+  if (fields.length > 0) {
+    requirePermission(ctx, PermissionChecks.taskUpdate(fields));
+  }
+
+  const { storage } = await requireTeam(ctx);
   const task = await storage.getTask(id);
   if (!task) {
     ui.error(`Task ${id} not found`);
@@ -448,6 +486,8 @@ async function cmdTaskUpdate(ctx: Context, args: string[]): Promise<void> {
 }
 
 async function cmdTaskDone(ctx: Context, args: string[]): Promise<void> {
+  requirePermission(ctx, PermissionChecks.taskUpdate(['status']));
+
   const { ui, flags } = ctx;
   const { storage } = await requireTeam(ctx);
 
@@ -484,7 +524,6 @@ async function cmdTaskDone(ctx: Context, args: string[]): Promise<void> {
 
 export async function cmdPmDoc(ctx: Context, args: string[]): Promise<void> {
   const { ui, flags } = ctx;
-  const { teamId, storage } = await requireTeam(ctx);
 
   const id = args[0];
   if (!id) {
@@ -492,13 +531,22 @@ export async function cmdPmDoc(ctx: Context, args: string[]): Promise<void> {
     ctx.exit(ExitCodes.ERROR);
   }
 
+  const printOnly = args.includes('--print') || args.includes('-p');
+
+  // Check permission based on mode
+  if (printOnly || flags.json) {
+    requirePermission(ctx, PermissionChecks.docRead());
+  } else {
+    requirePermission(ctx, PermissionChecks.docUpdate());
+  }
+
+  const { teamId, storage } = await requireTeam(ctx);
   const task = await storage.getTask(id);
   if (!task) {
     ui.error(`Task ${id} not found`);
     ctx.exit(ExitCodes.PANE_NOT_FOUND);
   }
 
-  const printOnly = args.includes('--print') || args.includes('-p');
   const doc = await storage.getTaskDoc(id);
 
   if (printOnly || flags.json) {
@@ -521,6 +569,8 @@ export async function cmdPmDoc(ctx: Context, args: string[]): Promise<void> {
 }
 
 export async function cmdPmLog(ctx: Context, args: string[]): Promise<void> {
+  requirePermission(ctx, PermissionChecks.logRead());
+
   const { ui, flags } = ctx;
   const { storage } = await requireTeam(ctx);
 
@@ -558,6 +608,8 @@ export async function cmdPmLog(ctx: Context, args: string[]): Promise<void> {
 }
 
 export async function cmdPmList(ctx: Context, _args: string[]): Promise<void> {
+  requirePermission(ctx, PermissionChecks.teamList());
+
   const { ui, flags, paths } = ctx;
 
   const teams = listTeams(paths.globalDir);

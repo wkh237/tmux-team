@@ -4,6 +4,7 @@
 
 export interface AgentConfig {
   preamble?: string;
+  deny?: string[]; // Permission deny patterns, e.g., ["pm:task:update(status)"]
 }
 
 export interface PaneEntry {

@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "tsx src/cli.ts",
+    "tmt": "./bin/tmux-team",
     "test": "vitest",
     "test:run": "vitest run",
     "lint": "oxlint src/",
