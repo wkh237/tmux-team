@@ -1,6 +1,6 @@
 {
   "name": "tmux-team",
-  "version": "2.0.0",
+  "version": "2.0.0-alpha.2",
   "description": "Coordinate AI agents in tmux panes - talk, wait for responses, and manage tasks",
   "author": {
     "name": "Ben Hsieh",

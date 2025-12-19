@@ -1,10 +1,11 @@
 {
   "name": "tmux-team",
-  "version": "2.0.0-alpha.1",
+  "version": "2.0.0-alpha.2",
   "description": "CLI tool for AI agent collaboration in tmux - manage cross-pane communication",
   "type": "module",
   "bin": {
-    "tmux-team": "./bin/tmux-team"
+    "tmux-team": "./bin/tmux-team",
+    "tmt": "./bin/tmux-team"
   },
   "scripts": {
     "dev": "tsx src/cli.ts",
