@@ -67,7 +67,12 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
     }
 
     // Determine current agent to skip self
-    const { actor: self } = resolveActor(config.paneRegistry);
+    const { actor: self, warning: identityWarning } = resolveActor(config.paneRegistry);
+
+    // Surface identity warnings (mismatch, unregistered pane, etc.)
+    if (identityWarning && !flags.json) {
+      ui.warn(identityWarning);
+    }
 
     if (flags.delay && flags.delay > 0) {
       await sleepMs(flags.delay * 1000);
@@ -103,7 +108,7 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
     }
 
     if (flags.json) {
-      ui.json({ target: 'all', results });
+      ui.json({ target: 'all', self, identityWarning, results });
     }
     return;
   }
