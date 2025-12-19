@@ -415,8 +415,9 @@ async function cmdTalkAllWait(
   const pendingAgents = () => agentStates.filter((s) => s.status === 'pending');
 
   if (pendingAgents().length === 0) {
-    // All failed to send, output results and exit
+    // All failed to send, output results and exit with error
     outputBroadcastResults(ctx, agentStates, self, identityWarning, skippedSelf);
+    exit(ExitCodes.ERROR);
     return;
   }
 
