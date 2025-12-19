@@ -5,9 +5,29 @@
 import { colors } from '../ui.js';
 import { VERSION } from '../version.js';
 
-export function cmdHelp(): void {
+export interface HelpConfig {
+  mode?: 'polling' | 'wait';
+  timeout?: number;
+}
+
+export function cmdHelp(config?: HelpConfig): void {
+  const mode = config?.mode ?? 'polling';
+  const timeout = config?.timeout ?? 60;
+  const isWaitMode = mode === 'wait';
+
+  // Mode indicator with clear explanation
+  const modeInfo = isWaitMode
+    ? `${colors.yellow('CURRENT MODE')}: ${colors.green('wait')} (timeout: ${timeout}s)
+  ${colors.dim('→ talk commands will BLOCK until agent responds or timeout')}
+  ${colors.dim('→ Response is returned directly, no need to use check command')}`
+    : `${colors.yellow('CURRENT MODE')}: ${colors.cyan('polling')}
+  ${colors.dim('→ talk commands send and return immediately')}
+  ${colors.dim('→ Use check command to read agent response')}`;
+
   console.log(`
 ${colors.cyan('tmux-team')} v${VERSION} - AI agent collaboration in tmux
+
+${modeInfo}
 
 ${colors.yellow('USAGE')}
   tmux-team <command> [arguments]
@@ -31,36 +51,33 @@ ${colors.yellow('OPTIONS')}
   ${colors.green('--verbose')}                   Show detailed output
   ${colors.green('--force')}                     Skip warnings
 
-${colors.yellow('TALK OPTIONS')} ${colors.dim('(v2)')}
-  ${colors.green('--delay')} <seconds>           Wait before sending (default: seconds)
-  ${colors.green('--wait')}                      Wait for agent response (nonce-based)
-  ${colors.green('--timeout')} <seconds>         Max wait time (default: 60)
+${colors.yellow('TALK OPTIONS')}
+  ${colors.green('--delay')} <seconds>           Wait before sending
+  ${colors.green('--wait')}                      Force wait mode (block until response)
+  ${colors.green('--timeout')} <seconds>         Max wait time (current: ${timeout}s)
   ${colors.green('--no-preamble')}               Skip agent preamble for this message
 
-${colors.yellow('EXAMPLES')}
-  tmux-team talk codex "Please review the PR"
-  tmux-team talk all "Sync meeting in 5 minutes"
-  tmux-team check gemini 50
+${colors.yellow('EXAMPLES')}${
+    isWaitMode
+      ? `
+  ${colors.dim('# Wait mode: commands block until response')}
+  tmux-team talk codex "Review this PR"     ${colors.dim('← blocks, returns response')}
+  tmux-team talk all "Status update"        ${colors.dim('← waits for all agents')}`
+      : `
+  ${colors.dim('# Polling mode: send then check')}
+  tmux-team talk codex "Review this PR"     ${colors.dim('← sends immediately')}
+  tmux-team check codex                     ${colors.dim('← read response later')}`
+  }
   tmux-team list --json
   tmux-team add codex 10.1 "Code review specialist"
-  tmux-team update codex --pane 10.2
-  tmux-team remove codex
 
 ${colors.yellow('CONFIG')}
   Local:  ./tmux-team.json (pane registry + $config override)
   Global: ~/.config/tmux-team/config.json (settings)
 
-${colors.yellow('CONFIG EXAMPLES')}
-  tmux-team config                     Show current settings
-  tmux-team config set mode wait       Set mode in local config (repo override)
-  tmux-team config set mode polling --global  Set mode in global config
-  tmux-team config clear mode          Clear local override for mode
-  tmux-team config clear               Clear all local overrides
-
-${colors.yellow('PREAMBLE EXAMPLES')}
-  tmux-team preamble                   Show all preambles
-  tmux-team preamble show codex        Show preamble for codex
-  tmux-team preamble set codex "You are a code reviewer. Be concise."
-  tmux-team preamble clear codex       Clear preamble for codex
+${colors.yellow('CHANGE MODE')}
+  tmux-team config set mode wait            ${colors.dim('Enable wait mode (local)')}
+  tmux-team config set mode polling         ${colors.dim('Enable polling mode (local)')}
+  tmux-team config set timeout 120          ${colors.dim('Set timeout to 120s')}
 `);
 }

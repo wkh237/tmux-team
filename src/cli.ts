@@ -7,7 +7,8 @@ import { createContext, ExitCodes } from './context.js';
 import type { Flags } from './types.js';
 
 // Commands
-import { cmdHelp } from './commands/help.js';
+import { cmdHelp, HelpConfig } from './commands/help.js';
+import { loadConfig, resolvePaths } from './config.js';
 import { cmdInit } from './commands/init.js';
 import { cmdList } from './commands/list.js';
 import { cmdAdd } from './commands/add.js';
@@ -103,9 +104,20 @@ function main(): void {
   const argv = process.argv.slice(2);
   const { command, args, flags } = parseArgs(argv);
 
-  // Help doesn't need context
+  // Help - load config to show current mode/timeout
   if (!command || command === 'help' || command === '--help' || command === '-h') {
-    cmdHelp();
+    try {
+      const paths = resolvePaths();
+      const config = loadConfig(paths);
+      const helpConfig: HelpConfig = {
+        mode: config.mode,
+        timeout: config.defaults.timeout,
+      };
+      cmdHelp(helpConfig);
+    } catch {
+      // Fallback if config can't be loaded
+      cmdHelp();
+    }
     process.exit(ExitCodes.SUCCESS);
   }
 
