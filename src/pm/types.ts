@@ -66,3 +66,14 @@ export interface ListTasksFilter {
   status?: TaskStatus;
   assignee?: string;
 }
+
+// ─────────────────────────────────────────────────────────────
+// Storage backend configuration
+// ─────────────────────────────────────────────────────────────
+
+export type StorageBackend = 'fs' | 'github';
+
+export interface TeamConfig {
+  backend: StorageBackend;
+  repo?: string; // GitHub repo (owner/repo format) for github backend
+}

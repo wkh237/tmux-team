@@ -12,9 +12,11 @@ import {
   getTeamsDir,
   linkTeam,
   listTeams,
+  createStorageAdapter,
+  saveTeamConfig,
 } from './manager.js';
 import type { StorageAdapter } from './storage/adapter.js';
-import type { TaskStatus, MilestoneStatus } from './types.js';
+import type { TaskStatus, MilestoneStatus, StorageBackend } from './types.js';
 import path from 'path';
 
 // ─────────────────────────────────────────────────────────────
@@ -67,18 +69,51 @@ function parseStatus(s: string): TaskStatus {
 export async function cmdPmInit(ctx: Context, args: string[]): Promise<void> {
   const { ui, flags, paths } = ctx;
 
-  // Parse --name flag
+  // Parse flags: --name, --backend, --repo
   let name = 'Unnamed Project';
+  let backend: StorageBackend = 'fs';
+  let repo: string | undefined;
+
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--name' && args[i + 1]) {
       name = args[++i];
     } else if (args[i].startsWith('--name=')) {
       name = args[i].slice(7);
+    } else if (args[i] === '--backend' && args[i + 1]) {
+      const b = args[++i];
+      if (b !== 'fs' && b !== 'github') {
+        ui.error(`Invalid backend: ${b}. Use: fs, github`);
+        ctx.exit(ExitCodes.ERROR);
+      }
+      backend = b;
+    } else if (args[i].startsWith('--backend=')) {
+      const b = args[i].slice(10);
+      if (b !== 'fs' && b !== 'github') {
+        ui.error(`Invalid backend: ${b}. Use: fs, github`);
+        ctx.exit(ExitCodes.ERROR);
+      }
+      backend = b as StorageBackend;
+    } else if (args[i] === '--repo' && args[i + 1]) {
+      repo = args[++i];
+    } else if (args[i].startsWith('--repo=')) {
+      repo = args[i].slice(7);
     }
   }
 
+  // Validate GitHub backend requires repo
+  if (backend === 'github' && !repo) {
+    ui.error('GitHub backend requires --repo flag (e.g., --repo owner/repo)');
+    ctx.exit(ExitCodes.ERROR);
+  }
+
   const teamId = generateTeamId();
-  const storage = getStorageAdapter(teamId, paths.globalDir);
+  const teamDir = path.join(getTeamsDir(paths.globalDir), teamId);
+
+  // Save config first
+  saveTeamConfig(teamDir, { backend, repo });
+
+  // Create storage adapter
+  const storage = createStorageAdapter(teamDir, backend, repo);
 
   const team = await storage.initTeam(name);
   linkTeam(process.cwd(), teamId);
@@ -87,14 +122,19 @@ export async function cmdPmInit(ctx: Context, args: string[]): Promise<void> {
     event: 'team_created',
     id: teamId,
     name,
+    backend,
+    repo,
     actor: 'human',
     ts: new Date().toISOString(),
   });
 
   if (flags.json) {
-    ui.json({ team, linked: process.cwd() });
+    ui.json({ team, backend, repo, linked: process.cwd() });
   } else {
     ui.success(`Created team '${name}' (${teamId})`);
+    if (backend === 'github') {
+      ui.info(`Backend: GitHub (${repo})`);
+    }
     ui.info(`Linked to ${process.cwd()}`);
   }
 }
@@ -573,7 +613,10 @@ function cmdPmHelp(_ctx: Context): void {
 ${colors.cyan('tmux-team pm')} - Project management
 
 ${colors.yellow('COMMANDS')}
-  ${colors.green('init')} [--name <name>]              Create a new team/project
+  ${colors.green('init')} [options]                    Create a new team/project
+    --name <name>                    Project name
+    --backend <fs|github>            Storage backend (default: fs)
+    --repo <owner/repo>              GitHub repo (required for github backend)
   ${colors.green('list')}                              List all teams
   ${colors.green('milestone')} add <name>              Add milestone (shorthand: m)
   ${colors.green('milestone')} list                    List milestones
@@ -586,13 +629,22 @@ ${colors.yellow('COMMANDS')}
   ${colors.green('doc')} <id> [--print]                View/edit task documentation
   ${colors.green('log')} [--limit <n>]                 Show audit event log
 
+${colors.yellow('BACKENDS')}
+  ${colors.cyan('fs')}      Local filesystem (default) - tasks in ~/.config/tmux-team/teams/
+  ${colors.cyan('github')}  GitHub Issues - tasks become issues, milestones sync with GH
+
 ${colors.yellow('SHORTHANDS')}
   pm m  = pm milestone
   pm t  = pm task
   pm ls = pm list
 
 ${colors.yellow('EXAMPLES')}
+  # Local filesystem backend (default)
   tmux-team pm init --name "Auth Refactor"
+
+  # GitHub backend - uses gh CLI for auth
+  tmux-team pm init --name "Sprint 1" --backend github --repo owner/repo
+
   tmux-team pm m add "Phase 1"
   tmux-team pm t add "Implement login" --milestone 1
   tmux-team pm t list --status pending

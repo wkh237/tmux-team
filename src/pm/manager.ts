@@ -7,7 +7,8 @@ import path from 'path';
 import crypto from 'crypto';
 import type { StorageAdapter } from './storage/adapter.js';
 import { createFSAdapter } from './storage/fs.js';
-import type { Team } from './types.js';
+import { createGitHubAdapter } from './storage/github.js';
+import type { Team, TeamConfig, StorageBackend } from './types.js';
 
 /**
  * Resolve the teams directory from global config path.
@@ -44,10 +45,57 @@ export function findCurrentTeamId(cwd: string, _globalDir: string): string | nul
 }
 
 /**
+ * Get team config from team directory.
+ */
+export function getTeamConfig(teamDir: string): TeamConfig | null {
+  const configFile = path.join(teamDir, 'config.json');
+  if (fs.existsSync(configFile)) {
+    try {
+      return JSON.parse(fs.readFileSync(configFile, 'utf-8')) as TeamConfig;
+    } catch {
+      return null;
+    }
+  }
+  // Default to fs backend if no config
+  return { backend: 'fs' };
+}
+
+/**
+ * Save team config to team directory.
+ */
+export function saveTeamConfig(teamDir: string, config: TeamConfig): void {
+  fs.mkdirSync(teamDir, { recursive: true });
+  fs.writeFileSync(path.join(teamDir, 'config.json'), JSON.stringify(config, null, 2) + '\n');
+}
+
+/**
  * Get storage adapter for a specific team.
  */
 export function getStorageAdapter(teamId: string, globalDir: string): StorageAdapter {
   const teamDir = path.join(getTeamsDir(globalDir), teamId);
+  const config = getTeamConfig(teamDir);
+
+  if (config?.backend === 'github' && config.repo) {
+    return createGitHubAdapter(teamDir, config.repo);
+  }
+
+  return createFSAdapter(teamDir);
+}
+
+/**
+ * Get storage adapter with explicit backend.
+ */
+export function createStorageAdapter(
+  teamDir: string,
+  backend: StorageBackend,
+  repo?: string
+): StorageAdapter {
+  if (backend === 'github') {
+    if (!repo) {
+      throw new Error('GitHub backend requires --repo flag');
+    }
+    return createGitHubAdapter(teamDir, repo);
+  }
   return createFSAdapter(teamDir);
 }
 
