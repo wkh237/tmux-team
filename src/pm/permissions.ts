@@ -175,11 +175,12 @@ export function resolveActor(paneRegistry: Record<string, PaneEntry>): ActorReso
 
   // Pane not in registry
   if (envActor) {
-    // Agent claims identity but pane not registered - warn
+    // Agent claims identity but pane not registered - use env identity with warning
+    // Security: Still apply agent's deny patterns to prevent bypass via unregistered pane
     return {
-      actor: 'human',
-      source: 'default',
-      warning: `⚠️  Unregistered pane: TMT_AGENT_NAME="${envActor}" but pane ${currentPane} is not in registry. Treating as human (full access).`,
+      actor: envActor,
+      source: 'env',
+      warning: `⚠️  Unregistered pane: pane ${currentPane} is not in registry. Using TMT_AGENT_NAME="${envActor}".`,
     };
   }
 
