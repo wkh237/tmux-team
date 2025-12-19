@@ -1,3 +1,7 @@
 node_modules/
 *.log
 .DS_Store
+tmux-team.json
+lib/
+dist/
+.claude/settings.json
