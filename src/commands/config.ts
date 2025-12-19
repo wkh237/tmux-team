@@ -155,11 +155,10 @@ function clearConfig(ctx: Context, key?: string): void {
  * Config command entry point.
  */
 export function cmdConfig(ctx: Context, args: string[]): void {
-  const subcommand = args[0];
-
-  // Parse --global flag
+  // Parse --global flag first, then determine subcommand
   const globalFlag = args.includes('--global') || args.includes('-g');
   const filteredArgs = args.filter((a) => a !== '--global' && a !== '-g');
+  const subcommand = filteredArgs[0];
 
   switch (subcommand) {
     case undefined:
