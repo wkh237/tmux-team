@@ -158,7 +158,7 @@ describe('loadConfig', () => {
 
     expect(config.mode).toBe('polling');
     expect(config.preambleMode).toBe('always');
-    expect(config.defaults.timeout).toBe(60);
+    expect(config.defaults.timeout).toBe(180);
     expect(config.defaults.pollInterval).toBe(1);
     expect(config.defaults.captureLines).toBe(100);
     expect(config.agents).toEqual({});

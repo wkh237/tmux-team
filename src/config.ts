@@ -23,7 +23,7 @@ const DEFAULT_CONFIG: Omit<GlobalConfig, 'agents'> & { agents: Record<string, ne
   mode: 'polling',
   preambleMode: 'always',
   defaults: {
-    timeout: 60,
+    timeout: 180,
     pollInterval: 1,
     captureLines: 100,
   },
