@@ -2,7 +2,8 @@
 // Permission system for PM commands
 // ─────────────────────────────────────────────────────────────
 
-import type { ResolvedConfig } from '../types.js';
+import { execSync } from 'child_process';
+import type { ResolvedConfig, PaneEntry } from '../types.js';
 
 /**
  * Permission expression format:
@@ -95,40 +96,149 @@ function matchesPattern(path: PermissionCheck, pattern: string): boolean {
 }
 
 /**
+ * Get current tmux pane in "window.pane" format.
+ * Returns null if not running in tmux.
+ */
+function getCurrentPane(): string | null {
+  // Check if we're in tmux
+  if (!process.env.TMUX) {
+    return null;
+  }
+
+  try {
+    const result = execSync("tmux display-message -p '#{window_index}.#{pane_index}'", {
+      encoding: 'utf-8',
+      timeout: 1000,
+    }).trim();
+    return result || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Look up agent name by pane ID in the registry.
+ */
+function findAgentByPane(paneRegistry: Record<string, PaneEntry>, paneId: string): string | null {
+  for (const [agentName, entry] of Object.entries(paneRegistry)) {
+    if (entry.pane === paneId) {
+      return agentName;
+    }
+  }
+  return null;
+}
+
+export interface ActorResolution {
+  actor: string;
+  source: 'pane' | 'env' | 'default';
+  warning?: string;
+}
+
+/**
+ * Resolve current actor using pane registry as primary source.
+ *
+ * Priority:
+ * 1. Look up current tmux pane in pane registry → agent name
+ * 2. If not in registry → 'human' (full access)
+ *
+ * Warnings:
+ * - If TMT_AGENT_NAME is set but conflicts with pane registry → warn about spoofing
+ * - If TMT_AGENT_NAME is set but pane not in registry → warn about unregistered pane
+ */
+export function resolveActor(paneRegistry: Record<string, PaneEntry>): ActorResolution {
+  const envActor = process.env.TMT_AGENT_NAME || process.env.TMUX_TEAM_ACTOR;
+  const currentPane = getCurrentPane();
+
+  // Not in tmux - use env var or default to human
+  if (!currentPane) {
+    if (envActor) {
+      return { actor: envActor, source: 'env' };
+    }
+    return { actor: 'human', source: 'default' };
+  }
+
+  // In tmux - look up pane in registry
+  const paneAgent = findAgentByPane(paneRegistry, currentPane);
+
+  if (paneAgent) {
+    // Pane is registered to an agent
+    if (envActor && envActor !== paneAgent) {
+      // Env var conflicts with pane registry - warn about potential spoofing
+      return {
+        actor: paneAgent,
+        source: 'pane',
+        warning: `⚠️  Identity mismatch: TMT_AGENT_NAME="${envActor}" but pane ${currentPane} is registered to "${paneAgent}". Using pane identity.`,
+      };
+    }
+    return { actor: paneAgent, source: 'pane' };
+  }
+
+  // Pane not in registry
+  if (envActor) {
+    // Agent claims identity but pane not registered - warn
+    return {
+      actor: 'human',
+      source: 'default',
+      warning: `⚠️  Unregistered pane: TMT_AGENT_NAME="${envActor}" but pane ${currentPane} is not in registry. Treating as human (full access).`,
+    };
+  }
+
+  // Not registered, no env var - human
+  return { actor: 'human', source: 'default' };
+}
+
+/**
  * Get current actor (agent name or 'human').
+ * Legacy function for backward compatibility.
  * Reads from TMT_AGENT_NAME or TMUX_TEAM_ACTOR env vars.
  */
 export function getCurrentActor(): string {
   return process.env.TMT_AGENT_NAME || process.env.TMUX_TEAM_ACTOR || 'human';
 }
 
+export interface PermissionResult {
+  allowed: boolean;
+  actor: string;
+  source: 'pane' | 'env' | 'default';
+  warning?: string;
+}
+
 /**
  * Check if an action is allowed for the current actor.
- * Returns true if allowed, false if denied.
+ * Uses pane-based identity resolution with warnings for conflicts.
  */
-export function checkPermission(config: ResolvedConfig, check: PermissionCheck): boolean {
-  const actor = getCurrentActor();
+export function checkPermission(config: ResolvedConfig, check: PermissionCheck): PermissionResult {
+  const resolution = resolveActor(config.paneRegistry);
+  const { actor, source, warning } = resolution;
 
   // Human is always allowed (no deny patterns for human)
   if (actor === 'human') {
-    return true;
+    return { allowed: true, actor, source, warning };
   }
 
   // Get agent config
   const agentConfig = config.agents[actor];
   if (!agentConfig || !agentConfig.deny || agentConfig.deny.length === 0) {
     // No deny patterns = allow all
-    return true;
+    return { allowed: true, actor, source, warning };
   }
 
   // Check if any deny pattern matches
   for (const pattern of agentConfig.deny) {
     if (matchesPattern(check, pattern)) {
-      return false;
+      return { allowed: false, actor, source, warning };
     }
   }
 
-  return true;
+  return { allowed: true, actor, source, warning };
+}
+
+/**
+ * Simple permission check (legacy, for tests).
+ * Returns true if allowed, false if denied.
+ */
+export function checkPermissionSimple(config: ResolvedConfig, check: PermissionCheck): boolean {
+  return checkPermission(config, check).allowed;
 }
 
 /**

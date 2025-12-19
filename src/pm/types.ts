@@ -78,3 +78,8 @@ export interface TeamConfig {
   backend: StorageBackend;
   repo?: string; // GitHub repo (owner/repo format) for github backend
 }
+
+export interface TeamWithConfig extends Team {
+  backend: StorageBackend;
+  repo?: string;
+}

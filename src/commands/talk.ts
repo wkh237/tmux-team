@@ -8,6 +8,7 @@ import { ExitCodes } from '../exits.js';
 import { colors } from '../ui.js';
 import crypto from 'crypto';
 import { cleanupState, clearActiveRequest, setActiveRequest } from '../state.js';
+import { resolveActor } from '../pm/permissions.js';
 
 function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -65,6 +66,9 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
       exit(ExitCodes.CONFIG_MISSING);
     }
 
+    // Determine current agent to skip self
+    const { actor: self } = resolveActor(config.paneRegistry);
+
     if (flags.delay && flags.delay > 0) {
       await sleepMs(flags.delay * 1000);
     }
@@ -72,6 +76,15 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
     const results: { agent: string; pane: string; status: string }[] = [];
 
     for (const [name, data] of agents) {
+      // Skip sending to self
+      if (name === self) {
+        results.push({ agent: name, pane: data.pane, status: 'skipped (self)' });
+        if (!flags.json) {
+          console.log(`${colors.dim('○')} Skipped ${colors.cyan(name)} (self)`);
+        }
+        continue;
+      }
+
       try {
         // Build message with preamble, then apply Gemini filter
         let msg = buildMessage(message, name, ctx);

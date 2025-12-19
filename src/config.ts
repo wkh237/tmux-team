@@ -5,7 +5,14 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import type { GlobalConfig, LocalConfig, ResolvedConfig, Paths } from './types.js';
+import type {
+  GlobalConfig,
+  LocalConfig,
+  LocalConfigFile,
+  LocalSettings,
+  ResolvedConfig,
+  Paths,
+} from './types.js';
 
 const CONFIG_FILENAME = 'config.json';
 const LOCAL_CONFIG_FILENAME = 'tmux-team.json';
@@ -136,10 +143,20 @@ export function loadConfig(paths: Paths): ResolvedConfig {
     }
   }
 
-  // Load local config (pane registry)
-  const localConfig = loadJsonFile<LocalConfig>(paths.localConfig);
-  if (localConfig) {
-    config.paneRegistry = localConfig;
+  // Load local config (pane registry + optional settings)
+  const localConfigFile = loadJsonFile<LocalConfigFile>(paths.localConfig);
+  if (localConfigFile) {
+    // Extract local settings if present
+    const { $config: localSettings, ...paneEntries } = localConfigFile;
+
+    // Merge local settings (override global)
+    if (localSettings) {
+      if (localSettings.mode) config.mode = localSettings.mode;
+      if (localSettings.preambleMode) config.preambleMode = localSettings.preambleMode;
+    }
+
+    // Set pane registry (filter out $config)
+    config.paneRegistry = paneEntries as LocalConfig;
   }
 
   return config;
@@ -156,4 +173,51 @@ export function ensureGlobalDir(paths: Paths): void {
   if (!fs.existsSync(paths.globalDir)) {
     fs.mkdirSync(paths.globalDir, { recursive: true });
   }
+}
+
+/**
+ * Load raw global config file (for editing).
+ */
+export function loadGlobalConfig(paths: Paths): Partial<GlobalConfig> {
+  return loadJsonFile<Partial<GlobalConfig>>(paths.globalConfig) ?? {};
+}
+
+/**
+ * Save global config file.
+ */
+export function saveGlobalConfig(paths: Paths, config: Partial<GlobalConfig>): void {
+  ensureGlobalDir(paths);
+  fs.writeFileSync(paths.globalConfig, JSON.stringify(config, null, 2) + '\n');
+}
+
+/**
+ * Load raw local config file (for editing).
+ */
+export function loadLocalConfigFile(paths: Paths): LocalConfigFile {
+  return loadJsonFile<LocalConfigFile>(paths.localConfig) ?? {};
+}
+
+/**
+ * Save local config file (preserves both $config and pane entries).
+ */
+export function saveLocalConfigFile(paths: Paths, configFile: LocalConfigFile): void {
+  fs.writeFileSync(paths.localConfig, JSON.stringify(configFile, null, 2) + '\n');
+}
+
+/**
+ * Update local settings (creates $config if needed).
+ */
+export function updateLocalSettings(paths: Paths, settings: LocalSettings): void {
+  const configFile = loadLocalConfigFile(paths);
+  configFile.$config = { ...configFile.$config, ...settings };
+  saveLocalConfigFile(paths, configFile);
+}
+
+/**
+ * Clear local settings.
+ */
+export function clearLocalSettings(paths: Paths): void {
+  const configFile = loadLocalConfigFile(paths);
+  delete configFile.$config;
+  saveLocalConfigFile(paths, configFile);
 }

@@ -203,12 +203,18 @@ describe('buildMessage (via cmdTalk)', () => {
 
 describe('cmdTalk - basic send', () => {
   let testDir: string;
+  const originalEnv = { ...process.env };
 
   beforeEach(() => {
+    // Disable pane detection in tests
+    delete process.env.TMUX;
+    delete process.env.TMT_AGENT_NAME;
+    delete process.env.TMUX_TEAM_ACTOR;
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'talk-test-'));
   });
 
   afterEach(() => {
+    process.env = { ...originalEnv };
     if (fs.existsSync(testDir)) {
       fs.rmSync(testDir, { recursive: true, force: true });
     }
@@ -233,6 +239,27 @@ describe('cmdTalk - basic send', () => {
 
     expect(tmux.sends).toHaveLength(3);
     expect(tmux.sends.map((s) => s.pane).sort()).toEqual(['1.0', '1.1', '1.2']);
+  });
+
+  it('skips self when sending to all (via env var)', async () => {
+    // Simulate being an agent via env var (when not in tmux)
+    const originalEnv = { ...process.env };
+    delete process.env.TMUX; // Ensure pane detection is disabled
+    process.env.TMT_AGENT_NAME = 'claude';
+
+    try {
+      const tmux = createMockTmux();
+      const ui = createMockUI();
+      const ctx = createContext({ tmux, ui, paths: createTestPaths(testDir) });
+
+      await cmdTalk(ctx, 'all', 'Hello team');
+
+      // Should skip claude (self) and only send to codex and gemini
+      expect(tmux.sends).toHaveLength(2);
+      expect(tmux.sends.map((s) => s.pane).sort()).toEqual(['1.1', '1.2']);
+    } finally {
+      process.env = originalEnv;
+    }
   });
 
   it('removes exclamation marks for gemini agent', async () => {

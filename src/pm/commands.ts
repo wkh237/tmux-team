@@ -7,7 +7,6 @@ import { ExitCodes } from '../exits.js';
 import { colors } from '../ui.js';
 import {
   checkPermission,
-  getCurrentActor,
   buildPermissionPath,
   PermissionChecks,
   type PermissionCheck,
@@ -70,10 +69,16 @@ function parseStatus(s: string): TaskStatus {
 }
 
 function requirePermission(ctx: Context, check: PermissionCheck): void {
-  if (!checkPermission(ctx.config, check)) {
-    const actor = getCurrentActor();
-    const path = buildPermissionPath(check);
-    ctx.ui.error(`Permission denied: ${actor} cannot perform ${path}`);
+  const result = checkPermission(ctx.config, check);
+
+  // Display warning if there's an identity conflict
+  if (result.warning) {
+    ctx.ui.warn(result.warning);
+  }
+
+  if (!result.allowed) {
+    const permPath = buildPermissionPath(check);
+    ctx.ui.error(`Permission denied: ${result.actor} cannot perform ${permPath}`);
     ctx.exit(ExitCodes.ERROR);
   }
 }
@@ -613,9 +618,10 @@ export async function cmdPmList(ctx: Context, _args: string[]): Promise<void> {
   const { ui, flags, paths } = ctx;
 
   const teams = listTeams(paths.globalDir);
+  const currentTeamId = findCurrentTeamId(process.cwd(), paths.globalDir);
 
   if (flags.json) {
-    ui.json(teams);
+    ui.json({ teams, currentTeamId });
     return;
   }
 
@@ -626,8 +632,14 @@ export async function cmdPmList(ctx: Context, _args: string[]): Promise<void> {
 
   console.log();
   ui.table(
-    ['ID', 'NAME', 'CREATED'],
-    teams.map((t) => [t.id.slice(0, 8) + '...', t.name, t.createdAt.slice(0, 10)])
+    ['', 'ID', 'NAME', 'BACKEND', 'CREATED'],
+    teams.map((t) => [
+      t.id === currentTeamId ? colors.green('→') : ' ',
+      t.id.slice(0, 8) + '...',
+      t.name,
+      t.backend === 'github' ? colors.cyan('github') : colors.dim('fs'),
+      t.createdAt.slice(0, 10),
+    ])
   );
   console.log();
 }

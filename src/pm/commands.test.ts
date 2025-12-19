@@ -44,7 +44,7 @@ function createMockUI(): UI & { logs: string[]; errors: string[]; jsonData: unkn
 
 function createMockContext(
   globalDir: string,
-  options: { json?: boolean; cwd?: string } = {}
+  options: { json?: boolean; cwd?: string; agents?: Record<string, { deny?: string[] }> } = {}
 ): Context & { ui: ReturnType<typeof createMockUI>; exitCode: number | null } {
   const ui = createMockUI();
   let exitCode: number | null = null;
@@ -60,6 +60,13 @@ function createMockContext(
     exitCode,
     flags: { json: options.json ?? false },
     paths: { globalDir, configFile: path.join(globalDir, 'config.json') },
+    config: {
+      mode: 'polling',
+      preambleMode: 'always',
+      defaults: { timeout: 60, pollInterval: 1, captureLines: 100 },
+      agents: options.agents ?? {},
+      paneRegistry: {},
+    },
     exit: vi.fn((code: number) => {
       exitCode = code;
       throw new Error(`Exit: ${code}`);
@@ -763,7 +770,9 @@ describe('cmdPmList', () => {
     await cmdPmList(ctx, []);
 
     expect(ctx.ui.jsonData.length).toBe(1);
-    expect(Array.isArray(ctx.ui.jsonData[0])).toBe(true);
+    expect(ctx.ui.jsonData[0]).toHaveProperty('teams');
+    expect(ctx.ui.jsonData[0]).toHaveProperty('currentTeamId');
+    expect(Array.isArray(ctx.ui.jsonData[0].teams)).toBe(true);
   });
 });
 
@@ -914,5 +923,205 @@ describe('parseStatus', () => {
     await expect(cmdPmTask(ctx, ['update', '1', '--status', 'invalid'])).rejects.toThrow(
       'Invalid status'
     );
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// Permission Integration Tests
+// ─────────────────────────────────────────────────────────────
+
+describe('Permission integration', () => {
+  let testDir: string;
+  let globalDir: string;
+  let projectDir: string;
+  const originalEnv = { ...process.env };
+
+  beforeEach(async () => {
+    // Disable pane detection in tests
+    delete process.env.TMUX;
+
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-test-'));
+    globalDir = path.join(testDir, 'global');
+    projectDir = path.join(testDir, 'project');
+    fs.mkdirSync(globalDir, { recursive: true });
+    fs.mkdirSync(projectDir, { recursive: true });
+
+    // Initialize a team and create a task
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+    await cmdPmInit(ctx, ['--name', 'Test Project']);
+    await cmdPmTask(ctx, ['add', 'Test task']);
+    await cmdPmMilestone(ctx, ['add', 'Test milestone']);
+    vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+    vi.restoreAllMocks();
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('allows human to perform any action', async () => {
+    delete process.env.TMT_AGENT_NAME;
+    delete process.env.TMUX_TEAM_ACTOR;
+
+    const ctx = createMockContext(globalDir, {
+      cwd: projectDir,
+      agents: { codex: { deny: ['pm:task:update(status)'] } },
+    });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    // Human should be able to update status even with deny pattern for codex
+    await cmdPmTask(ctx, ['update', '1', '--status', 'in_progress']);
+    expect(ctx.ui.logs.some((l) => l.includes('Updated'))).toBe(true);
+  });
+
+  it('blocks agent when deny pattern matches status update', async () => {
+    process.env.TMT_AGENT_NAME = 'codex';
+
+    const ctx = createMockContext(globalDir, {
+      cwd: projectDir,
+      agents: { codex: { deny: ['pm:task:update(status)'] } },
+    });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await expect(cmdPmTask(ctx, ['update', '1', '--status', 'done'])).rejects.toThrow('Exit');
+    expect(ctx.ui.errors[0]).toContain('Permission denied');
+    expect(ctx.ui.errors[0]).toContain('pm:task:update(status)');
+  });
+
+  it('blocks agent when deny pattern matches task done command', async () => {
+    process.env.TMT_AGENT_NAME = 'codex';
+
+    const ctx = createMockContext(globalDir, {
+      cwd: projectDir,
+      agents: { codex: { deny: ['pm:task:update(status)'] } },
+    });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    // 'task done' is equivalent to 'task update --status done'
+    await expect(cmdPmTask(ctx, ['done', '1'])).rejects.toThrow('Exit');
+    expect(ctx.ui.errors[0]).toContain('Permission denied');
+  });
+
+  it('allows agent to update assignee when only status is denied', async () => {
+    process.env.TMT_AGENT_NAME = 'codex';
+
+    const ctx = createMockContext(globalDir, {
+      cwd: projectDir,
+      agents: { codex: { deny: ['pm:task:update(status)'] } },
+    });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    // Assignee update should be allowed
+    await cmdPmTask(ctx, ['update', '1', '--assignee', 'gemini']);
+    expect(ctx.ui.logs.some((l) => l.includes('Updated'))).toBe(true);
+  });
+
+  it('blocks agent when wildcard deny pattern matches any field update', async () => {
+    process.env.TMT_AGENT_NAME = 'codex';
+
+    const ctx = createMockContext(globalDir, {
+      cwd: projectDir,
+      agents: { codex: { deny: ['pm:task:update(*)'] } },
+    });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await expect(cmdPmTask(ctx, ['update', '1', '--assignee', 'gemini'])).rejects.toThrow('Exit');
+    expect(ctx.ui.errors[0]).toContain('Permission denied');
+  });
+
+  it('blocks agent when entire action is denied (no fields)', async () => {
+    process.env.TMT_AGENT_NAME = 'codex';
+
+    const ctx = createMockContext(globalDir, {
+      cwd: projectDir,
+      agents: { codex: { deny: ['pm:task:create'] } },
+    });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await expect(cmdPmTask(ctx, ['add', 'New task'])).rejects.toThrow('Exit');
+    expect(ctx.ui.errors[0]).toContain('Permission denied');
+    expect(ctx.ui.errors[0]).toContain('pm:task:create');
+  });
+
+  it('allows agent without deny patterns', async () => {
+    process.env.TMT_AGENT_NAME = 'gemini';
+
+    const ctx = createMockContext(globalDir, {
+      cwd: projectDir,
+      agents: { codex: { deny: ['pm:task:update(status)'] } }, // Only codex is restricted
+    });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    // gemini should be allowed
+    await cmdPmTask(ctx, ['update', '1', '--status', 'done']);
+    expect(ctx.ui.logs.some((l) => l.includes('Updated'))).toBe(true);
+  });
+
+  it('blocks milestone status update when denied', async () => {
+    process.env.TMT_AGENT_NAME = 'codex';
+
+    const ctx = createMockContext(globalDir, {
+      cwd: projectDir,
+      agents: { codex: { deny: ['pm:milestone:update(status)'] } },
+    });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await expect(cmdPmMilestone(ctx, ['done', '1'])).rejects.toThrow('Exit');
+    expect(ctx.ui.errors[0]).toContain('Permission denied');
+  });
+
+  it('blocks team creation when denied', async () => {
+    process.env.TMT_AGENT_NAME = 'codex';
+
+    const newProjectDir = path.join(testDir, 'new-project');
+    fs.mkdirSync(newProjectDir, { recursive: true });
+
+    const ctx = createMockContext(globalDir, {
+      cwd: newProjectDir,
+      agents: { codex: { deny: ['pm:team:create'] } },
+    });
+    vi.spyOn(process, 'cwd').mockReturnValue(newProjectDir);
+
+    await expect(cmdPmInit(ctx, ['--name', 'New Project'])).rejects.toThrow('Exit');
+    expect(ctx.ui.errors[0]).toContain('Permission denied');
+  });
+
+  it('blocks doc update but allows doc read', async () => {
+    process.env.TMT_AGENT_NAME = 'codex';
+
+    const ctx = createMockContext(globalDir, {
+      cwd: projectDir,
+      agents: { codex: { deny: ['pm:doc:update'] } },
+    });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    // Read should work
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (msg: string) => logs.push(msg);
+
+    await cmdPmDoc(ctx, ['1', '--print']);
+
+    console.log = originalLog;
+    expect(logs.some((l) => l.includes('Test task'))).toBe(true);
+  });
+
+  it('uses TMUX_TEAM_ACTOR when TMT_AGENT_NAME is not set', async () => {
+    delete process.env.TMT_AGENT_NAME;
+    process.env.TMUX_TEAM_ACTOR = 'codex';
+
+    const ctx = createMockContext(globalDir, {
+      cwd: projectDir,
+      agents: { codex: { deny: ['pm:task:update(status)'] } },
+    });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await expect(cmdPmTask(ctx, ['update', '1', '--status', 'done'])).rejects.toThrow('Exit');
+    expect(ctx.ui.errors[0]).toContain('Permission denied');
+    expect(ctx.ui.errors[0]).toContain('codex');
   });
 });

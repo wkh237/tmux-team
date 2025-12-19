@@ -25,6 +25,16 @@ export interface GlobalConfig {
   agents: Record<string, AgentConfig>;
 }
 
+export interface LocalSettings {
+  mode?: 'polling' | 'wait';
+  preambleMode?: 'always' | 'disabled';
+}
+
+export interface LocalConfigFile {
+  $config?: LocalSettings;
+  [agentName: string]: PaneEntry | LocalSettings | undefined;
+}
+
 export interface LocalConfig {
   [agentName: string]: PaneEntry;
 }

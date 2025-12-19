@@ -492,10 +492,10 @@ export class GitHubAdapter implements StorageAdapter {
       }
     }
 
-    // Add assignee if specified
-    if (input.assignee) {
-      args.push('--assignee', input.assignee);
-    }
+    // NOTE: Assignee is intentionally NOT supported for GitHub backend.
+    // Agent names (e.g., "codex") don't map to GitHub usernames, and passing
+    // them could accidentally notify unrelated GitHub users or fail silently.
+    // Use labels or comments for agent attribution instead.
 
     // Create issue and get its number
     const url = this.gh(args);
@@ -573,10 +573,7 @@ export class GitHubAdapter implements StorageAdapter {
       }
     }
 
-    // Filter by assignee
-    if (filter?.assignee) {
-      args.push('--assignee', filter.assignee);
-    }
+    // NOTE: Assignee filter not supported for GitHub backend (security risk)
 
     // Only get tmux-team managed issues (all have TASK label)
     args.push('--label', LABELS.TASK);
@@ -618,9 +615,7 @@ export class GitHubAdapter implements StorageAdapter {
       args.push('--title', input.title);
     }
 
-    if (input.assignee) {
-      args.push('--add-assignee', input.assignee);
-    }
+    // NOTE: Assignee updates are not supported for GitHub backend (security risk)
 
     if (input.milestone) {
       const milestoneName = this.getMilestoneName(input.milestone);

@@ -7,6 +7,7 @@ import {
   buildPermissionPath,
   checkPermission,
   getCurrentActor,
+  resolveActor,
   PermissionChecks,
 } from './permissions.js';
 import type { ResolvedConfig } from '../types.js';
@@ -84,6 +85,8 @@ describe('checkPermission', () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv };
+    // Disable pane detection in tests by unsetting TMUX
+    delete process.env.TMUX;
   });
 
   afterEach(() => {
@@ -98,7 +101,7 @@ describe('checkPermission', () => {
       codex: { deny: ['pm:task:update(status)'] },
     });
 
-    expect(checkPermission(config, PermissionChecks.taskUpdate(['status']))).toBe(true);
+    expect(checkPermission(config, PermissionChecks.taskUpdate(['status'])).allowed).toBe(true);
   });
 
   it('allows when no deny patterns for agent', () => {
@@ -108,7 +111,7 @@ describe('checkPermission', () => {
       codex: {}, // No deny patterns
     });
 
-    expect(checkPermission(config, PermissionChecks.taskUpdate(['status']))).toBe(true);
+    expect(checkPermission(config, PermissionChecks.taskUpdate(['status'])).allowed).toBe(true);
   });
 
   it('allows when agent not in config', () => {
@@ -118,7 +121,7 @@ describe('checkPermission', () => {
       codex: { deny: ['pm:task:update(status)'] },
     });
 
-    expect(checkPermission(config, PermissionChecks.taskUpdate(['status']))).toBe(true);
+    expect(checkPermission(config, PermissionChecks.taskUpdate(['status'])).allowed).toBe(true);
   });
 
   it('denies when pattern matches exactly', () => {
@@ -128,7 +131,7 @@ describe('checkPermission', () => {
       codex: { deny: ['pm:task:update(status)'] },
     });
 
-    expect(checkPermission(config, PermissionChecks.taskUpdate(['status']))).toBe(false);
+    expect(checkPermission(config, PermissionChecks.taskUpdate(['status'])).allowed).toBe(false);
   });
 
   it('denies when pattern matches any field', () => {
@@ -139,9 +142,9 @@ describe('checkPermission', () => {
     });
 
     // Using both status and assignee, should still be denied because status is in deny list
-    expect(checkPermission(config, PermissionChecks.taskUpdate(['status', 'assignee']))).toBe(
-      false
-    );
+    expect(
+      checkPermission(config, PermissionChecks.taskUpdate(['status', 'assignee'])).allowed
+    ).toBe(false);
   });
 
   it('allows when fields do not match', () => {
@@ -152,7 +155,7 @@ describe('checkPermission', () => {
     });
 
     // Only updating assignee, not status
-    expect(checkPermission(config, PermissionChecks.taskUpdate(['assignee']))).toBe(true);
+    expect(checkPermission(config, PermissionChecks.taskUpdate(['assignee'])).allowed).toBe(true);
   });
 
   it('denies entire action when pattern has no fields', () => {
@@ -163,9 +166,9 @@ describe('checkPermission', () => {
     });
 
     // Any update should be denied
-    expect(checkPermission(config, PermissionChecks.taskUpdate(['status']))).toBe(false);
-    expect(checkPermission(config, PermissionChecks.taskUpdate(['assignee']))).toBe(false);
-    expect(checkPermission(config, PermissionChecks.taskUpdate([]))).toBe(false);
+    expect(checkPermission(config, PermissionChecks.taskUpdate(['status'])).allowed).toBe(false);
+    expect(checkPermission(config, PermissionChecks.taskUpdate(['assignee'])).allowed).toBe(false);
+    expect(checkPermission(config, PermissionChecks.taskUpdate([])).allowed).toBe(false);
   });
 
   it('denies when wildcard pattern matches any field', () => {
@@ -175,8 +178,8 @@ describe('checkPermission', () => {
       codex: { deny: ['pm:task:update(*)'] },
     });
 
-    expect(checkPermission(config, PermissionChecks.taskUpdate(['status']))).toBe(false);
-    expect(checkPermission(config, PermissionChecks.taskUpdate(['assignee']))).toBe(false);
+    expect(checkPermission(config, PermissionChecks.taskUpdate(['status'])).allowed).toBe(false);
+    expect(checkPermission(config, PermissionChecks.taskUpdate(['assignee'])).allowed).toBe(false);
   });
 
   it('allows no-field action when wildcard is used', () => {
@@ -187,7 +190,7 @@ describe('checkPermission', () => {
     });
 
     // Wildcard only matches when fields are present
-    expect(checkPermission(config, PermissionChecks.taskUpdate([]))).toBe(true);
+    expect(checkPermission(config, PermissionChecks.taskUpdate([])).allowed).toBe(true);
   });
 
   it('allows different resource', () => {
@@ -197,7 +200,9 @@ describe('checkPermission', () => {
       codex: { deny: ['pm:task:update(status)'] },
     });
 
-    expect(checkPermission(config, PermissionChecks.milestoneUpdate(['status']))).toBe(true);
+    expect(checkPermission(config, PermissionChecks.milestoneUpdate(['status'])).allowed).toBe(
+      true
+    );
   });
 
   it('allows different action', () => {
@@ -207,8 +212,8 @@ describe('checkPermission', () => {
       codex: { deny: ['pm:task:update(status)'] },
     });
 
-    expect(checkPermission(config, PermissionChecks.taskCreate())).toBe(true);
-    expect(checkPermission(config, PermissionChecks.taskList())).toBe(true);
+    expect(checkPermission(config, PermissionChecks.taskCreate()).allowed).toBe(true);
+    expect(checkPermission(config, PermissionChecks.taskList()).allowed).toBe(true);
   });
 
   it('handles multiple deny patterns', () => {
@@ -220,10 +225,12 @@ describe('checkPermission', () => {
       },
     });
 
-    expect(checkPermission(config, PermissionChecks.taskUpdate(['status']))).toBe(false);
-    expect(checkPermission(config, PermissionChecks.milestoneUpdate(['status']))).toBe(false);
-    expect(checkPermission(config, PermissionChecks.taskDelete())).toBe(false);
-    expect(checkPermission(config, PermissionChecks.taskUpdate(['assignee']))).toBe(true);
+    expect(checkPermission(config, PermissionChecks.taskUpdate(['status'])).allowed).toBe(false);
+    expect(checkPermission(config, PermissionChecks.milestoneUpdate(['status'])).allowed).toBe(
+      false
+    );
+    expect(checkPermission(config, PermissionChecks.taskDelete()).allowed).toBe(false);
+    expect(checkPermission(config, PermissionChecks.taskUpdate(['assignee'])).allowed).toBe(true);
   });
 });
 
@@ -282,5 +289,44 @@ describe('PermissionChecks helpers', () => {
 
   it('creates correct log checks', () => {
     expect(PermissionChecks.logRead()).toEqual({ resource: 'log', action: 'read', fields: [] });
+  });
+});
+
+describe('resolveActor', () => {
+  const originalEnv = { ...process.env };
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  it('returns human when not in tmux and no env var', () => {
+    delete process.env.TMUX;
+    delete process.env.TMT_AGENT_NAME;
+    delete process.env.TMUX_TEAM_ACTOR;
+
+    const result = resolveActor({});
+    expect(result.actor).toBe('human');
+    expect(result.source).toBe('default');
+    expect(result.warning).toBeUndefined();
+  });
+
+  it('uses env var when not in tmux', () => {
+    delete process.env.TMUX;
+    process.env.TMT_AGENT_NAME = 'codex';
+
+    const result = resolveActor({});
+    expect(result.actor).toBe('codex');
+    expect(result.source).toBe('env');
+    expect(result.warning).toBeUndefined();
+  });
+
+  it('prefers TMT_AGENT_NAME over TMUX_TEAM_ACTOR', () => {
+    delete process.env.TMUX;
+    process.env.TMT_AGENT_NAME = 'codex';
+    process.env.TMUX_TEAM_ACTOR = 'gemini';
+
+    const result = resolveActor({});
+    expect(result.actor).toBe('codex');
+    expect(result.source).toBe('env');
   });
 });

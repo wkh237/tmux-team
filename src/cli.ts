@@ -17,6 +17,8 @@ import { cmdTalk } from './commands/talk.js';
 import { cmdCheck } from './commands/check.js';
 import { cmdCompletion } from './commands/completion.js';
 import { cmdPm } from './pm/commands.js';
+import { cmdConfig } from './commands/config.js';
+import { cmdPreamble } from './commands/preamble.js';
 
 // ─────────────────────────────────────────────────────────────
 // Argument parsing
@@ -191,6 +193,14 @@ function main(): void {
 
       case 'pm':
         await cmdPm(ctx, args);
+        break;
+
+      case 'config':
+        cmdConfig(ctx, args);
+        break;
+
+      case 'preamble':
+        cmdPreamble(ctx, args);
         break;
 
       default:

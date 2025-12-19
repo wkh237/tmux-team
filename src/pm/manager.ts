@@ -8,7 +8,7 @@ import crypto from 'crypto';
 import type { StorageAdapter } from './storage/adapter.js';
 import { createFSAdapter } from './storage/fs.js';
 import { createGitHubAdapter } from './storage/github.js';
-import type { Team, TeamConfig, StorageBackend } from './types.js';
+import type { Team, TeamConfig, TeamWithConfig, StorageBackend } from './types.js';
 
 /**
  * Resolve the teams directory from global config path.
@@ -107,21 +107,27 @@ export function generateTeamId(): string {
 }
 
 /**
- * List all teams.
+ * List all teams with their backend config.
  */
-export function listTeams(globalDir: string): Team[] {
+export function listTeams(globalDir: string): TeamWithConfig[] {
   const teamsDir = getTeamsDir(globalDir);
   if (!fs.existsSync(teamsDir)) return [];
 
-  const teams: Team[] = [];
+  const teams: TeamWithConfig[] = [];
   const dirs = fs.readdirSync(teamsDir);
 
   for (const dir of dirs) {
-    const teamFile = path.join(teamsDir, dir, 'team.json');
+    const teamDir = path.join(teamsDir, dir);
+    const teamFile = path.join(teamDir, 'team.json');
     if (fs.existsSync(teamFile)) {
       try {
         const team = JSON.parse(fs.readFileSync(teamFile, 'utf-8')) as Team;
-        teams.push(team);
+        const config = getTeamConfig(teamDir);
+        teams.push({
+          ...team,
+          backend: config?.backend || 'fs',
+          repo: config?.repo,
+        });
       } catch {
         // Skip malformed team files
       }
