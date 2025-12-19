@@ -6,6 +6,9 @@ import type { UI } from './types.js';
 
 const isTTY = process.stdout.isTTY;
 
+// Strip ANSI escape codes for accurate length calculation
+const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '');
+
 export const colors = {
   red: (s: string) => (isTTY ? `\x1b[31m${s}\x1b[0m` : s),
   green: (s: string) => (isTTY ? `\x1b[32m${s}\x1b[0m` : s),
@@ -46,18 +49,24 @@ export function createUI(jsonMode: boolean): UI {
       console.error(`${colors.red('✗')} ${msg}`);
     },
     table: (headers: string[], rows: string[][]) => {
-      // Calculate column widths
+      // Calculate column widths (strip ANSI codes for accurate length)
       const widths = headers.map((h, i) =>
-        Math.max(h.length, ...rows.map((r) => (r[i] || '').length))
+        Math.max(h.length, ...rows.map((r) => stripAnsi(r[i] || '').length))
       );
 
       // Print header
       console.log('  ' + headers.map((h, i) => colors.yellow(h.padEnd(widths[i]))).join(' '));
       console.log('  ' + widths.map((w) => '─'.repeat(w)).join(' '));
 
-      // Print rows
+      // Print rows (pad based on visible length, not byte length)
       for (const row of rows) {
-        console.log('  ' + row.map((c, i) => (c || '-').padEnd(widths[i])).join(' '));
+        const cells = row.map((c, i) => {
+          const cell = c || '-';
+          const visibleLen = stripAnsi(cell).length;
+          const padding = ' '.repeat(Math.max(0, widths[i] - visibleLen));
+          return cell + padding;
+        });
+        console.log('  ' + cells.join(' '));
       }
     },
     json: (data: unknown) => {

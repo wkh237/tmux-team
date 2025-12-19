@@ -161,8 +161,9 @@ export class FSAdapter implements StorageAdapter {
       updatedAt: this.now(),
     };
     this.writeJson(path.join(this.tasksDir, `${id}.json`), task);
-    // Create empty doc file
-    fs.writeFileSync(path.join(this.tasksDir, `${id}.md`), `# ${input.title}\n\n`);
+    // Create doc file with title and optional body
+    const docContent = input.body ? `# ${input.title}\n\n${input.body}\n` : `# ${input.title}\n\n`;
+    fs.writeFileSync(path.join(this.tasksDir, `${id}.md`), docContent);
     return task;
   }
 

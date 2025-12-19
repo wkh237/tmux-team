@@ -41,6 +41,7 @@ export interface AuditEvent {
 
 export interface CreateTaskInput {
   title: string;
+  body?: string;
   milestone?: string;
   assignee?: string;
 }

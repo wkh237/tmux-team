@@ -61,13 +61,13 @@ interface GHMilestone {
 // Local cache for ID mapping (task ID -> issue number)
 // ─────────────────────────────────────────────────────────────
 
-const CACHE_VERSION = 1;
+const CACHE_VERSION = 2;
 
 interface IdCache {
   version: number; // Cache format version for migrations
   repo: string; // Associated repo to detect cross-repo drift
   tasks: Record<string, number>; // task ID -> issue number
-  milestones: Record<string, number>; // milestone ID -> milestone number
+  milestones: Record<string, { number: number; name: string }>; // milestone ID -> {number, name}
   nextTaskId: number;
   nextMilestoneId: number;
 }
@@ -89,9 +89,12 @@ export class GitHubAdapter implements StorageAdapter {
   // Helper: Execute gh CLI command safely (no shell injection)
   // ─────────────────────────────────────────────────────────────
 
-  private gh(args: string[]): string {
+  private gh(args: string[], options?: { skipRepo?: boolean }): string {
     const fullArgs = [...args];
-    if (this.repo) {
+    // gh api doesn't accept --repo flag (repo is in the endpoint path)
+    // Other commands like 'gh issue' do accept --repo
+    const isApiCommand = args[0] === 'api';
+    if (this.repo && !isApiCommand && !options?.skipRepo) {
       fullArgs.push('--repo', this.repo);
     }
     // Use spawnSync with array args to avoid shell injection
@@ -195,7 +198,12 @@ export class GitHubAdapter implements StorageAdapter {
 
   private getMilestoneNumber(milestoneId: string): number | null {
     const cache = this.loadCache();
-    return cache.milestones[milestoneId] ?? null;
+    return cache.milestones[milestoneId]?.number ?? null;
+  }
+
+  private getMilestoneName(milestoneId: string): string | null {
+    const cache = this.loadCache();
+    return cache.milestones[milestoneId]?.name ?? null;
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -226,7 +234,7 @@ export class GitHubAdapter implements StorageAdapter {
     if (issue.milestone?.number) {
       const c = cache || this.loadCache();
       const ghMilestoneNum = issue.milestone.number;
-      milestoneId = Object.entries(c.milestones).find(([, num]) => num === ghMilestoneNum)?.[0];
+      milestoneId = Object.entries(c.milestones).find(([, m]) => m.number === ghMilestoneNum)?.[0];
     }
 
     return {
@@ -352,10 +360,10 @@ export class GitHubAdapter implements StorageAdapter {
     ]);
     const ghMilestone = JSON.parse(result) as { number: number; title: string; created_at: string };
 
-    // Cache the ID mapping
+    // Cache the ID mapping (store both number and name)
     const cache = this.loadCache();
     const id = String(cache.nextMilestoneId++);
-    cache.milestones[id] = ghMilestone.number;
+    cache.milestones[id] = { number: ghMilestone.number, name: ghMilestone.title };
     this.saveCache(cache);
 
     return {
@@ -404,11 +412,11 @@ export class GitHubAdapter implements StorageAdapter {
 
       // Match with cached IDs, or create new mappings
       for (const ghm of ghMilestones) {
-        let id = Object.entries(cache.milestones).find(([, num]) => num === ghm.number)?.[0];
+        let id = Object.entries(cache.milestones).find(([, m]) => m.number === ghm.number)?.[0];
         if (!id) {
           // New milestone from GitHub, assign ID
           id = String(cache.nextMilestoneId++);
-          cache.milestones[id] = ghm.number;
+          cache.milestones[id] = { number: ghm.number, name: ghm.title };
         }
         milestones.push(this.milestoneToMilestone(ghm, id));
       }
@@ -468,17 +476,19 @@ export class GitHubAdapter implements StorageAdapter {
       'create',
       '--title',
       input.title,
+      '--body',
+      input.body || '', // Required for non-interactive mode
       '--label',
       LABELS.TASK,
       '--label',
       LABELS.PENDING,
     ];
 
-    // Add milestone if specified
+    // Add milestone if specified (gh issue create expects milestone name, not number)
     if (input.milestone) {
-      const milestoneNum = this.getMilestoneNumber(input.milestone);
-      if (milestoneNum) {
-        args.push('--milestone', String(milestoneNum));
+      const milestoneName = this.getMilestoneName(input.milestone);
+      if (milestoneName) {
+        args.push('--milestone', milestoneName);
       }
     }
 
@@ -548,11 +558,11 @@ export class GitHubAdapter implements StorageAdapter {
       args.push('--state', 'all');
     }
 
-    // Filter by milestone
+    // Filter by milestone (gh issue list expects milestone name)
     if (filter?.milestone) {
-      const milestoneNum = this.getMilestoneNumber(filter.milestone);
-      if (milestoneNum) {
-        args.push('--milestone', String(milestoneNum));
+      const milestoneName = this.getMilestoneName(filter.milestone);
+      if (milestoneName) {
+        args.push('--milestone', milestoneName);
       }
     }
 
@@ -606,9 +616,9 @@ export class GitHubAdapter implements StorageAdapter {
     }
 
     if (input.milestone) {
-      const milestoneNum = this.getMilestoneNumber(input.milestone);
-      if (milestoneNum) {
-        args.push('--milestone', String(milestoneNum));
+      const milestoneName = this.getMilestoneName(input.milestone);
+      if (milestoneName) {
+        args.push('--milestone', milestoneName);
       }
     }
 

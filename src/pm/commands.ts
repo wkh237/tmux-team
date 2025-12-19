@@ -267,8 +267,9 @@ async function cmdTaskAdd(ctx: Context, args: string[]): Promise<void> {
   const { ui, flags } = ctx;
   const { storage } = await requireTeam(ctx);
 
-  // Parse args: <title> [--milestone <id>] [--assignee <name>]
+  // Parse args: <title> [--milestone <id>] [--assignee <name>] [--body <text>]
   let title = '';
+  let body: string | undefined;
   let milestone: string | undefined;
   let assignee: string | undefined;
 
@@ -281,6 +282,10 @@ async function cmdTaskAdd(ctx: Context, args: string[]): Promise<void> {
       assignee = args[++i];
     } else if (args[i].startsWith('--assignee=')) {
       assignee = args[i].slice(11);
+    } else if (args[i] === '--body' || args[i] === '-b') {
+      body = args[++i];
+    } else if (args[i].startsWith('--body=')) {
+      body = args[i].slice(7);
     } else if (!title) {
       title = args[i];
     }
@@ -291,7 +296,7 @@ async function cmdTaskAdd(ctx: Context, args: string[]): Promise<void> {
     ctx.exit(ExitCodes.ERROR);
   }
 
-  const task = await storage.createTask({ title, milestone, assignee });
+  const task = await storage.createTask({ title, body, milestone, assignee });
 
   await storage.appendEvent({
     event: 'task_created',
