@@ -78,7 +78,9 @@ function parseTime(value: string): number {
 
   const match = value.match(/^(\d+(?:\.\d+)?)(ms|s)?$/i);
   if (!match) {
-    console.error(`Invalid time format: ${value}. Use number (seconds) or number with ms/s suffix.`);
+    console.error(
+      `Invalid time format: ${value}. Use number (seconds) or number with ms/s suffix.`
+    );
     process.exit(ExitCodes.ERROR);
   }
 
@@ -121,79 +123,79 @@ function main(): void {
 
   const run = async (): Promise<void> => {
     switch (command) {
-    case 'init':
-      cmdInit(ctx);
-      break;
+      case 'init':
+        cmdInit(ctx);
+        break;
 
-    case 'list':
-    case 'ls':
-      cmdList(ctx);
-      break;
+      case 'list':
+      case 'ls':
+        cmdList(ctx);
+        break;
 
-    case 'add':
-      if (args.length < 2) {
-        ctx.ui.error('Usage: tmux-team add <name> <pane> [remark]');
-        ctx.exit(ExitCodes.ERROR);
-      }
-      cmdAdd(ctx, args[0], args[1], args[2]);
-      break;
-
-    case 'update':
-      if (args.length < 1) {
-        ctx.ui.error('Usage: tmux-team update <name> --pane <pane> | --remark <remark>');
-        ctx.exit(ExitCodes.ERROR);
-      }
-      {
-        const options: { pane?: string; remark?: string } = {};
-        for (let i = 1; i < args.length; i++) {
-          if (args[i] === '--pane' && args[i + 1]) {
-            options.pane = args[++i];
-          } else if (args[i] === '--remark' && args[i + 1]) {
-            options.remark = args[++i];
-          } else if (args[i].startsWith('--pane=')) {
-            options.pane = args[i].slice(7);
-          } else if (args[i].startsWith('--remark=')) {
-            options.remark = args[i].slice(9);
-          }
+      case 'add':
+        if (args.length < 2) {
+          ctx.ui.error('Usage: tmux-team add <name> <pane> [remark]');
+          ctx.exit(ExitCodes.ERROR);
         }
-        cmdUpdate(ctx, args[0], options);
-      }
-      break;
+        cmdAdd(ctx, args[0], args[1], args[2]);
+        break;
 
-    case 'remove':
-    case 'rm':
-      if (args.length < 1) {
-        ctx.ui.error('Usage: tmux-team remove <name>');
+      case 'update':
+        if (args.length < 1) {
+          ctx.ui.error('Usage: tmux-team update <name> --pane <pane> | --remark <remark>');
+          ctx.exit(ExitCodes.ERROR);
+        }
+        {
+          const options: { pane?: string; remark?: string } = {};
+          for (let i = 1; i < args.length; i++) {
+            if (args[i] === '--pane' && args[i + 1]) {
+              options.pane = args[++i];
+            } else if (args[i] === '--remark' && args[i + 1]) {
+              options.remark = args[++i];
+            } else if (args[i].startsWith('--pane=')) {
+              options.pane = args[i].slice(7);
+            } else if (args[i].startsWith('--remark=')) {
+              options.remark = args[i].slice(9);
+            }
+          }
+          cmdUpdate(ctx, args[0], options);
+        }
+        break;
+
+      case 'remove':
+      case 'rm':
+        if (args.length < 1) {
+          ctx.ui.error('Usage: tmux-team remove <name>');
+          ctx.exit(ExitCodes.ERROR);
+        }
+        cmdRemove(ctx, args[0]);
+        break;
+
+      case 'talk':
+      case 'send':
+        if (args.length < 2) {
+          ctx.ui.error('Usage: tmux-team talk <target> <message>');
+          ctx.exit(ExitCodes.ERROR);
+        }
+        await cmdTalk(ctx, args[0], args[1]);
+        break;
+
+      case 'check':
+      case 'read':
+        if (args.length < 1) {
+          ctx.ui.error('Usage: tmux-team check <target> [lines]');
+          ctx.exit(ExitCodes.ERROR);
+        }
+        cmdCheck(ctx, args[0], args[1] ? parseInt(args[1], 10) : undefined);
+        break;
+
+      case 'pm':
+        await cmdPm(ctx, args);
+        break;
+
+      default:
+        ctx.ui.error(`Unknown command: ${command}. Run 'tmux-team help' for usage.`);
         ctx.exit(ExitCodes.ERROR);
-      }
-      cmdRemove(ctx, args[0]);
-      break;
-
-    case 'talk':
-    case 'send':
-      if (args.length < 2) {
-        ctx.ui.error('Usage: tmux-team talk <target> <message>');
-        ctx.exit(ExitCodes.ERROR);
-      }
-      await cmdTalk(ctx, args[0], args[1]);
-      break;
-
-    case 'check':
-    case 'read':
-      if (args.length < 1) {
-        ctx.ui.error('Usage: tmux-team check <target> [lines]');
-        ctx.exit(ExitCodes.ERROR);
-      }
-      cmdCheck(ctx, args[0], args[1] ? parseInt(args[1], 10) : undefined);
-      break;
-
-    case 'pm':
-      await cmdPm(ctx, args);
-      break;
-
-    default:
-      ctx.ui.error(`Unknown command: ${command}. Run 'tmux-team help' for usage.`);
-      ctx.exit(ExitCodes.ERROR);
     }
   };
 

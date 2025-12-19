@@ -78,7 +78,6 @@ export async function cmdPmInit(ctx: Context, args: string[]): Promise<void> {
   }
 
   const teamId = generateTeamId();
-  const teamDir = path.join(getTeamsDir(paths.globalDir), teamId);
   const storage = getStorageAdapter(teamId, paths.globalDir);
 
   const team = await storage.initTeam(name);
@@ -569,7 +568,7 @@ export async function cmdPm(ctx: Context, args: string[]): Promise<void> {
   }
 }
 
-function cmdPmHelp(ctx: Context): void {
+function cmdPmHelp(_ctx: Context): void {
   console.log(`
 ${colors.cyan('tmux-team pm')} - Project management
 

@@ -3,7 +3,6 @@
 // ─────────────────────────────────────────────────────────────
 
 import fs from 'fs';
-import path from 'path';
 import type { Paths } from './types.js';
 import { ensureGlobalDir } from './config.js';
 

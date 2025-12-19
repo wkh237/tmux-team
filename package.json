@@ -9,7 +9,13 @@
   "scripts": {
     "dev": "tsx src/cli.ts",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "lint": "oxlint src/",
+    "lint:fix": "oxlint src/ --fix",
+    "format": "prettier --write src/",
+    "format:check": "prettier --check src/",
+    "type:check": "tsc --noEmit",
+    "check": "npm run type:check && npm run lint && npm run format:check"
   },
   "keywords": [
     "tmux",
@@ -40,6 +46,9 @@
     "tsx": "^4.7.0"
   },
   "devDependencies": {
+    "@types/node": "^25.0.3",
+    "oxlint": "^1.34.0",
+    "prettier": "^3.7.4",
     "typescript": "^5.3.0",
     "vitest": "^1.2.0"
   }

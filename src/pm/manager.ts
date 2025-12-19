@@ -20,8 +20,9 @@ export function getTeamsDir(globalDir: string): string {
  * Find the current team by looking for a .tmux-team-id file in cwd or parents,
  * or by matching the current tmux window.
  */
-export function findCurrentTeamId(cwd: string, globalDir: string): string | null {
+export function findCurrentTeamId(cwd: string, _globalDir: string): string | null {
   // 1. Check for .tmux-team-id file in cwd or parents
+  // Note: _globalDir reserved for future tmux window matching feature
   let dir = cwd;
   while (dir !== path.dirname(dir)) {
     const idFile = path.join(dir, '.tmux-team-id');

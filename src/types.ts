@@ -12,7 +12,7 @@ export interface PaneEntry {
 }
 
 export interface ConfigDefaults {
-  timeout: number;      // seconds
+  timeout: number; // seconds
   pollInterval: number; // seconds
   captureLines: number;
 }
@@ -41,9 +41,9 @@ export interface Flags {
   verbose: boolean;
   config?: string;
   force?: boolean;
-  delay?: number;    // seconds
+  delay?: number; // seconds
   wait?: boolean;
-  timeout?: number;  // seconds
+  timeout?: number; // seconds
   noPreamble?: boolean;
 }
 

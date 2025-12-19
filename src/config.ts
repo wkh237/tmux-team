@@ -145,7 +145,10 @@ export function loadConfig(paths: Paths): ResolvedConfig {
   return config;
 }
 
-export function saveLocalConfig(paths: Paths, paneRegistry: Record<string, { pane: string; remark?: string }>): void {
+export function saveLocalConfig(
+  paths: Paths,
+  paneRegistry: Record<string, { pane: string; remark?: string }>
+): void {
   fs.writeFileSync(paths.localConfig, JSON.stringify(paneRegistry, null, 2) + '\n');
 }
 

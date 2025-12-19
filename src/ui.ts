@@ -52,9 +52,7 @@ export function createUI(jsonMode: boolean): UI {
       );
 
       // Print header
-      console.log(
-        '  ' + headers.map((h, i) => colors.yellow(h.padEnd(widths[i]))).join(' ')
-      );
+      console.log('  ' + headers.map((h, i) => colors.yellow(h.padEnd(widths[i]))).join(' '));
       console.log('  ' + widths.map((w) => '─'.repeat(w)).join(' '));
 
       // Print rows

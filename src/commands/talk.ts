@@ -30,11 +30,7 @@ function renderWaitLine(agent: string, elapsedSeconds: number): string {
  * Build the final message with optional preamble.
  * Format: [SYSTEM: <preamble>]\n\n<message>
  */
-function buildMessage(
-  message: string,
-  agentName: string,
-  ctx: Context
-): string {
+function buildMessage(message: string, agentName: string, ctx: Context): string {
   const { config, flags } = ctx;
 
   // Skip preamble if disabled or --no-preamble flag
@@ -211,7 +207,9 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
           const now = Date.now();
           if (now - lastNonTtyLogAt >= 5000) {
             lastNonTtyLogAt = now;
-            console.error(`[tmux-team] Waiting for ${target} (${Math.floor(elapsedSeconds)}s elapsed)`);
+            console.error(
+              `[tmux-team] Waiting for ${target} (${Math.floor(elapsedSeconds)}s elapsed)`
+            );
           }
         }
       }

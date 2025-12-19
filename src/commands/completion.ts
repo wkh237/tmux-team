@@ -33,7 +33,7 @@ _tmux-team() {
     case \${words[2]} in
       talk|check|update|remove|rm)
         _get_agents
-        if [[ -n "\$agents" ]]; then
+        if [[ -n "$agents" ]]; then
           _describe -t agents 'agents' agents
         fi
         if [[ "\${words[2]}" == "talk" ]]; then
@@ -56,7 +56,7 @@ _tmux-team() {
   fi
 }
 
-_tmux-team "\$@"`;
+_tmux-team "$@"`;
 
 const bashCompletion = `_tmux_team() {
   local cur prev commands agents
