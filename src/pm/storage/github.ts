@@ -53,7 +53,7 @@ interface GHIssue {
 interface GHMilestone {
   number: number;
   title: string;
-  state: 'OPEN' | 'CLOSED';
+  state: 'open' | 'closed'; // REST API uses lowercase (unlike GraphQL)
   createdAt: string;
 }
 
@@ -253,7 +253,7 @@ export class GitHubAdapter implements StorageAdapter {
     return {
       id,
       name: ghMilestone.title,
-      status: ghMilestone.state === 'CLOSED' ? 'done' : 'pending',
+      status: ghMilestone.state === 'closed' ? 'done' : 'pending',
       createdAt: ghMilestone.createdAt,
       updatedAt: ghMilestone.createdAt, // GH milestones don't have updatedAt
     };
