@@ -770,9 +770,10 @@ describe('cmdPmList', () => {
     await cmdPmList(ctx, []);
 
     expect(ctx.ui.jsonData.length).toBe(1);
-    expect(ctx.ui.jsonData[0]).toHaveProperty('teams');
-    expect(ctx.ui.jsonData[0]).toHaveProperty('currentTeamId');
-    expect(Array.isArray(ctx.ui.jsonData[0].teams)).toBe(true);
+    const data = ctx.ui.jsonData[0] as { teams: unknown[]; currentTeamId: string | null };
+    expect(data).toHaveProperty('teams');
+    expect(data).toHaveProperty('currentTeamId');
+    expect(Array.isArray(data.teams)).toBe(true);
   });
 });
 

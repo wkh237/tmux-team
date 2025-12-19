@@ -533,16 +533,144 @@ describe('cmdTalk - --wait mode', () => {
     }
   });
 
-  it('errors when using --wait with all target', async () => {
+  it('supports wait mode with all target (parallel polling)', async () => {
+    // Create mock tmux that returns markers for each agent after a delay
+    const tmux = createMockTmux();
+    let captureCount = 0;
+    const markersByPane: Record<string, string> = {};
+
+    // Mock send to capture the marker for each pane
+    tmux.send = (pane: string, msg: string) => {
+      const match = msg.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      if (match) {
+        markersByPane[pane] = match[0];
+      }
+    };
+
+    // Mock capture to return the marker after first poll
+    tmux.capture = (pane: string) => {
+      captureCount++;
+      // Return marker on second capture for each pane
+      if (captureCount > 3 && markersByPane[pane]) {
+        return `Response from agent\n${markersByPane[pane]}`;
+      }
+      return 'working...';
+    };
+
     const ui = createMockUI();
+    const paths = createTestPaths(testDir);
     const ctx = createContext({
       ui,
-      paths: createTestPaths(testDir),
-      flags: { wait: true },
+      tmux,
+      paths,
+      flags: { wait: true, timeout: 5 },
+      config: {
+        defaults: { timeout: 5, pollInterval: 0.05, captureLines: 100 },
+        paneRegistry: {
+          codex: { pane: '10.1' },
+          gemini: { pane: '10.2' },
+        },
+      },
     });
 
-    await expect(cmdTalk(ctx, 'all', 'Hello')).rejects.toThrow('exit(1)');
-    expect(ui.errors[0]).toContain('Wait mode is not supported');
+    await cmdTalk(ctx, 'all', 'Hello');
+
+    // Should have captured both panes
+    expect(captureCount).toBeGreaterThan(2);
+  });
+
+  it('handles partial timeout in wait mode with all target', async () => {
+    const tmux = createMockTmux();
+    const markersByPane: Record<string, string> = {};
+
+    tmux.send = (pane: string, msg: string) => {
+      const match = msg.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      if (match) {
+        markersByPane[pane] = match[0];
+      }
+    };
+
+    // Only pane 10.1 responds, 10.2 times out
+    tmux.capture = (pane: string) => {
+      if (pane === '10.1' && markersByPane[pane]) {
+        return `Response from codex\n${markersByPane[pane]}`;
+      }
+      return 'still working...';
+    };
+
+    const ui = createMockUI();
+    const paths = createTestPaths(testDir);
+    const ctx = createContext({
+      ui,
+      tmux,
+      paths,
+      flags: { wait: true, timeout: 0.1, json: true },
+      config: {
+        defaults: { timeout: 0.1, pollInterval: 0.02, captureLines: 100 },
+        paneRegistry: {
+          codex: { pane: '10.1' },
+          gemini: { pane: '10.2' },
+        },
+      },
+    });
+
+    try {
+      await cmdTalk(ctx, 'all', 'Hello');
+    } catch {
+      // Expected timeout exit
+    }
+
+    // Should have JSON output with both results
+    expect(ui.jsonOutput.length).toBe(1);
+    const result = ui.jsonOutput[0] as {
+      summary: { completed: number; timeout: number };
+      results: Array<{ agent: string; status: string }>;
+    };
+    expect(result.summary.completed).toBe(1);
+    expect(result.summary.timeout).toBe(1);
+    expect(result.results.find((r) => r.agent === 'codex')?.status).toBe('completed');
+    expect(result.results.find((r) => r.agent === 'gemini')?.status).toBe('timeout');
+  });
+
+  it('uses unique nonces per agent in broadcast', async () => {
+    const tmux = createMockTmux();
+    const nonces: string[] = [];
+
+    tmux.send = (_pane: string, msg: string) => {
+      const match = msg.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      if (match) {
+        nonces.push(match[1]);
+      }
+    };
+
+    // Return markers immediately
+    tmux.capture = (pane: string) => {
+      const idx = pane === '10.1' ? 0 : 1;
+      if (nonces[idx]) {
+        return `Response\n{tmux-team-end:${nonces[idx]}}`;
+      }
+      return '';
+    };
+
+    const paths = createTestPaths(testDir);
+    const ctx = createContext({
+      tmux,
+      paths,
+      flags: { wait: true, timeout: 5 },
+      config: {
+        defaults: { timeout: 5, pollInterval: 0.02, captureLines: 100 },
+        paneRegistry: {
+          codex: { pane: '10.1' },
+          gemini: { pane: '10.2' },
+        },
+      },
+    });
+
+    await cmdTalk(ctx, 'all', 'Hello');
+
+    // Each agent should have a unique nonce
+    expect(nonces.length).toBe(2);
+    expect(nonces[0]).not.toBe(nonces[1]);
   });
 });
 

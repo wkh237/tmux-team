@@ -2,7 +2,7 @@
 // talk command - send message to agent(s)
 // ─────────────────────────────────────────────────────────────
 
-import type { Context } from '../types.js';
+import type { Context, PaneEntry } from '../types.js';
 import type { WaitResult } from '../types.js';
 import { ExitCodes } from '../exits.js';
 import { colors } from '../ui.js';
@@ -25,6 +25,38 @@ function makeNonce(): string {
 function renderWaitLine(agent: string, elapsedSeconds: number): string {
   const s = Math.max(0, Math.floor(elapsedSeconds));
   return `⏳ Waiting for ${agent}... (${s}s)`;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Types for broadcast wait mode
+// ─────────────────────────────────────────────────────────────
+
+interface AgentWaitState {
+  agent: string;
+  pane: string;
+  requestId: string;
+  nonce: string;
+  marker: string;
+  baseline: string;
+  status: 'pending' | 'completed' | 'timeout' | 'error';
+  response?: string;
+  error?: string;
+  elapsedMs?: number;
+}
+
+interface BroadcastWaitResult {
+  target: 'all';
+  mode: 'wait';
+  self?: string;
+  identityWarning?: string;
+  summary: {
+    total: number;
+    completed: number;
+    timeout: number;
+    error: number;
+    skipped: number;
+  };
+  results: AgentWaitState[];
 }
 
 /**
@@ -54,11 +86,6 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
   const { ui, config, tmux, flags, exit } = ctx;
   const waitEnabled = Boolean(flags.wait) || config.mode === 'wait';
 
-  if (waitEnabled && target === 'all') {
-    ui.error("Wait mode is not supported with 'all' yet. Send to one agent at a time.");
-    exit(ExitCodes.ERROR);
-  }
-
   if (target === 'all') {
     const agents = Object.entries(config.paneRegistry);
     if (agents.length === 0) {
@@ -78,38 +105,47 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
       await sleepMs(flags.delay * 1000);
     }
 
-    const results: { agent: string; pane: string; status: string }[] = [];
+    // Filter out self
+    const targetAgents = agents.filter(([name]) => name !== self);
+    const skippedSelf = agents.length !== targetAgents.length;
 
-    for (const [name, data] of agents) {
-      // Skip sending to self
-      if (name === self) {
-        results.push({ agent: name, pane: data.pane, status: 'skipped (self)' });
-        if (!flags.json) {
-          console.log(`${colors.dim('○')} Skipped ${colors.cyan(name)} (self)`);
-        }
-        continue;
-      }
+    if (!waitEnabled) {
+      // Non-wait mode: fire and forget
+      const results: { agent: string; pane: string; status: string }[] = [];
 
-      try {
-        // Build message with preamble, then apply Gemini filter
-        let msg = buildMessage(message, name, ctx);
-        if (name === 'gemini') msg = msg.replace(/!/g, '');
-        tmux.send(data.pane, msg);
-        results.push({ agent: name, pane: data.pane, status: 'sent' });
+      if (skippedSelf) {
+        const selfData = config.paneRegistry[self];
+        results.push({ agent: self, pane: selfData?.pane || '', status: 'skipped (self)' });
         if (!flags.json) {
-          console.log(`${colors.green('→')} Sent to ${colors.cyan(name)} (${data.pane})`);
-        }
-      } catch {
-        results.push({ agent: name, pane: data.pane, status: 'failed' });
-        if (!flags.json) {
-          ui.warn(`Failed to send to ${name}`);
+          console.log(`${colors.dim('○')} Skipped ${colors.cyan(self)} (self)`);
         }
       }
+
+      for (const [name, data] of targetAgents) {
+        try {
+          let msg = buildMessage(message, name, ctx);
+          if (name === 'gemini') msg = msg.replace(/!/g, '');
+          tmux.send(data.pane, msg);
+          results.push({ agent: name, pane: data.pane, status: 'sent' });
+          if (!flags.json) {
+            console.log(`${colors.green('→')} Sent to ${colors.cyan(name)} (${data.pane})`);
+          }
+        } catch {
+          results.push({ agent: name, pane: data.pane, status: 'failed' });
+          if (!flags.json) {
+            ui.warn(`Failed to send to ${name}`);
+          }
+        }
+      }
+
+      if (flags.json) {
+        ui.json({ target: 'all', self, identityWarning, results });
+      }
+      return;
     }
 
-    if (flags.json) {
-      ui.json({ target: 'all', self, identityWarning, results });
-    }
+    // Wait mode: parallel polling
+    await cmdTalkAllWait(ctx, targetAgents, message, self, identityWarning, skippedSelf);
     return;
   }
 
@@ -275,5 +311,287 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
   } finally {
     process.removeListener('SIGINT', onSigint);
     clearActiveRequest(ctx.paths, target, requestId);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Broadcast wait mode: parallel polling for all agents
+// ─────────────────────────────────────────────────────────────
+
+async function cmdTalkAllWait(
+  ctx: Context,
+  targetAgents: [string, PaneEntry][],
+  message: string,
+  self: string,
+  identityWarning: string | undefined,
+  skippedSelf: boolean
+): Promise<void> {
+  const { ui, config, tmux, flags, exit, paths } = ctx;
+  const timeoutSeconds = flags.timeout ?? config.defaults.timeout;
+  const pollIntervalSeconds = Math.max(0.1, config.defaults.pollInterval);
+  const captureLines = config.defaults.captureLines;
+
+  // Best-effort state cleanup
+  cleanupState(paths, 60 * 60);
+
+  // Initialize wait state for each agent with unique nonces
+  const agentStates: AgentWaitState[] = [];
+
+  if (!flags.json) {
+    console.log(
+      `${colors.cyan('→')} Broadcasting to ${targetAgents.length} agent(s) (wait mode)...`
+    );
+  }
+
+  // Phase 1: Send messages to all agents and capture baselines
+  for (const [name, data] of targetAgents) {
+    const requestId = makeRequestId();
+    const nonce = makeNonce(); // Unique nonce per agent (#19)
+    const marker = `{tmux-team-end:${nonce}}`;
+
+    let baseline = '';
+    try {
+      baseline = tmux.capture(data.pane, captureLines);
+    } catch {
+      agentStates.push({
+        agent: name,
+        pane: data.pane,
+        requestId,
+        nonce,
+        marker,
+        baseline: '',
+        status: 'error',
+        error: `Failed to capture pane ${data.pane}`,
+      });
+      if (!flags.json) {
+        ui.warn(`Failed to capture ${name} (${data.pane})`);
+      }
+      continue;
+    }
+
+    // Build and send message
+    const messageWithPreamble = buildMessage(message, name, ctx);
+    const fullMessage = `${messageWithPreamble}\n\n[IMPORTANT: When your response is complete, print exactly: ${marker}]`;
+    const msg = name === 'gemini' ? fullMessage.replace(/!/g, '') : fullMessage;
+
+    try {
+      tmux.send(data.pane, msg);
+      setActiveRequest(paths, name, {
+        id: requestId,
+        nonce,
+        pane: data.pane,
+        startedAtMs: Date.now(),
+      });
+      agentStates.push({
+        agent: name,
+        pane: data.pane,
+        requestId,
+        nonce,
+        marker,
+        baseline,
+        status: 'pending',
+      });
+      if (!flags.json) {
+        console.log(`  ${colors.green('→')} Sent to ${colors.cyan(name)} (${data.pane})`);
+      }
+    } catch {
+      agentStates.push({
+        agent: name,
+        pane: data.pane,
+        requestId,
+        nonce,
+        marker,
+        baseline,
+        status: 'error',
+        error: `Failed to send to pane ${data.pane}`,
+      });
+      if (!flags.json) {
+        ui.warn(`Failed to send to ${name}`);
+      }
+    }
+  }
+
+  // Track pending agents
+  const pendingAgents = () => agentStates.filter((s) => s.status === 'pending');
+
+  if (pendingAgents().length === 0) {
+    // All failed to send, output results and exit
+    outputBroadcastResults(ctx, agentStates, self, identityWarning, skippedSelf);
+    return;
+  }
+
+  const startedAt = Date.now();
+  let lastLogAt = 0;
+  const isTTY = process.stdout.isTTY && !flags.json;
+
+  // SIGINT handler: cleanup ALL active requests (#18)
+  const onSigint = (): void => {
+    for (const state of agentStates) {
+      clearActiveRequest(paths, state.agent, state.requestId);
+    }
+    if (!flags.json) {
+      process.stdout.write('\n');
+      ui.error('Interrupted.');
+    }
+    // Output partial results
+    outputBroadcastResults(ctx, agentStates, self, identityWarning, skippedSelf);
+    exit(ExitCodes.ERROR);
+  };
+
+  process.once('SIGINT', onSigint);
+
+  try {
+    // Phase 2: Poll all agents in parallel until all complete or timeout
+    while (pendingAgents().length > 0) {
+      const elapsedSeconds = (Date.now() - startedAt) / 1000;
+
+      // Check timeout for each pending agent (#17)
+      for (const state of pendingAgents()) {
+        if (elapsedSeconds >= timeoutSeconds) {
+          state.status = 'timeout';
+          state.error = `Timed out after ${Math.floor(timeoutSeconds)}s`;
+          state.elapsedMs = Math.floor(elapsedSeconds * 1000);
+          clearActiveRequest(paths, state.agent, state.requestId);
+          if (!flags.json) {
+            console.log(
+              `  ${colors.red('✗')} ${colors.cyan(state.agent)} timed out (${Math.floor(elapsedSeconds)}s)`
+            );
+          }
+        }
+      }
+
+      // All done?
+      if (pendingAgents().length === 0) break;
+
+      // Progress logging (non-TTY)
+      if (!flags.json && !isTTY) {
+        const now = Date.now();
+        if (now - lastLogAt >= 5000) {
+          lastLogAt = now;
+          const pending = pendingAgents()
+            .map((s) => s.agent)
+            .join(', ');
+          console.error(
+            `[tmux-team] Waiting for: ${pending} (${Math.floor(elapsedSeconds)}s elapsed)`
+          );
+        }
+      }
+
+      await sleepMs(pollIntervalSeconds * 1000);
+
+      // Poll each pending agent
+      for (const state of pendingAgents()) {
+        let output = '';
+        try {
+          output = tmux.capture(state.pane, captureLines);
+        } catch {
+          state.status = 'error';
+          state.error = `Failed to capture pane ${state.pane}`;
+          state.elapsedMs = Date.now() - startedAt;
+          clearActiveRequest(paths, state.agent, state.requestId);
+          if (!flags.json) {
+            ui.warn(`Failed to capture ${state.agent}`);
+          }
+          continue;
+        }
+
+        const markerIndex = output.indexOf(state.marker);
+        if (markerIndex === -1) continue;
+
+        // Found marker - extract response
+        let startIndex = 0;
+        const baselineIndex = state.baseline ? output.lastIndexOf(state.baseline) : -1;
+        if (baselineIndex !== -1) {
+          startIndex = baselineIndex + state.baseline.length;
+        }
+
+        state.response = output.slice(startIndex, markerIndex).trim();
+        state.status = 'completed';
+        state.elapsedMs = Date.now() - startedAt;
+        clearActiveRequest(paths, state.agent, state.requestId);
+
+        if (!flags.json) {
+          console.log(
+            `  ${colors.green('✓')} ${colors.cyan(state.agent)} completed (${Math.floor(state.elapsedMs / 1000)}s)`
+          );
+        }
+      }
+    }
+  } finally {
+    process.removeListener('SIGINT', onSigint);
+    // Cleanup any remaining active requests
+    for (const state of agentStates) {
+      clearActiveRequest(paths, state.agent, state.requestId);
+    }
+  }
+
+  // Output results
+  outputBroadcastResults(ctx, agentStates, self, identityWarning, skippedSelf);
+
+  // Exit with appropriate code
+  const hasTimeout = agentStates.some((s) => s.status === 'timeout');
+  const hasError = agentStates.some((s) => s.status === 'error');
+  if (hasTimeout) {
+    exit(ExitCodes.TIMEOUT);
+  } else if (hasError) {
+    exit(ExitCodes.ERROR);
+  }
+}
+
+function outputBroadcastResults(
+  ctx: Context,
+  agentStates: AgentWaitState[],
+  self: string,
+  identityWarning: string | undefined,
+  skippedSelf: boolean
+): void {
+  const { ui, flags } = ctx;
+
+  const summary = {
+    total: agentStates.length + (skippedSelf ? 1 : 0),
+    completed: agentStates.filter((s) => s.status === 'completed').length,
+    timeout: agentStates.filter((s) => s.status === 'timeout').length,
+    error: agentStates.filter((s) => s.status === 'error').length,
+    skipped: skippedSelf ? 1 : 0,
+  };
+
+  if (flags.json) {
+    const result: BroadcastWaitResult = {
+      target: 'all',
+      mode: 'wait',
+      self,
+      identityWarning,
+      summary,
+      results: agentStates.map((s) => ({
+        agent: s.agent,
+        pane: s.pane,
+        requestId: s.requestId,
+        nonce: s.nonce,
+        marker: s.marker,
+        baseline: '', // Don't include baseline in output
+        status: s.status,
+        response: s.response,
+        error: s.error,
+        elapsedMs: s.elapsedMs,
+      })),
+    };
+    ui.json(result);
+    return;
+  }
+
+  // Human-readable output
+  console.log();
+  console.log(
+    `${colors.cyan('Summary:')} ${summary.completed} completed, ${summary.timeout} timeout, ${summary.error} error, ${summary.skipped} skipped`
+  );
+  console.log();
+
+  // Print responses
+  for (const state of agentStates) {
+    if (state.status === 'completed' && state.response) {
+      console.log(colors.cyan(`─── Response from ${state.agent} (${state.pane}) ───`));
+      console.log(state.response);
+      console.log();
+    }
   }
 }
