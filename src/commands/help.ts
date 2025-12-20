@@ -78,6 +78,6 @@ ${colors.yellow('CONFIG')}
 ${colors.yellow('CHANGE MODE')}
   tmux-team config set mode wait            ${colors.dim('Enable wait mode (local)')}
   tmux-team config set mode polling         ${colors.dim('Enable polling mode (local)')}
-  tmux-team config set timeout 120          ${colors.dim('Set timeout to 120s')}
+  tmux-team config set preambleMode disabled ${colors.dim('Disable preambles (local)')}
 `);
 }

@@ -24,7 +24,7 @@ Unlike heavyweight frameworks that require specific SDKs or cloud infrastructure
 - **Model Agnostic** — Works with Claude Code, Gemini CLI, Codex, Aider, or any CLI tool
 - **Zero Infrastructure** — No servers, no MCP setup, no complex configuration. If it runs in tmux, tmux-team can talk to it
 - **Whitelist-Friendly** — A single `tmux-team talk:*` prefix covers all operations, keeping AI tool permissions simple and safe
-- **Local-First** — Per-project `tmux-team.json` lives with your repo; global config in `~/.tmux-team/` (v2)
+- **Local-First** — Per-project `tmux-team.json` lives with your repo; global config in `~/.config/tmux-team/`
 
 ---
 
@@ -151,32 +151,56 @@ Once the plugin is installed, coordinate directly from your Claude Code session:
 
 ### Local Config (`./tmux-team.json`)
 
-Per-project agent registry:
+Per-project agent registry with optional preambles and permissions:
 
 ```json
 {
-  "claude": { "pane": "10.0", "remark": "Frontend specialist" },
-  "codex": { "pane": "10.1", "remark": "Backend engineer" }
+  "claude": {
+    "pane": "10.0",
+    "remark": "Frontend specialist",
+    "preamble": "Focus on UI components. Ask for review before merging.",
+    "deny": ["pm:task:update(status)"]
+  },
+  "codex": {
+    "pane": "10.1",
+    "remark": "Code reviewer",
+    "preamble": "You are the code quality guard. Review changes thoroughly."
+  }
 }
 ```
 
+| Field | Description |
+|-------|-------------|
+| `pane` | tmux pane ID (required) |
+| `remark` | Description shown in `list` |
+| `preamble` | Hidden instructions prepended to every message |
+| `deny` | Permission patterns to block (e.g., `pm:task:update(status)`) |
+
 ### Global Config (`~/.config/tmux-team/config.json`)
+
+Global settings that apply to all projects:
 
 ```json
 {
   "mode": "polling",
   "preambleMode": "always",
   "defaults": {
-    "timeout": 60000,
-    "pollInterval": 1000
-  },
-  "agents": {
-    "gemini": {
-      "preamble": "Do not edit files until explicitly asked."
-    }
+    "timeout": 180,
+    "pollInterval": 1,
+    "captureLines": 100
   }
 }
 ```
+
+| Field | Description |
+|-------|-------------|
+| `mode` | Default mode: `polling` (manual check) or `wait` (auto-wait) |
+| `preambleMode` | `always` (inject preambles) or `disabled` |
+| `defaults.timeout` | Default --wait timeout in seconds |
+| `defaults.pollInterval` | Polling interval in seconds |
+| `defaults.captureLines` | Default lines for `check` command |
+
+> **Note:** Agent-specific config (preamble, deny) lives in local `tmux-team.json` only.
 
 ---
 
@@ -194,17 +218,47 @@ tmux-team talk codex "message" --wait --timeout 60
 
 ### 📜 Agent Preambles
 
-Inject hidden instructions into every message:
+Inject hidden instructions into every message via local `tmux-team.json`:
 
 ```json
 {
-  "agents": {
-    "gemini": {
-      "preamble": "Always explain your reasoning. Do not edit files directly."
-    }
+  "gemini": {
+    "pane": "10.2",
+    "preamble": "Always explain your reasoning. Do not edit files directly."
   }
 }
 ```
+
+Use the CLI to manage preambles:
+
+```bash
+tmux-team preamble show gemini      # View current preamble
+tmux-team preamble set gemini "..." # Set preamble
+tmux-team preamble clear gemini     # Remove preamble
+```
+
+### 🔐 Agent Permissions
+
+Control what agents can do with `deny` patterns in `tmux-team.json`:
+
+```json
+{
+  "claude": {
+    "pane": "10.0",
+    "deny": ["pm:task:update(status)", "pm:milestone:update(status)"]
+  }
+}
+```
+
+Pattern format: `pm:<resource>:<action>(<fields>)`
+
+| Pattern | Effect |
+|---------|--------|
+| `pm:task:update(status)` | Block status changes only |
+| `pm:task:update(*)` | Block all task updates |
+| `pm:task:update` | Block entire update action |
+
+Permissions are enforced via pane identity—agents are identified by which tmux pane they run in, not environment variables.
 
 ### 🎯 Project Management
 
@@ -288,7 +342,7 @@ tmux-team <command> [arguments]
 tmux-team config show                  # Show current config
 tmux-team config set <key> <value>     # Set a config value
 tmux-team config set mode wait         # Enable wait mode
-tmux-team config set timeout 120       # Set timeout to 120s
+tmux-team config set preambleMode disabled  # Disable preambles
 tmux-team config clear <key>           # Clear a config value
 tmux-team config --global set ...      # Modify global config
 ```
