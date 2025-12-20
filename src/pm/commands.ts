@@ -292,17 +292,49 @@ async function cmdMilestoneDone(ctx: Context, args: string[]): Promise<void> {
 async function cmdMilestoneDoc(ctx: Context, args: string[]): Promise<void> {
   const { ui, flags } = ctx;
 
-  const id = args[0];
+  // Parse arguments
+  let id: string | undefined;
+  let body: string | undefined;
+  let bodyFile: string | undefined;
+  let showRef = false;
+  let editMode = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === 'ref') {
+      showRef = true;
+    } else if (arg === '--edit' || arg === '-e') {
+      editMode = true;
+    } else if (arg === '--body' || arg === '-b') {
+      body = args[++i];
+      if (body === undefined) {
+        ui.error('--body requires a value');
+        ctx.exit(ExitCodes.ERROR);
+      }
+    } else if (arg.startsWith('--body=')) {
+      body = arg.slice(7);
+    } else if (arg === '--body-file' || arg === '-f') {
+      bodyFile = args[++i];
+      if (bodyFile === undefined) {
+        ui.error('--body-file requires a value');
+        ctx.exit(ExitCodes.ERROR);
+      }
+    } else if (arg.startsWith('--body-file=')) {
+      bodyFile = arg.slice(12);
+    } else if (!id) {
+      id = arg;
+    }
+  }
+
   if (!id) {
-    ui.error('Usage: tmux-team pm milestone doc <id> [ref | --edit]');
+    ui.error('Usage: tmux-team pm milestone doc <id> [ref | --edit | --body <text> | --body-file <path>]');
     ctx.exit(ExitCodes.ERROR);
   }
 
-  const showRef = args.includes('ref');
-  const editMode = args.includes('--edit') || args.includes('-e');
+  const isWriteMode = editMode || body !== undefined || bodyFile !== undefined;
 
   // Check permission based on mode
-  if (editMode) {
+  if (isWriteMode) {
     requirePermission(ctx, PermissionChecks.docUpdate());
   } else {
     requirePermission(ctx, PermissionChecks.docRead());
@@ -322,6 +354,25 @@ async function cmdMilestoneDoc(ctx: Context, args: string[]): Promise<void> {
     } else {
       console.log(milestone.docPath || '(no docPath)');
     }
+    return;
+  }
+
+  // --body: set content directly
+  if (body !== undefined) {
+    await storage.setMilestoneDoc(id, body);
+    ui.success(`Saved documentation for milestone #${id}`);
+    return;
+  }
+
+  // --body-file: read content from file
+  if (bodyFile !== undefined) {
+    if (!fs.existsSync(bodyFile)) {
+      ui.error(`File not found: ${bodyFile}`);
+      ctx.exit(ExitCodes.ERROR);
+    }
+    const content = fs.readFileSync(bodyFile, 'utf-8');
+    await storage.setMilestoneDoc(id, content);
+    ui.success(`Saved documentation for milestone #${id} (from ${bodyFile})`);
     return;
   }
 
@@ -624,17 +675,49 @@ async function cmdTaskDone(ctx: Context, args: string[]): Promise<void> {
 async function cmdTaskDoc(ctx: Context, args: string[]): Promise<void> {
   const { ui, flags } = ctx;
 
-  const id = args[0];
+  // Parse arguments
+  let id: string | undefined;
+  let body: string | undefined;
+  let bodyFile: string | undefined;
+  let showRef = false;
+  let editMode = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === 'ref') {
+      showRef = true;
+    } else if (arg === '--edit' || arg === '-e') {
+      editMode = true;
+    } else if (arg === '--body' || arg === '-b') {
+      body = args[++i];
+      if (body === undefined) {
+        ui.error('--body requires a value');
+        ctx.exit(ExitCodes.ERROR);
+      }
+    } else if (arg.startsWith('--body=')) {
+      body = arg.slice(7);
+    } else if (arg === '--body-file' || arg === '-f') {
+      bodyFile = args[++i];
+      if (bodyFile === undefined) {
+        ui.error('--body-file requires a value');
+        ctx.exit(ExitCodes.ERROR);
+      }
+    } else if (arg.startsWith('--body-file=')) {
+      bodyFile = arg.slice(12);
+    } else if (!id) {
+      id = arg;
+    }
+  }
+
   if (!id) {
-    ui.error('Usage: tmux-team pm task doc <id> [ref | --edit]');
+    ui.error('Usage: tmux-team pm task doc <id> [ref | --edit | --body <text> | --body-file <path>]');
     ctx.exit(ExitCodes.ERROR);
   }
 
-  const showRef = args.includes('ref');
-  const editMode = args.includes('--edit') || args.includes('-e');
+  const isWriteMode = editMode || body !== undefined || bodyFile !== undefined;
 
   // Check permission based on mode
-  if (editMode) {
+  if (isWriteMode) {
     requirePermission(ctx, PermissionChecks.docUpdate());
   } else {
     requirePermission(ctx, PermissionChecks.docRead());
@@ -654,6 +737,25 @@ async function cmdTaskDoc(ctx: Context, args: string[]): Promise<void> {
     } else {
       console.log(task.docPath || '(no docPath)');
     }
+    return;
+  }
+
+  // --body: set content directly
+  if (body !== undefined) {
+    await storage.setTaskDoc(id, body);
+    ui.success(`Saved documentation for task #${id}`);
+    return;
+  }
+
+  // --body-file: read content from file
+  if (bodyFile !== undefined) {
+    if (!fs.existsSync(bodyFile)) {
+      ui.error(`File not found: ${bodyFile}`);
+      ctx.exit(ExitCodes.ERROR);
+    }
+    const content = fs.readFileSync(bodyFile, 'utf-8');
+    await storage.setTaskDoc(id, content);
+    ui.success(`Saved documentation for task #${id} (from ${bodyFile})`);
     return;
   }
 
@@ -809,13 +911,14 @@ ${colors.yellow('COMMANDS')}
   ${colors.green('milestone')} add <name> [-d <desc>]   Add milestone (shorthand: m)
   ${colors.green('milestone')} list                    List milestones
   ${colors.green('milestone')} done <id>               Mark milestone complete
-  ${colors.green('milestone')} doc <id> [ref|--edit]   Print doc (ref=path, -e=edit)
+  ${colors.green('milestone')} doc <id> [options]       Print/update doc
+                                     ref: show path, --edit: edit, --body: set text, --body-file: set from file
   ${colors.green('task')} add <title> [--milestone]    Add task (shorthand: t)
   ${colors.green('task')} list [--status] [--milestone] List tasks
   ${colors.green('task')} show <id>                    Show task details
   ${colors.green('task')} update <id> --status <s>     Update task status
   ${colors.green('task')} done <id>                    Mark task complete
-  ${colors.green('task')} doc <id> [ref|--edit]        Print doc (ref=path, -e=edit)
+  ${colors.green('task')} doc <id> [options]            Print/update doc (same options as milestone doc)
   ${colors.green('log')} [--limit <n>]                 Show audit event log
 
 ${colors.yellow('BACKENDS')}

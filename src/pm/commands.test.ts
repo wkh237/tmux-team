@@ -476,6 +476,51 @@ describe('cmdPmMilestone', () => {
       })
     );
   });
+
+  it('sets milestone documentation with --body flag', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmMilestone(ctx, ['add', 'Sprint 1']);
+    await cmdPmMilestone(ctx, ['doc', '1', '--body', 'New milestone content']);
+    expect(ctx.ui.logs.some((l) => l.includes('Saved'))).toBe(true);
+
+    // Verify the content was saved
+    const jsonCtx = createMockContext(globalDir, { cwd: projectDir, json: true });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+    await cmdPmMilestone(jsonCtx, ['doc', '1']);
+
+    expect(jsonCtx.ui.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        doc: 'New milestone content',
+      })
+    );
+  });
+
+  it('sets milestone documentation with --body-file flag', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmMilestone(ctx, ['add', 'Sprint 1']);
+
+    // Create a temp file with content
+    const tempFile = path.join(projectDir, 'milestone-doc.md');
+    fs.writeFileSync(tempFile, '# Milestone content from file');
+
+    await cmdPmMilestone(ctx, ['doc', '1', '--body-file', tempFile]);
+    expect(ctx.ui.logs.some((l) => l.includes('Saved') && l.includes('from'))).toBe(true);
+
+    // Verify the content was saved
+    const jsonCtx = createMockContext(globalDir, { cwd: projectDir, json: true });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+    await cmdPmMilestone(jsonCtx, ['doc', '1']);
+
+    expect(jsonCtx.ui.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        doc: expect.stringContaining('Milestone content from file'),
+      })
+    );
+  });
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -749,6 +794,58 @@ describe('cmdPmTask doc', () => {
 
     await expect(cmdPmTask(ctx, ['doc', '999'])).rejects.toThrow('Exit');
     expect(ctx.ui.errors[0]).toContain('not found');
+  });
+
+  it('sets documentation with --body flag', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmTask(ctx, ['doc', '1', '--body', 'New content via --body']);
+    expect(ctx.ui.logs.some((l) => l.includes('Saved'))).toBe(true);
+
+    // Verify the content was saved
+    const jsonCtx = createMockContext(globalDir, { cwd: projectDir, json: true });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+    await cmdPmTask(jsonCtx, ['doc', '1']);
+
+    expect(jsonCtx.ui.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        doc: 'New content via --body',
+      })
+    );
+  });
+
+  it('sets documentation with --body-file flag', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    // Create a temp file with content
+    const tempFile = path.join(projectDir, 'test-doc.md');
+    fs.writeFileSync(tempFile, '# Content from file\n\nThis came from a file.');
+
+    await cmdPmTask(ctx, ['doc', '1', '--body-file', tempFile]);
+    expect(ctx.ui.logs.some((l) => l.includes('Saved') && l.includes('from'))).toBe(true);
+
+    // Verify the content was saved
+    const jsonCtx = createMockContext(globalDir, { cwd: projectDir, json: true });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+    await cmdPmTask(jsonCtx, ['doc', '1']);
+
+    expect(jsonCtx.ui.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        doc: expect.stringContaining('Content from file'),
+      })
+    );
+  });
+
+  it('exits with error for non-existent --body-file', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await expect(cmdPmTask(ctx, ['doc', '1', '--body-file', '/nonexistent/file.md'])).rejects.toThrow(
+      'Exit'
+    );
+    expect(ctx.ui.errors[0]).toContain('File not found');
   });
 });
 

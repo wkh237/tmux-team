@@ -342,6 +342,8 @@ tmux-team pm m done <id>               # Mark milestone complete
 tmux-team pm m doc <id>                # Print milestone documentation
 tmux-team pm m doc <id> --edit         # Edit doc in $EDITOR
 tmux-team pm m doc <id> ref            # Print doc path/reference
+tmux-team pm m doc <id> --body "..."   # Set doc content directly
+tmux-team pm m doc <id> --body-file x  # Set doc content from file
 ```
 
 #### pm task (shorthand: `pm t`)
@@ -362,6 +364,8 @@ tmux-team pm t done <id>               # Mark task complete
 tmux-team pm t doc <id>                # Print task documentation
 tmux-team pm t doc <id> --edit         # Edit doc in $EDITOR
 tmux-team pm t doc <id> ref            # Print doc path/reference
+tmux-team pm t doc <id> --body "..."   # Set doc content directly
+tmux-team pm t doc <id> --body-file x  # Set doc content from file
 ```
 
 #### pm log
