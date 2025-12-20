@@ -389,4 +389,88 @@ describe('loadConfig', () => {
     // But preamble should still be merged
     expect(config.agents.codex?.preamble).toBe('Preamble only, no pane');
   });
+
+  it('local deny takes precedence over global deny (project-specific permissions)', () => {
+    // Global config has broad deny
+    const globalConfig = {
+      agents: {
+        claude: { deny: ['pm:task:update', 'pm:milestone:update'] }, // deny all updates
+      },
+    };
+    // Local config overrides with specific permissions
+    const localConfig = {
+      claude: { pane: '1.0', deny: ['pm:task:update(status)'] }, // only deny status updates
+    };
+
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockImplementation((p) => {
+      if (p === mockPaths.globalConfig) return JSON.stringify(globalConfig);
+      if (p === mockPaths.localConfig) return JSON.stringify(localConfig);
+      return '';
+    });
+
+    const config = loadConfig(mockPaths);
+
+    // Local deny REPLACES global deny (not merges)
+    expect(config.agents.claude?.deny).toEqual(['pm:task:update(status)']);
+    // NOT the global ['pm:task:update', 'pm:milestone:update']
+  });
+
+  it('ignores global agents when local config defines deny for same agent', () => {
+    const globalConfig = {
+      agents: {
+        codex: { preamble: 'Global preamble', deny: ['pm:task:delete'] },
+      },
+    };
+    const localConfig = {
+      codex: { pane: '1.1', preamble: 'Local preamble', deny: ['pm:task:update(status)'] },
+    };
+
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockImplementation((p) => {
+      if (p === mockPaths.globalConfig) return JSON.stringify(globalConfig);
+      if (p === mockPaths.localConfig) return JSON.stringify(localConfig);
+      return '';
+    });
+
+    const config = loadConfig(mockPaths);
+
+    // Both preamble and deny come from local config
+    expect(config.agents.codex?.preamble).toBe('Local preamble');
+    expect(config.agents.codex?.deny).toEqual(['pm:task:update(status)']);
+  });
+
+  it('local config defines project-specific agent roles without global pollution', () => {
+    // No global config
+    const localConfig = {
+      claude: {
+        pane: '1.0',
+        remark: 'Main implementer',
+        preamble: 'You implement features. Ask Codex for review.',
+        deny: ['pm:task:update(status)', 'pm:milestone:update(status)'],
+      },
+      codex: {
+        pane: '1.1',
+        remark: 'Code quality guard',
+        preamble: 'You review code. You can update task status.',
+        // No deny - codex can do everything
+      },
+    };
+
+    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
+
+    const config = loadConfig(mockPaths);
+
+    // Claude has deny rules
+    expect(config.agents.claude?.deny).toEqual([
+      'pm:task:update(status)',
+      'pm:milestone:update(status)',
+    ]);
+    expect(config.agents.claude?.preamble).toBe('You implement features. Ask Codex for review.');
+
+    // Codex has no deny rules (full access)
+    expect(config.agents.codex?.deny).toBeUndefined();
+    expect(config.agents.codex?.preamble).toBe('You review code. You can update task status.');
+  });
 });

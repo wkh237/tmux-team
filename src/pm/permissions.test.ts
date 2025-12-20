@@ -330,3 +330,103 @@ describe('resolveActor', () => {
     expect(result.source).toBe('env');
   });
 });
+
+describe('checkPermission with local config (integration)', () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+    delete process.env.TMUX;
+  });
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
+
+  // Helper to create config as if loaded from local tmux-team.json
+  function createConfigWithLocalPermissions(
+    localAgents: Record<string, { preamble?: string; deny?: string[] }>
+  ): ResolvedConfig {
+    return {
+      mode: 'polling',
+      preambleMode: 'always',
+      defaults: { timeout: 60, pollInterval: 1, captureLines: 100 },
+      agents: localAgents, // This simulates merged local config
+      paneRegistry: {},
+    };
+  }
+
+  it('enforces local deny rules for specific agent', () => {
+    process.env.TMT_AGENT_NAME = 'claude';
+
+    // Simulates local config with: claude has deny rules, codex does not
+    const config = createConfigWithLocalPermissions({
+      claude: { deny: ['pm:task:update(status)', 'pm:milestone:update(status)'] },
+      codex: { preamble: 'Code quality guard' }, // No deny
+    });
+
+    // Claude is blocked from status updates
+    expect(checkPermission(config, PermissionChecks.taskUpdate(['status'])).allowed).toBe(false);
+    expect(checkPermission(config, PermissionChecks.milestoneUpdate(['status'])).allowed).toBe(
+      false
+    );
+
+    // Claude can still do other things
+    expect(checkPermission(config, PermissionChecks.taskCreate()).allowed).toBe(true);
+    expect(checkPermission(config, PermissionChecks.taskList()).allowed).toBe(true);
+    expect(checkPermission(config, PermissionChecks.taskUpdate(['assignee'])).allowed).toBe(true);
+  });
+
+  it('allows agent without deny rules to do everything', () => {
+    process.env.TMT_AGENT_NAME = 'codex';
+
+    const config = createConfigWithLocalPermissions({
+      claude: { deny: ['pm:task:update(status)'] },
+      codex: { preamble: 'Code quality guard' }, // No deny
+    });
+
+    // Codex can do everything including status updates
+    expect(checkPermission(config, PermissionChecks.taskUpdate(['status'])).allowed).toBe(true);
+    expect(checkPermission(config, PermissionChecks.milestoneUpdate(['status'])).allowed).toBe(
+      true
+    );
+    expect(checkPermission(config, PermissionChecks.taskCreate()).allowed).toBe(true);
+    expect(checkPermission(config, PermissionChecks.taskDelete()).allowed).toBe(true);
+  });
+
+  it('project-specific permissions: implementer vs reviewer roles', () => {
+    // Real-world scenario: claude implements, codex reviews
+    const config = createConfigWithLocalPermissions({
+      claude: {
+        preamble: 'You implement features. Ask Codex for review before marking done.',
+        deny: ['pm:task:update(status)', 'pm:milestone:update(status)'],
+      },
+      codex: {
+        preamble: 'You are the code quality guard. Mark tasks done after reviewing.',
+        // No deny - codex can update status
+      },
+    });
+
+    // Claude cannot mark tasks done
+    process.env.TMT_AGENT_NAME = 'claude';
+    expect(checkPermission(config, PermissionChecks.taskUpdate(['status'])).allowed).toBe(false);
+
+    // Codex can mark tasks done
+    process.env.TMT_AGENT_NAME = 'codex';
+    expect(checkPermission(config, PermissionChecks.taskUpdate(['status'])).allowed).toBe(true);
+  });
+
+  it('returns correct result when permission denied', () => {
+    process.env.TMT_AGENT_NAME = 'claude';
+
+    const config = createConfigWithLocalPermissions({
+      claude: { deny: ['pm:task:update(status)'] },
+    });
+
+    const result = checkPermission(config, PermissionChecks.taskUpdate(['status']));
+
+    expect(result.allowed).toBe(false);
+    expect(result.actor).toBe('claude');
+    expect(result.source).toBe('env');
+  });
+});
