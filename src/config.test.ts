@@ -243,4 +243,150 @@ describe('loadConfig', () => {
       expect(parseError.cause).toBeInstanceOf(SyntaxError);
     }
   });
+
+  it('loads local preamble into agents config', () => {
+    const localConfig = {
+      claude: { pane: '1.0', preamble: 'Be helpful and concise' },
+    };
+
+    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
+
+    const config = loadConfig(mockPaths);
+
+    expect(config.agents.claude?.preamble).toBe('Be helpful and concise');
+    expect(config.paneRegistry.claude?.pane).toBe('1.0');
+  });
+
+  it('loads local deny into agents config', () => {
+    const localConfig = {
+      claude: { pane: '1.0', deny: ['pm:task:update(status)'] },
+    };
+
+    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
+
+    const config = loadConfig(mockPaths);
+
+    expect(config.agents.claude?.deny).toEqual(['pm:task:update(status)']);
+  });
+
+  it('local preamble overrides global preamble', () => {
+    const globalConfig = {
+      agents: { claude: { preamble: 'Global preamble' } },
+    };
+    const localConfig = {
+      claude: { pane: '1.0', preamble: 'Local preamble' },
+    };
+
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockImplementation((p) => {
+      if (p === mockPaths.globalConfig) return JSON.stringify(globalConfig);
+      if (p === mockPaths.localConfig) return JSON.stringify(localConfig);
+      return '';
+    });
+
+    const config = loadConfig(mockPaths);
+
+    expect(config.agents.claude?.preamble).toBe('Local preamble');
+  });
+
+  it('local deny replaces global deny', () => {
+    const globalConfig = {
+      agents: { claude: { deny: ['pm:task:update(status)', 'pm:milestone:update'] } },
+    };
+    const localConfig = {
+      claude: { pane: '1.0', deny: ['pm:task:create'] },
+    };
+
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockImplementation((p) => {
+      if (p === mockPaths.globalConfig) return JSON.stringify(globalConfig);
+      if (p === mockPaths.localConfig) return JSON.stringify(localConfig);
+      return '';
+    });
+
+    const config = loadConfig(mockPaths);
+
+    // Local deny replaces global deny entirely
+    expect(config.agents.claude?.deny).toEqual(['pm:task:create']);
+  });
+
+  it('preserves global preamble when local only has deny', () => {
+    const globalConfig = {
+      agents: { claude: { preamble: 'Global preamble' } },
+    };
+    const localConfig = {
+      claude: { pane: '1.0', deny: ['pm:task:update(status)'] },
+    };
+
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockImplementation((p) => {
+      if (p === mockPaths.globalConfig) return JSON.stringify(globalConfig);
+      if (p === mockPaths.localConfig) return JSON.stringify(localConfig);
+      return '';
+    });
+
+    const config = loadConfig(mockPaths);
+
+    expect(config.agents.claude?.preamble).toBe('Global preamble');
+    expect(config.agents.claude?.deny).toEqual(['pm:task:update(status)']);
+  });
+
+  it('local empty preamble clears global preamble', () => {
+    const globalConfig = {
+      agents: { claude: { preamble: 'Global preamble' } },
+    };
+    const localConfig = {
+      claude: { pane: '1.0', preamble: '' },
+    };
+
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockImplementation((p) => {
+      if (p === mockPaths.globalConfig) return JSON.stringify(globalConfig);
+      if (p === mockPaths.localConfig) return JSON.stringify(localConfig);
+      return '';
+    });
+
+    const config = loadConfig(mockPaths);
+
+    expect(config.agents.claude?.preamble).toBe('');
+  });
+
+  it('local empty deny clears global deny', () => {
+    const globalConfig = {
+      agents: { claude: { deny: ['pm:task:update(status)'] } },
+    };
+    const localConfig = {
+      claude: { pane: '1.0', deny: [] },
+    };
+
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockImplementation((p) => {
+      if (p === mockPaths.globalConfig) return JSON.stringify(globalConfig);
+      if (p === mockPaths.localConfig) return JSON.stringify(localConfig);
+      return '';
+    });
+
+    const config = loadConfig(mockPaths);
+
+    expect(config.agents.claude?.deny).toEqual([]);
+  });
+
+  it('skips entries without pane field in paneRegistry', () => {
+    const localConfig = {
+      claude: { pane: '1.0' },
+      codex: { preamble: 'Preamble only, no pane' },
+    };
+
+    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
+
+    const config = loadConfig(mockPaths);
+
+    expect(config.paneRegistry.claude?.pane).toBe('1.0');
+    expect(config.paneRegistry.codex).toBeUndefined();
+    // But preamble should still be merged
+    expect(config.agents.codex?.preamble).toBe('Preamble only, no pane');
+  });
 });

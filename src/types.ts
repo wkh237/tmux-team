@@ -10,6 +10,8 @@ export interface AgentConfig {
 export interface PaneEntry {
   pane: string;
   remark?: string;
+  preamble?: string; // Local preamble (overrides global)
+  deny?: string[]; // Local deny patterns (merged with global)
 }
 
 export interface ConfigDefaults {

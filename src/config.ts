@@ -155,8 +155,32 @@ export function loadConfig(paths: Paths): ResolvedConfig {
       if (localSettings.preambleMode) config.preambleMode = localSettings.preambleMode;
     }
 
-    // Set pane registry (filter out $config)
-    config.paneRegistry = paneEntries as LocalConfig;
+    // Set pane registry (only entries with valid pane field)
+    const validPaneEntries: LocalConfig = {};
+    for (const [agentName, entry] of Object.entries(paneEntries)) {
+      const paneEntry = entry as LocalConfig[string];
+      if (paneEntry.pane) {
+        validPaneEntries[agentName] = paneEntry;
+      }
+    }
+    config.paneRegistry = validPaneEntries;
+
+    // Merge local preamble/deny into agents config
+    for (const [agentName, entry] of Object.entries(paneEntries)) {
+      const paneEntry = entry as LocalConfig[string];
+      const hasPreamble = Object.prototype.hasOwnProperty.call(paneEntry, 'preamble');
+      const hasDeny = Object.prototype.hasOwnProperty.call(paneEntry, 'deny');
+
+      if (hasPreamble || hasDeny) {
+        const globalAgent = config.agents[agentName] ?? {};
+        config.agents[agentName] = {
+          // Local preamble overrides global (even if empty string to clear)
+          preamble: hasPreamble ? paneEntry.preamble : globalAgent.preamble,
+          // Local deny overrides global (even if empty array to clear)
+          deny: hasDeny ? paneEntry.deny : globalAgent.deny,
+        };
+      }
+    }
   }
 
   return config;
