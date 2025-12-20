@@ -412,7 +412,7 @@ describe('cmdTalk - --wait mode', () => {
     expect(ui.jsonOutput).toHaveLength(1);
     const output = ui.jsonOutput[0] as Record<string, unknown>;
     expect(output.status).toBe('completed');
-    expect(output.response).toBeDefined();
+    expect(output.response).toEqual(expect.stringContaining('Agent response here'));
   });
 
   it('returns timeout error with correct exit code', async () => {

@@ -40,7 +40,7 @@ describe('FSAdapter', () => {
       expect(team.name).toBe('My Project');
       expect(team.windowId).toBe('window-1');
       expect(team.id).toBe(path.basename(testDir));
-      expect(team.createdAt).toBeDefined();
+      expect(team.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
       // Verify file contents
       const teamFile = path.join(testDir, 'team.json');

@@ -240,7 +240,7 @@ describe('loadConfig', () => {
       expect(err).toBeInstanceOf(ConfigParseError);
       const parseError = err as ConfigParseError;
       expect(parseError.filePath).toBe(mockPaths.globalConfig);
-      expect(parseError.cause).toBeDefined();
+      expect(parseError.cause).toBeInstanceOf(SyntaxError);
     }
   });
 });

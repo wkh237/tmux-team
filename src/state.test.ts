@@ -51,8 +51,11 @@ describe('State Management', () => {
       fs.writeFileSync(paths.stateFile, JSON.stringify(existingState));
 
       const state = loadState(paths);
-      expect(state.requests.claude).toBeDefined();
-      expect(state.requests.claude?.nonce).toBe('abc123');
+      expect(state.requests.claude).toMatchObject({
+        id: 'req-1',
+        nonce: 'abc123',
+        pane: '1.0',
+      });
     });
 
     it('returns empty state when state.json is corrupted', () => {
@@ -123,7 +126,11 @@ describe('State Management', () => {
 
       const cleaned = cleanupState(paths, 60); // 60 second TTL
 
-      expect(cleaned.requests.recentAgent).toBeDefined();
+      expect(cleaned.requests.recentAgent).toMatchObject({
+        id: 'new',
+        nonce: 'new',
+        pane: '1.0',
+      });
     });
 
     it('requires ttlSeconds parameter', () => {
@@ -142,7 +149,7 @@ describe('State Management', () => {
       // With 10s TTL, agent1 should be kept, agent2 removed
       const cleaned = cleanupState(paths, 10);
 
-      expect(cleaned.requests.agent1).toBeDefined();
+      expect(cleaned.requests.agent1).toMatchObject({ id: '1', nonce: 'a' });
       expect(cleaned.requests.agent2).toBeUndefined();
     });
 
@@ -193,8 +200,11 @@ describe('State Management', () => {
       setActiveRequest(paths, 'claude', req);
 
       const state = loadState(paths);
-      expect(state.requests.claude).toBeDefined();
-      expect(state.requests.claude?.id).toBe('req-1');
+      expect(state.requests.claude).toMatchObject({
+        id: 'req-1',
+        nonce: 'nonce123',
+        pane: '1.0',
+      });
     });
 
     it('stores request with id, nonce, pane, and startedAtMs', () => {
@@ -244,8 +254,8 @@ describe('State Management', () => {
       setActiveRequest(paths, 'codex', req2);
 
       const state = loadState(paths);
-      expect(state.requests.claude).toBeDefined();
-      expect(state.requests.codex).toBeDefined();
+      expect(state.requests.claude).toMatchObject({ id: '1', nonce: 'a' });
+      expect(state.requests.codex).toMatchObject({ id: '2', nonce: 'b' });
     });
   });
 
@@ -282,7 +292,7 @@ describe('State Management', () => {
       clearActiveRequest(paths, 'claude', 'wrong-id');
 
       const state = loadState(paths);
-      expect(state.requests.claude).toBeDefined(); // Should still exist
+      expect(state.requests.claude).toMatchObject({ id: 'req-1', nonce: 'a' }); // Should still exist
     });
 
     it('clears when requestId matches', () => {
@@ -305,7 +315,7 @@ describe('State Management', () => {
 
       const state = loadState(paths);
       expect(state.requests.claude).toBeUndefined();
-      expect(state.requests.codex).toBeDefined();
+      expect(state.requests.codex).toMatchObject({ id: '2', nonce: 'b' });
     });
   });
 });

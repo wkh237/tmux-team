@@ -414,9 +414,10 @@ describe('cmdPmMilestone', () => {
     const jsonOutput = ctx.ui.jsonData.find(
       (d) => typeof d === 'object' && d !== null && 'doc' in d
     ) as { id: string; doc: string };
-    expect(jsonOutput).toBeDefined();
-    expect(jsonOutput.id).toBe('1');
-    expect(jsonOutput.doc).toContain('Phase 1');
+    expect(jsonOutput).toMatchObject({
+      id: '1',
+      doc: expect.stringContaining('Phase 1'),
+    });
   });
 
   it('exits with error for non-existent milestone doc', async () => {
