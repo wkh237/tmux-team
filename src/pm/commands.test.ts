@@ -842,9 +842,9 @@ describe('cmdPmTask doc', () => {
     const ctx = createMockContext(globalDir, { cwd: projectDir });
     vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
 
-    await expect(cmdPmTask(ctx, ['doc', '1', '--body-file', '/nonexistent/file.md'])).rejects.toThrow(
-      'Exit'
-    );
+    await expect(
+      cmdPmTask(ctx, ['doc', '1', '--body-file', '/nonexistent/file.md'])
+    ).rejects.toThrow('Exit');
     expect(ctx.ui.errors[0]).toContain('File not found');
   });
 });

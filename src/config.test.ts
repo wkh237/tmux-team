@@ -358,7 +358,8 @@ describe('loadConfig', () => {
     // Even if global config has agents, they should be ignored
     const globalConfig = {
       mode: 'wait',
-      agents: { // This should be ignored
+      agents: {
+        // This should be ignored
         claude: { preamble: 'Global preamble', deny: ['pm:task:delete'] },
       },
     };

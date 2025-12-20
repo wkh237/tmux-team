@@ -327,7 +327,9 @@ async function cmdMilestoneDoc(ctx: Context, args: string[]): Promise<void> {
   }
 
   if (!id) {
-    ui.error('Usage: tmux-team pm milestone doc <id> [ref | --edit | --body <text> | --body-file <path>]');
+    ui.error(
+      'Usage: tmux-team pm milestone doc <id> [ref | --edit | --body <text> | --body-file <path>]'
+    );
     ctx.exit(ExitCodes.ERROR);
   }
 
@@ -710,7 +712,9 @@ async function cmdTaskDoc(ctx: Context, args: string[]): Promise<void> {
   }
 
   if (!id) {
-    ui.error('Usage: tmux-team pm task doc <id> [ref | --edit | --body <text> | --body-file <path>]');
+    ui.error(
+      'Usage: tmux-team pm task doc <id> [ref | --edit | --body <text> | --body-file <path>]'
+    );
     ctx.exit(ExitCodes.ERROR);
   }
 

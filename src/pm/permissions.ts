@@ -105,11 +105,24 @@ function getCurrentPane(): string | null {
     return null;
   }
 
+  // TMUX_PANE contains the pane ID (e.g., %130) for the shell that's running.
+  // We must use -t "$TMUX_PANE" to get the correct pane, otherwise tmux returns
+  // the currently focused pane which may be different when commands are sent
+  // via send-keys from another pane.
+  // See: https://github.com/tmux/tmux/issues/4638
+  const tmuxPane = process.env.TMUX_PANE;
+  if (!tmuxPane) {
+    return null;
+  }
+
   try {
-    const result = execSync("tmux display-message -p '#{window_index}.#{pane_index}'", {
-      encoding: 'utf-8',
-      timeout: 1000,
-    }).trim();
+    const result = execSync(
+      `tmux display-message -p -t "${tmuxPane}" '#{window_index}.#{pane_index}'`,
+      {
+        encoding: 'utf-8',
+        timeout: 1000,
+      }
+    ).trim();
     return result || null;
   } catch {
     return null;
