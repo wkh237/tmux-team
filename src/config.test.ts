@@ -165,12 +165,11 @@ describe('loadConfig', () => {
     expect(config.paneRegistry).toEqual({});
   });
 
-  it('loads and merges global config', () => {
+  it('loads and merges global config (mode, preambleMode, defaults only)', () => {
     const globalConfig = {
       mode: 'wait',
       preambleMode: 'disabled',
       defaults: { timeout: 120 },
-      agents: { claude: { preamble: 'Be helpful' } },
     };
 
     vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.globalConfig);
@@ -182,7 +181,7 @@ describe('loadConfig', () => {
     expect(config.preambleMode).toBe('disabled');
     expect(config.defaults.timeout).toBe(120);
     expect(config.defaults.pollInterval).toBe(1); // Default preserved
-    expect(config.agents.claude?.preamble).toBe('Be helpful');
+    expect(config.agents).toEqual({}); // No agents from global config
   });
 
   it('loads local pane registry from tmux-team.json', () => {
@@ -201,12 +200,12 @@ describe('loadConfig', () => {
     expect(config.paneRegistry.codex?.pane).toBe('1.1');
   });
 
-  it('merges both global and local config', () => {
+  it('merges both global and local config (agents from local only)', () => {
     const globalConfig = {
-      agents: { claude: { preamble: 'Be brief' } },
+      mode: 'wait',
     };
     const localConfig = {
-      claude: { pane: '1.0' },
+      claude: { pane: '1.0', preamble: 'Be brief' },
     };
 
     vi.mocked(fs.existsSync).mockReturnValue(true);
@@ -218,8 +217,9 @@ describe('loadConfig', () => {
 
     const config = loadConfig(mockPaths);
 
-    expect(config.agents.claude?.preamble).toBe('Be brief');
-    expect(config.paneRegistry.claude?.pane).toBe('1.0');
+    expect(config.mode).toBe('wait'); // from global
+    expect(config.agents.claude?.preamble).toBe('Be brief'); // from local
+    expect(config.paneRegistry.claude?.pane).toBe('1.0'); // from local
   });
 
   it('throws ConfigParseError on invalid JSON in config file', () => {
@@ -271,102 +271,66 @@ describe('loadConfig', () => {
     expect(config.agents.claude?.deny).toEqual(['pm:task:update(status)']);
   });
 
-  it('local preamble overrides global preamble', () => {
-    const globalConfig = {
-      agents: { claude: { preamble: 'Global preamble' } },
-    };
+  it('loads preamble from local config only', () => {
     const localConfig = {
       claude: { pane: '1.0', preamble: 'Local preamble' },
     };
 
-    vi.mocked(fs.existsSync).mockReturnValue(true);
-    vi.mocked(fs.readFileSync).mockImplementation((p) => {
-      if (p === mockPaths.globalConfig) return JSON.stringify(globalConfig);
-      if (p === mockPaths.localConfig) return JSON.stringify(localConfig);
-      return '';
-    });
+    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
 
     const config = loadConfig(mockPaths);
 
     expect(config.agents.claude?.preamble).toBe('Local preamble');
   });
 
-  it('local deny replaces global deny', () => {
-    const globalConfig = {
-      agents: { claude: { deny: ['pm:task:update(status)', 'pm:milestone:update'] } },
-    };
+  it('loads deny from local config only', () => {
     const localConfig = {
       claude: { pane: '1.0', deny: ['pm:task:create'] },
     };
 
-    vi.mocked(fs.existsSync).mockReturnValue(true);
-    vi.mocked(fs.readFileSync).mockImplementation((p) => {
-      if (p === mockPaths.globalConfig) return JSON.stringify(globalConfig);
-      if (p === mockPaths.localConfig) return JSON.stringify(localConfig);
-      return '';
-    });
+    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
 
     const config = loadConfig(mockPaths);
 
-    // Local deny replaces global deny entirely
     expect(config.agents.claude?.deny).toEqual(['pm:task:create']);
   });
 
-  it('preserves global preamble when local only has deny', () => {
-    const globalConfig = {
-      agents: { claude: { preamble: 'Global preamble' } },
-    };
+  it('handles local config with both preamble and deny', () => {
     const localConfig = {
-      claude: { pane: '1.0', deny: ['pm:task:update(status)'] },
+      claude: { pane: '1.0', preamble: 'Be helpful', deny: ['pm:task:update(status)'] },
     };
 
-    vi.mocked(fs.existsSync).mockReturnValue(true);
-    vi.mocked(fs.readFileSync).mockImplementation((p) => {
-      if (p === mockPaths.globalConfig) return JSON.stringify(globalConfig);
-      if (p === mockPaths.localConfig) return JSON.stringify(localConfig);
-      return '';
-    });
+    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
 
     const config = loadConfig(mockPaths);
 
-    expect(config.agents.claude?.preamble).toBe('Global preamble');
+    expect(config.agents.claude?.preamble).toBe('Be helpful');
     expect(config.agents.claude?.deny).toEqual(['pm:task:update(status)']);
   });
 
-  it('local empty preamble clears global preamble', () => {
-    const globalConfig = {
-      agents: { claude: { preamble: 'Global preamble' } },
-    };
+  it('handles empty preamble in local config', () => {
     const localConfig = {
       claude: { pane: '1.0', preamble: '' },
     };
 
-    vi.mocked(fs.existsSync).mockReturnValue(true);
-    vi.mocked(fs.readFileSync).mockImplementation((p) => {
-      if (p === mockPaths.globalConfig) return JSON.stringify(globalConfig);
-      if (p === mockPaths.localConfig) return JSON.stringify(localConfig);
-      return '';
-    });
+    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
 
     const config = loadConfig(mockPaths);
 
     expect(config.agents.claude?.preamble).toBe('');
   });
 
-  it('local empty deny clears global deny', () => {
-    const globalConfig = {
-      agents: { claude: { deny: ['pm:task:update(status)'] } },
-    };
+  it('handles empty deny array in local config', () => {
     const localConfig = {
       claude: { pane: '1.0', deny: [] },
     };
 
-    vi.mocked(fs.existsSync).mockReturnValue(true);
-    vi.mocked(fs.readFileSync).mockImplementation((p) => {
-      if (p === mockPaths.globalConfig) return JSON.stringify(globalConfig);
-      if (p === mockPaths.localConfig) return JSON.stringify(localConfig);
-      return '';
-    });
+    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
 
     const config = loadConfig(mockPaths);
 
@@ -390,16 +354,16 @@ describe('loadConfig', () => {
     expect(config.agents.codex?.preamble).toBe('Preamble only, no pane');
   });
 
-  it('local deny takes precedence over global deny (project-specific permissions)', () => {
-    // Global config has broad deny
+  it('ignores agents field in global config (local config is SSOT)', () => {
+    // Even if global config has agents, they should be ignored
     const globalConfig = {
-      agents: {
-        claude: { deny: ['pm:task:update', 'pm:milestone:update'] }, // deny all updates
+      mode: 'wait',
+      agents: { // This should be ignored
+        claude: { preamble: 'Global preamble', deny: ['pm:task:delete'] },
       },
     };
-    // Local config overrides with specific permissions
     const localConfig = {
-      claude: { pane: '1.0', deny: ['pm:task:update(status)'] }, // only deny status updates
+      claude: { pane: '1.0', preamble: 'Local preamble' },
     };
 
     vi.mocked(fs.existsSync).mockReturnValue(true);
@@ -411,33 +375,11 @@ describe('loadConfig', () => {
 
     const config = loadConfig(mockPaths);
 
-    // Local deny REPLACES global deny (not merges)
-    expect(config.agents.claude?.deny).toEqual(['pm:task:update(status)']);
-    // NOT the global ['pm:task:update', 'pm:milestone:update']
-  });
-
-  it('ignores global agents when local config defines deny for same agent', () => {
-    const globalConfig = {
-      agents: {
-        codex: { preamble: 'Global preamble', deny: ['pm:task:delete'] },
-      },
-    };
-    const localConfig = {
-      codex: { pane: '1.1', preamble: 'Local preamble', deny: ['pm:task:update(status)'] },
-    };
-
-    vi.mocked(fs.existsSync).mockReturnValue(true);
-    vi.mocked(fs.readFileSync).mockImplementation((p) => {
-      if (p === mockPaths.globalConfig) return JSON.stringify(globalConfig);
-      if (p === mockPaths.localConfig) return JSON.stringify(localConfig);
-      return '';
-    });
-
-    const config = loadConfig(mockPaths);
-
-    // Both preamble and deny come from local config
-    expect(config.agents.codex?.preamble).toBe('Local preamble');
-    expect(config.agents.codex?.deny).toEqual(['pm:task:update(status)']);
+    // Mode from global should work
+    expect(config.mode).toBe('wait');
+    // But agents come only from local config
+    expect(config.agents.claude?.preamble).toBe('Local preamble');
+    expect(config.agents.claude?.deny).toBeUndefined(); // Not from global
   });
 
   it('local config defines project-specific agent roles without global pollution', () => {

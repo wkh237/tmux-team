@@ -1,10 +1,10 @@
 // ─────────────────────────────────────────────────────────────
-// Preamble command - manage agent preambles
+// Preamble command - manage agent preambles (local config only)
 // ─────────────────────────────────────────────────────────────
 
 import type { Context } from '../types.js';
 import { ExitCodes } from '../context.js';
-import { loadGlobalConfig, saveGlobalConfig } from '../config.js';
+import { loadLocalConfigFile, saveLocalConfigFile } from '../config.js';
 
 /**
  * Show preamble(s) for agent(s).
@@ -57,25 +57,27 @@ function showPreamble(ctx: Context, agentName?: string): void {
 }
 
 /**
- * Set preamble for an agent.
+ * Set preamble for an agent (in local config).
  */
 function setPreamble(ctx: Context, agentName: string, preamble: string): void {
-  const { ui, paths, flags } = ctx;
+  const { ui, paths, flags, config } = ctx;
 
-  const globalConfig = loadGlobalConfig(paths);
-
-  // Ensure agents object exists
-  if (!globalConfig.agents) {
-    globalConfig.agents = {};
+  // Check if agent exists in pane registry
+  if (!config.paneRegistry[agentName]) {
+    ui.error(`Agent '${agentName}' not found in local config`);
+    ui.error('Add the agent with: tmux-team add <agent> <pane>');
+    ctx.exit(ExitCodes.ERROR);
   }
 
-  // Ensure agent config exists
-  if (!globalConfig.agents[agentName]) {
-    globalConfig.agents[agentName] = {};
+  const localConfig = loadLocalConfigFile(paths);
+
+  // Update preamble in local config
+  const agentEntry = localConfig[agentName] as { pane: string; preamble?: string } | undefined;
+  if (agentEntry) {
+    agentEntry.preamble = preamble;
   }
 
-  globalConfig.agents[agentName].preamble = preamble;
-  saveGlobalConfig(paths, globalConfig);
+  saveLocalConfigFile(paths, localConfig);
 
   if (flags.json) {
     ui.json({ agent: agentName, preamble, status: 'set' });
@@ -85,22 +87,17 @@ function setPreamble(ctx: Context, agentName: string, preamble: string): void {
 }
 
 /**
- * Clear preamble for an agent.
+ * Clear preamble for an agent (in local config).
  */
 function clearPreamble(ctx: Context, agentName: string): void {
   const { ui, paths, flags } = ctx;
 
-  const globalConfig = loadGlobalConfig(paths);
+  const localConfig = loadLocalConfigFile(paths);
+  const agentEntry = localConfig[agentName] as { pane?: string; preamble?: string } | undefined;
 
-  if (globalConfig.agents?.[agentName]?.preamble) {
-    delete globalConfig.agents[agentName].preamble;
-
-    // Clean up empty agent config
-    if (Object.keys(globalConfig.agents[agentName]).length === 0) {
-      delete globalConfig.agents[agentName];
-    }
-
-    saveGlobalConfig(paths, globalConfig);
+  if (agentEntry?.preamble) {
+    delete agentEntry.preamble;
+    saveLocalConfigFile(paths, localConfig);
 
     if (flags.json) {
       ui.json({ agent: agentName, status: 'cleared' });

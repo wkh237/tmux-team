@@ -19,7 +19,7 @@ const LOCAL_CONFIG_FILENAME = 'tmux-team.json';
 const STATE_FILENAME = 'state.json';
 
 // Default configuration values
-const DEFAULT_CONFIG: Omit<GlobalConfig, 'agents'> & { agents: Record<string, never> } = {
+const DEFAULT_CONFIG: GlobalConfig = {
   mode: 'polling',
   preambleMode: 'always',
   defaults: {
@@ -27,7 +27,6 @@ const DEFAULT_CONFIG: Omit<GlobalConfig, 'agents'> & { agents: Record<string, ne
     pollInterval: 1,
     captureLines: 100,
   },
-  agents: {},
 };
 
 /**
@@ -130,7 +129,7 @@ export function loadConfig(paths: Paths): ResolvedConfig {
     paneRegistry: {},
   };
 
-  // Merge global config
+  // Merge global config (mode, preambleMode, defaults only)
   const globalConfig = loadJsonFile<Partial<GlobalConfig>>(paths.globalConfig);
   if (globalConfig) {
     if (globalConfig.mode) config.mode = globalConfig.mode;
@@ -138,12 +137,10 @@ export function loadConfig(paths: Paths): ResolvedConfig {
     if (globalConfig.defaults) {
       config.defaults = { ...config.defaults, ...globalConfig.defaults };
     }
-    if (globalConfig.agents) {
-      config.agents = { ...config.agents, ...globalConfig.agents };
-    }
   }
 
-  // Load local config (pane registry + optional settings)
+  // Load local config (pane registry + optional settings + agent config)
+  // Local config is the SSOT for agent configuration (preamble, deny)
   const localConfigFile = loadJsonFile<LocalConfigFile>(paths.localConfig);
   if (localConfigFile) {
     // Extract local settings if present
@@ -155,42 +152,29 @@ export function loadConfig(paths: Paths): ResolvedConfig {
       if (localSettings.preambleMode) config.preambleMode = localSettings.preambleMode;
     }
 
-    // Set pane registry (only entries with valid pane field)
-    const validPaneEntries: LocalConfig = {};
+    // Build pane registry and agents config from local entries
     for (const [agentName, entry] of Object.entries(paneEntries)) {
       const paneEntry = entry as LocalConfig[string];
-      if (paneEntry.pane) {
-        validPaneEntries[agentName] = paneEntry;
-      }
-    }
-    config.paneRegistry = validPaneEntries;
 
-    // Merge local preamble/deny into agents config
-    for (const [agentName, entry] of Object.entries(paneEntries)) {
-      const paneEntry = entry as LocalConfig[string];
+      // Add to pane registry if has valid pane field
+      if (paneEntry.pane) {
+        config.paneRegistry[agentName] = paneEntry;
+      }
+
+      // Build agents config from preamble/deny fields
       const hasPreamble = Object.prototype.hasOwnProperty.call(paneEntry, 'preamble');
       const hasDeny = Object.prototype.hasOwnProperty.call(paneEntry, 'deny');
 
       if (hasPreamble || hasDeny) {
-        const globalAgent = config.agents[agentName] ?? {};
         config.agents[agentName] = {
-          // Local preamble overrides global (even if empty string to clear)
-          preamble: hasPreamble ? paneEntry.preamble : globalAgent.preamble,
-          // Local deny overrides global (even if empty array to clear)
-          deny: hasDeny ? paneEntry.deny : globalAgent.deny,
+          ...(hasPreamble && { preamble: paneEntry.preamble }),
+          ...(hasDeny && { deny: paneEntry.deny }),
         };
       }
     }
   }
 
   return config;
-}
-
-export function saveLocalConfig(
-  paths: Paths,
-  paneRegistry: Record<string, { pane: string; remark?: string }>
-): void {
-  fs.writeFileSync(paths.localConfig, JSON.stringify(paneRegistry, null, 2) + '\n');
 }
 
 export function ensureGlobalDir(paths: Paths): void {

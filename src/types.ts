@@ -10,8 +10,8 @@ export interface AgentConfig {
 export interface PaneEntry {
   pane: string;
   remark?: string;
-  preamble?: string; // Local preamble (overrides global)
-  deny?: string[]; // Local deny patterns (merged with global)
+  preamble?: string; // Agent preamble (prepended to messages)
+  deny?: string[]; // Permission deny patterns
 }
 
 export interface ConfigDefaults {
@@ -24,7 +24,6 @@ export interface GlobalConfig {
   mode: 'polling' | 'wait';
   preambleMode: 'always' | 'disabled';
   defaults: ConfigDefaults;
-  agents: Record<string, AgentConfig>;
 }
 
 export interface LocalSettings {

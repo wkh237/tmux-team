@@ -2,9 +2,9 @@
 // update command - modify agent config
 // ─────────────────────────────────────────────────────────────
 
-import type { Context } from '../types.js';
+import type { Context, PaneEntry } from '../types.js';
 import { ExitCodes } from '../exits.js';
-import { saveLocalConfig } from '../config.js';
+import { loadLocalConfigFile, saveLocalConfigFile } from '../config.js';
 
 export function cmdUpdate(
   ctx: Context,
@@ -23,19 +23,30 @@ export function cmdUpdate(
     exit(ExitCodes.ERROR);
   }
 
+  // Load existing config to preserve all fields (preamble, deny, etc.)
+  const localConfig = loadLocalConfigFile(paths);
+
+  // Handle edge case where local config was modified externally
+  let entry = localConfig[name] as PaneEntry | undefined;
+  if (!entry) {
+    // Fall back to in-memory paneRegistry if entry is missing
+    entry = { ...config.paneRegistry[name] };
+    localConfig[name] = entry;
+  }
+
   const updates: string[] = [];
 
   if (options.pane) {
-    config.paneRegistry[name].pane = options.pane;
+    entry.pane = options.pane;
     updates.push(`pane → ${options.pane}`);
   }
 
   if (options.remark) {
-    config.paneRegistry[name].remark = options.remark;
+    entry.remark = options.remark;
     updates.push(`remark updated`);
   }
 
-  saveLocalConfig(paths, config.paneRegistry);
+  saveLocalConfigFile(paths, localConfig);
 
   if (flags.json) {
     ui.json({ updated: name, ...options });

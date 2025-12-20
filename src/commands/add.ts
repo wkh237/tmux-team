@@ -3,9 +3,9 @@
 // ─────────────────────────────────────────────────────────────
 
 import fs from 'fs';
-import type { Context } from '../types.js';
+import type { Context, PaneEntry } from '../types.js';
 import { ExitCodes } from '../exits.js';
-import { saveLocalConfig } from '../config.js';
+import { loadLocalConfigFile, saveLocalConfigFile } from '../config.js';
 
 export function cmdAdd(ctx: Context, name: string, pane: string, remark?: string): void {
   const { ui, config, paths, flags, exit } = ctx;
@@ -23,12 +23,16 @@ export function cmdAdd(ctx: Context, name: string, pane: string, remark?: string
     exit(ExitCodes.ERROR);
   }
 
-  config.paneRegistry[name] = { pane };
-  if (remark) {
-    config.paneRegistry[name].remark = remark;
-  }
+  // Load existing config to preserve all fields (preamble, deny, etc.)
+  const localConfig = loadLocalConfigFile(paths);
 
-  saveLocalConfig(paths, config.paneRegistry);
+  const newEntry: PaneEntry = { pane };
+  if (remark) {
+    newEntry.remark = remark;
+  }
+  localConfig[name] = newEntry;
+
+  saveLocalConfigFile(paths, localConfig);
 
   if (flags.json) {
     ui.json({ added: name, pane, remark });
