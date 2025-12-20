@@ -238,6 +238,150 @@ It's the plumbing layer that lets humans and AI agents coordinate via tmux, noth
 
 *Built for developers who live in the terminal and want their AIs to do the same.*
 
+---
+
+## 📖 Command Reference
+
+### Core Commands
+
+```
+tmux-team <command> [arguments]
+```
+
+| Command | Description |
+|---------|-------------|
+| `talk <target> <message>` | Send message to an agent (or `all` for broadcast) |
+| `check <target> [lines]` | Capture output from agent's pane (default: 100 lines) |
+| `list` | List all configured agents |
+| `add <name> <pane> [remark]` | Register a new agent |
+| `update <name> [options]` | Update an agent's config |
+| `remove <name>` | Unregister an agent |
+| `init` | Create empty `tmux-team.json` in current directory |
+| `config [show\|set\|clear]` | View/modify configuration settings |
+| `preamble [show\|set\|clear]` | Manage agent preambles |
+| `pm <subcommand>` | Project management commands |
+| `completion [zsh\|bash]` | Output shell completion script |
+| `help` | Show help message |
+
+**Aliases:** `send` = talk, `read` = check, `ls` = list, `rm` = remove
+
+### Global Options
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Output in JSON format |
+| `--verbose` | Show detailed output |
+| `--force` | Skip warnings |
+
+### talk Options
+
+| Option | Description |
+|--------|-------------|
+| `--delay <seconds>` | Wait before sending (whitelist-friendly alternative to `sleep`) |
+| `--wait` | Block until agent responds (nonce-based completion detection) |
+| `--timeout <seconds>` | Max wait time (default: 180s) |
+| `--no-preamble` | Skip agent preamble for this message |
+
+### config Command
+
+```bash
+tmux-team config show                  # Show current config
+tmux-team config set <key> <value>     # Set a config value
+tmux-team config set mode wait         # Enable wait mode
+tmux-team config set timeout 120       # Set timeout to 120s
+tmux-team config clear <key>           # Clear a config value
+tmux-team config --global set ...      # Modify global config
+```
+
+### preamble Command
+
+```bash
+tmux-team preamble show <agent>        # Show agent's preamble
+tmux-team preamble set <agent> "..."   # Set agent's preamble
+tmux-team preamble clear <agent>       # Clear agent's preamble
+```
+
+---
+
+### Project Management (`pm`)
+
+```
+tmux-team pm <subcommand>
+```
+
+**Shorthands:** `pm m` = milestone, `pm t` = task, `pm ls` = list
+
+#### pm init
+
+```bash
+tmux-team pm init --name "Project Name"
+tmux-team pm init --name "Sprint 1" --backend github --repo owner/repo
+```
+
+| Option | Description |
+|--------|-------------|
+| `--name <name>` | Project name (required) |
+| `--backend <fs\|github>` | Storage backend (default: `fs`) |
+| `--repo <owner/repo>` | GitHub repo (required for github backend) |
+
+#### pm list
+
+```bash
+tmux-team pm list                      # List all teams/projects
+tmux-team pm ls                        # Shorthand
+```
+
+#### pm milestone (shorthand: `pm m`)
+
+```bash
+tmux-team pm m                         # List all milestones
+tmux-team pm m add "Phase 1"           # Add milestone
+tmux-team pm m add "Phase 1" -d "..."  # Add with description
+tmux-team pm m list                    # List milestones
+tmux-team pm m done <id>               # Mark milestone complete
+tmux-team pm m doc <id>                # Print milestone documentation
+tmux-team pm m doc <id> --edit         # Edit doc in $EDITOR
+tmux-team pm m doc <id> ref            # Print doc path/reference
+```
+
+#### pm task (shorthand: `pm t`)
+
+```bash
+tmux-team pm t                         # List all tasks
+tmux-team pm t add "Task title"        # Add task
+tmux-team pm t add "..." --milestone 1 # Add task to milestone
+tmux-team pm t add "..." --body "..."  # Add task with body
+tmux-team pm t add "..." -a @user      # Add task with assignee
+tmux-team pm t list                    # List tasks
+tmux-team pm t list --status pending   # Filter by status
+tmux-team pm t list --milestone 1      # Filter by milestone
+tmux-team pm t show <id>               # Show task details
+tmux-team pm t update <id> --status in_progress
+tmux-team pm t update <id> -a @user    # Assign task
+tmux-team pm t done <id>               # Mark task complete
+tmux-team pm t doc <id>                # Print task documentation
+tmux-team pm t doc <id> --edit         # Edit doc in $EDITOR
+tmux-team pm t doc <id> ref            # Print doc path/reference
+```
+
+#### pm log
+
+```bash
+tmux-team pm log                       # Show audit event log
+tmux-team pm log --limit 10            # Limit to 10 events
+```
+
+---
+
+### Storage Backends
+
+| Backend | Description |
+|---------|-------------|
+| `fs` | Local filesystem (default). Tasks stored in `~/.config/tmux-team/teams/` |
+| `github` | GitHub Issues. Tasks become issues, milestones sync with GitHub |
+
+---
+
 ## License
 
 MIT
