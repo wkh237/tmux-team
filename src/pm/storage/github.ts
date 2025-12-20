@@ -53,6 +53,7 @@ interface GHIssue {
 interface GHMilestone {
   number: number;
   title: string;
+  description: string | null;
   state: 'open' | 'closed'; // REST API uses lowercase (unlike GraphQL)
   createdAt: string;
 }
@@ -89,7 +90,7 @@ export class GitHubAdapter implements StorageAdapter {
   // Helper: Execute gh CLI command safely (no shell injection)
   // ─────────────────────────────────────────────────────────────
 
-  private gh(args: string[], options?: { skipRepo?: boolean }): string {
+  private gh(args: string[], options?: { skipRepo?: boolean; input?: string }): string {
     const fullArgs = [...args];
     // gh api doesn't accept --repo flag (repo is in the endpoint path)
     // Other commands like 'gh issue' do accept --repo
@@ -101,6 +102,7 @@ export class GitHubAdapter implements StorageAdapter {
     const result = spawnSync('gh', fullArgs, {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      input: options?.input,
     });
 
     if (result.error) {
@@ -254,6 +256,8 @@ export class GitHubAdapter implements StorageAdapter {
       id,
       name: ghMilestone.title,
       status: ghMilestone.state === 'closed' ? 'done' : 'pending',
+      description: ghMilestone.description || undefined,
+      docPath: `github:milestone/${ghMilestone.number}`,
       createdAt: ghMilestone.createdAt,
       updatedAt: ghMilestone.createdAt, // GH milestones don't have updatedAt
     };
@@ -348,7 +352,7 @@ export class GitHubAdapter implements StorageAdapter {
 
   async createMilestone(input: CreateMilestoneInput): Promise<Milestone> {
     // Create milestone in GitHub
-    const result = this.gh([
+    const args = [
       'api',
       `repos/${this.repo}/milestones`,
       '-X',
@@ -357,8 +361,17 @@ export class GitHubAdapter implements StorageAdapter {
       `title=${input.name}`,
       '-f',
       'state=open',
-    ]);
-    const ghMilestone = JSON.parse(result) as { number: number; title: string; created_at: string };
+    ];
+    if (input.description) {
+      args.push('-f', `description=${input.description}`);
+    }
+    const result = this.gh(args);
+    const ghMilestone = JSON.parse(result) as {
+      number: number;
+      title: string;
+      description: string | null;
+      created_at: string;
+    };
 
     // Cache the ID mapping (store both number and name)
     const cache = this.loadCache();
@@ -370,6 +383,8 @@ export class GitHubAdapter implements StorageAdapter {
       id,
       name: ghMilestone.title,
       status: 'pending',
+      description: ghMilestone.description || undefined,
+      docPath: `github:milestone/${ghMilestone.number}`,
       createdAt: ghMilestone.created_at,
       updatedAt: ghMilestone.created_at,
     };
@@ -442,6 +457,9 @@ export class GitHubAdapter implements StorageAdapter {
     if (input.name) args.push('-f', `title=${input.name}`);
     if (input.status) {
       args.push('-f', `state=${input.status === 'done' ? 'closed' : 'open'}`);
+    }
+    if (input.description !== undefined) {
+      args.push('-f', `description=${input.description}`);
     }
 
     const result = this.gh(args);
@@ -703,6 +721,30 @@ export class GitHubAdapter implements StorageAdapter {
     if (!number) throw new Error(`Task ${id} not found`);
 
     this.gh(['issue', 'edit', String(number), '--body', content]);
+  }
+
+  async getMilestoneDoc(id: string): Promise<string | null> {
+    const number = this.getMilestoneNumber(id);
+    if (!number) return null;
+
+    try {
+      const result = this.gh(['api', `repos/${this.repo}/milestones/${number}`]);
+      const ghMilestone = JSON.parse(result) as GHMilestone;
+      return ghMilestone.description || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async setMilestoneDoc(id: string, content: string): Promise<void> {
+    const number = this.getMilestoneNumber(id);
+    if (!number) throw new Error(`Milestone ${id} not found`);
+
+    // Use -F with @- to read from stdin (handles multiline content properly)
+    this.gh(
+      ['api', `repos/${this.repo}/milestones/${number}`, '-X', 'PATCH', '-F', 'description=@-'],
+      { input: content }
+    );
   }
 
   // ─────────────────────────────────────────────────────────────

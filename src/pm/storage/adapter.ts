@@ -43,6 +43,8 @@ export interface StorageAdapter {
   // Documentation
   getTaskDoc(id: string): Promise<string | null>;
   setTaskDoc(id: string, content: string): Promise<void>;
+  getMilestoneDoc(id: string): Promise<string | null>;
+  setMilestoneDoc(id: string, content: string): Promise<void>;
 
   // Audit log
   appendEvent(event: AuditEvent): Promise<void>;

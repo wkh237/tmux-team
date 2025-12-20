@@ -24,6 +24,8 @@ import {
 import type { StorageAdapter } from './storage/adapter.js';
 import type { TaskStatus, MilestoneStatus, StorageBackend } from './types.js';
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -170,11 +172,14 @@ export async function cmdPmMilestone(ctx: Context, args: string[]): Promise<void
       return cmdMilestoneAdd(ctx, rest);
     case 'list':
     case 'ls':
+    case undefined:
       return cmdMilestoneList(ctx, rest);
     case 'done':
       return cmdMilestoneDone(ctx, rest);
+    case 'doc':
+      return cmdMilestoneDoc(ctx, rest);
     default:
-      ctx.ui.error(`Unknown milestone command: ${subcommand}. Use: add, list, done`);
+      ctx.ui.error(`Unknown milestone command: ${subcommand}. Use: add, list, done, doc`);
       ctx.exit(ExitCodes.ERROR);
   }
 }
@@ -185,13 +190,26 @@ async function cmdMilestoneAdd(ctx: Context, args: string[]): Promise<void> {
   const { ui, flags } = ctx;
   const { storage } = await requireTeam(ctx);
 
-  const name = args[0];
+  // Parse args: <name> [--description <text>]
+  let name = '';
+  let description: string | undefined;
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--description' || args[i] === '-d') {
+      description = args[++i];
+    } else if (args[i].startsWith('--description=')) {
+      description = args[i].slice(14);
+    } else if (!name) {
+      name = args[i];
+    }
+  }
+
   if (!name) {
-    ui.error('Usage: tmux-team pm milestone add <name>');
+    ui.error('Usage: tmux-team pm milestone add <name> [--description <text>]');
     ctx.exit(ExitCodes.ERROR);
   }
 
-  const milestone = await storage.createMilestone({ name });
+  const milestone = await storage.createMilestone({ name, description });
 
   await storage.appendEvent({
     event: 'milestone_created',
@@ -271,6 +289,79 @@ async function cmdMilestoneDone(ctx: Context, args: string[]): Promise<void> {
   }
 }
 
+async function cmdMilestoneDoc(ctx: Context, args: string[]): Promise<void> {
+  const { ui, flags } = ctx;
+
+  const id = args[0];
+  if (!id) {
+    ui.error('Usage: tmux-team pm milestone doc <id> [ref | --edit]');
+    ctx.exit(ExitCodes.ERROR);
+  }
+
+  const showRef = args.includes('ref');
+  const editMode = args.includes('--edit') || args.includes('-e');
+
+  // Check permission based on mode
+  if (editMode) {
+    requirePermission(ctx, PermissionChecks.docUpdate());
+  } else {
+    requirePermission(ctx, PermissionChecks.docRead());
+  }
+
+  const { storage } = await requireTeam(ctx);
+  const milestone = await storage.getMilestone(id);
+  if (!milestone) {
+    ui.error(`Milestone ${id} not found`);
+    ctx.exit(ExitCodes.PANE_NOT_FOUND);
+  }
+
+  // Show reference (docPath)
+  if (showRef) {
+    if (flags.json) {
+      ui.json({ id, docPath: milestone.docPath });
+    } else {
+      console.log(milestone.docPath || '(no docPath)');
+    }
+    return;
+  }
+
+  const doc = await storage.getMilestoneDoc(id);
+
+  // Default: print doc content
+  if (!editMode) {
+    if (flags.json) {
+      ui.json({ id, doc });
+    } else {
+      console.log(doc || '(empty)');
+    }
+    return;
+  }
+
+  // Edit mode: open in editor using temp file
+  const editor = process.env.EDITOR || 'vim';
+  const tempDir = os.tmpdir();
+  const tempFile = path.join(tempDir, `tmux-team-milestone-${id}.md`);
+
+  // Write current content to temp file
+  fs.writeFileSync(tempFile, doc || `# ${milestone.name}\n\n`);
+
+  const { spawnSync } = await import('child_process');
+  spawnSync(editor, [tempFile], { stdio: 'inherit' });
+
+  // Read edited content and sync back to storage
+  const newContent = fs.readFileSync(tempFile, 'utf-8');
+  await storage.setMilestoneDoc(id, newContent);
+
+  // Clean up temp file
+  try {
+    fs.unlinkSync(tempFile);
+  } catch {
+    // Ignore cleanup errors
+  }
+
+  ui.success(`Saved documentation for milestone #${id}`);
+}
+
 export async function cmdPmTask(ctx: Context, args: string[]): Promise<void> {
   const [subcommand, ...rest] = args;
 
@@ -279,6 +370,7 @@ export async function cmdPmTask(ctx: Context, args: string[]): Promise<void> {
       return cmdTaskAdd(ctx, rest);
     case 'list':
     case 'ls':
+    case undefined:
       return cmdTaskList(ctx, rest);
     case 'show':
       return cmdTaskShow(ctx, rest);
@@ -286,8 +378,10 @@ export async function cmdPmTask(ctx: Context, args: string[]): Promise<void> {
       return cmdTaskUpdate(ctx, rest);
     case 'done':
       return cmdTaskDone(ctx, rest);
+    case 'doc':
+      return cmdTaskDoc(ctx, rest);
     default:
-      ctx.ui.error(`Unknown task command: ${subcommand}. Use: add, list, show, update, done`);
+      ctx.ui.error(`Unknown task command: ${subcommand}. Use: add, list, show, update, done, doc`);
       ctx.exit(ExitCodes.ERROR);
   }
 }
@@ -527,34 +621,46 @@ async function cmdTaskDone(ctx: Context, args: string[]): Promise<void> {
   }
 }
 
-export async function cmdPmDoc(ctx: Context, args: string[]): Promise<void> {
+async function cmdTaskDoc(ctx: Context, args: string[]): Promise<void> {
   const { ui, flags } = ctx;
 
   const id = args[0];
   if (!id) {
-    ui.error('Usage: tmux-team pm doc <id> [--print]');
+    ui.error('Usage: tmux-team pm task doc <id> [ref | --edit]');
     ctx.exit(ExitCodes.ERROR);
   }
 
-  const printOnly = args.includes('--print') || args.includes('-p');
+  const showRef = args.includes('ref');
+  const editMode = args.includes('--edit') || args.includes('-e');
 
   // Check permission based on mode
-  if (printOnly || flags.json) {
-    requirePermission(ctx, PermissionChecks.docRead());
-  } else {
+  if (editMode) {
     requirePermission(ctx, PermissionChecks.docUpdate());
+  } else {
+    requirePermission(ctx, PermissionChecks.docRead());
   }
 
-  const { teamId, storage } = await requireTeam(ctx);
+  const { storage } = await requireTeam(ctx);
   const task = await storage.getTask(id);
   if (!task) {
     ui.error(`Task ${id} not found`);
     ctx.exit(ExitCodes.PANE_NOT_FOUND);
   }
 
+  // Show reference (docPath)
+  if (showRef) {
+    if (flags.json) {
+      ui.json({ id, docPath: task.docPath });
+    } else {
+      console.log(task.docPath || '(no docPath)');
+    }
+    return;
+  }
+
   const doc = await storage.getTaskDoc(id);
 
-  if (printOnly || flags.json) {
+  // Default: print doc content
+  if (!editMode) {
     if (flags.json) {
       ui.json({ id, doc });
     } else {
@@ -563,12 +669,27 @@ export async function cmdPmDoc(ctx: Context, args: string[]): Promise<void> {
     return;
   }
 
-  // Open in editor
+  // Edit mode: open in editor using temp file
   const editor = process.env.EDITOR || 'vim';
-  const docPath = path.join(getTeamsDir(ctx.paths.globalDir), teamId, 'tasks', `${id}.md`);
+  const tempDir = os.tmpdir();
+  const tempFile = path.join(tempDir, `tmux-team-task-${id}.md`);
+
+  // Write current content to temp file
+  fs.writeFileSync(tempFile, doc || `# ${task.title}\n\n`);
 
   const { spawnSync } = await import('child_process');
-  spawnSync(editor, [docPath], { stdio: 'inherit' });
+  spawnSync(editor, [tempFile], { stdio: 'inherit' });
+
+  // Read edited content and sync back to storage
+  const newContent = fs.readFileSync(tempFile, 'utf-8');
+  await storage.setTaskDoc(id, newContent);
+
+  // Clean up temp file
+  try {
+    fs.unlinkSync(tempFile);
+  } catch {
+    // Ignore cleanup errors
+  }
 
   ui.success(`Saved documentation for task #${id}`);
 }
@@ -661,8 +782,6 @@ export async function cmdPm(ctx: Context, args: string[]): Promise<void> {
       return cmdPmMilestone(ctx, rest);
     case 'task':
       return cmdPmTask(ctx, rest);
-    case 'doc':
-      return cmdPmDoc(ctx, rest);
     case 'log':
       return cmdPmLog(ctx, rest);
     case 'list':
@@ -687,15 +806,16 @@ ${colors.yellow('COMMANDS')}
     --backend <fs|github>            Storage backend (default: fs)
     --repo <owner/repo>              GitHub repo (required for github backend)
   ${colors.green('list')}                              List all teams
-  ${colors.green('milestone')} add <name>              Add milestone (shorthand: m)
+  ${colors.green('milestone')} add <name> [-d <desc>]   Add milestone (shorthand: m)
   ${colors.green('milestone')} list                    List milestones
   ${colors.green('milestone')} done <id>               Mark milestone complete
+  ${colors.green('milestone')} doc <id> [ref|--edit]   Print doc (ref=path, -e=edit)
   ${colors.green('task')} add <title> [--milestone]    Add task (shorthand: t)
   ${colors.green('task')} list [--status] [--milestone] List tasks
   ${colors.green('task')} show <id>                    Show task details
   ${colors.green('task')} update <id> --status <s>     Update task status
   ${colors.green('task')} done <id>                    Mark task complete
-  ${colors.green('doc')} <id> [--print]                View/edit task documentation
+  ${colors.green('task')} doc <id> [ref|--edit]        Print doc (ref=path, -e=edit)
   ${colors.green('log')} [--limit <n>]                 Show audit event log
 
 ${colors.yellow('BACKENDS')}

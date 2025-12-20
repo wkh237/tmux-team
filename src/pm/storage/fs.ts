@@ -106,10 +106,17 @@ export class FSAdapter implements StorageAdapter {
       id,
       name: input.name,
       status: 'pending',
+      description: input.description,
+      docPath: `milestones/${id}.md`,
       createdAt: this.now(),
       updatedAt: this.now(),
     };
     this.writeJson(path.join(this.milestonesDir, `${id}.json`), milestone);
+    // Create doc file with name and optional description
+    const docContent = input.description
+      ? `# ${input.name}\n\n${input.description}\n`
+      : `# ${input.name}\n\n`;
+    fs.writeFileSync(path.join(this.milestonesDir, `${id}.md`), docContent);
     return milestone;
   }
 
@@ -141,10 +148,10 @@ export class FSAdapter implements StorageAdapter {
   }
 
   async deleteMilestone(id: string): Promise<void> {
-    const filePath = path.join(this.milestonesDir, `${id}.json`);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
+    const jsonPath = path.join(this.milestonesDir, `${id}.json`);
+    const mdPath = path.join(this.milestonesDir, `${id}.md`);
+    if (fs.existsSync(jsonPath)) fs.unlinkSync(jsonPath);
+    if (fs.existsSync(mdPath)) fs.unlinkSync(mdPath);
   }
 
   // Task operations
@@ -222,6 +229,18 @@ export class FSAdapter implements StorageAdapter {
 
   async setTaskDoc(id: string, content: string): Promise<void> {
     const docPath = path.join(this.tasksDir, `${id}.md`);
+    fs.writeFileSync(docPath, content);
+  }
+
+  async getMilestoneDoc(id: string): Promise<string | null> {
+    const docPath = path.join(this.milestonesDir, `${id}.md`);
+    if (!fs.existsSync(docPath)) return null;
+    return fs.readFileSync(docPath, 'utf-8');
+  }
+
+  async setMilestoneDoc(id: string, content: string): Promise<void> {
+    this.ensureDir(this.milestonesDir);
+    const docPath = path.join(this.milestonesDir, `${id}.md`);
     fs.writeFileSync(docPath, content);
   }
 

@@ -9,15 +9,7 @@ import os from 'os';
 import type { Context } from '../types.js';
 import type { UI } from '../types.js';
 // ExitCodes imported for reference but tested via ctx.exit mock
-import {
-  cmdPm,
-  cmdPmInit,
-  cmdPmMilestone,
-  cmdPmTask,
-  cmdPmDoc,
-  cmdPmLog,
-  cmdPmList,
-} from './commands.js';
+import { cmdPm, cmdPmInit, cmdPmMilestone, cmdPmTask, cmdPmLog, cmdPmList } from './commands.js';
 import { findCurrentTeamId, linkTeam, getTeamsDir } from './manager.js';
 
 // ─────────────────────────────────────────────────────────────
@@ -325,6 +317,23 @@ describe('cmdPmMilestone', () => {
     expect(ctx.ui.table).toHaveBeenCalled();
   });
 
+  it('lists milestones when called without subcommand', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmMilestone(ctx, ['add', 'Phase 1']);
+
+    // Clear mock call history after add, then verify empty args triggers list
+    (ctx.ui.table as ReturnType<typeof vi.fn>).mockClear();
+    await cmdPmMilestone(ctx, []);
+
+    expect(ctx.ui.table).toHaveBeenCalledTimes(1);
+    expect(ctx.ui.table).toHaveBeenCalledWith(
+      ['ID', 'NAME', 'STATUS'],
+      expect.arrayContaining([expect.arrayContaining(['1', 'Phase 1'])])
+    );
+  });
+
   it('marks milestone as done', async () => {
     const ctx = createMockContext(globalDir, { cwd: projectDir });
     vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
@@ -355,6 +364,58 @@ describe('cmdPmMilestone', () => {
     await cmdPm(ctx, ['m', 'add', 'Shorthand Test']);
 
     expect(ctx.ui.logs.some((l) => l.includes('Shorthand Test'))).toBe(true);
+  });
+
+  it('creates milestone with --description flag', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmMilestone(ctx, ['add', 'Phase 1', '--description', 'Initial development']);
+
+    // Verify doc file contains description
+    const docPath = path.join(globalDir, 'teams', teamId, 'milestones', '1.md');
+    const content = fs.readFileSync(docPath, 'utf-8');
+    expect(content).toContain('Phase 1');
+    expect(content).toContain('Initial development');
+  });
+
+  it('prints milestone doc by default', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmMilestone(ctx, ['add', 'Phase 1', '-d', 'Test description']);
+
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (msg: string) => logs.push(msg);
+
+    await cmdPmMilestone(ctx, ['doc', '1']);
+
+    console.log = originalLog;
+    expect(logs.some((l) => l.includes('Phase 1'))).toBe(true);
+  });
+
+  it('returns milestone doc in JSON format', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir, json: true });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmMilestone(ctx, ['add', 'Phase 1']);
+    await cmdPmMilestone(ctx, ['doc', '1']);
+
+    const jsonOutput = ctx.ui.jsonData.find(
+      (d) => typeof d === 'object' && d !== null && 'doc' in d
+    ) as { id: string; doc: string };
+    expect(jsonOutput).toBeDefined();
+    expect(jsonOutput.id).toBe('1');
+    expect(jsonOutput.doc).toContain('Phase 1');
+  });
+
+  it('exits with error for non-existent milestone doc', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await expect(cmdPmMilestone(ctx, ['doc', '999'])).rejects.toThrow('Exit');
+    expect(ctx.ui.errors[0]).toContain('not found');
   });
 });
 
@@ -433,6 +494,23 @@ describe('cmdPmTask', () => {
     await cmdPmTask(ctx, ['list']);
 
     expect(ctx.ui.table).toHaveBeenCalled();
+  });
+
+  it('lists tasks when called without subcommand', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmTask(ctx, ['add', 'Task 1']);
+
+    // Clear mock call history after add, then verify empty args triggers list
+    (ctx.ui.table as ReturnType<typeof vi.fn>).mockClear();
+    await cmdPmTask(ctx, []);
+
+    expect(ctx.ui.table).toHaveBeenCalledTimes(1);
+    expect(ctx.ui.table).toHaveBeenCalledWith(
+      ['ID', 'TITLE', 'STATUS', 'MILESTONE'],
+      expect.arrayContaining([expect.arrayContaining(['1', 'Task 1'])])
+    );
   });
 
   it('filters task list by status', async () => {
@@ -530,10 +608,10 @@ describe('cmdPmTask', () => {
 });
 
 // ─────────────────────────────────────────────────────────────
-// cmdPmDoc tests
+// cmdPmTask doc tests
 // ─────────────────────────────────────────────────────────────
 
-describe('cmdPmDoc', () => {
+describe('cmdPmTask doc', () => {
   let testDir: string;
   let globalDir: string;
   let projectDir: string;
@@ -560,7 +638,7 @@ describe('cmdPmDoc', () => {
     }
   });
 
-  it('prints task documentation with --print flag', async () => {
+  it('prints task documentation by default', async () => {
     const ctx = createMockContext(globalDir, { cwd: projectDir });
     vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
 
@@ -569,14 +647,14 @@ describe('cmdPmDoc', () => {
     const originalLog = console.log;
     console.log = (msg: string) => logs.push(msg);
 
-    await cmdPmDoc(ctx, ['1', '--print']);
+    await cmdPmTask(ctx, ['doc', '1']);
 
     console.log = originalLog;
 
     expect(logs.some((l) => l.includes('Test Task'))).toBe(true);
   });
 
-  it('opens documentation in $EDITOR', async () => {
+  it('opens documentation in $EDITOR with --edit flag', async () => {
     // This test is tricky because it spawns an editor
     // We'll just verify the command doesn't throw
     const ctx = createMockContext(globalDir, { cwd: projectDir });
@@ -587,7 +665,7 @@ describe('cmdPmDoc', () => {
     process.env.EDITOR = 'true'; // 'true' command exists and does nothing
 
     try {
-      await cmdPmDoc(ctx, ['1']);
+      await cmdPmTask(ctx, ['doc', '1', '--edit']);
       expect(ctx.ui.logs.some((l) => l.includes('Saved'))).toBe(true);
     } finally {
       if (originalEditor) {
@@ -602,7 +680,7 @@ describe('cmdPmDoc', () => {
     const ctx = createMockContext(globalDir, { cwd: projectDir });
     vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
 
-    await expect(cmdPmDoc(ctx, ['999'])).rejects.toThrow('Exit');
+    await expect(cmdPmTask(ctx, ['doc', '999'])).rejects.toThrow('Exit');
     expect(ctx.ui.errors[0]).toContain('not found');
   });
 });
@@ -1105,7 +1183,7 @@ describe('Permission integration', () => {
     const originalLog = console.log;
     console.log = (msg: string) => logs.push(msg);
 
-    await cmdPmDoc(ctx, ['1', '--print']);
+    await cmdPmTask(ctx, ['doc', '1']);
 
     console.log = originalLog;
     expect(logs.some((l) => l.includes('Test task'))).toBe(true);

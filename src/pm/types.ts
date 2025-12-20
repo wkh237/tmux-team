@@ -16,6 +16,8 @@ export interface Milestone {
   id: string;
   name: string;
   status: MilestoneStatus;
+  description?: string;
+  docPath?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -55,11 +57,13 @@ export interface UpdateTaskInput {
 
 export interface CreateMilestoneInput {
   name: string;
+  description?: string;
 }
 
 export interface UpdateMilestoneInput {
   name?: string;
   status?: MilestoneStatus;
+  description?: string;
 }
 
 export interface ListTasksFilter {

@@ -162,6 +162,80 @@ describe('FSAdapter', () => {
       const milestone = await adapter.getMilestone('1');
       expect(milestone).toBeNull();
     });
+
+    it('creates markdown doc file for milestone', async () => {
+      const milestone = await adapter.createMilestone({ name: 'Phase 1' });
+      const docPath = path.join(testDir, 'milestones', `${milestone.id}.md`);
+
+      expect(fs.existsSync(docPath)).toBe(true);
+      const content = fs.readFileSync(docPath, 'utf-8');
+      expect(content).toContain('# Phase 1');
+    });
+
+    it('creates milestone with description in doc file', async () => {
+      const milestone = await adapter.createMilestone({
+        name: 'Phase 1',
+        description: 'Initial development phase',
+      });
+      const docPath = path.join(testDir, 'milestones', `${milestone.id}.md`);
+
+      const content = fs.readFileSync(docPath, 'utf-8');
+      expect(content).toContain('# Phase 1');
+      expect(content).toContain('Initial development phase');
+    });
+
+    it('deletes both json and md files on milestone delete', async () => {
+      const milestone = await adapter.createMilestone({ name: 'Cleanup' });
+      const jsonPath = path.join(testDir, 'milestones', `${milestone.id}.json`);
+      const mdPath = path.join(testDir, 'milestones', `${milestone.id}.md`);
+
+      expect(fs.existsSync(jsonPath)).toBe(true);
+      expect(fs.existsSync(mdPath)).toBe(true);
+
+      await adapter.deleteMilestone(milestone.id);
+
+      expect(fs.existsSync(jsonPath)).toBe(false);
+      expect(fs.existsSync(mdPath)).toBe(false);
+    });
+  });
+
+  describe('Milestone Documentation', () => {
+    beforeEach(async () => {
+      await adapter.initTeam('Test Project');
+    });
+
+    it('gets milestone documentation', async () => {
+      await adapter.createMilestone({ name: 'Phase 1', description: 'Intro' });
+      const doc = await adapter.getMilestoneDoc('1');
+
+      expect(doc).toContain('# Phase 1');
+      expect(doc).toContain('Intro');
+    });
+
+    it('sets milestone documentation', async () => {
+      await adapter.createMilestone({ name: 'Test' });
+      await adapter.setMilestoneDoc('1', '# Updated\n\nNew content');
+
+      const doc = await adapter.getMilestoneDoc('1');
+      expect(doc).toBe('# Updated\n\nNew content');
+    });
+
+    it('creates milestones dir when setting doc if missing', async () => {
+      await adapter.createMilestone({ name: 'Test' });
+      // Remove the milestones dir
+      fs.rmSync(path.join(testDir, 'milestones'), { recursive: true, force: true });
+
+      await adapter.setMilestoneDoc('1', '# Updated\n\nBody');
+
+      expect(fs.existsSync(path.join(testDir, 'milestones', '1.md'))).toBe(true);
+      const doc = await adapter.getMilestoneDoc('1');
+      expect(doc).toBe('# Updated\n\nBody');
+    });
+
+    it('returns null for non-existent doc', async () => {
+      const doc = await adapter.getMilestoneDoc('999');
+      expect(doc).toBeNull();
+    });
   });
 
   describe('Task Operations', () => {
