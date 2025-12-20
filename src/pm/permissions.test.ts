@@ -16,7 +16,13 @@ function createMockConfig(agents: Record<string, { deny?: string[] }>): Resolved
   return {
     mode: 'polling',
     preambleMode: 'always',
-    defaults: { timeout: 60, pollInterval: 1, captureLines: 100 },
+    defaults: {
+      timeout: 60,
+      pollInterval: 1,
+      captureLines: 100,
+      preambleEvery: 3,
+      hideOrphanTasks: false,
+    },
     agents,
     paneRegistry: {},
   };
@@ -350,7 +356,13 @@ describe('checkPermission with local config (integration)', () => {
     return {
       mode: 'polling',
       preambleMode: 'always',
-      defaults: { timeout: 60, pollInterval: 1, captureLines: 100 },
+      defaults: {
+        timeout: 60,
+        pollInterval: 1,
+        captureLines: 100,
+        preambleEvery: 3,
+        hideOrphanTasks: false,
+      },
       agents: localAgents, // This simulates merged local config
       paneRegistry: {},
     };

@@ -328,6 +328,60 @@ describe('FSAdapter', () => {
       expect(tasks[0].assignee).toBe('claude');
     });
 
+    it('excludes tasks in completed milestones by default', async () => {
+      // Create milestones
+      const m1 = await adapter.createMilestone({ name: 'Done Milestone' });
+      const m2 = await adapter.createMilestone({ name: 'Open Milestone' });
+      await adapter.updateMilestone(m1.id, { status: 'done' });
+
+      // Create tasks in both milestones
+      await adapter.createTask({ title: 'Task in done milestone', milestone: m1.id });
+      await adapter.createTask({ title: 'Task in open milestone', milestone: m2.id });
+      await adapter.createTask({ title: 'Task without milestone' });
+
+      // Default: excludeCompletedMilestones = true
+      const tasks = await adapter.listTasks();
+      expect(tasks).toHaveLength(2);
+      expect(tasks.map((t) => t.title)).not.toContain('Task in done milestone');
+    });
+
+    it('includes tasks in completed milestones when excludeCompletedMilestones is false', async () => {
+      // Create milestones
+      const m1 = await adapter.createMilestone({ name: 'Done Milestone' });
+      await adapter.updateMilestone(m1.id, { status: 'done' });
+
+      // Create task in done milestone
+      await adapter.createTask({ title: 'Task in done milestone', milestone: m1.id });
+      await adapter.createTask({ title: 'Task without milestone' });
+
+      // Include all tasks
+      const tasks = await adapter.listTasks({ excludeCompletedMilestones: false });
+      expect(tasks).toHaveLength(2);
+      expect(tasks.map((t) => t.title)).toContain('Task in done milestone');
+    });
+
+    it('hides tasks without milestones when hideOrphanTasks is true', async () => {
+      const milestone = await adapter.createMilestone({ name: 'Has Tasks' });
+
+      await adapter.createTask({ title: 'With milestone', milestone: milestone.id });
+      await adapter.createTask({ title: 'Without milestone' });
+
+      const tasks = await adapter.listTasks({ hideOrphanTasks: true });
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0].title).toBe('With milestone');
+    });
+
+    it('includes tasks without milestones when hideOrphanTasks is false', async () => {
+      const milestone = await adapter.createMilestone({ name: 'Has Tasks' });
+
+      await adapter.createTask({ title: 'With milestone', milestone: milestone.id });
+      await adapter.createTask({ title: 'Without milestone' });
+
+      const tasks = await adapter.listTasks({ hideOrphanTasks: false });
+      expect(tasks).toHaveLength(2);
+      expect(tasks.map((t) => t.title)).toContain('Without milestone');
+    });
+
     it('returns task by ID', async () => {
       await adapter.createTask({ title: 'Test Task' });
       const task = await adapter.getTask('1');

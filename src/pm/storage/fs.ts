@@ -198,6 +198,21 @@ export class FSAdapter implements StorageAdapter {
       tasks = tasks.filter((t) => t.assignee === filter.assignee);
     }
 
+    // Exclude tasks in completed milestones (default: true)
+    const excludeCompleted = filter?.excludeCompletedMilestones ?? true;
+    if (excludeCompleted) {
+      const milestones = await this.listMilestones();
+      const completedMilestoneIds = new Set(
+        milestones.filter((m) => m.status === 'done').map((m) => m.id)
+      );
+      tasks = tasks.filter((t) => !t.milestone || !completedMilestoneIds.has(t.milestone));
+    }
+
+    // Hide tasks without milestone if configured
+    if (filter?.hideOrphanTasks) {
+      tasks = tasks.filter((t) => t.milestone);
+    }
+
     return tasks.sort((a, b) => parseInt(a.id) - parseInt(b.id));
   }
 

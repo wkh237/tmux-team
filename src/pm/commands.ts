@@ -176,10 +176,13 @@ export async function cmdPmMilestone(ctx: Context, args: string[]): Promise<void
       return cmdMilestoneList(ctx, rest);
     case 'done':
       return cmdMilestoneDone(ctx, rest);
+    case 'delete':
+    case 'rm':
+      return cmdMilestoneDelete(ctx, rest);
     case 'doc':
       return cmdMilestoneDoc(ctx, rest);
     default:
-      ctx.ui.error(`Unknown milestone command: ${subcommand}. Use: add, list, done, doc`);
+      ctx.ui.error(`Unknown milestone command: ${subcommand}. Use: add, list, done, delete, doc`);
       ctx.exit(ExitCodes.ERROR);
   }
 }
@@ -286,6 +289,41 @@ async function cmdMilestoneDone(ctx: Context, args: string[]): Promise<void> {
     ui.json(updated);
   } else {
     ui.success(`Milestone #${id} marked as done`);
+  }
+}
+
+async function cmdMilestoneDelete(ctx: Context, args: string[]): Promise<void> {
+  requirePermission(ctx, PermissionChecks.milestoneDelete());
+
+  const { ui, flags } = ctx;
+  const { storage } = await requireTeam(ctx);
+
+  const id = args[0];
+  if (!id) {
+    ui.error('Usage: tmux-team pm milestone delete <id>');
+    ctx.exit(ExitCodes.ERROR);
+  }
+
+  const milestone = await storage.getMilestone(id);
+  if (!milestone) {
+    ui.error(`Milestone ${id} not found`);
+    ctx.exit(ExitCodes.PANE_NOT_FOUND);
+  }
+
+  await storage.deleteMilestone(id);
+
+  await storage.appendEvent({
+    event: 'milestone_deleted',
+    id,
+    name: milestone.name,
+    actor: 'human',
+    ts: new Date().toISOString(),
+  });
+
+  if (flags.json) {
+    ui.json({ deleted: true, id, name: milestone.name });
+  } else {
+    ui.success(`Milestone #${id} "${milestone.name}" deleted`);
   }
 }
 
@@ -495,12 +533,13 @@ async function cmdTaskAdd(ctx: Context, args: string[]): Promise<void> {
 async function cmdTaskList(ctx: Context, args: string[]): Promise<void> {
   requirePermission(ctx, PermissionChecks.taskList());
 
-  const { ui, flags } = ctx;
+  const { ui, flags, config } = ctx;
   const { storage } = await requireTeam(ctx);
 
   // Parse filters
   let milestone: string | undefined;
   let status: TaskStatus | undefined;
+  let showAll = false;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--milestone' || args[i] === '-m') {
@@ -511,10 +550,20 @@ async function cmdTaskList(ctx: Context, args: string[]): Promise<void> {
       status = parseStatus(args[++i]);
     } else if (args[i].startsWith('--status=')) {
       status = parseStatus(args[i].slice(9));
+    } else if (args[i] === '--all' || args[i] === '-a') {
+      showAll = true;
     }
   }
 
-  const tasks = await storage.listTasks({ milestone, status });
+  const hideOrphanTasks = config.defaults.hideOrphanTasks;
+
+  // By default, exclude tasks in completed milestones (unless --all)
+  const tasks = await storage.listTasks({
+    milestone,
+    status,
+    excludeCompletedMilestones: !showAll,
+    hideOrphanTasks,
+  });
 
   if (flags.json) {
     ui.json(tasks);
@@ -532,6 +581,16 @@ async function cmdTaskList(ctx: Context, args: string[]): Promise<void> {
     tasks.map((t) => [t.id, t.title.slice(0, 40), formatStatus(t.status), t.milestone || '-'])
   );
   console.log();
+
+  if (!flags.json) {
+    const modeHint = hideOrphanTasks
+      ? 'hiding tasks without milestones'
+      : 'showing tasks without milestones';
+    const toggleHint = hideOrphanTasks ? 'false' : 'true';
+    ui.info(
+      `List mode: ${modeHint}. Use: ${colors.cyan(`tmt config set hideOrphanTasks ${toggleHint}`)}`
+    );
+  }
 }
 
 async function cmdTaskShow(ctx: Context, args: string[]): Promise<void> {
@@ -915,10 +974,12 @@ ${colors.yellow('COMMANDS')}
   ${colors.green('milestone')} add <name> [-d <desc>]   Add milestone (shorthand: m)
   ${colors.green('milestone')} list                    List milestones
   ${colors.green('milestone')} done <id>               Mark milestone complete
+  ${colors.green('milestone')} delete <id>             Delete milestone (rm)
   ${colors.green('milestone')} doc <id> [options]       Print/update doc
                                      ref: show path, --edit: edit, --body: set text, --body-file: set from file
   ${colors.green('task')} add <title> [--milestone]    Add task (shorthand: t)
-  ${colors.green('task')} list [--status] [--milestone] List tasks
+  ${colors.green('task')} list [options]               List tasks (hides done milestones by default)
+                                     --all: include tasks in completed milestones
   ${colors.green('task')} show <id>                    Show task details
   ${colors.green('task')} update <id> --status <s>     Update task status
   ${colors.green('task')} done <id>                    Mark task complete

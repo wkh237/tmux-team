@@ -7,7 +7,12 @@ import type { WaitResult } from '../types.js';
 import { ExitCodes } from '../exits.js';
 import { colors } from '../ui.js';
 import crypto from 'crypto';
-import { cleanupState, clearActiveRequest, setActiveRequest } from '../state.js';
+import {
+  cleanupState,
+  clearActiveRequest,
+  setActiveRequest,
+  incrementPreambleCounter,
+} from '../state.js';
 import { resolveActor } from '../pm/permissions.js';
 
 function sleepMs(ms: number): Promise<void> {
@@ -62,9 +67,12 @@ interface BroadcastWaitResult {
 /**
  * Build the final message with optional preamble.
  * Format: [SYSTEM: <preamble>]\n\n<message>
+ *
+ * Preamble injection frequency is controlled by preambleEvery config.
+ * Default: inject every 3 messages per agent to save tokens.
  */
 function buildMessage(message: string, agentName: string, ctx: Context): string {
-  const { config, flags } = ctx;
+  const { config, flags, paths } = ctx;
 
   // Skip preamble if disabled or --no-preamble flag
   if (config.preambleMode === 'disabled' || flags.noPreamble) {
@@ -76,6 +84,22 @@ function buildMessage(message: string, agentName: string, ctx: Context): string 
   const preamble = agentConfig?.preamble;
 
   if (!preamble) {
+    return message;
+  }
+
+  // Check preamble frequency (preambleEvery: 0 means never, 1 means always)
+  const preambleEvery = config.defaults.preambleEvery;
+  if (preambleEvery <= 0) {
+    // preambleEvery = 0 means never inject (equivalent to disabled for this agent)
+    return message;
+  }
+
+  // Increment counter and check if we should inject preamble
+  // Inject on message 1, 1+N, 1+2N, ... where N = preambleEvery
+  const count = incrementPreambleCounter(paths, agentName);
+  const shouldInject = (count - 1) % preambleEvery === 0;
+
+  if (!shouldInject) {
     return message;
   }
 

@@ -15,6 +15,7 @@ export interface AgentRequestState {
 
 export interface StateFile {
   requests: Record<string, AgentRequestState>;
+  preambleCounters?: Record<string, number>; // agentName -> message count
 }
 
 const DEFAULT_STATE: StateFile = { requests: {} };
@@ -52,7 +53,10 @@ export function cleanupState(paths: Paths, ttlSeconds: number): StateFile {
   const now = Date.now();
 
   const ttlMs = Math.max(1, ttlSeconds) * 1000;
-  const next: StateFile = { requests: {} };
+  const next: StateFile = {
+    requests: {},
+    preambleCounters: state.preambleCounters, // Preserve preamble counters
+  };
 
   for (const [agent, req] of Object.entries(state.requests)) {
     if (!req || typeof req.startedAtMs !== 'number') continue;
@@ -80,4 +84,27 @@ export function clearActiveRequest(paths: Paths, agent: string, requestId?: stri
   if (requestId && state.requests[agent]?.id !== requestId) return;
   delete state.requests[agent];
   saveState(paths, state);
+}
+
+/**
+ * Get the current preamble counter for an agent.
+ * Returns 0 if not set.
+ */
+export function getPreambleCounter(paths: Paths, agent: string): number {
+  const state = loadState(paths);
+  return state.preambleCounters?.[agent] ?? 0;
+}
+
+/**
+ * Increment the preamble counter for an agent and return the new value.
+ */
+export function incrementPreambleCounter(paths: Paths, agent: string): number {
+  const state = loadState(paths);
+  if (!state.preambleCounters) {
+    state.preambleCounters = {};
+  }
+  const newCount = (state.preambleCounters[agent] ?? 0) + 1;
+  state.preambleCounters[agent] = newCount;
+  saveState(paths, state);
+  return newCount;
 }

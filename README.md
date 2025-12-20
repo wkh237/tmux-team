@@ -140,7 +140,7 @@ Once the plugin is installed, coordinate directly from your Claude Code session:
 | `remove <name>` | Unregister an agent |
 | `init` | Create `tmux-team.json` in current directory |
 | `pm init --name "Project"` | Initialize project management |
-| `pm m add/list/done` | Manage milestones |
+| `pm m add/list/done/delete` | Manage milestones |
 | `pm t add/list/update/done` | Manage tasks |
 | `pm log` | View audit event log |
 | `completion [zsh\|bash]` | Output shell completion script |
@@ -187,7 +187,8 @@ Global settings that apply to all projects:
   "defaults": {
     "timeout": 180,
     "pollInterval": 1,
-    "captureLines": 100
+    "captureLines": 100,
+    "hideOrphanTasks": false
   }
 }
 ```
@@ -199,6 +200,7 @@ Global settings that apply to all projects:
 | `defaults.timeout` | Default --wait timeout in seconds |
 | `defaults.pollInterval` | Polling interval in seconds |
 | `defaults.captureLines` | Default lines for `check` command |
+| `defaults.hideOrphanTasks` | Hide tasks without milestone in `pm t list` |
 
 > **Note:** Agent-specific config (preamble, deny) lives in local `tmux-team.json` only.
 
@@ -343,6 +345,7 @@ tmux-team config show                  # Show current config
 tmux-team config set <key> <value>     # Set a config value
 tmux-team config set mode wait         # Enable wait mode
 tmux-team config set preambleMode disabled  # Disable preambles
+tmux-team config set hideOrphanTasks true   # Hide tasks without milestone
 tmux-team config clear <key>           # Clear a config value
 tmux-team config --global set ...      # Modify global config
 ```
@@ -393,6 +396,7 @@ tmux-team pm m add "Phase 1"           # Add milestone
 tmux-team pm m add "Phase 1" -d "..."  # Add with description
 tmux-team pm m list                    # List milestones
 tmux-team pm m done <id>               # Mark milestone complete
+tmux-team pm m delete <id>             # Delete milestone (or: rm)
 tmux-team pm m doc <id>                # Print milestone documentation
 tmux-team pm m doc <id> --edit         # Edit doc in $EDITOR
 tmux-team pm m doc <id> ref            # Print doc path/reference

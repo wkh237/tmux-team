@@ -70,6 +70,8 @@ export interface ListTasksFilter {
   milestone?: string;
   status?: TaskStatus;
   assignee?: string;
+  excludeCompletedMilestones?: boolean; // Hide tasks in completed milestones (default: true)
+  hideOrphanTasks?: boolean; // Hide tasks without milestone (default: false)
 }
 
 // ─────────────────────────────────────────────────────────────

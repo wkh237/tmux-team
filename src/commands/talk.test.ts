@@ -63,6 +63,8 @@ function createDefaultConfig(): ResolvedConfig {
       timeout: 60,
       pollInterval: 0.1, // Fast polling for tests
       captureLines: 100,
+      preambleEvery: 3,
+      hideOrphanTasks: false,
     },
     agents: {},
     paneRegistry: {
@@ -85,7 +87,15 @@ function createContext(
   const exitError = new Error('exit called');
   (exitError as Error & { exitCode?: number }).exitCode = 0;
 
-  const config = { ...createDefaultConfig(), ...overrides.config };
+  const baseConfig = createDefaultConfig();
+  const config = {
+    ...baseConfig,
+    ...overrides.config,
+    defaults: {
+      ...baseConfig.defaults,
+      ...overrides.config?.defaults,
+    },
+  };
   const flags: Flags = { json: false, verbose: false, ...overrides.flags };
 
   return {
@@ -198,6 +208,91 @@ describe('buildMessage (via cmdTalk)', () => {
     await cmdTalk(ctx, 'claude', 'Test message');
 
     expect(tmux.sends[0].message).toBe('[SYSTEM: Test preamble]\n\nTest message');
+  });
+
+  it('injects preamble based on preambleEvery config (every N messages)', async () => {
+    const paths = createTestPaths(testDir);
+    fs.mkdirSync(paths.globalDir, { recursive: true });
+
+    const config = {
+      preambleMode: 'always' as const,
+      agents: { claude: { preamble: 'Be brief' } },
+      defaults: {
+        timeout: 60,
+        pollInterval: 0.1,
+        captureLines: 100,
+        preambleEvery: 3,
+        hideOrphanTasks: false,
+      },
+    };
+
+    // Message 1: should include preamble (first message)
+    const tmux1 = createMockTmux();
+    await cmdTalk(createContext({ tmux: tmux1, paths, config }), 'claude', 'Hello 1');
+    expect(tmux1.sends[0].message).toContain('[SYSTEM: Be brief]');
+
+    // Message 2: should NOT include preamble
+    const tmux2 = createMockTmux();
+    await cmdTalk(createContext({ tmux: tmux2, paths, config }), 'claude', 'Hello 2');
+    expect(tmux2.sends[0].message).toBe('Hello 2');
+
+    // Message 3: should NOT include preamble
+    const tmux3 = createMockTmux();
+    await cmdTalk(createContext({ tmux: tmux3, paths, config }), 'claude', 'Hello 3');
+    expect(tmux3.sends[0].message).toBe('Hello 3');
+
+    // Message 4: should include preamble (4 - 1 = 3, divisible by 3)
+    const tmux4 = createMockTmux();
+    await cmdTalk(createContext({ tmux: tmux4, paths, config }), 'claude', 'Hello 4');
+    expect(tmux4.sends[0].message).toContain('[SYSTEM: Be brief]');
+  });
+
+  it('injects preamble every time when preambleEvery is 1', async () => {
+    const paths = createTestPaths(testDir);
+    fs.mkdirSync(paths.globalDir, { recursive: true });
+
+    const config = {
+      preambleMode: 'always' as const,
+      agents: { claude: { preamble: 'Be brief' } },
+      defaults: {
+        timeout: 60,
+        pollInterval: 0.1,
+        captureLines: 100,
+        preambleEvery: 1,
+        hideOrphanTasks: false,
+      },
+    };
+
+    // All messages should include preamble
+    for (let i = 0; i < 3; i++) {
+      const tmux = createMockTmux();
+      await cmdTalk(createContext({ tmux, paths, config }), 'claude', `Hello ${i}`);
+      expect(tmux.sends[0].message).toContain('[SYSTEM: Be brief]');
+    }
+  });
+
+  it('never injects preamble when preambleEvery is 0', async () => {
+    const paths = createTestPaths(testDir);
+    fs.mkdirSync(paths.globalDir, { recursive: true });
+
+    const config = {
+      preambleMode: 'always' as const,
+      agents: { claude: { preamble: 'Be brief' } },
+      defaults: {
+        timeout: 60,
+        pollInterval: 0.1,
+        captureLines: 100,
+        preambleEvery: 0,
+        hideOrphanTasks: false,
+      },
+    };
+
+    // No messages should include preamble
+    for (let i = 0; i < 3; i++) {
+      const tmux = createMockTmux();
+      await cmdTalk(createContext({ tmux, paths, config }), 'claude', `Hello ${i}`);
+      expect(tmux.sends[0].message).toBe(`Hello ${i}`);
+    }
   });
 });
 
@@ -369,7 +464,15 @@ describe('cmdTalk - --wait mode', () => {
       tmux,
       paths: createTestPaths(testDir),
       flags: { wait: true, timeout: 5 },
-      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100 } },
+      config: {
+        defaults: {
+          timeout: 5,
+          pollInterval: 0.01,
+          captureLines: 100,
+          preambleEvery: 3,
+          hideOrphanTasks: false,
+        },
+      },
     });
 
     await cmdTalk(ctx, 'claude', 'Hello');
@@ -404,7 +507,15 @@ describe('cmdTalk - --wait mode', () => {
       ui,
       paths: createTestPaths(testDir),
       flags: { wait: true, json: true, timeout: 5 },
-      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100 } },
+      config: {
+        defaults: {
+          timeout: 5,
+          pollInterval: 0.01,
+          captureLines: 100,
+          preambleEvery: 3,
+          hideOrphanTasks: false,
+        },
+      },
     });
 
     await cmdTalk(ctx, 'claude', 'Hello');
@@ -427,7 +538,15 @@ describe('cmdTalk - --wait mode', () => {
       ui,
       paths: createTestPaths(testDir),
       flags: { wait: true, json: true, timeout: 0.1 },
-      config: { defaults: { timeout: 0.1, pollInterval: 0.02, captureLines: 100 } },
+      config: {
+        defaults: {
+          timeout: 0.1,
+          pollInterval: 0.02,
+          captureLines: 100,
+          preambleEvery: 3,
+          hideOrphanTasks: false,
+        },
+      },
     });
 
     try {
@@ -468,7 +587,15 @@ describe('cmdTalk - --wait mode', () => {
       ui,
       paths: createTestPaths(testDir),
       flags: { wait: true, json: true, timeout: 5 },
-      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100 } },
+      config: {
+        defaults: {
+          timeout: 5,
+          pollInterval: 0.01,
+          captureLines: 100,
+          preambleEvery: 3,
+          hideOrphanTasks: false,
+        },
+      },
     });
 
     await cmdTalk(ctx, 'claude', 'Hello');
@@ -496,7 +623,15 @@ describe('cmdTalk - --wait mode', () => {
       tmux,
       paths,
       flags: { wait: true, timeout: 5 },
-      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100 } },
+      config: {
+        defaults: {
+          timeout: 5,
+          pollInterval: 0.01,
+          captureLines: 100,
+          preambleEvery: 3,
+          hideOrphanTasks: false,
+        },
+      },
     });
 
     await cmdTalk(ctx, 'claude', 'Hello');
@@ -517,7 +652,15 @@ describe('cmdTalk - --wait mode', () => {
       tmux,
       paths,
       flags: { wait: true, timeout: 0.05 },
-      config: { defaults: { timeout: 0.05, pollInterval: 0.01, captureLines: 100 } },
+      config: {
+        defaults: {
+          timeout: 0.05,
+          pollInterval: 0.01,
+          captureLines: 100,
+          preambleEvery: 3,
+          hideOrphanTasks: false,
+        },
+      },
     });
 
     try {
@@ -565,7 +708,13 @@ describe('cmdTalk - --wait mode', () => {
       paths,
       flags: { wait: true, timeout: 5 },
       config: {
-        defaults: { timeout: 5, pollInterval: 0.05, captureLines: 100 },
+        defaults: {
+          timeout: 5,
+          pollInterval: 0.05,
+          captureLines: 100,
+          preambleEvery: 3,
+          hideOrphanTasks: false,
+        },
         paneRegistry: {
           codex: { pane: '10.1' },
           gemini: { pane: '10.2' },
@@ -606,7 +755,13 @@ describe('cmdTalk - --wait mode', () => {
       paths,
       flags: { wait: true, timeout: 0.1, json: true },
       config: {
-        defaults: { timeout: 0.1, pollInterval: 0.02, captureLines: 100 },
+        defaults: {
+          timeout: 0.1,
+          pollInterval: 0.02,
+          captureLines: 100,
+          preambleEvery: 3,
+          hideOrphanTasks: false,
+        },
         paneRegistry: {
           codex: { pane: '10.1' },
           gemini: { pane: '10.2' },
@@ -658,7 +813,13 @@ describe('cmdTalk - --wait mode', () => {
       paths,
       flags: { wait: true, timeout: 5 },
       config: {
-        defaults: { timeout: 5, pollInterval: 0.02, captureLines: 100 },
+        defaults: {
+          timeout: 5,
+          pollInterval: 0.02,
+          captureLines: 100,
+          preambleEvery: 3,
+          hideOrphanTasks: false,
+        },
         paneRegistry: {
           codex: { pane: '10.1' },
           gemini: { pane: '10.2' },
@@ -718,7 +879,15 @@ describe('cmdTalk - nonce collision handling', () => {
       ui,
       paths: createTestPaths(testDir),
       flags: { wait: true, json: true, timeout: 5 },
-      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100 } },
+      config: {
+        defaults: {
+          timeout: 5,
+          pollInterval: 0.01,
+          captureLines: 100,
+          preambleEvery: 3,
+          hideOrphanTasks: false,
+        },
+      },
     });
 
     await cmdTalk(ctx, 'claude', 'Hello');
@@ -761,7 +930,15 @@ describe('cmdTalk - JSON output contract', () => {
       ui,
       paths: createTestPaths(testDir),
       flags: { wait: true, json: true, timeout: 5 },
-      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100 } },
+      config: {
+        defaults: {
+          timeout: 5,
+          pollInterval: 0.01,
+          captureLines: 100,
+          preambleEvery: 3,
+          hideOrphanTasks: false,
+        },
+      },
     });
 
     await cmdTalk(ctx, 'claude', 'Hello');
@@ -786,7 +963,15 @@ describe('cmdTalk - JSON output contract', () => {
       ui,
       paths: createTestPaths(testDir),
       flags: { wait: true, json: true, timeout: 0.05 },
-      config: { defaults: { timeout: 0.05, pollInterval: 0.01, captureLines: 100 } },
+      config: {
+        defaults: {
+          timeout: 0.05,
+          pollInterval: 0.01,
+          captureLines: 100,
+          preambleEvery: 3,
+          hideOrphanTasks: false,
+        },
+      },
     });
 
     try {

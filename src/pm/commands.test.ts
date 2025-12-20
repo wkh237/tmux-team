@@ -36,7 +36,18 @@ function createMockUI(): UI & { logs: string[]; errors: string[]; jsonData: unkn
 
 function createMockContext(
   globalDir: string,
-  options: { json?: boolean; cwd?: string; agents?: Record<string, { deny?: string[] }> } = {}
+  options: {
+    json?: boolean;
+    cwd?: string;
+    agents?: Record<string, { deny?: string[] }>;
+    defaults?: Partial<{
+      timeout: number;
+      pollInterval: number;
+      captureLines: number;
+      preambleEvery: number;
+      hideOrphanTasks: boolean;
+    }>;
+  } = {}
 ): Context & { ui: ReturnType<typeof createMockUI>; exitCode: number | null } {
   const ui = createMockUI();
   let exitCode: number | null = null;
@@ -55,7 +66,14 @@ function createMockContext(
     config: {
       mode: 'polling',
       preambleMode: 'always',
-      defaults: { timeout: 60, pollInterval: 1, captureLines: 100 },
+      defaults: {
+        timeout: 60,
+        pollInterval: 1,
+        captureLines: 100,
+        preambleEvery: 3,
+        hideOrphanTasks: false,
+        ...options.defaults,
+      },
       agents: options.agents ?? {},
       paneRegistry: {},
     },
@@ -366,6 +384,55 @@ describe('cmdPmMilestone', () => {
     expect(ctx.ui.errors[0]).toContain('not found');
   });
 
+  it('deletes milestone', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmMilestone(ctx, ['add', 'To Delete']);
+    await cmdPmMilestone(ctx, ['delete', '1']);
+
+    expect(ctx.ui.logs.some((l) => l.includes('deleted'))).toBe(true);
+
+    // Verify milestone was deleted
+    const milestonePath = path.join(globalDir, 'teams', teamId, 'milestones', '1.json');
+    expect(fs.existsSync(milestonePath)).toBe(false);
+  });
+
+  it('deletes milestone with rm shorthand', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmMilestone(ctx, ['add', 'To Remove']);
+    await cmdPmMilestone(ctx, ['rm', '1']);
+
+    expect(ctx.ui.logs.some((l) => l.includes('deleted'))).toBe(true);
+  });
+
+  it('returns JSON on milestone delete with --json flag', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir, json: true });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmMilestone(ctx, ['add', 'JSON Delete']);
+    await cmdPmMilestone(ctx, ['delete', '1']);
+
+    const output = ctx.ui.jsonData[ctx.ui.jsonData.length - 1] as {
+      deleted: boolean;
+      id: string;
+      name: string;
+    };
+    expect(output.deleted).toBe(true);
+    expect(output.id).toBe('1');
+    expect(output.name).toBe('JSON Delete');
+  });
+
+  it('exits with error when deleting non-existent milestone', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await expect(cmdPmMilestone(ctx, ['delete', '999'])).rejects.toThrow('Exit');
+    expect(ctx.ui.errors[0]).toContain('not found');
+  });
+
   it('routes "pm m add" to milestone add', async () => {
     const ctx = createMockContext(globalDir, { cwd: projectDir });
     vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
@@ -653,6 +720,24 @@ describe('cmdPmTask', () => {
     const lastJson = ctx.ui.jsonData[ctx.ui.jsonData.length - 1] as { milestone: string }[];
     expect(lastJson).toHaveLength(1);
     expect(lastJson[0].milestone).toBe('1');
+  });
+
+  it('hides tasks without milestone when hideOrphanTasks is enabled', async () => {
+    const ctx = createMockContext(globalDir, {
+      json: true,
+      cwd: projectDir,
+      defaults: { hideOrphanTasks: true },
+    });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmMilestone(ctx, ['add', 'Phase 1']);
+    await cmdPmTask(ctx, ['add', 'With milestone', '--milestone', '1']);
+    await cmdPmTask(ctx, ['add', 'Without milestone']);
+    await cmdPmTask(ctx, ['list']);
+
+    const tasks = ctx.ui.jsonData[ctx.ui.jsonData.length - 1] as { title: string }[];
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].title).toBe('With milestone');
   });
 
   it('displays task details', async () => {

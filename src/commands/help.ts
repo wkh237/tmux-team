@@ -79,5 +79,7 @@ ${colors.yellow('CHANGE MODE')}
   tmux-team config set mode wait            ${colors.dim('Enable wait mode (local)')}
   tmux-team config set mode polling         ${colors.dim('Enable polling mode (local)')}
   tmux-team config set preambleMode disabled ${colors.dim('Disable preambles (local)')}
+  tmux-team config set preambleEvery 5      ${colors.dim('Inject preamble every 5 messages')}
+  tmux-team config set hideOrphanTasks true ${colors.dim('Hide tasks without milestones (global)')}
 `);
 }

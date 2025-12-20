@@ -7,7 +7,8 @@ import type { UI } from './types.js';
 const isTTY = process.stdout.isTTY;
 
 // Strip ANSI escape codes for accurate length calculation
-const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '');
+const ansiEscape = String.fromCharCode(27);
+const stripAnsi = (s: string) => s.replace(new RegExp(`${ansiEscape}\\[[0-9;]*m`, 'g'), '');
 
 export const colors = {
   red: (s: string) => (isTTY ? `\x1b[31m${s}\x1b[0m` : s),

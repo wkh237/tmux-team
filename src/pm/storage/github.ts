@@ -62,13 +62,13 @@ interface GHMilestone {
 // Local cache for ID mapping (task ID -> issue number)
 // ─────────────────────────────────────────────────────────────
 
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3; // Bumped: milestone state now cached
 
 interface IdCache {
   version: number; // Cache format version for migrations
   repo: string; // Associated repo to detect cross-repo drift
   tasks: Record<string, number>; // task ID -> issue number
-  milestones: Record<string, { number: number; name: string }>; // milestone ID -> {number, name}
+  milestones: Record<string, { number: number; name: string; state?: 'open' | 'closed' }>; // milestone ID -> {number, name, state}
   nextTaskId: number;
   nextMilestoneId: number;
 }
@@ -139,9 +139,17 @@ export class GitHubAdapter implements StorageAdapter {
       try {
         const data = JSON.parse(fs.readFileSync(this.cacheFile, 'utf-8')) as IdCache;
 
+        // Migrate from version 2 to 3: add milestone state field
+        if (data.version === 2) {
+          // Preserve all existing data, just update version
+          // Milestone states will be populated on next listMilestones() call
+          data.version = 3;
+          this.saveCache(data);
+        }
+
         // Validate cache integrity
         if (data.version !== CACHE_VERSION) {
-          // Version mismatch - reset cache (future: migration logic)
+          // Unknown version - reset cache
           console.error(`[tmux-team] Cache version mismatch, resetting cache`);
           return this.createEmptyCache();
         }
@@ -373,10 +381,10 @@ export class GitHubAdapter implements StorageAdapter {
       created_at: string;
     };
 
-    // Cache the ID mapping (store both number and name)
+    // Cache the ID mapping (store number, name, and state)
     const cache = this.loadCache();
     const id = String(cache.nextMilestoneId++);
-    cache.milestones[id] = { number: ghMilestone.number, name: ghMilestone.title };
+    cache.milestones[id] = { number: ghMilestone.number, name: ghMilestone.title, state: 'open' };
     this.saveCache(cache);
 
     return {
@@ -431,8 +439,9 @@ export class GitHubAdapter implements StorageAdapter {
         if (!id) {
           // New milestone from GitHub, assign ID
           id = String(cache.nextMilestoneId++);
-          cache.milestones[id] = { number: ghm.number, name: ghm.title };
         }
+        // Always update cache with current state
+        cache.milestones[id] = { number: ghm.number, name: ghm.title, state: ghm.state };
         milestones.push(this.milestoneToMilestone(ghm, id));
       }
 
@@ -464,6 +473,18 @@ export class GitHubAdapter implements StorageAdapter {
 
     const result = this.gh(args);
     const ghMilestone = JSON.parse(result) as GHMilestone;
+
+    // Update cache with new name/state
+    const cache = this.loadCache();
+    if (cache.milestones[id]) {
+      cache.milestones[id] = {
+        ...cache.milestones[id],
+        name: ghMilestone.title,
+        state: ghMilestone.state,
+      };
+      this.saveCache(cache);
+    }
+
     return this.milestoneToMilestone(ghMilestone, id);
   }
 
@@ -471,13 +492,12 @@ export class GitHubAdapter implements StorageAdapter {
     const number = this.getMilestoneNumber(id);
     if (!number) return;
 
-    try {
-      this.gh(['api', `repos/${this.repo}/milestones/${number}`, '-X', 'DELETE']);
-    } catch {
-      // Already deleted or not found
-    }
+    // Note: We intentionally don't delete the milestone from GitHub.
+    // GitHub milestones may be used by other tools, and deletion is destructive.
+    // Instead, we only remove it from the local cache (soft delete).
+    // To permanently delete, use the GitHub web UI or `gh api` directly.
 
-    // Remove from cache
+    // Remove from cache only
     const cache = this.loadCache();
     delete cache.milestones[id];
     this.saveCache(cache);
@@ -598,7 +618,7 @@ export class GitHubAdapter implements StorageAdapter {
 
     try {
       const issues = this.ghJson<GHIssue[]>(args);
-      const tasks: Task[] = [];
+      let tasks: Task[] = [];
 
       for (const issue of issues) {
         // Find or create ID mapping
@@ -609,6 +629,23 @@ export class GitHubAdapter implements StorageAdapter {
         }
         // Pass cache for efficient milestone lookup
         tasks.push(this.issueToTask(issue, id, cache));
+      }
+
+      // Exclude tasks in completed milestones (default: true)
+      const excludeCompleted = filter?.excludeCompletedMilestones ?? true;
+      if (excludeCompleted) {
+        // Build set of closed milestone IDs from cache
+        const closedMilestoneIds = new Set(
+          Object.entries(cache.milestones)
+            .filter(([, m]) => m.state === 'closed')
+            .map(([id]) => id)
+        );
+        tasks = tasks.filter((t) => !t.milestone || !closedMilestoneIds.has(t.milestone));
+      }
+
+      // Hide tasks without milestone if configured
+      if (filter?.hideOrphanTasks) {
+        tasks = tasks.filter((t) => t.milestone);
       }
 
       this.saveCache(cache);

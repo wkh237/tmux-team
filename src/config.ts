@@ -26,6 +26,8 @@ const DEFAULT_CONFIG: GlobalConfig = {
     timeout: 180,
     pollInterval: 1,
     captureLines: 100,
+    preambleEvery: 3, // inject preamble every 3 messages
+    hideOrphanTasks: false, // hide tasks without milestone in list
   },
 };
 
@@ -150,6 +152,9 @@ export function loadConfig(paths: Paths): ResolvedConfig {
     if (localSettings) {
       if (localSettings.mode) config.mode = localSettings.mode;
       if (localSettings.preambleMode) config.preambleMode = localSettings.preambleMode;
+      if (localSettings.preambleEvery !== undefined) {
+        config.defaults.preambleEvery = localSettings.preambleEvery;
+      }
     }
 
     // Build pane registry and agents config from local entries

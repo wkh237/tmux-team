@@ -18,6 +18,8 @@ export interface ConfigDefaults {
   timeout: number; // seconds
   pollInterval: number; // seconds
   captureLines: number;
+  preambleEvery: number; // inject preamble every N messages (default: 3)
+  hideOrphanTasks: boolean; // hide tasks without milestone in list (default: false)
 }
 
 export interface GlobalConfig {
@@ -29,6 +31,7 @@ export interface GlobalConfig {
 export interface LocalSettings {
   mode?: 'polling' | 'wait';
   preambleMode?: 'always' | 'disabled';
+  preambleEvery?: number; // local override for preamble frequency
 }
 
 export interface LocalConfigFile {

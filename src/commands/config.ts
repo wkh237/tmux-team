@@ -13,11 +13,17 @@ import {
   clearLocalSettings,
 } from '../config.js';
 
-type ConfigKey = 'mode' | 'preambleMode';
+type EnumConfigKey = 'mode' | 'preambleMode';
+type NumericConfigKey = 'preambleEvery';
+type BoolConfigKey = 'hideOrphanTasks';
+type ConfigKey = EnumConfigKey | NumericConfigKey | BoolConfigKey;
 
-const VALID_KEYS: ConfigKey[] = ['mode', 'preambleMode'];
+const ENUM_KEYS: EnumConfigKey[] = ['mode', 'preambleMode'];
+const NUMERIC_KEYS: NumericConfigKey[] = ['preambleEvery'];
+const BOOL_KEYS: BoolConfigKey[] = ['hideOrphanTasks'];
+const VALID_KEYS: ConfigKey[] = [...ENUM_KEYS, ...NUMERIC_KEYS, ...BOOL_KEYS];
 
-const VALID_VALUES: Record<ConfigKey, string[]> = {
+const VALID_VALUES: Record<EnumConfigKey, string[]> = {
   mode: ['polling', 'wait'],
   preambleMode: ['always', 'disabled'],
 };
@@ -26,7 +32,19 @@ function isValidKey(key: string): key is ConfigKey {
   return VALID_KEYS.includes(key as ConfigKey);
 }
 
-function isValidValue(key: ConfigKey, value: string): boolean {
+function isEnumKey(key: ConfigKey): key is EnumConfigKey {
+  return ENUM_KEYS.includes(key as EnumConfigKey);
+}
+
+function isNumericKey(key: ConfigKey): key is NumericConfigKey {
+  return NUMERIC_KEYS.includes(key as NumericConfigKey);
+}
+
+function isBoolKey(key: ConfigKey): key is BoolConfigKey {
+  return BOOL_KEYS.includes(key as BoolConfigKey);
+}
+
+function isValidValue(key: EnumConfigKey, value: string): boolean {
   return VALID_VALUES[key].includes(value);
 }
 
@@ -43,6 +61,8 @@ function showConfig(ctx: Context): void {
       resolved: {
         mode: ctx.config.mode,
         preambleMode: ctx.config.preambleMode,
+        preambleEvery: ctx.config.defaults.preambleEvery,
+        hideOrphanTasks: ctx.config.defaults.hideOrphanTasks,
         defaults: ctx.config.defaults,
       },
       sources: {
@@ -52,6 +72,14 @@ function showConfig(ctx: Context): void {
           : globalConfig.preambleMode
             ? 'global'
             : 'default',
+        preambleEvery:
+          localSettings?.preambleEvery !== undefined
+            ? 'local'
+            : globalConfig.defaults?.preambleEvery !== undefined
+              ? 'global'
+              : 'default',
+        hideOrphanTasks:
+          globalConfig.defaults?.hideOrphanTasks !== undefined ? 'global' : 'default',
       },
       paths: {
         global: ctx.paths.globalConfig,
@@ -68,6 +96,14 @@ function showConfig(ctx: Context): void {
     : globalConfig.preambleMode
       ? '(global)'
       : '(default)';
+  const preambleEverySource =
+    localSettings?.preambleEvery !== undefined
+      ? '(local)'
+      : globalConfig.defaults?.preambleEvery !== undefined
+        ? '(global)'
+        : '(default)';
+  const hideOrphanSource =
+    globalConfig.defaults?.hideOrphanTasks !== undefined ? '(global)' : '(default)';
 
   ctx.ui.info('Current configuration:\n');
   ctx.ui.table(
@@ -75,6 +111,8 @@ function showConfig(ctx: Context): void {
     [
       ['mode', ctx.config.mode, modeSource],
       ['preambleMode', ctx.config.preambleMode, preambleSource],
+      ['preambleEvery', String(ctx.config.defaults.preambleEvery), preambleEverySource],
+      ['hideOrphanTasks', String(ctx.config.defaults.hideOrphanTasks), hideOrphanSource],
       ['defaults.timeout', String(ctx.config.defaults.timeout), '(global)'],
       ['defaults.pollInterval', String(ctx.config.defaults.pollInterval), '(global)'],
       ['defaults.captureLines', String(ctx.config.defaults.captureLines), '(global)'],
@@ -95,11 +133,50 @@ function setConfig(ctx: Context, key: string, value: string, global: boolean): v
     ctx.exit(ExitCodes.ERROR);
   }
 
-  if (!isValidValue(key, value)) {
-    ctx.ui.error(
-      `Invalid value for ${key}: ${value}. Valid values: ${VALID_VALUES[key].join(', ')}`
-    );
-    ctx.exit(ExitCodes.ERROR);
+  const validKey = key as ConfigKey;
+
+  // Validate enum keys
+  if (isEnumKey(validKey)) {
+    if (!isValidValue(validKey, value)) {
+      ctx.ui.error(
+        `Invalid value for ${key}: ${value}. Valid values: ${VALID_VALUES[validKey].join(', ')}`
+      );
+      ctx.exit(ExitCodes.ERROR);
+    }
+  }
+
+  // Validate numeric keys
+  if (isNumericKey(validKey)) {
+    const numValue = parseInt(value, 10);
+    if (isNaN(numValue) || numValue < 0) {
+      ctx.ui.error(`Invalid value for ${key}: ${value}. Must be a non-negative integer.`);
+      ctx.exit(ExitCodes.ERROR);
+    }
+  }
+
+  if (isBoolKey(validKey)) {
+    if (value !== 'true' && value !== 'false') {
+      ctx.ui.error(`Invalid value for ${key}: ${value}. Use true or false.`);
+      ctx.exit(ExitCodes.ERROR);
+    }
+  }
+
+  if (key === 'hideOrphanTasks') {
+    const globalConfig = loadGlobalConfig(ctx.paths);
+    if (!globalConfig.defaults) {
+      globalConfig.defaults = {
+        timeout: 180,
+        pollInterval: 1,
+        captureLines: 100,
+        preambleEvery: ctx.config.defaults.preambleEvery,
+        hideOrphanTasks: value === 'true',
+      };
+    } else {
+      globalConfig.defaults.hideOrphanTasks = value === 'true';
+    }
+    saveGlobalConfig(ctx.paths, globalConfig);
+    ctx.ui.success(`Set ${key}=${value} in global config`);
+    return;
   }
 
   if (global) {
@@ -109,6 +186,18 @@ function setConfig(ctx: Context, key: string, value: string, global: boolean): v
       globalConfig.mode = value as 'polling' | 'wait';
     } else if (key === 'preambleMode') {
       globalConfig.preambleMode = value as 'always' | 'disabled';
+    } else if (key === 'preambleEvery') {
+      if (!globalConfig.defaults) {
+        globalConfig.defaults = {
+          timeout: 180,
+          pollInterval: 1,
+          captureLines: 100,
+          preambleEvery: parseInt(value, 10),
+          hideOrphanTasks: ctx.config.defaults.hideOrphanTasks,
+        };
+      } else {
+        globalConfig.defaults.preambleEvery = parseInt(value, 10);
+      }
     }
     saveGlobalConfig(ctx.paths, globalConfig);
     ctx.ui.success(`Set ${key}=${value} in global config`);
@@ -118,6 +207,8 @@ function setConfig(ctx: Context, key: string, value: string, global: boolean): v
       updateLocalSettings(ctx.paths, { mode: value as 'polling' | 'wait' });
     } else if (key === 'preambleMode') {
       updateLocalSettings(ctx.paths, { preambleMode: value as 'always' | 'disabled' });
+    } else if (key === 'preambleEvery') {
+      updateLocalSettings(ctx.paths, { preambleEvery: parseInt(value, 10) });
     }
     ctx.ui.success(`Set ${key}=${value} in local config (repo override)`);
   }
@@ -130,6 +221,10 @@ function clearConfig(ctx: Context, key?: string): void {
   if (key) {
     if (!isValidKey(key)) {
       ctx.ui.error(`Invalid key: ${key}. Valid keys: ${VALID_KEYS.join(', ')}`);
+      ctx.exit(ExitCodes.ERROR);
+    }
+    if (key === 'hideOrphanTasks') {
+      ctx.ui.error(`Cannot clear global-only key: ${key}. Edit global config instead.`);
       ctx.exit(ExitCodes.ERROR);
     }
 

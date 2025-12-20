@@ -278,6 +278,7 @@ export const PermissionChecks = {
     action: 'update',
     fields,
   }),
+  milestoneDelete: (): PermissionCheck => ({ resource: 'milestone', action: 'delete', fields: [] }),
 
   // Doc operations
   docRead: (): PermissionCheck => ({ resource: 'doc', action: 'read', fields: [] }),

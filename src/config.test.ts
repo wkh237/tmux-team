@@ -161,6 +161,7 @@ describe('loadConfig', () => {
     expect(config.defaults.timeout).toBe(180);
     expect(config.defaults.pollInterval).toBe(1);
     expect(config.defaults.captureLines).toBe(100);
+    expect(config.defaults.hideOrphanTasks).toBe(false);
     expect(config.agents).toEqual({});
     expect(config.paneRegistry).toEqual({});
   });
