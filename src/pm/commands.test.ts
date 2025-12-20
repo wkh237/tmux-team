@@ -312,9 +312,18 @@ describe('cmdPmMilestone', () => {
 
     await cmdPmMilestone(ctx, ['add', 'Phase 1']);
     await cmdPmMilestone(ctx, ['add', 'Phase 2']);
+
+    (ctx.ui.table as ReturnType<typeof vi.fn>).mockClear();
     await cmdPmMilestone(ctx, ['list']);
 
-    expect(ctx.ui.table).toHaveBeenCalled();
+    expect(ctx.ui.table).toHaveBeenCalledTimes(1);
+    expect(ctx.ui.table).toHaveBeenCalledWith(
+      ['ID', 'NAME', 'STATUS'],
+      expect.arrayContaining([
+        expect.arrayContaining(['1', 'Phase 1']),
+        expect.arrayContaining(['2', 'Phase 2']),
+      ])
+    );
   });
 
   it('lists milestones when called without subcommand', async () => {
@@ -539,9 +548,18 @@ describe('cmdPmTask', () => {
 
     await cmdPmTask(ctx, ['add', 'Task 1']);
     await cmdPmTask(ctx, ['add', 'Task 2']);
+
+    (ctx.ui.table as ReturnType<typeof vi.fn>).mockClear();
     await cmdPmTask(ctx, ['list']);
 
-    expect(ctx.ui.table).toHaveBeenCalled();
+    expect(ctx.ui.table).toHaveBeenCalledTimes(1);
+    expect(ctx.ui.table).toHaveBeenCalledWith(
+      ['ID', 'TITLE', 'STATUS', 'MILESTONE'],
+      expect.arrayContaining([
+        expect.arrayContaining(['1', 'Task 1']),
+        expect.arrayContaining(['2', 'Task 2']),
+      ])
+    );
   });
 
   it('lists tasks when called without subcommand', async () => {
@@ -872,7 +890,14 @@ describe('cmdPmList', () => {
     const ctx = createMockContext(globalDir);
     await cmdPmList(ctx, []);
 
-    expect(ctx.ui.table).toHaveBeenCalled();
+    expect(ctx.ui.table).toHaveBeenCalledTimes(1);
+    expect(ctx.ui.table).toHaveBeenCalledWith(
+      ['', 'ID', 'NAME', 'BACKEND', 'CREATED'],
+      expect.arrayContaining([
+        expect.arrayContaining(['Project 1']),
+        expect.arrayContaining(['Project 2']),
+      ])
+    );
   });
 
   it('shows info message when no teams', async () => {
