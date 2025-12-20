@@ -417,6 +417,54 @@ describe('cmdPmMilestone', () => {
     await expect(cmdPmMilestone(ctx, ['doc', '999'])).rejects.toThrow('Exit');
     expect(ctx.ui.errors[0]).toContain('not found');
   });
+
+  it('shows docPath with doc ref subcommand', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir, json: true });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmMilestone(ctx, ['add', 'Phase 1']);
+
+    (ctx.ui.json as ReturnType<typeof vi.fn>).mockClear();
+    await cmdPmMilestone(ctx, ['doc', '1', 'ref']);
+
+    expect(ctx.ui.json).toHaveBeenCalledTimes(1);
+    expect(ctx.ui.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: '1',
+        docPath: expect.stringContaining('1.md'),
+      })
+    );
+  });
+
+  it('creates milestone with -d shorthand for description', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmMilestone(ctx, ['add', 'Sprint 1', '-d', 'Two week sprint']);
+
+    const docPath = path.join(globalDir, 'teams', teamId, 'milestones', '1.md');
+    const content = fs.readFileSync(docPath, 'utf-8');
+    expect(content).toContain('Sprint 1');
+    expect(content).toContain('Two week sprint');
+  });
+
+  it('prints full doc content including description', async () => {
+    const ctx = createMockContext(globalDir, { cwd: projectDir, json: true });
+    vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
+
+    await cmdPmMilestone(ctx, ['add', 'Phase 1', '--description', 'Detailed description here']);
+
+    (ctx.ui.json as ReturnType<typeof vi.fn>).mockClear();
+    await cmdPmMilestone(ctx, ['doc', '1']);
+
+    expect(ctx.ui.json).toHaveBeenCalledTimes(1);
+    expect(ctx.ui.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: '1',
+        doc: expect.stringContaining('Detailed description here'),
+      })
+    );
+  });
 });
 
 // ─────────────────────────────────────────────────────────────
