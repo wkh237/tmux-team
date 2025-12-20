@@ -389,19 +389,20 @@ describe('cmdPmMilestone', () => {
   });
 
   it('prints milestone doc by default', async () => {
-    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    const ctx = createMockContext(globalDir, { cwd: projectDir, json: true });
     vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
 
     await cmdPmMilestone(ctx, ['add', 'Phase 1', '-d', 'Test description']);
 
-    const logs: string[] = [];
-    const originalLog = console.log;
-    console.log = (msg: string) => logs.push(msg);
-
+    (ctx.ui.json as ReturnType<typeof vi.fn>).mockClear();
     await cmdPmMilestone(ctx, ['doc', '1']);
 
-    console.log = originalLog;
-    expect(logs.some((l) => l.includes('Phase 1'))).toBe(true);
+    expect(ctx.ui.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: '1',
+        doc: expect.stringContaining('Phase 1'),
+      })
+    );
   });
 
   it('returns milestone doc in JSON format', async () => {
@@ -706,19 +707,18 @@ describe('cmdPmTask doc', () => {
   });
 
   it('prints task documentation by default', async () => {
-    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    const ctx = createMockContext(globalDir, { cwd: projectDir, json: true });
     vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
 
-    // Capture console.log output
-    const logs: string[] = [];
-    const originalLog = console.log;
-    console.log = (msg: string) => logs.push(msg);
-
+    (ctx.ui.json as ReturnType<typeof vi.fn>).mockClear();
     await cmdPmTask(ctx, ['doc', '1']);
 
-    console.log = originalLog;
-
-    expect(logs.some((l) => l.includes('Test Task'))).toBe(true);
+    expect(ctx.ui.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: '1',
+        doc: expect.stringContaining('Test Task'),
+      })
+    );
   });
 
   it('opens documentation in $EDITOR with --edit flag', async () => {
@@ -783,23 +783,22 @@ describe('cmdPmLog', () => {
   });
 
   it('displays audit events', async () => {
-    const ctx = createMockContext(globalDir, { cwd: projectDir });
+    const ctx = createMockContext(globalDir, { cwd: projectDir, json: true });
     vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
 
     // Create some events
     await cmdPmTask(ctx, ['add', 'Task 1']);
     await cmdPmTask(ctx, ['done', '1']);
 
-    const logs: string[] = [];
-    const originalLog = console.log;
-    console.log = (msg: string) => logs.push(String(msg));
-
+    (ctx.ui.json as ReturnType<typeof vi.fn>).mockClear();
     await cmdPmLog(ctx, []);
 
-    console.log = originalLog;
-
-    // Should show team_created and task events
-    expect(logs.some((l) => l.includes('team_created') || l.includes('task'))).toBe(true);
+    // cmdPmLog outputs array of events directly
+    expect(ctx.ui.json).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ event: expect.stringMatching(/team_created|task/) }),
+      ])
+    );
   });
 
   it('limits number of events displayed', async () => {
@@ -990,15 +989,14 @@ describe('cmdPm router', () => {
   it('displays help for pm help', async () => {
     const ctx = createMockContext(globalDir, { cwd: projectDir });
 
-    const logs: string[] = [];
-    const originalLog = console.log;
-    console.log = (msg: string) => logs.push(String(msg));
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await cmdPm(ctx, ['help']);
-
-    console.log = originalLog;
-
-    expect(logs.some((l) => l.includes('tmux-team pm'))).toBe(true);
+    try {
+      await cmdPm(ctx, ['help']);
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('tmux-team pm'));
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 });
 
@@ -1248,19 +1246,21 @@ describe('Permission integration', () => {
 
     const ctx = createMockContext(globalDir, {
       cwd: projectDir,
+      json: true,
       agents: { codex: { deny: ['pm:doc:update'] } },
     });
     vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
 
     // Read should work
-    const logs: string[] = [];
-    const originalLog = console.log;
-    console.log = (msg: string) => logs.push(msg);
-
+    (ctx.ui.json as ReturnType<typeof vi.fn>).mockClear();
     await cmdPmTask(ctx, ['doc', '1']);
 
-    console.log = originalLog;
-    expect(logs.some((l) => l.includes('Test task'))).toBe(true);
+    expect(ctx.ui.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: '1',
+        doc: expect.stringContaining('Test task'),
+      })
+    );
   });
 
   it('uses TMUX_TEAM_ACTOR when TMT_AGENT_NAME is not set', async () => {
