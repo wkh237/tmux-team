@@ -30,27 +30,6 @@ tmux-team check gemini 200
 tmux-team list
 ```
 
-## Project Management
-
-```bash
-# Initialize a team/project
-tmux-team pm init --name "My Project"
-
-# Milestones
-tmux-team pm m add "Phase 1"
-tmux-team pm m list
-tmux-team pm m done 1
-
-# Tasks
-tmux-team pm t add "Implement feature" --milestone 1
-tmux-team pm t list --status pending
-tmux-team pm t update 1 --status in_progress
-tmux-team pm t done 1
-
-# View audit log
-tmux-team pm log --limit 10
-```
-
 ## Workflow
 
 1. Send message: `tmux-team talk codex "Review this code"`
