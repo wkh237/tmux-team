@@ -85,7 +85,8 @@ export interface Tmux {
 export interface WaitResult {
   requestId: string;
   nonce: string;
-  marker: string;
+  startMarker: string;
+  endMarker: string;
   response: string;
 }
 

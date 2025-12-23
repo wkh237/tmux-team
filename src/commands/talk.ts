@@ -41,8 +41,8 @@ interface AgentWaitState {
   pane: string;
   requestId: string;
   nonce: string;
-  marker: string;
-  baseline: string;
+  startMarker: string;
+  endMarker: string;
   status: 'pending' | 'completed' | 'timeout' | 'error';
   response?: string;
   error?: string;
@@ -212,11 +212,12 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
 
   const requestId = makeRequestId();
   const nonce = makeNonce();
-  const marker = `{tmux-team-end:${nonce}}`;
+  const startMarker = `{tmux-team-start:${nonce}}`;
+  const endMarker = `{tmux-team-end:${nonce}}`;
 
-  // Build message with preamble, then append nonce instruction
+  // Build message with preamble, then wrap with start/end markers
   const messageWithPreamble = buildMessage(message, target, ctx);
-  const fullMessage = `${messageWithPreamble}\n\n[IMPORTANT: When your response is complete, print exactly: ${marker}]`;
+  const fullMessage = `${startMarker}\n${messageWithPreamble}\n\n[IMPORTANT: When your response is complete, print exactly: ${endMarker}]`;
 
   // Best-effort cleanup and soft-lock warning
   const state = cleanupState(ctx.paths, 60 * 60); // 1 hour TTL
@@ -225,14 +226,6 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
     ui.warn(
       `Another recent wait request exists for '${target}' (id: ${existing.id}). Results may interleave.`
     );
-  }
-
-  let baseline = '';
-  try {
-    baseline = tmux.capture(pane, captureLines);
-  } catch {
-    ui.error(`Failed to capture pane ${pane}. Is tmux running?`);
-    exit(ExitCodes.ERROR);
   }
 
   setActiveRequest(ctx.paths, target, { id: requestId, nonce, pane, startedAtMs: Date.now() });
@@ -267,7 +260,8 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
             error: `Timed out waiting for ${target} after ${Math.floor(timeoutSeconds)}s`,
             requestId,
             nonce,
-            marker,
+            startMarker,
+            endMarker,
           });
           exit(ExitCodes.TIMEOUT);
         }
@@ -303,16 +297,32 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
         exit(ExitCodes.ERROR);
       }
 
-      const markerIndex = output.indexOf(marker);
-      if (markerIndex === -1) continue;
+      // Find end marker (use lastIndexOf because the marker appears in the instruction AND agent's response)
+      const endMarkerIndex = output.lastIndexOf(endMarker);
+      if (endMarkerIndex === -1) continue;
 
-      let startIndex = 0;
-      const baselineIndex = baseline ? output.lastIndexOf(baseline) : -1;
-      if (baselineIndex !== -1) {
-        startIndex = baselineIndex + baseline.length;
+      // Find the end of our instruction by looking for `}]` pattern (the instruction ends with `{end}]`)
+      // This is more reliable than looking for newline after start marker because
+      // the message may be word-wrapped across multiple visual lines
+      let responseStart = 0;
+      const instructionEndPattern = '}]';
+      const instructionEndIndex = output.lastIndexOf(instructionEndPattern, endMarkerIndex);
+      if (instructionEndIndex !== -1) {
+        // Find the first newline after the instruction's closing `}]`
+        responseStart = output.indexOf('\n', instructionEndIndex + 2);
+        if (responseStart !== -1) responseStart += 1;
+        else responseStart = instructionEndIndex + 2;
+      } else {
+        // Fallback: if no `}]` found, try to find newline after start marker
+        const startMarkerIndex = output.lastIndexOf(startMarker);
+        if (startMarkerIndex !== -1) {
+          responseStart = output.indexOf('\n', startMarkerIndex);
+          if (responseStart !== -1) responseStart += 1;
+          else responseStart = startMarkerIndex + startMarker.length;
+        }
       }
 
-      const response = output.slice(startIndex, markerIndex).trim();
+      const response = output.slice(responseStart, endMarkerIndex).trim();
 
       if (!flags.json && isTTY) {
         process.stdout.write('\r' + ' '.repeat(80) + '\r');
@@ -323,7 +333,7 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
 
       clearActiveRequest(ctx.paths, target, requestId);
 
-      const result: WaitResult = { requestId, nonce, marker, response };
+      const result: WaitResult = { requestId, nonce, startMarker, endMarker, response };
       if (flags.json) {
         ui.json({ target, pane, status: 'completed', ...result });
       } else {
@@ -367,35 +377,16 @@ async function cmdTalkAllWait(
     );
   }
 
-  // Phase 1: Send messages to all agents and capture baselines
+  // Phase 1: Send messages to all agents with start/end markers
   for (const [name, data] of targetAgents) {
     const requestId = makeRequestId();
     const nonce = makeNonce(); // Unique nonce per agent (#19)
-    const marker = `{tmux-team-end:${nonce}}`;
+    const startMarker = `{tmux-team-start:${nonce}}`;
+    const endMarker = `{tmux-team-end:${nonce}}`;
 
-    let baseline = '';
-    try {
-      baseline = tmux.capture(data.pane, captureLines);
-    } catch {
-      agentStates.push({
-        agent: name,
-        pane: data.pane,
-        requestId,
-        nonce,
-        marker,
-        baseline: '',
-        status: 'error',
-        error: `Failed to capture pane ${data.pane}`,
-      });
-      if (!flags.json) {
-        ui.warn(`Failed to capture ${name} (${data.pane})`);
-      }
-      continue;
-    }
-
-    // Build and send message
+    // Build and send message with start/end markers
     const messageWithPreamble = buildMessage(message, name, ctx);
-    const fullMessage = `${messageWithPreamble}\n\n[IMPORTANT: When your response is complete, print exactly: ${marker}]`;
+    const fullMessage = `${startMarker}\n${messageWithPreamble}\n\n[IMPORTANT: When your response is complete, print exactly: ${endMarker}]`;
     const msg = name === 'gemini' ? fullMessage.replace(/!/g, '') : fullMessage;
 
     try {
@@ -411,8 +402,8 @@ async function cmdTalkAllWait(
         pane: data.pane,
         requestId,
         nonce,
-        marker,
-        baseline,
+        startMarker,
+        endMarker,
         status: 'pending',
       });
       if (!flags.json) {
@@ -424,8 +415,8 @@ async function cmdTalkAllWait(
         pane: data.pane,
         requestId,
         nonce,
-        marker,
-        baseline,
+        startMarker,
+        endMarker,
         status: 'error',
         error: `Failed to send to pane ${data.pane}`,
       });
@@ -520,17 +511,32 @@ async function cmdTalkAllWait(
           continue;
         }
 
-        const markerIndex = output.indexOf(state.marker);
-        if (markerIndex === -1) continue;
+        // Find end marker (use lastIndexOf because the marker appears in the instruction AND agent's response)
+        const endMarkerIndex = output.lastIndexOf(state.endMarker);
+        if (endMarkerIndex === -1) continue;
 
-        // Found marker - extract response
-        let startIndex = 0;
-        const baselineIndex = state.baseline ? output.lastIndexOf(state.baseline) : -1;
-        if (baselineIndex !== -1) {
-          startIndex = baselineIndex + state.baseline.length;
+        // Find the end of our instruction by looking for `}]` pattern (the instruction ends with `{end}]`)
+        // This is more reliable than looking for newline after start marker because
+        // the message may be word-wrapped across multiple visual lines
+        let responseStart = 0;
+        const instructionEndPattern = '}]';
+        const instructionEndIndex = output.lastIndexOf(instructionEndPattern, endMarkerIndex);
+        if (instructionEndIndex !== -1) {
+          // Find the first newline after the instruction's closing `}]`
+          responseStart = output.indexOf('\n', instructionEndIndex + 2);
+          if (responseStart !== -1) responseStart += 1;
+          else responseStart = instructionEndIndex + 2;
+        } else {
+          // Fallback: if no `}]` found, try to find newline after start marker
+          const startMarkerIndex = output.lastIndexOf(state.startMarker);
+          if (startMarkerIndex !== -1) {
+            responseStart = output.indexOf('\n', startMarkerIndex);
+            if (responseStart !== -1) responseStart += 1;
+            else responseStart = startMarkerIndex + state.startMarker.length;
+          }
         }
 
-        state.response = output.slice(startIndex, markerIndex).trim();
+        state.response = output.slice(responseStart, endMarkerIndex).trim();
         state.status = 'completed';
         state.elapsedMs = Date.now() - startedAt;
         clearActiveRequest(paths, state.agent, state.requestId);
@@ -592,8 +598,8 @@ function outputBroadcastResults(
         pane: s.pane,
         requestId: s.requestId,
         nonce: s.nonce,
-        marker: s.marker,
-        baseline: '', // Don't include baseline in output
+        startMarker: s.startMarker,
+        endMarker: s.endMarker,
         status: s.status,
         response: s.response,
         error: s.error,

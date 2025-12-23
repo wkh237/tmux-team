@@ -556,23 +556,23 @@ describe('cmdTalk - --wait mode', () => {
     expect(output.error).toContain('Timed out');
   });
 
-  it('isolates response from baseline using scrollback', async () => {
+  it('isolates response using start/end markers in scrollback', async () => {
     const tmux = createMockTmux();
     const ui = createMockUI();
 
-    let captureCount = 0;
-    const baseline = 'Previous conversation\nOld content here';
+    const oldContent = 'Previous conversation\nOld content here';
 
     tmux.capture = () => {
-      captureCount++;
-      if (captureCount === 1) return baseline;
-      // Second capture includes baseline + new content + marker
+      // Simulate scrollback with old content, start marker, response, and end marker
       const sent = tmux.sends[0]?.message || '';
-      const match = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
-      if (match) {
-        return `${baseline}\n\nNew response content\n\n{tmux-team-end:${match[1]}}`;
+      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
+      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      if (startMatch && endMatch) {
+        // Start and end markers should have the same nonce
+        expect(startMatch[1]).toBe(endMatch[1]);
+        return `${oldContent}\n\n{tmux-team-start:${startMatch[1]}}\nMessage content here\n\nNew response content\n\n{tmux-team-end:${endMatch[1]}}`;
       }
-      return baseline;
+      return oldContent;
     };
 
     const ctx = createContext({
@@ -594,8 +594,11 @@ describe('cmdTalk - --wait mode', () => {
 
     const output = ui.jsonOutput[0] as Record<string, unknown>;
     expect(output.status).toBe('completed');
-    // Response should NOT include baseline content
-    expect(output.response).toBe('New response content');
+    // Response should NOT include old content before start marker
+    expect(output.response).not.toContain('Previous conversation');
+    expect(output.response).not.toContain('Old content here');
+    // Response should contain the actual response content
+    expect(output.response).toContain('New response content');
   });
 
   it('clears active request on completion', async () => {
@@ -840,25 +843,32 @@ describe('cmdTalk - nonce collision handling', () => {
     const ui = createMockUI();
 
     let captureCount = 0;
-    const oldMarker = '{tmux-team-end:0000}'; // Old marker from previous request
+    const oldStartMarker = '{tmux-team-start:0000}';
+    const oldEndMarker = '{tmux-team-end:0000}'; // Old marker from previous request
 
     tmux.capture = () => {
       captureCount++;
+      // Scrollback includes OLD markers from a previous request
       if (captureCount === 1) {
-        // Baseline includes an OLD marker
-        return `Old response ${oldMarker}`;
+        return `${oldStartMarker}\nOld question\nOld response\n${oldEndMarker}`;
       }
-      // New capture still has old marker but not new one yet
+      // New capture still has old markers but new request markers not complete yet
       if (captureCount === 2) {
-        return `Old response ${oldMarker}\nNew question asked`;
+        const sent = tmux.sends[0]?.message || '';
+        const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
+        if (startMatch) {
+          return `${oldStartMarker}\nOld question\nOld response\n${oldEndMarker}\n\n{tmux-team-start:${startMatch[1]}}\nNew question asked`;
+        }
+        return `${oldStartMarker}\nOld question\nOld response\n${oldEndMarker}`;
       }
-      // Finally, new marker appears
+      // Finally, new end marker appears
       const sent = tmux.sends[0]?.message || '';
-      const match = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
-      if (match) {
-        return `Old response ${oldMarker}\nNew question asked\nNew response {tmux-team-end:${match[1]}}`;
+      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
+      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      if (startMatch && endMatch) {
+        return `${oldStartMarker}\nOld question\nOld response\n${oldEndMarker}\n\n{tmux-team-start:${startMatch[1]}}\nNew question asked\n\nNew response\n\n{tmux-team-end:${endMatch[1]}}`;
       }
-      return `Old response ${oldMarker}`;
+      return `${oldStartMarker}\nOld question\nOld response\n${oldEndMarker}`;
     };
 
     const ctx = createContext({
@@ -880,8 +890,10 @@ describe('cmdTalk - nonce collision handling', () => {
 
     const output = ui.jsonOutput[0] as Record<string, unknown>;
     expect(output.status).toBe('completed');
-    // Response should be from after the new question, not triggered by old marker
+    // Response should be from after the new start marker, not triggered by old markers
     expect(output.response as string).not.toContain('Old response');
+    expect(output.response as string).not.toContain('Old question');
+    expect(output.response as string).toContain('New response');
   });
 });
 
@@ -902,13 +914,14 @@ describe('cmdTalk - JSON output contract', () => {
     const tmux = createMockTmux();
     const ui = createMockUI();
 
-    let captureCount = 0;
     tmux.capture = () => {
-      captureCount++;
-      if (captureCount === 1) return '';
       const sent = tmux.sends[0]?.message || '';
-      const match = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
-      return match ? `Response {tmux-team-end:${match[1]}}` : '';
+      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
+      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      if (startMatch && endMatch) {
+        return `{tmux-team-start:${startMatch[1]}}\nMessage\n\nResponse\n\n{tmux-team-end:${endMatch[1]}}`;
+      }
+      return '';
     };
 
     const ctx = createContext({
@@ -934,7 +947,8 @@ describe('cmdTalk - JSON output contract', () => {
     expect(output).toHaveProperty('status', 'completed');
     expect(output).toHaveProperty('requestId');
     expect(output).toHaveProperty('nonce');
-    expect(output).toHaveProperty('marker');
+    expect(output).toHaveProperty('startMarker');
+    expect(output).toHaveProperty('endMarker');
     expect(output).toHaveProperty('response');
   });
 
@@ -971,6 +985,258 @@ describe('cmdTalk - JSON output contract', () => {
     expect(output).toHaveProperty('error');
     expect(output).toHaveProperty('requestId');
     expect(output).toHaveProperty('nonce');
-    expect(output).toHaveProperty('marker');
+    expect(output).toHaveProperty('startMarker');
+    expect(output).toHaveProperty('endMarker');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// Start/End Marker Tests - comprehensive coverage for the new marker system
+// ─────────────────────────────────────────────────────────────
+
+describe('cmdTalk - start/end marker extraction', () => {
+  let testDir: string;
+
+  beforeEach(() => {
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'talk-test-'));
+  });
+
+  afterEach(() => {
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it('includes both start and end markers in sent message', async () => {
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+
+    // Return markers immediately to complete
+    tmux.capture = () => {
+      const sent = tmux.sends[0]?.message || '';
+      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
+      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      if (startMatch && endMatch) {
+        return `${startMatch[0]}\nContent\nResponse\n${endMatch[0]}`;
+      }
+      return '';
+    };
+
+    const ctx = createContext({
+      tmux,
+      ui,
+      paths: createTestPaths(testDir),
+      flags: { wait: true, json: true, timeout: 5 },
+      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100, preambleEvery: 3 } },
+    });
+
+    await cmdTalk(ctx, 'claude', 'Test message');
+
+    const sent = tmux.sends[0].message;
+    expect(sent).toMatch(/\{tmux-team-start:[a-f0-9]+\}/);
+    expect(sent).toMatch(/\{tmux-team-end:[a-f0-9]+\}/);
+
+    // Both markers should have same nonce
+    const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
+    const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+    expect(startMatch?.[1]).toBe(endMatch?.[1]);
+  });
+
+  it('extracts only content between start and end markers', async () => {
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+
+    tmux.capture = () => {
+      const sent = tmux.sends[0]?.message || '';
+      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
+      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      if (startMatch && endMatch) {
+        // Simulate scrollback with content before start marker, message, and response
+        return `Old garbage\nMore old stuff\n{tmux-team-start:${startMatch[1]}}\nThe original message\n\nThis is the actual response\n\n{tmux-team-end:${endMatch[1]}}\nContent after marker`;
+      }
+      return 'Old garbage\nMore old stuff';
+    };
+
+    const ctx = createContext({
+      tmux,
+      ui,
+      paths: createTestPaths(testDir),
+      flags: { wait: true, json: true, timeout: 5 },
+      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100, preambleEvery: 3 } },
+    });
+
+    await cmdTalk(ctx, 'claude', 'Test');
+
+    const output = ui.jsonOutput[0] as Record<string, unknown>;
+    expect(output.status).toBe('completed');
+    expect(output.response).toContain('actual response');
+    expect(output.response).not.toContain('Old garbage');
+    expect(output.response).not.toContain('Content after marker');
+  });
+
+  it('handles multiline responses correctly', async () => {
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+
+    const multilineResponse = `Line 1 of response
+Line 2 of response
+Line 3 with special chars: <>&"'
+Line 4 final`;
+
+    tmux.capture = () => {
+      const sent = tmux.sends[0]?.message || '';
+      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
+      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      if (startMatch && endMatch) {
+        return `{tmux-team-start:${startMatch[1]}}\nMessage\n\n${multilineResponse}\n\n{tmux-team-end:${endMatch[1]}}`;
+      }
+      return '';
+    };
+
+    const ctx = createContext({
+      tmux,
+      ui,
+      paths: createTestPaths(testDir),
+      flags: { wait: true, json: true, timeout: 5 },
+      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100, preambleEvery: 3 } },
+    });
+
+    await cmdTalk(ctx, 'claude', 'Test');
+
+    const output = ui.jsonOutput[0] as Record<string, unknown>;
+    expect(output.response).toContain('Line 1 of response');
+    expect(output.response).toContain('Line 4 final');
+  });
+
+  it('handles empty response between markers', async () => {
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+
+    tmux.capture = () => {
+      const sent = tmux.sends[0]?.message || '';
+      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
+      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      if (startMatch && endMatch) {
+        // Just markers with message, agent printed end marker immediately
+        return `{tmux-team-start:${startMatch[1]}}\nMessage here\n{tmux-team-end:${endMatch[1]}}`;
+      }
+      return '';
+    };
+
+    const ctx = createContext({
+      tmux,
+      ui,
+      paths: createTestPaths(testDir),
+      flags: { wait: true, json: true, timeout: 5 },
+      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100, preambleEvery: 3 } },
+    });
+
+    await cmdTalk(ctx, 'claude', 'Test');
+
+    const output = ui.jsonOutput[0] as Record<string, unknown>;
+    expect(output.status).toBe('completed');
+    // Response should be the message content (trimmed)
+    expect(typeof output.response).toBe('string');
+  });
+
+  it('correctly handles start marker on same line as content', async () => {
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+
+    tmux.capture = () => {
+      const sent = tmux.sends[0]?.message || '';
+      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
+      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      if (startMatch && endMatch) {
+        // Start marker followed by newline, then content
+        return `Old stuff\n{tmux-team-start:${startMatch[1]}}\nActual response content\n{tmux-team-end:${endMatch[1]}}`;
+      }
+      return 'Old stuff';
+    };
+
+    const ctx = createContext({
+      tmux,
+      ui,
+      paths: createTestPaths(testDir),
+      flags: { wait: true, json: true, timeout: 5 },
+      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100, preambleEvery: 3 } },
+    });
+
+    await cmdTalk(ctx, 'claude', 'Test');
+
+    const output = ui.jsonOutput[0] as Record<string, unknown>;
+    expect(output.response).not.toContain('Old stuff');
+    expect(output.response).toContain('Actual response content');
+  });
+
+  it('uses lastIndexOf for start marker to handle multiple occurrences', async () => {
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+
+    let captureCount = 0;
+    tmux.capture = () => {
+      captureCount++;
+      const sent = tmux.sends[0]?.message || '';
+      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
+      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      if (startMatch && endMatch) {
+        if (captureCount < 3) {
+          // First few captures: old markers in history, new start marker sent but not end yet
+          return `{tmux-team-start:old1}\nOld message\nOld response\n{tmux-team-end:old1}\n\n{tmux-team-start:${startMatch[1]}}\nNew message pending`;
+        }
+        // Finally, new end marker appears
+        return `{tmux-team-start:old1}\nOld message\nOld response\n{tmux-team-end:old1}\n\n{tmux-team-start:${startMatch[1]}}\nNew message\n\nNew actual response\n\n{tmux-team-end:${endMatch[1]}}`;
+      }
+      return '';
+    };
+
+    const ctx = createContext({
+      tmux,
+      ui,
+      paths: createTestPaths(testDir),
+      flags: { wait: true, json: true, timeout: 5 },
+      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100, preambleEvery: 3 } },
+    });
+
+    await cmdTalk(ctx, 'claude', 'Test');
+
+    const output = ui.jsonOutput[0] as Record<string, unknown>;
+    expect(output.status).toBe('completed');
+    // Should get response from the NEW start marker, not the old one
+    expect(output.response).toContain('New actual response');
+    expect(output.response).not.toContain('Old response');
+  });
+
+  it('handles large scrollback with markers at edges', async () => {
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+
+    // Simulate 100+ lines of scrollback
+    const lotsOfContent = Array.from({ length: 150 }, (_, i) => `Line ${i}`).join('\n');
+
+    tmux.capture = () => {
+      const sent = tmux.sends[0]?.message || '';
+      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
+      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      if (startMatch && endMatch) {
+        return `${lotsOfContent}\n{tmux-team-start:${startMatch[1]}}\nMessage\n\nThe actual response\n\n{tmux-team-end:${endMatch[1]}}`;
+      }
+      return lotsOfContent;
+    };
+
+    const ctx = createContext({
+      tmux,
+      ui,
+      paths: createTestPaths(testDir),
+      flags: { wait: true, json: true, timeout: 5 },
+      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 200, preambleEvery: 3 } },
+    });
+
+    await cmdTalk(ctx, 'claude', 'Test');
+
+    const output = ui.jsonOutput[0] as Record<string, unknown>;
+    expect(output.status).toBe('completed');
+    expect(output.response).toContain('actual response');
+    expect(output.response).not.toContain('Line 0');
   });
 });
