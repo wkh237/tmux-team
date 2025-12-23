@@ -13,7 +13,7 @@ import {
   setActiveRequest,
   incrementPreambleCounter,
 } from '../state.js';
-import { resolveActor } from '../pm/permissions.js';
+import { resolveActor } from '../identity.js';
 
 function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

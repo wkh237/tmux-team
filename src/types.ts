@@ -19,7 +19,6 @@ export interface ConfigDefaults {
   pollInterval: number; // seconds
   captureLines: number;
   preambleEvery: number; // inject preamble every N messages (default: 3)
-  hideOrphanTasks: boolean; // hide tasks without milestone in list (default: false)
 }
 
 export interface GlobalConfig {

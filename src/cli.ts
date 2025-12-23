@@ -17,7 +17,6 @@ import { cmdRemove } from './commands/remove.js';
 import { cmdTalk } from './commands/talk.js';
 import { cmdCheck } from './commands/check.js';
 import { cmdCompletion } from './commands/completion.js';
-import { cmdPm } from './pm/commands.js';
 import { cmdConfig } from './commands/config.js';
 import { cmdPreamble } from './commands/preamble.js';
 
@@ -201,10 +200,6 @@ function main(): void {
           ctx.exit(ExitCodes.ERROR);
         }
         cmdCheck(ctx, args[0], args[1] ? parseInt(args[1], 10) : undefined);
-        break;
-
-      case 'pm':
-        await cmdPm(ctx, args);
         break;
 
       case 'config':

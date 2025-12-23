@@ -14,7 +14,7 @@ function getVersion(): string {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
     return pkg.version;
   } catch {
-    return '2.0.0';
+    return '3.0.0';
   }
 }
 

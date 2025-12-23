@@ -64,7 +64,6 @@ function createDefaultConfig(): ResolvedConfig {
       pollInterval: 0.1, // Fast polling for tests
       captureLines: 100,
       preambleEvery: 3,
-      hideOrphanTasks: false,
     },
     agents: {},
     paneRegistry: {
@@ -222,7 +221,6 @@ describe('buildMessage (via cmdTalk)', () => {
         pollInterval: 0.1,
         captureLines: 100,
         preambleEvery: 3,
-        hideOrphanTasks: false,
       },
     };
 
@@ -259,7 +257,6 @@ describe('buildMessage (via cmdTalk)', () => {
         pollInterval: 0.1,
         captureLines: 100,
         preambleEvery: 1,
-        hideOrphanTasks: false,
       },
     };
 
@@ -283,7 +280,6 @@ describe('buildMessage (via cmdTalk)', () => {
         pollInterval: 0.1,
         captureLines: 100,
         preambleEvery: 0,
-        hideOrphanTasks: false,
       },
     };
 
@@ -470,7 +466,6 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.01,
           captureLines: 100,
           preambleEvery: 3,
-          hideOrphanTasks: false,
         },
       },
     });
@@ -513,7 +508,6 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.01,
           captureLines: 100,
           preambleEvery: 3,
-          hideOrphanTasks: false,
         },
       },
     });
@@ -544,7 +538,6 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.02,
           captureLines: 100,
           preambleEvery: 3,
-          hideOrphanTasks: false,
         },
       },
     });
@@ -593,7 +586,6 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.01,
           captureLines: 100,
           preambleEvery: 3,
-          hideOrphanTasks: false,
         },
       },
     });
@@ -629,7 +621,6 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.01,
           captureLines: 100,
           preambleEvery: 3,
-          hideOrphanTasks: false,
         },
       },
     });
@@ -658,7 +649,6 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.01,
           captureLines: 100,
           preambleEvery: 3,
-          hideOrphanTasks: false,
         },
       },
     });
@@ -713,7 +703,6 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.05,
           captureLines: 100,
           preambleEvery: 3,
-          hideOrphanTasks: false,
         },
         paneRegistry: {
           codex: { pane: '10.1' },
@@ -760,7 +749,6 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.02,
           captureLines: 100,
           preambleEvery: 3,
-          hideOrphanTasks: false,
         },
         paneRegistry: {
           codex: { pane: '10.1' },
@@ -818,7 +806,6 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.02,
           captureLines: 100,
           preambleEvery: 3,
-          hideOrphanTasks: false,
         },
         paneRegistry: {
           codex: { pane: '10.1' },
@@ -885,7 +872,6 @@ describe('cmdTalk - nonce collision handling', () => {
           pollInterval: 0.01,
           captureLines: 100,
           preambleEvery: 3,
-          hideOrphanTasks: false,
         },
       },
     });
@@ -936,7 +922,6 @@ describe('cmdTalk - JSON output contract', () => {
           pollInterval: 0.01,
           captureLines: 100,
           preambleEvery: 3,
-          hideOrphanTasks: false,
         },
       },
     });
@@ -969,7 +954,6 @@ describe('cmdTalk - JSON output contract', () => {
           pollInterval: 0.01,
           captureLines: 100,
           preambleEvery: 3,
-          hideOrphanTasks: false,
         },
       },
     });

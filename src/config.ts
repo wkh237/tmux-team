@@ -27,7 +27,6 @@ const DEFAULT_CONFIG: GlobalConfig = {
     pollInterval: 1,
     captureLines: 100,
     preambleEvery: 3, // inject preamble every 3 messages
-    hideOrphanTasks: false, // hide tasks without milestone in list
   },
 };
 

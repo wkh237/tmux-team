@@ -42,7 +42,6 @@ ${colors.yellow('COMMANDS')}
   ${colors.green('init')}                        Create empty tmux-team.json
   ${colors.green('config')} [show|set|clear]     View/modify settings
   ${colors.green('preamble')} [show|set|clear]   Manage agent preambles
-  ${colors.green('pm')} <subcommand>             Project management (run 'pm help')
   ${colors.green('completion')}                  Output shell completion script
   ${colors.green('help')}                        Show this help message
 
@@ -80,6 +79,5 @@ ${colors.yellow('CHANGE MODE')}
   tmux-team config set mode polling         ${colors.dim('Enable polling mode (local)')}
   tmux-team config set preambleMode disabled ${colors.dim('Disable preambles (local)')}
   tmux-team config set preambleEvery 5      ${colors.dim('Inject preamble every 5 messages')}
-  tmux-team config set hideOrphanTasks true ${colors.dim('Hide tasks without milestones (global)')}
 `);
 }
