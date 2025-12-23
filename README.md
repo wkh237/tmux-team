@@ -61,7 +61,7 @@ Unlike heavyweight frameworks that require specific SDKs or cloud infrastructure
 npm install -g tmux-team
 ```
 
-**Requirements:** Node.js >= 16, tmux, macOS/Linux
+**Requirements:** Node.js >= 18, tmux, macOS/Linux
 
 ### Shell Completion
 

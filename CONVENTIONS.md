@@ -34,16 +34,15 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
 ## Naming & Structure
 
 ### Command Functions
-- Prefix with `cmd` (e.g., `cmdTalk`, `cmdPmInit`, `cmdMilestoneAdd`)
+- Prefix with `cmd` (e.g., `cmdTalk`, `cmdList`, `cmdConfig`)
 
 ### File Names
 - Use kebab-case: `talk.ts`, `config.ts`, `fs.ts`
 - Test files: `<name>.test.ts` (colocated with source)
 
 ### Directory Structure
-- Group related logic in subdirectories: `src/pm/`, `src/commands/`
+- Group related logic in subdirectories: `src/commands/`
 - Prefer function-based modules over classes
-- Only use `class` for stateful implementations like `StorageAdapter`
 
 ### Imports
 - ESM-style with explicit `.js` extensions (tsx-compatible)
@@ -123,37 +122,9 @@ Normalize in CLI parsing; avoid internal ms unless explicitly noted.
 
 ## Data Integrity
 
-### Audit Trail
-Every state-changing PM command must append to `events.jsonl`:
-```typescript
-await storage.appendEvent({
-  event: 'task_created',
-  id: task.id,
-  actor: 'human',
-  ts: new Date().toISOString(),
-});
-```
-
 ### File Operations
 - Prefer synchronous FS operations in CLI paths for simplicity
 - Use `fs.writeFileSync` for atomic-like config/state updates
-
----
-
-## PM: Storage Adapter Pattern
-
-### Interface
-`StorageAdapter` is the seam between PM commands and backends:
-- `FSAdapter` is the reference implementation (Phase 4)
-- `GitHubAdapter` will be added in Phase 5
-
-### ID Generation
-- Auto-incrementing integers for tasks/milestones
-- IDs are scoped per team
-
-### Audit Log
-- Append-only JSONL format (`events.jsonl`)
-- One JSON object per line
 
 ---
 
