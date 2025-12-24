@@ -64,12 +64,22 @@ tmux-team is configured via tmux-team.json in your project root:
 
 To find your pane ID, run: tmux display-message -p '#{pane_id}'
 
+## If --wait Times Out
+
+If the agent takes longer than expected, --wait will timeout. Use the check command to retrieve the response later:
+
+```bash
+# Check for response after timeout
+tmux-team check <agent>
+```
+
 ## Best Practices
 
 1. **Always use --wait** - More token-efficient than polling with check command
 2. **Be explicit** - Tell the other agent exactly what you need and how to respond
 3. **Set timeout appropriately** - Use --timeout 300 for complex tasks
-4. **Broadcast sparingly** - Only use "talk all" for announcements everyone needs
+4. **If timeout occurs** - Use "tmux-team check <agent>" to retrieve the response
+5. **Broadcast sparingly** - Only use "talk all" for announcements everyone needs
 
 ## Your Next Step
 
