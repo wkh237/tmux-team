@@ -60,7 +60,21 @@ Find pane IDs: `tmux display-message -p "#{pane_id}"`
 /plugin install tmux-team
 ```
 
-Gives you `/team` and `/learn` slash commands.
+Gives you two slash commands:
+
+**`/learn`** - Teach Claude how to use tmux-team
+```
+/learn
+```
+Run this once when starting a session. Claude will understand how to coordinate with other agents.
+
+**`/team`** - Talk to other agents
+```
+/team talk codex "Review my authentication changes" --wait
+/team talk all "I'm starting the database migration" --wait
+/team list
+```
+Use this to delegate tasks, ask for reviews, or broadcast updates.
 
 ## Learn More
 
