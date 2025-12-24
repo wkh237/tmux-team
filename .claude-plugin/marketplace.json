@@ -8,11 +8,17 @@
     {
       "name": "tmux-team",
       "source": "./plugins/tmux-team",
-      "description": "Coordinate AI agents in tmux panes - talk, wait for responses, and manage tasks",
-      "version": "2.0.0-alpha.2",
+      "description": "Coordinate AI agents in tmux panes - talk to agents and wait for responses",
+      "version": "3.0.0-alpha.1",
       "author": {
-        "name": "Ben Hsieh"
-      }
+        "name": "Ben Hsieh",
+        "email": "xeiyan@gmail.com"
+      },
+      "homepage": "https://github.com/wkh237/tmux-team",
+      "repository": "https://github.com/wkh237/tmux-team",
+      "license": "MIT",
+      "keywords": ["tmux", "multi-agent", "coordination", "ai-agents"],
+      "category": "productivity"
     }
   ]
 }

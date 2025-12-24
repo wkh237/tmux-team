@@ -2,9 +2,23 @@
 
 tmux-team provides pre-built skills for popular AI coding agents.
 
-## Quick Install
+## Claude Code Plugin (Recommended)
 
-Use the CLI to install skills automatically:
+The easiest way to add tmux-team to Claude Code is via the plugin system:
+
+```bash
+# Add tmux-team as a marketplace
+/plugin marketplace add wkh237/tmux-team
+
+# Install the plugin
+/plugin install tmux-team
+```
+
+This gives you `/team` and `/learn` slash commands automatically.
+
+## Quick Install (Standalone Skills)
+
+If you prefer standalone skills without the full plugin:
 
 ```bash
 # Install for Claude Code (user-wide)
