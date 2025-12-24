@@ -12,7 +12,7 @@ tmux-team enables AI agents (like Claude, Codex, Gemini) running in separate ter
 ## Core Concept
 
 Each agent runs in its own tmux pane. When you want to talk to another agent:
-1. Your message is sent to their pane via `tmux send-keys`
+1. Your message is sent to their pane via tmux send-keys
 2. They see it as if a human typed it
 3. You read their response by capturing their pane output
 
@@ -49,7 +49,7 @@ tmux-team talk all "Sync: PR #123 was merged, please pull latest" --wait
 
 ## Configuration
 
-tmux-team is configured via `tmux-team.json` in your project root:
+tmux-team is configured via tmux-team.json in your project root:
 
 ```json
 {
@@ -62,15 +62,15 @@ tmux-team is configured via `tmux-team.json` in your project root:
 }
 ```
 
-To find your pane ID, run: `tmux display-message -p '#{pane_id}'`
+To find your pane ID, run: tmux display-message -p '#{pane_id}'
 
 ## Best Practices
 
 1. **Always use --wait** - More token-efficient than polling with check command
 2. **Be explicit** - Tell the other agent exactly what you need and how to respond
-3. **Set timeout appropriately** - Use `--timeout 300` for complex tasks
-4. **Broadcast sparingly** - Only use `talk all` for announcements everyone needs
+3. **Set timeout appropriately** - Use --timeout 300 for complex tasks
+4. **Broadcast sparingly** - Only use "talk all" for announcements everyone needs
 
 ## Your Next Step
 
-Run `tmux-team list` to see which agents are available in your current project.
+Run tmux-team list to see which agents are available in your current project.
