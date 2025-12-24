@@ -20,6 +20,7 @@ import { cmdCompletion } from './commands/completion.js';
 import { cmdConfig } from './commands/config.js';
 import { cmdPreamble } from './commands/preamble.js';
 import { cmdInstallSkill } from './commands/install-skill.js';
+import { cmdLearn } from './commands/learn.js';
 
 // ─────────────────────────────────────────────────────────────
 // Argument parsing
@@ -106,17 +107,20 @@ function main(): void {
 
   // Help - load config to show current mode/timeout
   if (!command || command === 'help' || command === '--help' || command === '-h') {
+    // Show intro highlight when running just `tmux-team` with no args
+    const showIntro = !command || argv.length === 0;
     try {
       const paths = resolvePaths();
       const config = loadConfig(paths);
       const helpConfig: HelpConfig = {
         mode: config.mode,
         timeout: config.defaults.timeout,
+        showIntro,
       };
       cmdHelp(helpConfig);
     } catch {
       // Fallback if config can't be loaded
-      cmdHelp();
+      cmdHelp({ showIntro });
     }
     process.exit(ExitCodes.SUCCESS);
   }
@@ -227,6 +231,10 @@ function main(): void {
           }
           cmdInstallSkill(ctx, filteredArgs[0], scope);
         }
+        break;
+
+      case 'learn':
+        cmdLearn();
         break;
 
       default:

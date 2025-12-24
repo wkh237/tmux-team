@@ -16,43 +16,35 @@ Each agent runs in its own tmux pane. When you want to talk to another agent:
 2. They see it as if a human typed it
 3. You read their response by capturing their pane output
 
-## Essential Commands
+## Essential Commands (use --wait for better token utilization)
 
 ```bash
 # List available agents in this project
 tmux-team list
 
-# Send a message to an agent
-tmux-team talk <agent> "<message>"
-
-# Check an agent's response (captures their pane output)
-tmux-team check <agent> [lines]
-
-# Send and wait for response (synchronous)
-tmux-team talk <agent> "<message>" --wait --timeout 120
+# Send and wait for response (recommended)
+tmux-team talk <agent> "<message>" --wait
 
 # Broadcast to all agents
-tmux-team talk all "<message>"
+tmux-team talk all "<message>" --wait
 ```
 
 ## Practical Examples
 
 ### Quick question to another agent
 ```bash
-tmux-team talk codex "What's the status of the authentication refactor?"
-# Wait a few seconds...
-tmux-team check codex
+tmux-team talk codex "What's the status of the authentication refactor?" --wait
+# Response is returned directly
 ```
 
-### Synchronous request-response
-```bash
-tmux-team talk gemini "Review this function for security issues" --wait
-# Returns when gemini completes their response
-```
-
-### Delegate a task
+### Delegate a task with longer timeout
 ```bash
 tmux-team talk codex "Please implement the login form. Reply when done." --wait --timeout 300
+```
+
+### Broadcast to all agents
+```bash
+tmux-team talk all "Sync: PR #123 was merged, please pull latest" --wait
 ```
 
 ## Configuration
@@ -74,9 +66,9 @@ To find your pane ID, run: `tmux display-message -p '#{pane_id}'`
 
 ## Best Practices
 
-1. **Be explicit** - Tell the other agent exactly what you need and how to respond
-2. **Use --wait for important tasks** - Ensures you get the complete response
-3. **Check response length** - Use `tmux-team check <agent> 200` for longer responses
+1. **Always use --wait** - More token-efficient than polling with check command
+2. **Be explicit** - Tell the other agent exactly what you need and how to respond
+3. **Set timeout appropriately** - Use `--timeout 300` for complex tasks
 4. **Broadcast sparingly** - Only use `talk all` for announcements everyone needs
 
 ## Your Next Step

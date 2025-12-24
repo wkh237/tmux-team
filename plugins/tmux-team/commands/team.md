@@ -8,23 +8,18 @@ Execute this tmux-team command: `tmux-team $ARGUMENTS`
 You are working in a multi-agent tmux environment.
 Use the tmux-team CLI to communicate with other agents.
 
-## Commands
+## Commands (use --wait for better token utilization)
 
 ```bash
-# Send message to an agent
-tmux-team talk codex "your message"
-tmux-team talk gemini "your message"
-tmux-team talk all "broadcast message"
+# Send and wait for response (recommended)
+tmux-team talk codex "your message" --wait
+tmux-team talk gemini "your message" --wait --timeout 120
+
+# Broadcast to all agents
+tmux-team talk all "broadcast message" --wait
 
 # Send with delay (useful for rate limiting)
-tmux-team talk codex "message" --delay 5
-
-# Send and wait for response (blocks until agent replies)
-tmux-team talk codex "message" --wait --timeout 120
-
-# Read agent response (default: 100 lines)
-tmux-team check codex
-tmux-team check gemini 200
+tmux-team talk codex "message" --wait --delay 5
 
 # List all configured agents
 tmux-team list
@@ -32,15 +27,17 @@ tmux-team list
 
 ## Workflow
 
-1. Send message: `tmux-team talk codex "Review this code"`
-2. Wait 5-15 seconds (or use `--wait` flag)
-3. Read response: `tmux-team check codex`
-4. If response is cut off: `tmux-team check codex 200`
+The `--wait` flag blocks until the agent responds, returning the response directly:
+
+```bash
+tmux-team talk codex "Review this code" --wait
+# Response is returned directly - no need for a separate check command
+```
 
 ## Notes
 
+- **Always use `--wait`** - it's more token-efficient than polling with `check`
 - `talk` automatically sends Enter key after the message
 - `talk` automatically filters exclamation marks for Gemini (TTY issue)
-- Use `--delay` instead of sleep (safer for tool whitelists)
-- Use `--wait` for synchronous request-response patterns
-- Run `tmux-team help` for full CLI documentation
+- Use `--delay` to add delay between messages (rate limiting)
+- Run `tmux-team learn` for a comprehensive guide

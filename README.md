@@ -63,6 +63,8 @@ npm install -g tmux-team
 
 **Requirements:** Node.js >= 18, tmux, macOS/Linux
 
+**Alias:** `tmt` is available as a shorthand for `tmux-team`
+
 ### Shell Completion
 
 ```bash
@@ -111,18 +113,20 @@ tmux-team add claude 10.0 "Frontend specialist"
 tmux-team add codex 10.1 "Backend engineer"
 tmux-team add gemini 10.2 "Code reviewer"
 
-# Send messages
-tmux-team talk codex "Review the auth module and suggest improvements"
-tmux-team talk all "Starting the refactor now"
+# Send messages and wait for response (recommended for better token utilization)
+tmux-team talk codex "Review the auth module" --wait
+tmux-team talk all "Starting the refactor now" --wait
 
-# Read responses
-tmux-team check codex
-tmux-team check codex 200  # More lines if needed
+# Or use the shorthand alias
+tmt talk codex "Quick question" --wait
 
 # Manage agents
 tmux-team list
 tmux-team update codex --remark "Now handling tests"
 tmux-team remove gemini
+
+# Learn more
+tmux-team learn
 ```
 
 ### From Claude Code
@@ -130,8 +134,8 @@ tmux-team remove gemini
 Once the plugin is installed, coordinate directly from your Claude Code session:
 
 ```
-/tmux-team:team codex "Can you review my changes?"
-/tmux-team:team all "I'm starting the database migration"
+/tmux-team:team codex "Can you review my changes?" --wait
+/tmux-team:team all "I'm starting the database migration" --wait
 ```
 
 ---
@@ -140,9 +144,9 @@ Once the plugin is installed, coordinate directly from your Claude Code session:
 
 | Command | Description |
 |---------|-------------|
-| `talk <agent> "<msg>"` | Send message to agent (or `all` for broadcast) |
+| `talk <agent> "<msg>" --wait` | Send message and wait for response (recommended) |
 | `talk ... --delay 5` | Wait 5 seconds before sending |
-| `talk ... --wait` | Wait for agent response (nonce-based) |
+| `talk ... --timeout 300` | Set max wait time (default: 180s) |
 | `check <agent> [lines]` | Read agent's terminal output (default: 100 lines) |
 | `list` | Show all configured agents |
 | `add <name> <pane> [remark]` | Register a new agent |
@@ -152,6 +156,7 @@ Once the plugin is installed, coordinate directly from your Claude Code session:
 | `config [show/set/clear]` | View/modify settings |
 | `preamble [show/set/clear]` | Manage agent preambles |
 | `install-skill <agent>` | Install skill for Claude/Codex (--local/--user) |
+| `learn` | Show educational guide |
 | `completion [zsh\|bash]` | Output shell completion script |
 
 ---
@@ -213,15 +218,22 @@ Global settings that apply to all projects:
 
 ## ✨ Features
 
-### 📡 Enhanced `talk` Command
+### 📡 Async Mode (Recommended)
+
+The `--wait` flag is recommended for better token utilization:
 
 ```bash
-# Delay before sending (safe alternative to sleep)
-tmux-team talk codex "message" --delay 5
-
 # Wait for response with nonce-based completion detection
-tmux-team talk codex "message" --wait --timeout 60
+tmux-team talk codex "Review this code" --wait
+
+# With custom timeout for complex tasks
+tmux-team talk codex "Implement the feature" --wait --timeout 300
+
+# Delay before sending (safe alternative to sleep)
+tmux-team talk codex "message" --wait --delay 5
 ```
+
+Enable by default: `tmux-team config set mode wait`
 
 ### 📜 Agent Preambles
 

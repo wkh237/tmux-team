@@ -8,6 +8,7 @@ import { VERSION } from '../version.js';
 export interface HelpConfig {
   mode?: 'polling' | 'wait';
   timeout?: number;
+  showIntro?: boolean;
 }
 
 export function cmdHelp(config?: HelpConfig): void {
@@ -15,17 +16,28 @@ export function cmdHelp(config?: HelpConfig): void {
   const timeout = config?.timeout ?? 180;
   const isWaitMode = mode === 'wait';
 
+  // Show intro highlight when running just `tmux-team` with no args
+  if (config?.showIntro) {
+    console.log(`
+${colors.cyan('┌─────────────────────────────────────────────────────────────┐')}
+${colors.cyan('│')}  ${colors.yellow('New to tmux-team?')} Run ${colors.green('tmux-team learn')} or ${colors.green('tmt learn')}         ${colors.cyan('│')}
+${colors.cyan('│')}  ${colors.dim('tmt is a shorthand alias for tmux-team')}                      ${colors.cyan('│')}
+${colors.cyan('└─────────────────────────────────────────────────────────────┘')}`);
+  }
+
   // Mode indicator with clear explanation
   const modeInfo = isWaitMode
-    ? `${colors.yellow('CURRENT MODE')}: ${colors.green('wait')} (timeout: ${timeout}s)
+    ? `${colors.yellow('CURRENT MODE')}: ${colors.green('wait')} (timeout: ${timeout}s) ${colors.green('✓ recommended')}
   ${colors.dim('→ talk commands will BLOCK until agent responds or timeout')}
   ${colors.dim('→ Response is returned directly, no need to use check command')}`
     : `${colors.yellow('CURRENT MODE')}: ${colors.cyan('polling')}
   ${colors.dim('→ talk commands send and return immediately')}
-  ${colors.dim('→ Use check command to read agent response')}`;
+  ${colors.dim('→ Use check command to read agent response')}
+  ${colors.dim('→')} ${colors.yellow('TIP')}: ${colors.dim('Use --wait or set mode to wait for better token utilization')}`;
 
   console.log(`
 ${colors.cyan('tmux-team')} v${VERSION} - AI agent collaboration in tmux
+${colors.dim('Alias: tmt')}
 
 ${modeInfo}
 
@@ -44,6 +56,7 @@ ${colors.yellow('COMMANDS')}
   ${colors.green('preamble')} [show|set|clear]   Manage agent preambles
   ${colors.green('install-skill')} <agent>       Install skill for AI agent
   ${colors.green('completion')}                  Output shell completion script
+  ${colors.green('learn')}                       Show educational guide
   ${colors.green('help')}                        Show this help message
 
 ${colors.yellow('OPTIONS')}
