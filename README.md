@@ -40,16 +40,29 @@ The `--wait` flag blocks until the agent responds, returning the response direct
 
 Run `tmux-team help` for all commands and options.
 
-## Configuration
+## Managing Your Team
 
-`tmux-team.json` in your project root:
+Configuration lives in `tmux-team.json` in your project root.
 
+**Create** - Run the setup wizard to auto-detect agents:
+```bash
+tmux-team setup
+```
+
+**Read** - List configured agents:
+```bash
+tmux-team list
+```
+
+**Update** - Edit `tmux-team.json` directly or re-run setup:
 ```json
 {
   "codex": { "pane": "%1", "remark": "Code reviewer" },
   "gemini": { "pane": "%2", "remark": "Documentation" }
 }
 ```
+
+**Delete** - Remove an agent entry from `tmux-team.json` or delete the file entirely.
 
 Find pane IDs: `tmux display-message -p "#{pane_id}"`
 
