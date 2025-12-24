@@ -9,7 +9,7 @@
       "name": "tmux-team",
       "source": "./plugins/tmux-team",
       "description": "Coordinate AI agents in tmux panes - talk to agents and wait for responses",
-      "version": "3.0.0-alpha.1",
+      "version": "3.0.1",
       "author": {
         "name": "Ben Hsieh",
         "email": "xeiyan@gmail.com"

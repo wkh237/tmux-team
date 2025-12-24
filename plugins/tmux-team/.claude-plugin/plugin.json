@@ -1,6 +1,6 @@
 {
   "name": "tmux-team",
-  "version": "3.0.0-alpha.1",
+  "version": "3.0.1",
   "description": "Coordinate AI agents in tmux panes - talk to agents and wait for responses",
   "author": {
     "name": "Ben Hsieh",
