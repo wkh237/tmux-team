@@ -77,9 +77,17 @@ export interface UI {
   json: (data: unknown) => void;
 }
 
+export interface PaneInfo {
+  id: string; // e.g., "%1"
+  command: string; // e.g., "node", "python", "zsh"
+  suggestedName: string | null; // e.g., "codex" if detected from command
+}
+
 export interface Tmux {
   send: (paneId: string, message: string) => void;
   capture: (paneId: string, lines: number) => string;
+  listPanes: () => PaneInfo[];
+  getCurrentPaneId: () => string | null;
 }
 
 export interface WaitResult {

@@ -19,7 +19,8 @@ import { cmdCheck } from './commands/check.js';
 import { cmdCompletion } from './commands/completion.js';
 import { cmdConfig } from './commands/config.js';
 import { cmdPreamble } from './commands/preamble.js';
-import { cmdInstallSkill } from './commands/install-skill.js';
+import { cmdInstall } from './commands/install.js';
+import { cmdSetup } from './commands/setup.js';
 import { cmdLearn } from './commands/learn.js';
 
 // ─────────────────────────────────────────────────────────────
@@ -139,6 +140,12 @@ function main(): void {
   // Create context for all other commands
   const ctx = createContext({ argv, flags });
 
+  // Warn if not in tmux for commands that require it
+  const TMUX_REQUIRED_COMMANDS = ['talk', 'send', 'check', 'read', 'setup'];
+  if (!process.env.TMUX && TMUX_REQUIRED_COMMANDS.includes(command)) {
+    ctx.ui.warn('Not running inside tmux. Some features may not work.');
+  }
+
   const run = async (): Promise<void> => {
     switch (command) {
       case 'init':
@@ -215,22 +222,12 @@ function main(): void {
         cmdPreamble(ctx, args);
         break;
 
-      case 'install-skill':
-        {
-          // Parse --local or --user flag
-          let scope = 'user';
-          const filteredArgs: string[] = [];
-          for (const arg of args) {
-            if (arg === '--local') {
-              scope = 'local';
-            } else if (arg === '--user') {
-              scope = 'user';
-            } else {
-              filteredArgs.push(arg);
-            }
-          }
-          cmdInstallSkill(ctx, filteredArgs[0], scope);
-        }
+      case 'install':
+        await cmdInstall(ctx, args[0]);
+        break;
+
+      case 'setup':
+        await cmdSetup(ctx);
         break;
 
       case 'learn':

@@ -27,6 +27,12 @@ function createMockTmux(): Tmux & {
     capture(_pane: string, _lines: number) {
       return mock.captureReturn;
     },
+    listPanes() {
+      return [];
+    },
+    getCurrentPaneId() {
+      return null;
+    },
   };
   return mock;
 }

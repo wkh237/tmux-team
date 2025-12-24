@@ -51,10 +51,11 @@ ${colors.yellow('COMMANDS')}
   ${colors.green('add')} <name> <pane> [remark]  Add a new agent
   ${colors.green('update')} <name> [options]     Update an agent's config
   ${colors.green('remove')} <name>               Remove an agent
+  ${colors.green('install')} [claude|codex]       Install tmux-team for an AI agent
+  ${colors.green('setup')}                       Interactive wizard to configure agents
   ${colors.green('init')}                        Create empty tmux-team.json
   ${colors.green('config')} [show|set|clear]     View/modify settings
   ${colors.green('preamble')} [show|set|clear]   Manage agent preambles
-  ${colors.green('install-skill')} <agent>       Install skill for AI agent
   ${colors.green('completion')}                  Output shell completion script
   ${colors.green('learn')}                       Show educational guide
   ${colors.green('help')}                        Show this help message

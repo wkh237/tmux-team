@@ -16,21 +16,20 @@ The easiest way to add tmux-team to Claude Code is via the plugin system:
 
 This gives you `/team` and `/learn` slash commands automatically.
 
-## Quick Install (Standalone Skills)
+## Quick Install
 
-If you prefer standalone skills without the full plugin:
+Use the interactive install command:
 
 ```bash
-# Install for Claude Code (user-wide)
-tmux-team install-skill claude
+# Auto-detect environment and install
+tmux-team install
 
-# Install for OpenAI Codex (user-wide)
-tmux-team install-skill codex
-
-# Install to project directory (local scope)
-tmux-team install-skill claude --local
-tmux-team install-skill codex --local
+# Or specify agent directly
+tmux-team install claude
+tmux-team install codex
 ```
+
+After installation, run `tmux-team setup` to configure your agents interactively.
 
 ## Claude Code
 
