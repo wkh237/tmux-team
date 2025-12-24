@@ -1,9 +1,9 @@
 ---
-allowed-tools: Bash(tmux-team:*)
-description: Talk to peer agents in different tmux panes
+name: tmux-team
+description: Communicate with other AI agents in tmux panes. Use when you need to talk to codex, claude, gemini, or other agents.
 ---
 
-Execute this tmux-team command: `tmux-team $ARGUMENTS`
+When invoked, execute the tmux-team command with the provided arguments.
 
 You are working in a multi-agent tmux environment.
 Use the tmux-team CLI to communicate with other agents.

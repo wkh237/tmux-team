@@ -80,6 +80,24 @@ eval "$(tmux-team completion bash)"
 /plugin install tmux-team@tmux-team
 ```
 
+### Agent Skills (Optional)
+
+Install tmux-team as a native skill for your AI coding agent:
+
+```bash
+# Install for Claude Code (user-wide)
+tmux-team install-skill claude
+
+# Install for OpenAI Codex (user-wide)
+tmux-team install-skill codex
+
+# Install to project directory instead
+tmux-team install-skill claude --local
+tmux-team install-skill codex --local
+```
+
+See [skills/README.md](./skills/README.md) for detailed instructions.
+
 ---
 
 ## ⌨️ Quick Start
@@ -133,6 +151,7 @@ Once the plugin is installed, coordinate directly from your Claude Code session:
 | `init` | Create `tmux-team.json` in current directory |
 | `config [show/set/clear]` | View/modify settings |
 | `preamble [show/set/clear]` | Manage agent preambles |
+| `install-skill <agent>` | Install skill for Claude/Codex (--local/--user) |
 | `completion [zsh\|bash]` | Output shell completion script |
 
 ---
@@ -221,7 +240,7 @@ Use the CLI to manage preambles:
 
 ```bash
 tmux-team preamble show gemini      # View current preamble
-tmux-team preamble set gemini "..." # Set preamble
+tmux-team preamble set gemini "Be concise" # Set preamble
 tmux-team preamble clear gemini     # Remove preamble
 ```
 
@@ -264,7 +283,7 @@ tmux-team config clear <key>           # Clear a config value
 
 ```bash
 tmux-team preamble show <agent>        # Show agent's preamble
-tmux-team preamble set <agent> "..."   # Set agent's preamble
+tmux-team preamble set <agent> "text"  # Set agent's preamble
 tmux-team preamble clear <agent>       # Clear agent's preamble
 ```
 

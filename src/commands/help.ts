@@ -42,6 +42,7 @@ ${colors.yellow('COMMANDS')}
   ${colors.green('init')}                        Create empty tmux-team.json
   ${colors.green('config')} [show|set|clear]     View/modify settings
   ${colors.green('preamble')} [show|set|clear]   Manage agent preambles
+  ${colors.green('install-skill')} <agent>       Install skill for AI agent
   ${colors.green('completion')}                  Output shell completion script
   ${colors.green('help')}                        Show this help message
 

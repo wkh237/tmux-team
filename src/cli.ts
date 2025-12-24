@@ -19,6 +19,7 @@ import { cmdCheck } from './commands/check.js';
 import { cmdCompletion } from './commands/completion.js';
 import { cmdConfig } from './commands/config.js';
 import { cmdPreamble } from './commands/preamble.js';
+import { cmdInstallSkill } from './commands/install-skill.js';
 
 // ─────────────────────────────────────────────────────────────
 // Argument parsing
@@ -208,6 +209,24 @@ function main(): void {
 
       case 'preamble':
         cmdPreamble(ctx, args);
+        break;
+
+      case 'install-skill':
+        {
+          // Parse --local or --user flag
+          let scope = 'user';
+          const filteredArgs: string[] = [];
+          for (const arg of args) {
+            if (arg === '--local') {
+              scope = 'local';
+            } else if (arg === '--user') {
+              scope = 'user';
+            } else {
+              filteredArgs.push(arg);
+            }
+          }
+          cmdInstallSkill(ctx, filteredArgs[0], scope);
+        }
         break;
 
       default:

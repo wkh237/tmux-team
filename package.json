@@ -42,7 +42,8 @@
   ],
   "files": [
     "bin",
-    "src"
+    "src",
+    "skills"
   ],
   "dependencies": {
     "tsx": "^4.7.0"
