@@ -32,6 +32,41 @@ function renderWaitLine(agent: string, elapsedSeconds: number): string {
   return `⏳ Waiting for ${agent}... (${s}s)`;
 }
 
+/**
+ * Extract partial response from output when end marker is not found.
+ * Used to capture whatever the agent wrote before timeout.
+ */
+function extractPartialResponse(
+  output: string,
+  startMarker: string,
+  _endMarker: string
+): string | null {
+  // Look for instruction end pattern `}]` (the instruction ends with `{end}]`)
+  const instructionEndPattern = '}]';
+  const instructionEndIndex = output.lastIndexOf(instructionEndPattern);
+
+  let responseStart = 0;
+  if (instructionEndIndex !== -1) {
+    // Find the first newline after the instruction's closing `}]`
+    responseStart = output.indexOf('\n', instructionEndIndex + 2);
+    if (responseStart !== -1) responseStart += 1;
+    else responseStart = instructionEndIndex + 2;
+  } else {
+    // Fallback: try to find newline after start marker
+    const startMarkerIndex = output.lastIndexOf(startMarker);
+    if (startMarkerIndex !== -1) {
+      responseStart = output.indexOf('\n', startMarkerIndex);
+      if (responseStart !== -1) responseStart += 1;
+      else return null; // Can't find response start
+    } else {
+      return null; // Start marker not found
+    }
+  }
+
+  const partial = output.slice(responseStart).trim();
+  return partial || null;
+}
+
 // ─────────────────────────────────────────────────────────────
 // Types for broadcast wait mode
 // ─────────────────────────────────────────────────────────────
@@ -45,6 +80,7 @@ interface AgentWaitState {
   endMarker: string;
   status: 'pending' | 'completed' | 'timeout' | 'error';
   response?: string;
+  partialResponse?: string | null;
   error?: string;
   elapsedMs?: number;
 }
@@ -251,8 +287,22 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
       const elapsedSeconds = (Date.now() - startedAt) / 1000;
       if (elapsedSeconds >= timeoutSeconds) {
         clearActiveRequest(ctx.paths, target, requestId);
+
+        // Capture partial response on timeout
+        let partialResponse: string | null = null;
+        try {
+          const output = tmux.capture(pane, captureLines);
+          const extracted = extractPartialResponse(output, startMarker, endMarker);
+          if (extracted) partialResponse = extracted;
+        } catch {
+          // Ignore capture errors on timeout
+        }
+
+        if (isTTY) {
+          process.stdout.write('\r' + ' '.repeat(80) + '\r');
+        }
+
         if (flags.json) {
-          // Single JSON output with error field (don't call ui.error separately)
           ui.json({
             target,
             pane,
@@ -262,13 +312,17 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
             nonce,
             startMarker,
             endMarker,
+            partialResponse,
           });
           exit(ExitCodes.TIMEOUT);
         }
-        if (isTTY) {
-          process.stdout.write('\r' + ' '.repeat(80) + '\r');
-        }
+
         ui.error(`Timed out waiting for ${target} after ${Math.floor(timeoutSeconds)}s.`);
+        if (partialResponse) {
+          console.log();
+          console.log(colors.yellow(`─── Partial response from ${target} (${pane}) ───`));
+          console.log(partialResponse);
+        }
         exit(ExitCodes.TIMEOUT);
       }
 
@@ -277,7 +331,7 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
           process.stdout.write('\r' + renderWaitLine(target, elapsedSeconds));
         } else {
           const now = Date.now();
-          if (now - lastNonTtyLogAt >= 5000) {
+          if (now - lastNonTtyLogAt >= 30000) {
             lastNonTtyLogAt = now;
             console.error(
               `[tmux-team] Waiting for ${target} (${Math.floor(elapsedSeconds)}s elapsed)`
@@ -297,9 +351,16 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
         exit(ExitCodes.ERROR);
       }
 
-      // Find end marker (use lastIndexOf because the marker appears in the instruction AND agent's response)
-      const endMarkerIndex = output.lastIndexOf(endMarker);
-      if (endMarkerIndex === -1) continue;
+      // Find end marker - it appears once in our instruction and again when agent prints it
+      // We need TWO occurrences: one in instruction + one from agent = complete
+      // Only ONE occurrence means it's just in instruction = still waiting
+      const firstEndMarkerIndex = output.indexOf(endMarker);
+      const lastEndMarkerIndex = output.lastIndexOf(endMarker);
+      if (firstEndMarkerIndex === -1 || firstEndMarkerIndex === lastEndMarkerIndex) {
+        // No marker or only one (in instruction) - still waiting
+        continue;
+      }
+      const endMarkerIndex = lastEndMarkerIndex;
 
       // Find the end of our instruction by looking for `}]` pattern (the instruction ends with `{end}]`)
       // This is more reliable than looking for newline after start marker because
@@ -467,6 +528,16 @@ async function cmdTalkAllWait(
           state.status = 'timeout';
           state.error = `Timed out after ${Math.floor(timeoutSeconds)}s`;
           state.elapsedMs = Math.floor(elapsedSeconds * 1000);
+
+          // Capture partial response on timeout
+          try {
+            const output = tmux.capture(state.pane, captureLines);
+            const extracted = extractPartialResponse(output, state.startMarker, state.endMarker);
+            if (extracted) state.partialResponse = extracted;
+          } catch {
+            // Ignore capture errors on timeout
+          }
+
           clearActiveRequest(paths, state.agent, state.requestId);
           if (!flags.json) {
             console.log(
@@ -482,7 +553,7 @@ async function cmdTalkAllWait(
       // Progress logging (non-TTY)
       if (!flags.json && !isTTY) {
         const now = Date.now();
-        if (now - lastLogAt >= 5000) {
+        if (now - lastLogAt >= 30000) {
           lastLogAt = now;
           const pending = pendingAgents()
             .map((s) => s.agent)
@@ -511,9 +582,16 @@ async function cmdTalkAllWait(
           continue;
         }
 
-        // Find end marker (use lastIndexOf because the marker appears in the instruction AND agent's response)
-        const endMarkerIndex = output.lastIndexOf(state.endMarker);
-        if (endMarkerIndex === -1) continue;
+        // Find end marker - it appears once in our instruction and again when agent prints it
+        // We need TWO occurrences: one in instruction + one from agent = complete
+        // Only ONE occurrence means it's just in instruction = still waiting
+        const firstEndMarkerIndex = output.indexOf(state.endMarker);
+        const lastEndMarkerIndex = output.lastIndexOf(state.endMarker);
+        if (firstEndMarkerIndex === -1 || firstEndMarkerIndex === lastEndMarkerIndex) {
+          // No marker or only one (in instruction) - still waiting
+          continue;
+        }
+        const endMarkerIndex = lastEndMarkerIndex;
 
         // Find the end of our instruction by looking for `}]` pattern (the instruction ends with `{end}]`)
         // This is more reliable than looking for newline after start marker because
@@ -602,6 +680,7 @@ function outputBroadcastResults(
         endMarker: s.endMarker,
         status: s.status,
         response: s.response,
+        partialResponse: s.partialResponse,
         error: s.error,
         elapsedMs: s.elapsedMs,
       })),
@@ -622,6 +701,10 @@ function outputBroadcastResults(
     if (state.status === 'completed' && state.response) {
       console.log(colors.cyan(`─── Response from ${state.agent} (${state.pane}) ───`));
       console.log(state.response);
+      console.log();
+    } else if (state.status === 'timeout' && state.partialResponse) {
+      console.log(colors.yellow(`─── Partial response from ${state.agent} (${state.pane}) ───`));
+      console.log(state.partialResponse);
       console.log();
     }
   }

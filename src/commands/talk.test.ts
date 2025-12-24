@@ -443,6 +443,12 @@ describe('cmdTalk - --wait mode', () => {
     }
   });
 
+  // Helper: generate mock capture output with proper marker structure
+  // The end marker must appear TWICE: once in instruction, once from "agent"
+  function mockCompleteResponse(nonce: string, response: string): string {
+    return `{tmux-team-start:${nonce}}\nHello\n\n[IMPORTANT: When your response is complete, print exactly: {tmux-team-end:${nonce}}]\n${response}\n{tmux-team-end:${nonce}}`;
+  }
+
   it('appends nonce instruction to message', async () => {
     const tmux = createMockTmux();
     // Set up capture to return the nonce marker immediately
@@ -450,10 +456,10 @@ describe('cmdTalk - --wait mode', () => {
     tmux.capture = () => {
       captureCount++;
       if (captureCount === 1) return ''; // Baseline
-      // Return marker on second capture
+      // Return marker on second capture - must include instruction AND agent's end marker
       const sent = tmux.sends[0]?.message || '';
       const match = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
-      return match ? `Response here {tmux-team-end:${match[1]}}` : '';
+      return match ? mockCompleteResponse(match[1], 'Response here') : '';
     };
 
     const ctx = createContext({
@@ -492,7 +498,7 @@ describe('cmdTalk - --wait mode', () => {
       const sent = tmux.sends[0]?.message || '';
       const match = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
       if (match) {
-        return `baseline content\n\nAgent response here\n\n{tmux-team-end:${match[1]}}`;
+        return mockCompleteResponse(match[1], 'Agent response here');
       }
       return 'baseline content';
     };
@@ -563,14 +569,15 @@ describe('cmdTalk - --wait mode', () => {
     const oldContent = 'Previous conversation\nOld content here';
 
     tmux.capture = () => {
-      // Simulate scrollback with old content, start marker, response, and end marker
+      // Simulate scrollback with old content, then our instruction (with end marker), response, and agent's end marker
       const sent = tmux.sends[0]?.message || '';
       const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
       const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
       if (startMatch && endMatch) {
         // Start and end markers should have the same nonce
         expect(startMatch[1]).toBe(endMatch[1]);
-        return `${oldContent}\n\n{tmux-team-start:${startMatch[1]}}\nMessage content here\n\nNew response content\n\n{tmux-team-end:${endMatch[1]}}`;
+        // Must include end marker TWICE: once in instruction, once from "agent"
+        return `${oldContent}\n\n{tmux-team-start:${startMatch[1]}}\nMessage content here\n\n[IMPORTANT: print {tmux-team-end:${endMatch[1]}}]\nNew response content\n\n{tmux-team-end:${endMatch[1]}}`;
       }
       return oldContent;
     };
@@ -610,7 +617,7 @@ describe('cmdTalk - --wait mode', () => {
       if (captureCount === 1) return '';
       const sent = tmux.sends[0]?.message || '';
       const match = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
-      return match ? `Done {tmux-team-end:${match[1]}}` : '';
+      return match ? mockCompleteResponse(match[1], 'Done') : '';
     };
 
     const paths = createTestPaths(testDir);
@@ -673,22 +680,22 @@ describe('cmdTalk - --wait mode', () => {
     // Create mock tmux that returns markers for each agent after a delay
     const tmux = createMockTmux();
     let captureCount = 0;
-    const markersByPane: Record<string, string> = {};
+    const noncesByPane: Record<string, string> = {};
 
-    // Mock send to capture the marker for each pane
+    // Mock send to capture the nonce for each pane
     tmux.send = (pane: string, msg: string) => {
       const match = msg.match(/\{tmux-team-end:([a-f0-9]+)\}/);
       if (match) {
-        markersByPane[pane] = match[0];
+        noncesByPane[pane] = match[1];
       }
     };
 
-    // Mock capture to return the marker after first poll
+    // Mock capture to return complete response after first poll
     tmux.capture = (pane: string) => {
       captureCount++;
-      // Return marker on second capture for each pane
-      if (captureCount > 3 && markersByPane[pane]) {
-        return `Response from agent\n${markersByPane[pane]}`;
+      // Return complete response on second capture for each pane
+      if (captureCount > 3 && noncesByPane[pane]) {
+        return mockCompleteResponse(noncesByPane[pane], 'Response from agent');
       }
       return 'working...';
     };
@@ -722,19 +729,19 @@ describe('cmdTalk - --wait mode', () => {
 
   it('handles partial timeout in wait mode with all target', async () => {
     const tmux = createMockTmux();
-    const markersByPane: Record<string, string> = {};
+    const noncesByPane: Record<string, string> = {};
 
     tmux.send = (pane: string, msg: string) => {
       const match = msg.match(/\{tmux-team-end:([a-f0-9]+)\}/);
       if (match) {
-        markersByPane[pane] = match[0];
+        noncesByPane[pane] = match[1];
       }
     };
 
     // Only pane 10.1 responds, 10.2 times out
     tmux.capture = (pane: string) => {
-      if (pane === '10.1' && markersByPane[pane]) {
-        return `Response from codex\n${markersByPane[pane]}`;
+      if (pane === '10.1' && noncesByPane[pane]) {
+        return mockCompleteResponse(noncesByPane[pane], 'Response from codex');
       }
       return 'still working...';
     };
@@ -789,11 +796,11 @@ describe('cmdTalk - --wait mode', () => {
       }
     };
 
-    // Return markers immediately
+    // Return complete response immediately
     tmux.capture = (pane: string) => {
       const idx = pane === '10.1' ? 0 : 1;
       if (nonces[idx]) {
-        return `Response\n{tmux-team-end:${nonces[idx]}}`;
+        return mockCompleteResponse(nonces[idx], 'Response');
       }
       return '';
     };
@@ -861,12 +868,13 @@ describe('cmdTalk - nonce collision handling', () => {
         }
         return `${oldStartMarker}\nOld question\nOld response\n${oldEndMarker}`;
       }
-      // Finally, new end marker appears
+      // Finally, new end marker appears - must have TWO occurrences of new end marker
       const sent = tmux.sends[0]?.message || '';
       const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
       const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
       if (startMatch && endMatch) {
-        return `${oldStartMarker}\nOld question\nOld response\n${oldEndMarker}\n\n{tmux-team-start:${startMatch[1]}}\nNew question asked\n\nNew response\n\n{tmux-team-end:${endMatch[1]}}`;
+        // Old markers in scrollback + new instruction (with end marker) + response + agent's end marker
+        return `${oldStartMarker}\nOld question\nOld response\n${oldEndMarker}\n\n{tmux-team-start:${startMatch[1]}}\nNew question asked\n\n[IMPORTANT: print {tmux-team-end:${endMatch[1]}}]\nNew response\n\n{tmux-team-end:${endMatch[1]}}`;
       }
       return `${oldStartMarker}\nOld question\nOld response\n${oldEndMarker}`;
     };
@@ -916,10 +924,10 @@ describe('cmdTalk - JSON output contract', () => {
 
     tmux.capture = () => {
       const sent = tmux.sends[0]?.message || '';
-      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
       const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
-      if (startMatch && endMatch) {
-        return `{tmux-team-start:${startMatch[1]}}\nMessage\n\nResponse\n\n{tmux-team-end:${endMatch[1]}}`;
+      if (endMatch) {
+        // Must have TWO end markers: one in instruction, one from "agent"
+        return `{tmux-team-start:${endMatch[1]}}\nMessage\n\n[IMPORTANT: print {tmux-team-end:${endMatch[1]}}]\nResponse\n\n{tmux-team-end:${endMatch[1]}}`;
       }
       return '';
     };
@@ -988,6 +996,140 @@ describe('cmdTalk - JSON output contract', () => {
     expect(output).toHaveProperty('startMarker');
     expect(output).toHaveProperty('endMarker');
   });
+
+  it('captures partialResponse on timeout when agent started responding', async () => {
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+
+    // Simulate agent started responding but didn't finish (no end marker)
+    tmux.capture = () =>
+      '{tmux-team-start:abcd}\nHello\n\n[IMPORTANT: When your response is complete, print exactly: {tmux-team-end:abcd}]\nThis is partial content\nStill writing...';
+
+    const ctx = createContext({
+      tmux,
+      ui,
+      paths: createTestPaths(testDir),
+      flags: { wait: true, json: true, timeout: 0.05 },
+      config: {
+        defaults: {
+          timeout: 0.05,
+          pollInterval: 0.01,
+          captureLines: 100,
+          preambleEvery: 3,
+        },
+      },
+    });
+
+    try {
+      await cmdTalk(ctx, 'claude', 'Hello');
+    } catch {
+      // Expected timeout
+    }
+
+    const output = ui.jsonOutput[0] as Record<string, unknown>;
+    expect(output).toHaveProperty('status', 'timeout');
+    expect(output).toHaveProperty('partialResponse');
+    expect(output.partialResponse).toContain('This is partial content');
+    expect(output.partialResponse).toContain('Still writing...');
+  });
+
+  it('returns null partialResponse when nothing captured', async () => {
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+
+    // Nothing meaningful in the capture
+    tmux.capture = () => 'random scrollback content';
+
+    const ctx = createContext({
+      tmux,
+      ui,
+      paths: createTestPaths(testDir),
+      flags: { wait: true, json: true, timeout: 0.05 },
+      config: {
+        defaults: {
+          timeout: 0.05,
+          pollInterval: 0.01,
+          captureLines: 100,
+          preambleEvery: 3,
+        },
+      },
+    });
+
+    try {
+      await cmdTalk(ctx, 'claude', 'Hello');
+    } catch {
+      // Expected timeout
+    }
+
+    const output = ui.jsonOutput[0] as Record<string, unknown>;
+    expect(output).toHaveProperty('status', 'timeout');
+    expect(output.partialResponse).toBeNull();
+  });
+
+  it('captures partialResponse in broadcast timeout', async () => {
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+    const markersByPane: Record<string, string> = {};
+
+    tmux.send = (pane: string, msg: string) => {
+      const match = msg.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      if (match) markersByPane[pane] = match[1];
+    };
+
+    // codex completes, gemini times out with partial response
+    tmux.capture = (pane: string) => {
+      if (pane === '10.1') {
+        const nonce = markersByPane['10.1'];
+        return `{tmux-team-start:${nonce}}\nMsg\n\n[IMPORTANT: print {tmux-team-end:${nonce}}]\nResponse\n{tmux-team-end:${nonce}}`;
+      }
+      // gemini has partial response
+      const nonce = markersByPane['10.2'];
+      return `{tmux-team-start:${nonce}}\nMsg\n\n[IMPORTANT: print {tmux-team-end:${nonce}}]\nPartial gemini output...`;
+    };
+
+    const paths = createTestPaths(testDir);
+    const ctx = createContext({
+      ui,
+      tmux,
+      paths,
+      flags: { wait: true, timeout: 0.1, json: true },
+      config: {
+        defaults: {
+          timeout: 0.1,
+          pollInterval: 0.02,
+          captureLines: 100,
+          preambleEvery: 3,
+        },
+        paneRegistry: {
+          codex: { pane: '10.1' },
+          gemini: { pane: '10.2' },
+        },
+      },
+    });
+
+    try {
+      await cmdTalk(ctx, 'all', 'Hello');
+    } catch {
+      // Expected timeout exit
+    }
+
+    const result = ui.jsonOutput[0] as {
+      results: Array<{
+        agent: string;
+        status: string;
+        response?: string;
+        partialResponse?: string;
+      }>;
+    };
+    const codexResult = result.results.find((r) => r.agent === 'codex');
+    const geminiResult = result.results.find((r) => r.agent === 'gemini');
+
+    expect(codexResult?.status).toBe('completed');
+    expect(codexResult?.response).toContain('Response');
+
+    expect(geminiResult?.status).toBe('timeout');
+    expect(geminiResult?.partialResponse).toContain('Partial gemini output');
+  });
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -1007,17 +1149,22 @@ describe('cmdTalk - start/end marker extraction', () => {
     }
   });
 
+  // Helper: generate mock capture output with proper marker structure
+  // The end marker must appear TWICE: once in instruction, once from "agent"
+  function mockResponse(nonce: string, response: string): string {
+    return `{tmux-team-start:${nonce}}\nContent\n\n[IMPORTANT: print {tmux-team-end:${nonce}}]\n${response}\n{tmux-team-end:${nonce}}`;
+  }
+
   it('includes both start and end markers in sent message', async () => {
     const tmux = createMockTmux();
     const ui = createMockUI();
 
-    // Return markers immediately to complete
+    // Return complete response immediately
     tmux.capture = () => {
       const sent = tmux.sends[0]?.message || '';
-      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
       const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
-      if (startMatch && endMatch) {
-        return `${startMatch[0]}\nContent\nResponse\n${endMatch[0]}`;
+      if (endMatch) {
+        return mockResponse(endMatch[1], 'Response');
       }
       return '';
     };
@@ -1048,11 +1195,10 @@ describe('cmdTalk - start/end marker extraction', () => {
 
     tmux.capture = () => {
       const sent = tmux.sends[0]?.message || '';
-      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
       const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
-      if (startMatch && endMatch) {
-        // Simulate scrollback with content before start marker, message, and response
-        return `Old garbage\nMore old stuff\n{tmux-team-start:${startMatch[1]}}\nThe original message\n\nThis is the actual response\n\n{tmux-team-end:${endMatch[1]}}\nContent after marker`;
+      if (endMatch) {
+        // Simulate scrollback with content before start marker, then proper instruction + response
+        return `Old garbage\nMore old stuff\n{tmux-team-start:${endMatch[1]}}\nThe original message\n\n[IMPORTANT: print {tmux-team-end:${endMatch[1]}}]\nThis is the actual response\n\n{tmux-team-end:${endMatch[1]}}\nContent after marker`;
       }
       return 'Old garbage\nMore old stuff';
     };
@@ -1085,10 +1231,9 @@ Line 4 final`;
 
     tmux.capture = () => {
       const sent = tmux.sends[0]?.message || '';
-      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
       const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
-      if (startMatch && endMatch) {
-        return `{tmux-team-start:${startMatch[1]}}\nMessage\n\n${multilineResponse}\n\n{tmux-team-end:${endMatch[1]}}`;
+      if (endMatch) {
+        return `{tmux-team-start:${endMatch[1]}}\nMessage\n\n[IMPORTANT: print {tmux-team-end:${endMatch[1]}}]\n${multilineResponse}\n\n{tmux-team-end:${endMatch[1]}}`;
       }
       return '';
     };
@@ -1114,11 +1259,10 @@ Line 4 final`;
 
     tmux.capture = () => {
       const sent = tmux.sends[0]?.message || '';
-      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
       const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
-      if (startMatch && endMatch) {
-        // Just markers with message, agent printed end marker immediately
-        return `{tmux-team-start:${startMatch[1]}}\nMessage here\n{tmux-team-end:${endMatch[1]}}`;
+      if (endMatch) {
+        // Agent printed end marker immediately with no content
+        return `{tmux-team-start:${endMatch[1]}}\nMessage here\n\n[IMPORTANT: print {tmux-team-end:${endMatch[1]}}]\n{tmux-team-end:${endMatch[1]}}`;
       }
       return '';
     };
@@ -1145,11 +1289,10 @@ Line 4 final`;
 
     tmux.capture = () => {
       const sent = tmux.sends[0]?.message || '';
-      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
       const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
-      if (startMatch && endMatch) {
-        // Start marker followed by newline, then content
-        return `Old stuff\n{tmux-team-start:${startMatch[1]}}\nActual response content\n{tmux-team-end:${endMatch[1]}}`;
+      if (endMatch) {
+        // Start marker followed by newline, then instruction and content
+        return `Old stuff\n{tmux-team-start:${endMatch[1]}}\nMessage\n\n[IMPORTANT: print {tmux-team-end:${endMatch[1]}}]\nActual response content\n{tmux-team-end:${endMatch[1]}}`;
       }
       return 'Old stuff';
     };
@@ -1182,10 +1325,11 @@ Line 4 final`;
       if (startMatch && endMatch) {
         if (captureCount < 3) {
           // First few captures: old markers in history, new start marker sent but not end yet
-          return `{tmux-team-start:old1}\nOld message\nOld response\n{tmux-team-end:old1}\n\n{tmux-team-start:${startMatch[1]}}\nNew message pending`;
+          // (only ONE end marker in instruction = still waiting)
+          return `{tmux-team-start:old1}\nOld message\nOld response\n{tmux-team-end:old1}\n\n{tmux-team-start:${startMatch[1]}}\nNew message\n[When done: {tmux-team-end:${endMatch[1]}}]`;
         }
-        // Finally, new end marker appears
-        return `{tmux-team-start:old1}\nOld message\nOld response\n{tmux-team-end:old1}\n\n{tmux-team-start:${startMatch[1]}}\nNew message\n\nNew actual response\n\n{tmux-team-end:${endMatch[1]}}`;
+        // Finally, new end marker appears (TWO occurrences = complete)
+        return `{tmux-team-start:old1}\nOld message\nOld response\n{tmux-team-end:old1}\n\n{tmux-team-start:${startMatch[1]}}\nNew message\n[When done: {tmux-team-end:${endMatch[1]}}]\n\nNew actual response\n\n{tmux-team-end:${endMatch[1]}}`;
       }
       return '';
     };
@@ -1219,7 +1363,8 @@ Line 4 final`;
       const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
       const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
       if (startMatch && endMatch) {
-        return `${lotsOfContent}\n{tmux-team-start:${startMatch[1]}}\nMessage\n\nThe actual response\n\n{tmux-team-end:${endMatch[1]}}`;
+        // TWO end markers: one in instruction, one from "agent" response
+        return `${lotsOfContent}\n{tmux-team-start:${startMatch[1]}}\nMessage\n[When done: {tmux-team-end:${endMatch[1]}}]\n\nThe actual response\n\n{tmux-team-end:${endMatch[1]}}`;
       }
       return lotsOfContent;
     };
