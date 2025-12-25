@@ -278,9 +278,10 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
   let lastNonTtyLogAt = 0;
   const isTTY = process.stdout.isTTY && !flags.json;
 
-  // Idle detection for Gemini (doesn't print end markers)
-  const GEMINI_IDLE_THRESHOLD_MS = 5000; // 5 seconds of no output change = complete
-  let lastOutputHash = '';
+  // Debounce detection: wait for output to stabilize
+  const MIN_WAIT_MS = 3000; // Wait at least 3 seconds before detecting completion
+  const IDLE_THRESHOLD_MS = 3000; // Content unchanged for 3 seconds = complete
+  let lastOutput = '';
   let lastOutputChangeAt = Date.now();
 
   const onSigint = (): void => {
@@ -402,40 +403,40 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
         console.error(`[DEBUG ${elapsedSec}s] Output tail:\n${output.slice(-300)}`);
       }
 
-      // Find end marker - agent prints it when done
-      // For long responses, our instruction may scroll off, so we check:
-      // 1. Two occurrences (instruction + agent), OR
-      // 2. One occurrence that's followed by only UI elements (agent printed it)
-      const firstEndMarkerIndex = output.indexOf(endMarker);
-      const lastEndMarkerIndex = output.lastIndexOf(endMarker);
-
-      if (firstEndMarkerIndex === -1) {
-        // No marker at all - still waiting
-        continue;
+      // Track output changes for debounce detection
+      if (output !== lastOutput) {
+        lastOutput = output;
+        lastOutputChangeAt = Date.now();
       }
 
-      // Check if marker is from agent (not just in our instruction)
-      const instructionText = 'When you finish responding, print this exact line:';
-      const instructionVisible = output.includes(instructionText);
-      const twoMarkers = firstEndMarkerIndex !== lastEndMarkerIndex;
+      const elapsedMs = Date.now() - startedAt;
+      const idleMs = Date.now() - lastOutputChangeAt;
 
-      if (instructionVisible && !twoMarkers) {
-        // Instruction is visible but only 1 marker = agent hasn't printed theirs yet
+      // Find end marker
+      const hasEndMarker = output.includes(endMarker);
+
+      // Completion conditions:
+      // 1. Must wait at least MIN_WAIT_MS
+      // 2. Must have end marker in output
+      // 3. Output must be stable for IDLE_THRESHOLD_MS (debounce)
+      if (elapsedMs < MIN_WAIT_MS || !hasEndMarker || idleMs < IDLE_THRESHOLD_MS) {
+        if (flags.debug && hasEndMarker) {
+          console.error(
+            `[DEBUG] Marker found, waiting for debounce (elapsed: ${elapsedMs}ms, idle: ${idleMs}ms)`
+          );
+        }
         continue;
       }
-      // Either: 2 markers, OR instruction scrolled off and we see agent's marker
 
       if (flags.debug) {
-        console.error(
-          `[DEBUG] Agent completed (twoMarkers: ${twoMarkers}, instructionVisible: ${instructionVisible})`
-        );
+        console.error(`[DEBUG] Agent completed (elapsed: ${elapsedMs}ms, idle: ${idleMs}ms)`);
       }
 
-      // Extract response: get N lines before the agent's end marker
+      // Extract response: get N lines before the end marker
       const responseLines = flags.lines ?? 100;
       const lines = output.split('\n');
 
-      // Find the line with the agent's end marker (last occurrence)
+      // Find the line with the end marker (last occurrence = agent's marker)
       let endMarkerLineIndex = -1;
       for (let i = lines.length - 1; i >= 0; i--) {
         if (lines[i].includes(endMarker)) {
@@ -446,13 +447,9 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
 
       if (endMarkerLineIndex === -1) continue;
 
-      // Determine where response starts
-      let startLine = 0;
-      if (firstEndMarkerIndex !== lastEndMarkerIndex) {
-        // Two markers - find line after first marker (instruction)
-        const firstMarkerLineIndex = lines.findIndex((line) => line.includes(endMarker));
-        startLine = firstMarkerLineIndex + 1;
-      }
+      // Find where response starts (after instruction's end marker, if visible)
+      const firstMarkerLineIndex = lines.findIndex((line) => line.includes(endMarker));
+      let startLine = firstMarkerLineIndex + 1;
       // Limit to N lines before end marker
       startLine = Math.max(startLine, endMarkerLineIndex - responseLines);
 
