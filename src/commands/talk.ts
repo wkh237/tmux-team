@@ -415,16 +415,20 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
       }
 
       // Check if marker is from agent (not just in our instruction)
-      // Simple: we need TWO occurrences - one in instruction, one from agent
+      const instructionText = 'When you finish responding, print this exact line:';
+      const instructionVisible = output.includes(instructionText);
       const twoMarkers = firstEndMarkerIndex !== lastEndMarkerIndex;
 
-      if (!twoMarkers) {
-        // Only one marker = still in our instruction, agent hasn't responded yet
+      if (instructionVisible && !twoMarkers) {
+        // Instruction is visible but only 1 marker = agent hasn't printed theirs yet
         continue;
       }
+      // Either: 2 markers, OR instruction scrolled off and we see agent's marker
 
       if (flags.debug) {
-        console.error(`[DEBUG] Agent completed (found 2 markers)`);
+        console.error(
+          `[DEBUG] Agent completed (twoMarkers: ${twoMarkers}, instructionVisible: ${instructionVisible})`
+        );
       }
 
       // Extract response: get N lines before the agent's end marker
