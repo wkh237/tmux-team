@@ -35,8 +35,13 @@ The `--wait` flag blocks until the agent responds, returning the response direct
 | `setup` | Interactive wizard to configure agents |
 | `talk <agent> "msg" --wait` | Send message and wait for response |
 | `talk all "msg" --wait` | Broadcast to all agents |
+| `check <agent> [lines]` | Read agent's pane output (fallback if --wait times out) |
 | `list` | Show configured agents |
 | `learn` | Show educational guide |
+
+**Options for `talk --wait`:**
+- `--timeout <seconds>` - Max wait time (default: 180s)
+- `--lines <number>` - Lines to capture from response (default: 100)
 
 Run `tmux-team help` for all commands and options.
 

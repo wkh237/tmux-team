@@ -13,6 +13,8 @@ import {
   cleanupState,
   setActiveRequest,
   clearActiveRequest,
+  getPreambleCounter,
+  incrementPreambleCounter,
   type AgentRequestState,
 } from './state.js';
 
@@ -316,6 +318,18 @@ describe('State Management', () => {
       const state = loadState(paths);
       expect(state.requests.claude).toBeUndefined();
       expect(state.requests.codex).toMatchObject({ id: '2', nonce: 'b' });
+    });
+  });
+
+  describe('preamble counters', () => {
+    it('returns 0 when counter is missing', () => {
+      expect(getPreambleCounter(paths, 'claude')).toBe(0);
+    });
+
+    it('increments and persists counter', () => {
+      expect(incrementPreambleCounter(paths, 'claude')).toBe(1);
+      expect(incrementPreambleCounter(paths, 'claude')).toBe(2);
+      expect(getPreambleCounter(paths, 'claude')).toBe(2);
     });
   });
 });

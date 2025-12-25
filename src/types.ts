@@ -53,11 +53,13 @@ export interface ResolvedConfig {
 export interface Flags {
   json: boolean;
   verbose: boolean;
+  debug?: boolean;
   config?: string;
   force?: boolean;
   delay?: number; // seconds
   wait?: boolean;
   timeout?: number; // seconds
+  lines?: number; // lines to capture before end marker
   noPreamble?: boolean;
 }
 
@@ -93,7 +95,6 @@ export interface Tmux {
 export interface WaitResult {
   requestId: string;
   nonce: string;
-  startMarker: string;
   endMarker: string;
   response: string;
 }

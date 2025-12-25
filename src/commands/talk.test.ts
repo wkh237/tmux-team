@@ -11,6 +11,13 @@ import { ExitCodes } from '../exits.js';
 import { cmdTalk } from './talk.js';
 
 // ─────────────────────────────────────────────────────────────
+// Constants
+// ─────────────────────────────────────────────────────────────
+
+// Regex to match new end marker format
+const END_MARKER_REGEX = /---RESPONSE-END-([a-f0-9]+)---/;
+
+// ─────────────────────────────────────────────────────────────
 // Test utilities
 // ─────────────────────────────────────────────────────────────
 
@@ -451,8 +458,10 @@ describe('cmdTalk - --wait mode', () => {
 
   // Helper: generate mock capture output with proper marker structure
   // The end marker must appear TWICE: once in instruction, once from "agent"
+  // New format: ---RESPONSE-END-NONCE---
   function mockCompleteResponse(nonce: string, response: string): string {
-    return `{tmux-team-start:${nonce}}\nHello\n\n[IMPORTANT: When your response is complete, print exactly: {tmux-team-end:${nonce}}]\n${response}\n{tmux-team-end:${nonce}}`;
+    const endMarker = `---RESPONSE-END-${nonce}---`;
+    return `Hello\n\nWhen you finish responding, print this exact line:\n${endMarker}\n${response}\n${endMarker}`;
   }
 
   it('appends nonce instruction to message', async () => {
@@ -464,7 +473,7 @@ describe('cmdTalk - --wait mode', () => {
       if (captureCount === 1) return ''; // Baseline
       // Return marker on second capture - must include instruction AND agent's end marker
       const sent = tmux.sends[0]?.message || '';
-      const match = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      const match = sent.match(END_MARKER_REGEX);
       return match ? mockCompleteResponse(match[1], 'Response here') : '';
     };
 
@@ -485,10 +494,8 @@ describe('cmdTalk - --wait mode', () => {
     await cmdTalk(ctx, 'claude', 'Hello');
 
     expect(tmux.sends).toHaveLength(1);
-    expect(tmux.sends[0].message).toContain(
-      '[IMPORTANT: When your response is complete, print exactly:'
-    );
-    expect(tmux.sends[0].message).toMatch(/\{tmux-team-end:[a-f0-9]+\}/);
+    expect(tmux.sends[0].message).toContain('When you finish responding, print this exact line:');
+    expect(tmux.sends[0].message).toMatch(/---RESPONSE-END-[a-f0-9]+---/);
   });
 
   it('detects nonce marker and extracts response', async () => {
@@ -502,7 +509,7 @@ describe('cmdTalk - --wait mode', () => {
       if (captureCount === 1) return 'baseline content';
       // Extract nonce from sent message and return matching marker
       const sent = tmux.sends[0]?.message || '';
-      const match = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      const match = sent.match(END_MARKER_REGEX);
       if (match) {
         return mockCompleteResponse(match[1], 'Agent response here');
       }
@@ -568,7 +575,7 @@ describe('cmdTalk - --wait mode', () => {
     expect(output.error).toContain('Timed out');
   });
 
-  it('isolates response using start/end markers in scrollback', async () => {
+  it('isolates response using end markers in scrollback', async () => {
     const tmux = createMockTmux();
     const ui = createMockUI();
 
@@ -577,13 +584,11 @@ describe('cmdTalk - --wait mode', () => {
     tmux.capture = () => {
       // Simulate scrollback with old content, then our instruction (with end marker), response, and agent's end marker
       const sent = tmux.sends[0]?.message || '';
-      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
-      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
-      if (startMatch && endMatch) {
-        // Start and end markers should have the same nonce
-        expect(startMatch[1]).toBe(endMatch[1]);
+      const endMatch = sent.match(END_MARKER_REGEX);
+      if (endMatch) {
+        const endMarker = `---RESPONSE-END-${endMatch[1]}---`;
         // Must include end marker TWICE: once in instruction, once from "agent"
-        return `${oldContent}\n\n{tmux-team-start:${startMatch[1]}}\nMessage content here\n\n[IMPORTANT: print {tmux-team-end:${endMatch[1]}}]\nNew response content\n\n{tmux-team-end:${endMatch[1]}}`;
+        return `${oldContent}\n\nMessage content here\n\nWhen you finish responding, print this exact line:\n${endMarker}\nNew response content\n\n${endMarker}`;
       }
       return oldContent;
     };
@@ -607,7 +612,7 @@ describe('cmdTalk - --wait mode', () => {
 
     const output = ui.jsonOutput[0] as Record<string, unknown>;
     expect(output.status).toBe('completed');
-    // Response should NOT include old content before start marker
+    // Response should NOT include old content
     expect(output.response).not.toContain('Previous conversation');
     expect(output.response).not.toContain('Old content here');
     // Response should contain the actual response content
@@ -622,7 +627,7 @@ describe('cmdTalk - --wait mode', () => {
       captureCount++;
       if (captureCount === 1) return '';
       const sent = tmux.sends[0]?.message || '';
-      const match = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      const match = sent.match(END_MARKER_REGEX);
       return match ? mockCompleteResponse(match[1], 'Done') : '';
     };
 
@@ -690,7 +695,7 @@ describe('cmdTalk - --wait mode', () => {
 
     // Mock send to capture the nonce for each pane
     tmux.send = (pane: string, msg: string) => {
-      const match = msg.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      const match = msg.match(END_MARKER_REGEX);
       if (match) {
         noncesByPane[pane] = match[1];
       }
@@ -738,7 +743,7 @@ describe('cmdTalk - --wait mode', () => {
     const noncesByPane: Record<string, string> = {};
 
     tmux.send = (pane: string, msg: string) => {
-      const match = msg.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      const match = msg.match(END_MARKER_REGEX);
       if (match) {
         noncesByPane[pane] = match[1];
       }
@@ -796,7 +801,7 @@ describe('cmdTalk - --wait mode', () => {
     const nonces: string[] = [];
 
     tmux.send = (_pane: string, msg: string) => {
-      const match = msg.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      const match = msg.match(END_MARKER_REGEX);
       if (match) {
         nonces.push(match[1]);
       }
@@ -838,6 +843,47 @@ describe('cmdTalk - --wait mode', () => {
   });
 });
 
+describe('cmdTalk - errors and JSON output', () => {
+  it('errors when target agent is not found', async () => {
+    const ctx = createContext({
+      config: { paneRegistry: {} },
+    });
+    await expect(cmdTalk(ctx, 'nope', 'hi')).rejects.toMatchObject({
+      exitCode: ExitCodes.PANE_NOT_FOUND,
+    });
+    expect((ctx.ui as any).errors.join('\n')).toContain("Agent 'nope' not found");
+  });
+
+  it('outputs JSON in non-wait mode', async () => {
+    const ctx = createContext({
+      flags: { json: true },
+      config: { paneRegistry: { claude: { pane: '1.0' } } },
+    });
+    await cmdTalk(ctx, 'claude', 'hello');
+    const out = (ctx.ui as any).jsonOutput[0] as any;
+    expect(out).toMatchObject({ target: 'claude', pane: '1.0', status: 'sent' });
+  });
+
+  it('marks failures in broadcast when send throws', async () => {
+    const tmux = createMockTmux();
+    const sendSpy = vi.spyOn(tmux, 'send').mockImplementationOnce(() => {
+      throw new Error('fail');
+    });
+    const ctx = createContext({
+      tmux,
+      flags: { json: true },
+      config: {
+        paneRegistry: { claude: { pane: '1.0' }, codex: { pane: '1.1' } },
+      },
+    });
+
+    await cmdTalk(ctx, 'all', 'hello');
+    expect(sendSpy).toHaveBeenCalled();
+    const out = (ctx.ui as any).jsonOutput[0] as any;
+    expect(out.results.some((r: any) => r.status === 'failed')).toBe(true);
+  });
+});
+
 describe('cmdTalk - nonce collision handling', () => {
   let testDir: string;
 
@@ -856,33 +902,34 @@ describe('cmdTalk - nonce collision handling', () => {
     const ui = createMockUI();
 
     let captureCount = 0;
-    const oldStartMarker = '{tmux-team-start:0000}';
-    const oldEndMarker = '{tmux-team-end:0000}'; // Old marker from previous request
+    const oldEndMarker = '---RESPONSE-END-0000---'; // Old marker from previous request
 
     tmux.capture = () => {
       captureCount++;
       // Scrollback includes OLD markers from a previous request
       if (captureCount === 1) {
-        return `${oldStartMarker}\nOld question\nOld response\n${oldEndMarker}`;
+        return `Old question\nOld response\n${oldEndMarker}`;
       }
       // New capture still has old markers but new request markers not complete yet
       if (captureCount === 2) {
         const sent = tmux.sends[0]?.message || '';
-        const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
-        if (startMatch) {
-          return `${oldStartMarker}\nOld question\nOld response\n${oldEndMarker}\n\n{tmux-team-start:${startMatch[1]}}\nNew question asked`;
+        const endMatch = sent.match(END_MARKER_REGEX);
+        if (endMatch) {
+          const newEndMarker = `---RESPONSE-END-${endMatch[1]}---`;
+          // Old content + new instruction (only one occurrence of new marker so far)
+          return `Old question\nOld response\n${oldEndMarker}\n\nNew question asked\n\nWhen you finish responding, print this exact line:\n${newEndMarker}`;
         }
-        return `${oldStartMarker}\nOld question\nOld response\n${oldEndMarker}`;
+        return `Old question\nOld response\n${oldEndMarker}`;
       }
       // Finally, new end marker appears - must have TWO occurrences of new end marker
       const sent = tmux.sends[0]?.message || '';
-      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
-      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
-      if (startMatch && endMatch) {
+      const endMatch = sent.match(END_MARKER_REGEX);
+      if (endMatch) {
+        const newEndMarker = `---RESPONSE-END-${endMatch[1]}---`;
         // Old markers in scrollback + new instruction (with end marker) + response + agent's end marker
-        return `${oldStartMarker}\nOld question\nOld response\n${oldEndMarker}\n\n{tmux-team-start:${startMatch[1]}}\nNew question asked\n\n[IMPORTANT: print {tmux-team-end:${endMatch[1]}}]\nNew response\n\n{tmux-team-end:${endMatch[1]}}`;
+        return `Old question\nOld response\n${oldEndMarker}\n\nNew question asked\n\nWhen you finish responding, print this exact line:\n${newEndMarker}\nNew response\n\n${newEndMarker}`;
       }
-      return `${oldStartMarker}\nOld question\nOld response\n${oldEndMarker}`;
+      return `Old question\nOld response\n${oldEndMarker}`;
     };
 
     const ctx = createContext({
@@ -904,7 +951,7 @@ describe('cmdTalk - nonce collision handling', () => {
 
     const output = ui.jsonOutput[0] as Record<string, unknown>;
     expect(output.status).toBe('completed');
-    // Response should be from after the new start marker, not triggered by old markers
+    // Response should be from the new markers, not triggered by old markers
     expect(output.response as string).not.toContain('Old response');
     expect(output.response as string).not.toContain('Old question');
     expect(output.response as string).toContain('New response');
@@ -930,10 +977,10 @@ describe('cmdTalk - JSON output contract', () => {
 
     tmux.capture = () => {
       const sent = tmux.sends[0]?.message || '';
-      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      const endMatch = sent.match(END_MARKER_REGEX);
       if (endMatch) {
         // Must have TWO end markers: one in instruction, one from "agent"
-        return `{tmux-team-start:${endMatch[1]}}\nMessage\n\n[IMPORTANT: print {tmux-team-end:${endMatch[1]}}]\nResponse\n\n{tmux-team-end:${endMatch[1]}}`;
+        return mockCompleteResponse(endMatch[1], 'Response');
       }
       return '';
     };
@@ -961,10 +1008,15 @@ describe('cmdTalk - JSON output contract', () => {
     expect(output).toHaveProperty('status', 'completed');
     expect(output).toHaveProperty('requestId');
     expect(output).toHaveProperty('nonce');
-    expect(output).toHaveProperty('startMarker');
     expect(output).toHaveProperty('endMarker');
     expect(output).toHaveProperty('response');
   });
+
+  // Helper moved to describe scope for JSON output tests
+  function mockCompleteResponse(nonce: string, response: string): string {
+    const endMarker = `---RESPONSE-END-${nonce}---`;
+    return `Hello\n\nWhen you finish responding, print this exact line:\n${endMarker}\n${response}\n${endMarker}`;
+  }
 
   it('includes required fields in timeout response', async () => {
     const tmux = createMockTmux();
@@ -999,7 +1051,6 @@ describe('cmdTalk - JSON output contract', () => {
     expect(output).toHaveProperty('error');
     expect(output).toHaveProperty('requestId');
     expect(output).toHaveProperty('nonce');
-    expect(output).toHaveProperty('startMarker');
     expect(output).toHaveProperty('endMarker');
   });
 
@@ -1007,9 +1058,17 @@ describe('cmdTalk - JSON output contract', () => {
     const tmux = createMockTmux();
     const ui = createMockUI();
 
-    // Simulate agent started responding but didn't finish (no end marker)
-    tmux.capture = () =>
-      '{tmux-team-start:abcd}\nHello\n\n[IMPORTANT: When your response is complete, print exactly: {tmux-team-end:abcd}]\nThis is partial content\nStill writing...';
+    // Simulate agent started responding but didn't finish (only ONE end marker in instruction, no second from agent)
+    tmux.capture = () => {
+      const sent = tmux.sends[0]?.message || '';
+      const endMatch = sent.match(END_MARKER_REGEX);
+      if (endMatch) {
+        const endMarker = `---RESPONSE-END-${endMatch[1]}---`;
+        // Only one end marker (in instruction), agent started writing but didn't finish
+        return `Hello\n\nWhen you finish responding, print this exact line:\n${endMarker}\nThis is partial content\nStill writing...`;
+      }
+      return 'random content';
+    };
 
     const ctx = createContext({
       tmux,
@@ -1078,7 +1137,7 @@ describe('cmdTalk - JSON output contract', () => {
     const markersByPane: Record<string, string> = {};
 
     tmux.send = (pane: string, msg: string) => {
-      const match = msg.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      const match = msg.match(END_MARKER_REGEX);
       if (match) markersByPane[pane] = match[1];
     };
 
@@ -1086,11 +1145,14 @@ describe('cmdTalk - JSON output contract', () => {
     tmux.capture = (pane: string) => {
       if (pane === '10.1') {
         const nonce = markersByPane['10.1'];
-        return `{tmux-team-start:${nonce}}\nMsg\n\n[IMPORTANT: print {tmux-team-end:${nonce}}]\nResponse\n{tmux-team-end:${nonce}}`;
+        const endMarker = `---RESPONSE-END-${nonce}---`;
+        // Complete response: two end markers
+        return `Msg\n\nWhen you finish responding, print this exact line:\n${endMarker}\nResponse\n${endMarker}`;
       }
-      // gemini has partial response
+      // gemini has partial response - only one end marker (in instruction)
       const nonce = markersByPane['10.2'];
-      return `{tmux-team-start:${nonce}}\nMsg\n\n[IMPORTANT: print {tmux-team-end:${nonce}}]\nPartial gemini output...`;
+      const endMarker = `---RESPONSE-END-${nonce}---`;
+      return `Msg\n\nWhen you finish responding, print this exact line:\n${endMarker}\nPartial gemini output...`;
     };
 
     const paths = createTestPaths(testDir);
@@ -1139,10 +1201,10 @@ describe('cmdTalk - JSON output contract', () => {
 });
 
 // ─────────────────────────────────────────────────────────────
-// Start/End Marker Tests - comprehensive coverage for the new marker system
+// End Marker Tests - comprehensive coverage for the simplified marker system
 // ─────────────────────────────────────────────────────────────
 
-describe('cmdTalk - start/end marker extraction', () => {
+describe('cmdTalk - end marker detection', () => {
   let testDir: string;
 
   beforeEach(() => {
@@ -1158,17 +1220,24 @@ describe('cmdTalk - start/end marker extraction', () => {
   // Helper: generate mock capture output with proper marker structure
   // The end marker must appear TWICE: once in instruction, once from "agent"
   function mockResponse(nonce: string, response: string): string {
-    return `{tmux-team-start:${nonce}}\nContent\n\n[IMPORTANT: print {tmux-team-end:${nonce}}]\n${response}\n{tmux-team-end:${nonce}}`;
+    const endMarker = `---RESPONSE-END-${nonce}---`;
+    return `Message\n\nWhen you finish responding, print this exact line:\n${endMarker}\n${response}\n${endMarker}`;
   }
 
-  it('includes both start and end markers in sent message', async () => {
+  // Helper: generate mock capture where instruction scrolled off, detected via UI
+  function mockResponseWithUI(nonce: string, response: string): string {
+    const endMarker = `---RESPONSE-END-${nonce}---`;
+    return `${response}\n${endMarker}\n\n╭───────────────────╮\n│ > Type message    │\n╰───────────────────╯`;
+  }
+
+  it('includes end marker in sent message', async () => {
     const tmux = createMockTmux();
     const ui = createMockUI();
 
     // Return complete response immediately
     tmux.capture = () => {
       const sent = tmux.sends[0]?.message || '';
-      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      const endMatch = sent.match(END_MARKER_REGEX);
       if (endMatch) {
         return mockResponse(endMatch[1], 'Response');
       }
@@ -1186,25 +1255,21 @@ describe('cmdTalk - start/end marker extraction', () => {
     await cmdTalk(ctx, 'claude', 'Test message');
 
     const sent = tmux.sends[0].message;
-    expect(sent).toMatch(/\{tmux-team-start:[a-f0-9]+\}/);
-    expect(sent).toMatch(/\{tmux-team-end:[a-f0-9]+\}/);
-
-    // Both markers should have same nonce
-    const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
-    const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
-    expect(startMatch?.[1]).toBe(endMatch?.[1]);
+    expect(sent).toMatch(/---RESPONSE-END-[a-f0-9]+---/);
+    expect(sent).toContain('When you finish responding, print this exact line:');
   });
 
-  it('extracts only content between start and end markers', async () => {
+  it('extracts response between two end markers', async () => {
     const tmux = createMockTmux();
     const ui = createMockUI();
 
     tmux.capture = () => {
       const sent = tmux.sends[0]?.message || '';
-      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      const endMatch = sent.match(END_MARKER_REGEX);
       if (endMatch) {
-        // Simulate scrollback with content before start marker, then proper instruction + response
-        return `Old garbage\nMore old stuff\n{tmux-team-start:${endMatch[1]}}\nThe original message\n\n[IMPORTANT: print {tmux-team-end:${endMatch[1]}}]\nThis is the actual response\n\n{tmux-team-end:${endMatch[1]}}\nContent after marker`;
+        const endMarker = `---RESPONSE-END-${endMatch[1]}---`;
+        // Simulate scrollback with old content, instruction, response, and agent's end marker
+        return `Old garbage\nMore old stuff\nMessage\n\nWhen you finish responding, print this exact line:\n${endMarker}\nThis is the actual response\n\n${endMarker}\nContent after marker`;
       }
       return 'Old garbage\nMore old stuff';
     };
@@ -1222,8 +1287,35 @@ describe('cmdTalk - start/end marker extraction', () => {
     const output = ui.jsonOutput[0] as Record<string, unknown>;
     expect(output.status).toBe('completed');
     expect(output.response).toContain('actual response');
-    expect(output.response).not.toContain('Old garbage');
-    expect(output.response).not.toContain('Content after marker');
+  });
+
+  it('detects completion via UI elements when instruction scrolled off', async () => {
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+
+    tmux.capture = () => {
+      const sent = tmux.sends[0]?.message || '';
+      const endMatch = sent.match(END_MARKER_REGEX);
+      if (endMatch) {
+        // Only ONE end marker visible (agent's), followed by CLI UI
+        return mockResponseWithUI(endMatch[1], 'Response from agent');
+      }
+      return '';
+    };
+
+    const ctx = createContext({
+      tmux,
+      ui,
+      paths: createTestPaths(testDir),
+      flags: { wait: true, json: true, timeout: 5 },
+      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100, preambleEvery: 3 } },
+    });
+
+    await cmdTalk(ctx, 'claude', 'Test');
+
+    const output = ui.jsonOutput[0] as Record<string, unknown>;
+    expect(output.status).toBe('completed');
+    expect(output.response).toContain('Response from agent');
   });
 
   it('handles multiline responses correctly', async () => {
@@ -1237,9 +1329,9 @@ Line 4 final`;
 
     tmux.capture = () => {
       const sent = tmux.sends[0]?.message || '';
-      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      const endMatch = sent.match(END_MARKER_REGEX);
       if (endMatch) {
-        return `{tmux-team-start:${endMatch[1]}}\nMessage\n\n[IMPORTANT: print {tmux-team-end:${endMatch[1]}}]\n${multilineResponse}\n\n{tmux-team-end:${endMatch[1]}}`;
+        return mockResponse(endMatch[1], multilineResponse);
       }
       return '';
     };
@@ -1265,10 +1357,11 @@ Line 4 final`;
 
     tmux.capture = () => {
       const sent = tmux.sends[0]?.message || '';
-      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
+      const endMatch = sent.match(END_MARKER_REGEX);
       if (endMatch) {
+        const endMarker = `---RESPONSE-END-${endMatch[1]}---`;
         // Agent printed end marker immediately with no content
-        return `{tmux-team-start:${endMatch[1]}}\nMessage here\n\n[IMPORTANT: print {tmux-team-end:${endMatch[1]}}]\n{tmux-team-end:${endMatch[1]}}`;
+        return `Message here\n\nWhen you finish responding, print this exact line:\n${endMarker}\n${endMarker}`;
       }
       return '';
     };
@@ -1285,40 +1378,10 @@ Line 4 final`;
 
     const output = ui.jsonOutput[0] as Record<string, unknown>;
     expect(output.status).toBe('completed');
-    // Response should be the message content (trimmed)
     expect(typeof output.response).toBe('string');
   });
 
-  it('correctly handles start marker on same line as content', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-
-    tmux.capture = () => {
-      const sent = tmux.sends[0]?.message || '';
-      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
-      if (endMatch) {
-        // Start marker followed by newline, then instruction and content
-        return `Old stuff\n{tmux-team-start:${endMatch[1]}}\nMessage\n\n[IMPORTANT: print {tmux-team-end:${endMatch[1]}}]\nActual response content\n{tmux-team-end:${endMatch[1]}}`;
-      }
-      return 'Old stuff';
-    };
-
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 5 },
-      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100, preambleEvery: 3 } },
-    });
-
-    await cmdTalk(ctx, 'claude', 'Test');
-
-    const output = ui.jsonOutput[0] as Record<string, unknown>;
-    expect(output.response).not.toContain('Old stuff');
-    expect(output.response).toContain('Actual response content');
-  });
-
-  it('uses lastIndexOf for start marker to handle multiple occurrences', async () => {
+  it('waits until second marker appears (not triggered by instruction alone)', async () => {
     const tmux = createMockTmux();
     const ui = createMockUI();
 
@@ -1326,16 +1389,15 @@ Line 4 final`;
     tmux.capture = () => {
       captureCount++;
       const sent = tmux.sends[0]?.message || '';
-      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
-      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
-      if (startMatch && endMatch) {
+      const endMatch = sent.match(END_MARKER_REGEX);
+      if (endMatch) {
+        const endMarker = `---RESPONSE-END-${endMatch[1]}---`;
         if (captureCount < 3) {
-          // First few captures: old markers in history, new start marker sent but not end yet
-          // (only ONE end marker in instruction = still waiting)
-          return `{tmux-team-start:old1}\nOld message\nOld response\n{tmux-team-end:old1}\n\n{tmux-team-start:${startMatch[1]}}\nNew message\n[When done: {tmux-team-end:${endMatch[1]}}]`;
+          // Only ONE end marker (in instruction) - should keep waiting
+          return `Message\n\nWhen you finish responding, print this exact line:\n${endMarker}\nAgent is still thinking...`;
         }
-        // Finally, new end marker appears (TWO occurrences = complete)
-        return `{tmux-team-start:old1}\nOld message\nOld response\n{tmux-team-end:old1}\n\n{tmux-team-start:${startMatch[1]}}\nNew message\n[When done: {tmux-team-end:${endMatch[1]}}]\n\nNew actual response\n\n{tmux-team-end:${endMatch[1]}}`;
+        // Finally, agent prints second marker
+        return `Message\n\nWhen you finish responding, print this exact line:\n${endMarker}\nActual response\n${endMarker}`;
       }
       return '';
     };
@@ -1350,11 +1412,11 @@ Line 4 final`;
 
     await cmdTalk(ctx, 'claude', 'Test');
 
+    // Should have polled multiple times before detecting completion
+    expect(captureCount).toBeGreaterThanOrEqual(3);
     const output = ui.jsonOutput[0] as Record<string, unknown>;
     expect(output.status).toBe('completed');
-    // Should get response from the NEW start marker, not the old one
-    expect(output.response).toContain('New actual response');
-    expect(output.response).not.toContain('Old response');
+    expect(output.response).toContain('Actual response');
   });
 
   it('handles large scrollback with markers at edges', async () => {
@@ -1366,11 +1428,11 @@ Line 4 final`;
 
     tmux.capture = () => {
       const sent = tmux.sends[0]?.message || '';
-      const startMatch = sent.match(/\{tmux-team-start:([a-f0-9]+)\}/);
-      const endMatch = sent.match(/\{tmux-team-end:([a-f0-9]+)\}/);
-      if (startMatch && endMatch) {
+      const endMatch = sent.match(END_MARKER_REGEX);
+      if (endMatch) {
+        const endMarker = `---RESPONSE-END-${endMatch[1]}---`;
         // TWO end markers: one in instruction, one from "agent" response
-        return `${lotsOfContent}\n{tmux-team-start:${startMatch[1]}}\nMessage\n[When done: {tmux-team-end:${endMatch[1]}}]\n\nThe actual response\n\n{tmux-team-end:${endMatch[1]}}`;
+        return `${lotsOfContent}\nMessage\n\nWhen you finish responding, print this exact line:\n${endMarker}\n\nThe actual response\n\n${endMarker}`;
       }
       return lotsOfContent;
     };

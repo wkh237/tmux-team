@@ -69,7 +69,9 @@ ${colors.yellow('TALK OPTIONS')}
   ${colors.green('--delay')} <seconds>           Wait before sending
   ${colors.green('--wait')}                      Force wait mode (block until response)
   ${colors.green('--timeout')} <seconds>         Max wait time (current: ${timeout}s)
+  ${colors.green('--lines')} <number>            Lines to capture (default: 100)
   ${colors.green('--no-preamble')}               Skip agent preamble for this message
+  ${colors.green('--debug')}                     Show debug output
 
 ${colors.yellow('EXAMPLES')}${
     isWaitMode

@@ -43,6 +43,8 @@ function parseArgs(argv: string[]): { command: string; args: string[]; flags: Fl
       flags.json = true;
     } else if (arg === '--verbose' || arg === '-v') {
       flags.verbose = true;
+    } else if (arg === '--debug') {
+      flags.debug = true;
     } else if (arg === '--force' || arg === '-f') {
       flags.force = true;
     } else if (arg === '--config') {
@@ -53,6 +55,8 @@ function parseArgs(argv: string[]): { command: string; args: string[]; flags: Fl
       flags.wait = true;
     } else if (arg === '--timeout') {
       flags.timeout = parseTime(argv[++i]);
+    } else if (arg === '--lines') {
+      flags.lines = parseInt(argv[++i], 10) || 100;
     } else if (arg === '--no-preamble') {
       flags.noPreamble = true;
     } else if (arg.startsWith('--pane=')) {
@@ -124,6 +128,7 @@ function main(): void {
       cmdHelp({ showIntro });
     }
     process.exit(ExitCodes.SUCCESS);
+    return;
   }
 
   if (command === '--version' || command === '-V') {
@@ -135,6 +140,7 @@ function main(): void {
   if (command === 'completion') {
     cmdCompletion(args[0]);
     process.exit(ExitCodes.SUCCESS);
+    return;
   }
 
   // Create context for all other commands

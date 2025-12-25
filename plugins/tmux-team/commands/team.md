@@ -33,15 +33,18 @@ You run: tmux-team talk gemini "What is the current test coverage status?" --wai
 User says: "let everyone know we are starting the refactor"
 You run: tmux-team talk all "Starting the refactor now. Please hold off on conflicting changes." --wait
 
+## Options
+
+For long responses, increase timeout and lines captured:
+
+  tmux-team talk <agent> "<message>" --wait --timeout 300 --lines 200
+
 ## If --wait Times Out
 
-If the agent takes longer than expected, --wait will timeout. Use the check command to retrieve the response later:
+Use the check command to retrieve the response with an optional line count:
 
   tmux-team check <agent>
-
-You can also increase the timeout for complex tasks:
-
-  tmux-team talk <agent> "<message>" --wait --timeout 300
+  tmux-team check <agent> 200
 
 ## Important
 

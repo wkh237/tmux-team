@@ -37,9 +37,9 @@ tmux-team talk codex "What's the status of the authentication refactor?" --wait
 # Response is returned directly
 ```
 
-### Delegate a task with longer timeout
+### Delegate a task with longer timeout and more output
 ```bash
-tmux-team talk codex "Please implement the login form. Reply when done." --wait --timeout 300
+tmux-team talk codex "Please implement the login form. Reply when done." --wait --timeout 300 --lines 200
 ```
 
 ### Broadcast to all agents
@@ -69,8 +69,11 @@ To find your pane ID, run: tmux display-message -p '#{pane_id}'
 If the agent takes longer than expected, --wait will timeout. Use the check command to retrieve the response later:
 
 ```bash
-# Check for response after timeout
+# Check for response after timeout (default 100 lines)
 tmux-team check <agent>
+
+# Check with more lines for long responses
+tmux-team check <agent> 200
 ```
 
 ## Best Practices
@@ -78,8 +81,9 @@ tmux-team check <agent>
 1. **Always use --wait** - More token-efficient than polling with check command
 2. **Be explicit** - Tell the other agent exactly what you need and how to respond
 3. **Set timeout appropriately** - Use --timeout 300 for complex tasks
-4. **If timeout occurs** - Use "tmux-team check <agent>" to retrieve the response
-5. **Broadcast sparingly** - Only use "talk all" for announcements everyone needs
+4. **Use --lines for long responses** - Default is 100 lines, increase for verbose output
+5. **If timeout occurs** - Use "tmux-team check <agent> [lines]" to retrieve the response
+6. **Broadcast sparingly** - Only use "talk all" for announcements everyone needs
 
 ## Your Next Step
 

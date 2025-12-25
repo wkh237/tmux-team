@@ -161,6 +161,56 @@ describe('createTmux', () => {
     });
   });
 
+  describe('listPanes', () => {
+    it('returns parsed panes and suggestedName', () => {
+      mockedExecSync.mockReturnValue('%1\tcodex\n%2\tzsh\n');
+      const tmux = createTmux();
+      const panes = tmux.listPanes();
+      expect(panes).toEqual([
+        { id: '%1', command: 'codex', suggestedName: 'codex' },
+        { id: '%2', command: 'zsh', suggestedName: null },
+      ]);
+    });
+
+    it('returns empty list on error', () => {
+      mockedExecSync.mockImplementationOnce(() => {
+        throw new Error('no tmux');
+      });
+      const tmux = createTmux();
+      expect(tmux.listPanes()).toEqual([]);
+    });
+  });
+
+  describe('getCurrentPaneId', () => {
+    it('returns TMUX_PANE when set', () => {
+      const old = process.env.TMUX_PANE;
+      process.env.TMUX_PANE = '%9';
+      const tmux = createTmux();
+      expect(tmux.getCurrentPaneId()).toBe('%9');
+      process.env.TMUX_PANE = old;
+    });
+
+    it('falls back to tmux display-message', () => {
+      const old = process.env.TMUX_PANE;
+      delete process.env.TMUX_PANE;
+      mockedExecSync.mockReturnValue('%7\n');
+      const tmux = createTmux();
+      expect(tmux.getCurrentPaneId()).toBe('%7');
+      process.env.TMUX_PANE = old;
+    });
+
+    it('returns null on failure', () => {
+      const old = process.env.TMUX_PANE;
+      delete process.env.TMUX_PANE;
+      mockedExecSync.mockImplementationOnce(() => {
+        throw new Error('fail');
+      });
+      const tmux = createTmux();
+      expect(tmux.getCurrentPaneId()).toBeNull();
+      process.env.TMUX_PANE = old;
+    });
+  });
+
   describe('pane ID handling', () => {
     it('accepts window.pane format', () => {
       mockedExecSync.mockReturnValue('');
