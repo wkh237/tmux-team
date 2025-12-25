@@ -1224,12 +1224,6 @@ describe('cmdTalk - end marker detection', () => {
     return `Message\n\nWhen you finish responding, print this exact line:\n${endMarker}\n${response}\n${endMarker}`;
   }
 
-  // Helper: generate mock capture where instruction scrolled off, detected via UI
-  function mockResponseWithUI(nonce: string, response: string): string {
-    const endMarker = `---RESPONSE-END-${nonce}---`;
-    return `${response}\n${endMarker}\n\n╭───────────────────╮\n│ > Type message    │\n╰───────────────────╯`;
-  }
-
   it('includes end marker in sent message', async () => {
     const tmux = createMockTmux();
     const ui = createMockUI();
@@ -1287,35 +1281,6 @@ describe('cmdTalk - end marker detection', () => {
     const output = ui.jsonOutput[0] as Record<string, unknown>;
     expect(output.status).toBe('completed');
     expect(output.response).toContain('actual response');
-  });
-
-  it('detects completion via UI elements when instruction scrolled off', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-
-    tmux.capture = () => {
-      const sent = tmux.sends[0]?.message || '';
-      const endMatch = sent.match(END_MARKER_REGEX);
-      if (endMatch) {
-        // Only ONE end marker visible (agent's), followed by CLI UI
-        return mockResponseWithUI(endMatch[1], 'Response from agent');
-      }
-      return '';
-    };
-
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 5 },
-      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100, preambleEvery: 3 } },
-    });
-
-    await cmdTalk(ctx, 'claude', 'Test');
-
-    const output = ui.jsonOutput[0] as Record<string, unknown>;
-    expect(output.status).toBe('completed');
-    expect(output.response).toContain('Response from agent');
   });
 
   it('handles multiline responses correctly', async () => {

@@ -415,21 +415,17 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
       }
 
       // Check if marker is from agent (not just in our instruction)
-      // Either: two markers (instruction scrolled, agent printed), or
-      // one marker followed by CLI UI elements (instruction scrolled off)
-      const afterMarker = output.slice(lastEndMarkerIndex + endMarker.length);
-      const followedByUI = afterMarker.includes('╭') || afterMarker.includes('context left');
+      // Simple: we need TWO occurrences - one in instruction, one from agent
       const twoMarkers = firstEndMarkerIndex !== lastEndMarkerIndex;
 
-      if (!twoMarkers && !followedByUI) {
-        // Marker is still in our instruction, agent hasn't responded yet
+      if (!twoMarkers) {
+        // Only one marker = still in our instruction, agent hasn't responded yet
         continue;
       }
 
-      if (flags.debug)
-        console.error(
-          `[DEBUG] Agent completed (twoMarkers: ${twoMarkers}, followedByUI: ${followedByUI})`
-        );
+      if (flags.debug) {
+        console.error(`[DEBUG] Agent completed (found 2 markers)`);
+      }
 
       // Extract response: get N lines before the agent's end marker
       const responseLines = flags.lines ?? 100;
