@@ -80,12 +80,37 @@ export function resolveGlobalDir(): string {
   return xdgPath;
 }
 
+/**
+ * Search up parent directories for a file (like how git finds .git/).
+ * Returns the path to the file if found, or null if not found.
+ */
+function findUpward(filename: string, startDir: string): string | null {
+  let dir = startDir;
+  while (true) {
+    const candidate = path.join(dir, filename);
+    if (fs.existsSync(candidate)) {
+      return candidate;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      // Reached filesystem root
+      return null;
+    }
+    dir = parent;
+  }
+}
+
 export function resolvePaths(cwd: string = process.cwd()): Paths {
   const globalDir = resolveGlobalDir();
+
+  // Search up for local config (like .git discovery)
+  const localConfigPath =
+    findUpward(LOCAL_CONFIG_FILENAME, cwd) ?? path.join(cwd, LOCAL_CONFIG_FILENAME);
+
   return {
     globalDir,
     globalConfig: path.join(globalDir, CONFIG_FILENAME),
-    localConfig: path.join(cwd, LOCAL_CONFIG_FILENAME),
+    localConfig: localConfigPath,
     stateFile: path.join(globalDir, STATE_FILENAME),
   };
 }

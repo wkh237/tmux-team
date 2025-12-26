@@ -135,6 +135,51 @@ describe('resolvePaths', () => {
     expect(paths.globalConfig).toBe('/custom/path/config.json');
     expect(paths.stateFile).toBe('/custom/path/state.json');
   });
+
+  it('searches up parent directories to find tmux-team.json', () => {
+    // Simulating: cwd is /projects/myapp/src/components
+    // tmux-team.json exists at /projects/myapp/tmux-team.json
+    const nestedCwd = '/projects/myapp/src/components';
+    const rootConfig = '/projects/myapp/tmux-team.json';
+
+    vi.mocked(fs.existsSync).mockImplementation((p) => {
+      return p === rootConfig;
+    });
+
+    const paths = resolvePaths(nestedCwd);
+
+    // Should find the config in parent directory, not assume it's in cwd
+    expect(paths.localConfig).toBe(rootConfig);
+  });
+
+  it('nearest tmux-team.json wins when multiple exist', () => {
+    // Simulating: cwd is /projects/myapp/packages/frontend
+    // tmux-team.json exists at both:
+    //   /projects/myapp/tmux-team.json (monorepo root)
+    //   /projects/myapp/packages/frontend/tmux-team.json (package-specific)
+    const nestedCwd = '/projects/myapp/packages/frontend';
+    const packageConfig = '/projects/myapp/packages/frontend/tmux-team.json';
+    const monorepoConfig = '/projects/myapp/tmux-team.json';
+
+    vi.mocked(fs.existsSync).mockImplementation((p) => {
+      return p === packageConfig || p === monorepoConfig;
+    });
+
+    const paths = resolvePaths(nestedCwd);
+
+    // Nearest config should win (package-specific, not monorepo root)
+    expect(paths.localConfig).toBe(packageConfig);
+  });
+
+  it('falls back to cwd when no tmux-team.json found in parents', () => {
+    // No tmux-team.json exists anywhere
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+
+    const paths = resolvePaths(mockCwd);
+
+    // Should fall back to cwd/tmux-team.json (default behavior for init)
+    expect(paths.localConfig).toBe(path.join(mockCwd, 'tmux-team.json'));
+  });
 });
 
 describe('loadConfig', () => {
