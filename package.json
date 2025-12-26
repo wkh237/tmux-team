@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "tsx src/cli.ts",
     "tmt": "./bin/tmux-team",
-    "test": "npm run test:run",
+    "test": "pnpm test:run",
     "test:watch": "vitest",
     "test:run": "vitest run --coverage && node scripts/check-coverage.mjs --threshold 95",
     "lint": "oxlint src/",
@@ -18,7 +18,7 @@
     "format": "prettier --write src/",
     "format:check": "prettier --check src/",
     "type:check": "tsc --noEmit",
-    "check": "npm run type:check && npm run lint && npm run format:check"
+    "check": "pnpm type:check && pnpm lint && pnpm format:check"
   },
   "keywords": [
     "tmux",
@@ -37,6 +37,7 @@
   "engines": {
     "node": ">=18"
   },
+  "packageManager": "pnpm@9.15.4",
   "os": [
     "darwin",
     "linux"
