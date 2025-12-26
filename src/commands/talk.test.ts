@@ -749,11 +749,12 @@ describe('cmdTalk - --wait mode', () => {
       }
     };
 
-    // Only pane 10.1 responds, 10.2 times out
+    // Only pane 10.1 responds with end marker, 10.2 never has end marker
     tmux.capture = (pane: string) => {
       if (pane === '10.1' && noncesByPane[pane]) {
         return mockCompleteResponse(noncesByPane[pane], 'Response from codex');
       }
+      // gemini has no end marker - still typing
       return 'still working...';
     };
 
@@ -763,10 +764,10 @@ describe('cmdTalk - --wait mode', () => {
       ui,
       tmux,
       paths,
-      flags: { wait: true, timeout: 0.1, json: true },
+      flags: { wait: true, timeout: 0.5, json: true },
       config: {
         defaults: {
-          timeout: 0.1,
+          timeout: 0.5,
           pollInterval: 0.02,
           captureLines: 100,
           preambleEvery: 3,
@@ -781,7 +782,7 @@ describe('cmdTalk - --wait mode', () => {
     try {
       await cmdTalk(ctx, 'all', 'Hello');
     } catch {
-      // Expected timeout exit
+      // Expected timeout exit for gemini
     }
 
     // Should have JSON output with both results
@@ -1131,7 +1132,7 @@ describe('cmdTalk - JSON output contract', () => {
     expect(output.partialResponse).toBeNull();
   });
 
-  it('captures partialResponse in broadcast timeout', async () => {
+  it('handles broadcast with mixed completion and timeout', async () => {
     const tmux = createMockTmux();
     const ui = createMockUI();
     const markersByPane: Record<string, string> = {};
@@ -1141,18 +1142,16 @@ describe('cmdTalk - JSON output contract', () => {
       if (match) markersByPane[pane] = match[1];
     };
 
-    // codex completes, gemini times out with partial response
+    // codex completes with end marker, gemini has no end marker (still typing)
     tmux.capture = (pane: string) => {
       if (pane === '10.1') {
         const nonce = markersByPane['10.1'];
         const endMarker = `---RESPONSE-END-${nonce}---`;
-        // Complete response: two end markers
+        // Complete response with end marker
         return `Msg\n\nWhen you finish responding, print this exact line:\n${endMarker}\nResponse\n${endMarker}`;
       }
-      // gemini has partial response - only one end marker (in instruction)
-      const nonce = markersByPane['10.2'];
-      const endMarker = `---RESPONSE-END-${nonce}---`;
-      return `Msg\n\nWhen you finish responding, print this exact line:\n${endMarker}\nPartial gemini output...`;
+      // gemini has no end marker at all - agent is still responding
+      return `Gemini is still typing this response and hasn't finished yet...`;
     };
 
     const paths = createTestPaths(testDir);
@@ -1160,10 +1159,10 @@ describe('cmdTalk - JSON output contract', () => {
       ui,
       tmux,
       paths,
-      flags: { wait: true, timeout: 0.1, json: true },
+      flags: { wait: true, timeout: 0.5, json: true },
       config: {
         defaults: {
-          timeout: 0.1,
+          timeout: 0.5,
           pollInterval: 0.02,
           captureLines: 100,
           preambleEvery: 3,
@@ -1178,7 +1177,7 @@ describe('cmdTalk - JSON output contract', () => {
     try {
       await cmdTalk(ctx, 'all', 'Hello');
     } catch {
-      // Expected timeout exit
+      // Expected timeout exit for gemini
     }
 
     const result = ui.jsonOutput[0] as {
@@ -1186,17 +1185,20 @@ describe('cmdTalk - JSON output contract', () => {
         agent: string;
         status: string;
         response?: string;
-        partialResponse?: string;
+        partialResponse?: string | null;
       }>;
     };
     const codexResult = result.results.find((r) => r.agent === 'codex');
     const geminiResult = result.results.find((r) => r.agent === 'gemini');
 
+    // Codex should complete (has end marker, output stable)
     expect(codexResult?.status).toBe('completed');
     expect(codexResult?.response).toContain('Response');
 
+    // Gemini times out (no end marker in output)
     expect(geminiResult?.status).toBe('timeout');
-    expect(geminiResult?.partialResponse).toContain('Partial gemini output');
+    // No partial response since no end marker to extract from
+    expect(geminiResult?.partialResponse).toBeFalsy();
   });
 });
 

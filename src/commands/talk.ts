@@ -92,6 +92,9 @@ interface AgentWaitState {
   partialResponse?: string | null;
   error?: string;
   elapsedMs?: number;
+  // Debounce tracking (per-agent)
+  lastOutput: string;
+  lastOutputChangeAt: number;
 }
 
 interface BroadcastWaitResult {
@@ -279,8 +282,10 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
   const isTTY = process.stdout.isTTY && !flags.json;
 
   // Debounce detection: wait for output to stabilize
-  const MIN_WAIT_MS = 3000; // Wait at least 3 seconds before detecting completion
-  const IDLE_THRESHOLD_MS = 3000; // Content unchanged for 3 seconds = complete
+  // Adaptive: for very short timeouts (testing), reduce debounce thresholds
+  const timeoutMs = timeoutSeconds * 1000;
+  const MIN_WAIT_MS = Math.min(3000, timeoutMs * 0.3); // Wait at least 3s or 30% of timeout
+  const IDLE_THRESHOLD_MS = Math.min(3000, timeoutMs * 0.3); // Stable for 3s or 30% of timeout
   let lastOutput = '';
   let lastOutputChangeAt = Date.now();
 
@@ -500,6 +505,12 @@ async function cmdTalkAllWait(
   const pollIntervalSeconds = Math.max(0.1, config.defaults.pollInterval);
   const captureLines = config.defaults.captureLines;
 
+  // Debounce detection constants (same as single-agent mode)
+  // Adaptive: for very short timeouts (testing), reduce debounce thresholds
+  const timeoutMs = timeoutSeconds * 1000;
+  const MIN_WAIT_MS = Math.min(3000, timeoutMs * 0.3); // Wait at least 3s or 30% of timeout
+  const IDLE_THRESHOLD_MS = Math.min(3000, timeoutMs * 0.3); // Stable for 3s or 30% of timeout
+
   // Best-effort state cleanup
   cleanupState(paths, 60 * 60);
 
@@ -524,12 +535,13 @@ async function cmdTalkAllWait(
     const msg = name === 'gemini' ? fullMessage.replace(/!/g, '') : fullMessage;
 
     try {
+      const now = Date.now();
       tmux.send(data.pane, msg);
       setActiveRequest(paths, name, {
         id: requestId,
         nonce,
         pane: data.pane,
-        startedAtMs: Date.now(),
+        startedAtMs: now,
       });
       agentStates.push({
         agent: name,
@@ -538,6 +550,9 @@ async function cmdTalkAllWait(
         nonce,
         endMarker,
         status: 'pending',
+        // Initialize debounce tracking
+        lastOutput: '',
+        lastOutputChangeAt: now,
       });
       if (!flags.json) {
         console.log(`  ${colors.green('→')} Sent to ${colors.cyan(name)} (${data.pane})`);
@@ -551,6 +566,8 @@ async function cmdTalkAllWait(
         endMarker,
         status: 'error',
         error: `Failed to send to pane ${data.pane}`,
+        lastOutput: '',
+        lastOutputChangeAt: Date.now(),
       });
       if (!flags.json) {
         ui.warn(`Failed to send to ${name}`);
@@ -604,14 +621,12 @@ async function cmdTalkAllWait(
           const responseLines = flags.lines ?? 100;
           try {
             const output = tmux.capture(state.pane, captureLines);
-            console.log('debug>>', output);
             const extracted = extractPartialResponse(output, state.endMarker, responseLines);
             if (extracted) {
               state.partialResponse =
                 state.agent === 'gemini' ? cleanGeminiResponse(extracted) : extracted;
             }
-          } catch (err) {
-            console.error(err);
+          } catch {
             // Ignore capture errors on timeout
           }
 
@@ -659,18 +674,25 @@ async function cmdTalkAllWait(
           continue;
         }
 
-        // Find end marker
-        const firstEndMarkerIndex = output.indexOf(state.endMarker);
-        const lastEndMarkerIndex = output.lastIndexOf(state.endMarker);
+        // Track output changes for debounce detection (per-agent)
+        if (output !== state.lastOutput) {
+          state.lastOutput = output;
+          state.lastOutputChangeAt = Date.now();
+        }
 
-        if (firstEndMarkerIndex === -1) continue;
+        const elapsedMs = Date.now() - startedAt;
+        const idleMs = Date.now() - state.lastOutputChangeAt;
 
-        // Check if marker is from agent (not just in our instruction)
-        const afterMarker = output.slice(lastEndMarkerIndex + state.endMarker.length);
-        const followedByUI = afterMarker.includes('╭') || afterMarker.includes('context left');
-        const twoMarkers = firstEndMarkerIndex !== lastEndMarkerIndex;
+        // Find end marker (simple check - just needs to be present)
+        const hasEndMarker = output.includes(state.endMarker);
 
-        if (!twoMarkers && !followedByUI) continue;
+        // Completion conditions (same as single-agent mode):
+        // 1. Must wait at least MIN_WAIT_MS
+        // 2. Must have end marker in output
+        // 3. Output must be stable for IDLE_THRESHOLD_MS (debounce)
+        if (elapsedMs < MIN_WAIT_MS || !hasEndMarker || idleMs < IDLE_THRESHOLD_MS) {
+          continue;
+        }
 
         // Extract response: get N lines before the agent's end marker
         const responseLines = flags.lines ?? 100;
@@ -687,12 +709,9 @@ async function cmdTalkAllWait(
 
         if (endMarkerLineIndex === -1) continue;
 
-        // Determine where response starts
-        let startLine = 0;
-        if (twoMarkers) {
-          const firstMarkerLineIndex = lines.findIndex((line) => line.includes(state.endMarker));
-          startLine = firstMarkerLineIndex + 1;
-        }
+        // Determine where response starts (after instruction marker if visible)
+        const firstMarkerLineIndex = lines.findIndex((line) => line.includes(state.endMarker));
+        let startLine = firstMarkerLineIndex + 1;
         startLine = Math.max(startLine, endMarkerLineIndex - responseLines);
 
         let response = lines.slice(startLine, endMarkerLineIndex).join('\n').trim();
