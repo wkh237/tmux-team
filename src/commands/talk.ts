@@ -49,6 +49,26 @@ function makeEndMarker(nonce: string): string {
   return `---RESPONSE-END-${nonce}---`;
 }
 
+/**
+ * Build a regex to match the end marker case-insensitively.
+ * This handles agents that might print the marker in different case.
+ */
+function makeEndMarkerRegex(nonce: string): RegExp {
+  return new RegExp(`---response-end-${nonce}---`, 'i');
+}
+
+/**
+ * Build the end marker instruction WITHOUT embedding the literal marker string.
+ * This prevents false-positive detection when the instruction is still visible
+ * in scrollback but the agent hasn't responded yet.
+ *
+ * The instruction describes how to construct the marker verbally, so the literal
+ * marker string can ONLY appear if the agent actually prints it.
+ */
+function makeEndMarkerInstruction(nonce: string): string {
+  return `When you finish responding, output a completion marker on its own line: three dashes, RESPONSE-END-${nonce}, three dashes (no spaces).`;
+}
+
 function renderWaitLine(agent: string, elapsedSeconds: number): string {
   const s = Math.max(0, Math.floor(elapsedSeconds));
   return `⏳ Waiting for ${agent}... (${s}s)`;
@@ -57,7 +77,10 @@ function renderWaitLine(agent: string, elapsedSeconds: number): string {
 /**
  * Extract partial response from output when end marker is not found.
  * Used to capture whatever the agent wrote before timeout.
- * Looks for first occurrence of end marker (in our instruction) and extracts content after it.
+ *
+ * With the new protocol, the instruction doesn't contain the literal marker.
+ * We look for the instruction line (contains "RESPONSE-END-<nonce>" without dashes)
+ * and extract content after it. Falls back to last N lines if instruction not found.
  */
 function extractPartialResponse(
   output: string,
@@ -65,12 +88,30 @@ function extractPartialResponse(
   maxLines: number
 ): string | null {
   const lines = output.split('\n');
-  const firstMarkerLineIndex = lines.findIndex((line) => line.includes(endMarker));
 
-  if (firstMarkerLineIndex === -1) return null;
+  // Extract nonce from endMarker (format: ---RESPONSE-END-xxxx---)
+  // Use case-insensitive match to be flexible with nonce format changes
+  const nonceMatch = endMarker.match(/RESPONSE-END-([a-f0-9]+)/i);
+  if (!nonceMatch) return null;
+  const nonce = nonceMatch[1];
 
-  // Get lines after our instruction's end marker
-  const responseLines = lines.slice(firstMarkerLineIndex + 1);
+  // Find the instruction line (contains "RESPONSE-END-<nonce>" but not the full marker)
+  // Case-insensitive to handle potential format variations
+  const instructionLineIndex = lines.findIndex(
+    (line) =>
+      line.toLowerCase().includes(`response-end-${nonce.toLowerCase()}`) &&
+      !line.includes(endMarker)
+  );
+
+  let responseLines: string[];
+  if (instructionLineIndex !== -1) {
+    // Extract lines after instruction
+    responseLines = lines.slice(instructionLineIndex + 1);
+  } else {
+    // Fallback: just take the output (no instruction found in view)
+    responseLines = lines;
+  }
+
   const limitedLines = responseLines.slice(-maxLines); // Take last N lines
 
   const partial = limitedLines.join('\n').trim();
@@ -92,6 +133,8 @@ interface AgentWaitState {
   partialResponse?: string | null;
   error?: string;
   elapsedMs?: number;
+  // Per-agent timing
+  startedAtMs: number;
   // Debounce tracking (per-agent)
   lastOutput: string;
   lastOutputChangeAt: number;
@@ -263,8 +306,9 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
   const endMarker = makeEndMarker(nonce);
 
   // Build message with preamble and end marker instruction
+  // Note: instruction doesn't contain literal marker to prevent false-positive detection
   const messageWithPreamble = buildMessage(message, target, ctx);
-  const fullMessage = `${messageWithPreamble}\n\nWhen you finish responding, print this exact line:\n${endMarker}`;
+  const fullMessage = `${messageWithPreamble}\n\n${makeEndMarkerInstruction(nonce)}`;
 
   // Best-effort cleanup and soft-lock warning
   const state = cleanupState(ctx.paths, 60 * 60); // 1 hour TTL
@@ -417,8 +461,9 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
       const elapsedMs = Date.now() - startedAt;
       const idleMs = Date.now() - lastOutputChangeAt;
 
-      // Find end marker
-      const hasEndMarker = output.includes(endMarker);
+      // Find end marker (case-insensitive to handle agent variations)
+      const endMarkerRegex = makeEndMarkerRegex(nonce);
+      const hasEndMarker = endMarkerRegex.test(output);
 
       // Completion conditions:
       // 1. Must wait at least MIN_WAIT_MS
@@ -442,9 +487,10 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
       const lines = output.split('\n');
 
       // Find the line with the end marker (last occurrence = agent's marker)
+      // Find end marker line (case-insensitive)
       let endMarkerLineIndex = -1;
       for (let i = lines.length - 1; i >= 0; i--) {
-        if (lines[i].includes(endMarker)) {
+        if (endMarkerRegex.test(lines[i])) {
           endMarkerLineIndex = i;
           break;
         }
@@ -452,11 +498,25 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
 
       if (endMarkerLineIndex === -1) continue;
 
-      // Find where response starts (after instruction's end marker, if visible)
-      const firstMarkerLineIndex = lines.findIndex((line) => line.includes(endMarker));
-      let startLine = firstMarkerLineIndex + 1;
-      // Limit to N lines before end marker
-      startLine = Math.max(startLine, endMarkerLineIndex - responseLines);
+      // Protocol: instruction describes the marker verbally but doesn't contain the literal string.
+      // So any occurrence of the literal marker is definitively from the agent.
+      //
+      // Try to anchor extraction to the instruction line (cleaner output when visible).
+      // Fall back to N lines before marker if instruction scrolled off.
+      let startLine: number;
+      const instructionLineIndex = lines.findIndex(
+        (line) =>
+          line.toLowerCase().includes(`response-end-${nonce.toLowerCase()}`) &&
+          !endMarkerRegex.test(line)
+      );
+
+      if (instructionLineIndex !== -1 && instructionLineIndex < endMarkerLineIndex) {
+        // Instruction visible: extract from after instruction to marker
+        startLine = instructionLineIndex + 1;
+      } else {
+        // Instruction scrolled off: extract N lines before marker
+        startLine = Math.max(0, endMarkerLineIndex - responseLines);
+      }
 
       let response = lines.slice(startLine, endMarkerLineIndex).join('\n').trim();
       // Clean Gemini CLI UI artifacts
@@ -530,8 +590,9 @@ async function cmdTalkAllWait(
     const endMarker = makeEndMarker(nonce);
 
     // Build and send message with end marker instruction
+    // Note: instruction doesn't contain literal marker to prevent false-positive detection
     const messageWithPreamble = buildMessage(message, name, ctx);
-    const fullMessage = `${messageWithPreamble}\n\nWhen you finish responding, print this exact line:\n${endMarker}`;
+    const fullMessage = `${messageWithPreamble}\n\n${makeEndMarkerInstruction(nonce)}`;
     const msg = name === 'gemini' ? fullMessage.replace(/!/g, '') : fullMessage;
 
     try {
@@ -550,6 +611,8 @@ async function cmdTalkAllWait(
         nonce,
         endMarker,
         status: 'pending',
+        // Per-agent timing
+        startedAtMs: now,
         // Initialize debounce tracking
         lastOutput: '',
         lastOutputChangeAt: now,
@@ -558,6 +621,7 @@ async function cmdTalkAllWait(
         console.log(`  ${colors.green('→')} Sent to ${colors.cyan(name)} (${data.pane})`);
       }
     } catch {
+      const now = Date.now();
       agentStates.push({
         agent: name,
         pane: data.pane,
@@ -566,8 +630,9 @@ async function cmdTalkAllWait(
         endMarker,
         status: 'error',
         error: `Failed to send to pane ${data.pane}`,
+        startedAtMs: now,
         lastOutput: '',
-        lastOutputChangeAt: Date.now(),
+        lastOutputChangeAt: now,
       });
       if (!flags.json) {
         ui.warn(`Failed to send to ${name}`);
@@ -585,7 +650,6 @@ async function cmdTalkAllWait(
     return;
   }
 
-  const startedAt = Date.now();
   let lastLogAt = 0;
   const isTTY = process.stdout.isTTY && !flags.json;
 
@@ -608,14 +672,15 @@ async function cmdTalkAllWait(
   try {
     // Phase 2: Poll all agents in parallel until all complete or timeout
     while (pendingAgents().length > 0) {
-      const elapsedSeconds = (Date.now() - startedAt) / 1000;
-
-      // Check timeout for each pending agent (#17)
+      // Check timeout for each pending agent using per-agent timing
       for (const state of pendingAgents()) {
-        if (elapsedSeconds >= timeoutSeconds) {
+        const agentElapsedMs = Date.now() - state.startedAtMs;
+        const agentElapsedSeconds = agentElapsedMs / 1000;
+
+        if (agentElapsedSeconds >= timeoutSeconds) {
           state.status = 'timeout';
-          state.error = `Timed out after ${Math.floor(timeoutSeconds)}s`;
-          state.elapsedMs = Math.floor(elapsedSeconds * 1000);
+          state.error = `Timed out after ${Math.floor(agentElapsedSeconds)}s`;
+          state.elapsedMs = agentElapsedMs;
 
           // Capture partial response on timeout
           const responseLines = flags.lines ?? 100;
@@ -633,7 +698,7 @@ async function cmdTalkAllWait(
           clearActiveRequest(paths, state.agent, state.requestId);
           if (!flags.json) {
             console.log(
-              `  ${colors.red('✗')} ${colors.cyan(state.agent)} timed out (${Math.floor(elapsedSeconds)}s)`
+              `  ${colors.red('✗')} ${colors.cyan(state.agent)} timed out (${Math.floor(agentElapsedSeconds)}s)`
             );
           }
         }
@@ -650,8 +715,10 @@ async function cmdTalkAllWait(
           const pending = pendingAgents()
             .map((s) => s.agent)
             .join(', ');
+          // Use the oldest pending agent's elapsed time for logging
+          const maxElapsed = Math.max(...pendingAgents().map((s) => now - s.startedAtMs));
           console.error(
-            `[tmux-team] Waiting for: ${pending} (${Math.floor(elapsedSeconds)}s elapsed)`
+            `[tmux-team] Waiting for: ${pending} (${Math.floor(maxElapsed / 1000)}s elapsed)`
           );
         }
       }
@@ -666,7 +733,7 @@ async function cmdTalkAllWait(
         } catch {
           state.status = 'error';
           state.error = `Failed to capture pane ${state.pane}`;
-          state.elapsedMs = Date.now() - startedAt;
+          state.elapsedMs = Date.now() - state.startedAtMs;
           clearActiveRequest(paths, state.agent, state.requestId);
           if (!flags.json) {
             ui.warn(`Failed to capture ${state.agent}`);
@@ -680,11 +747,14 @@ async function cmdTalkAllWait(
           state.lastOutputChangeAt = Date.now();
         }
 
-        const elapsedMs = Date.now() - startedAt;
-        const idleMs = Date.now() - state.lastOutputChangeAt;
+        // Use per-agent timing for accurate elapsed calculation
+        const now = Date.now();
+        const elapsedMs = now - state.startedAtMs;
+        const idleMs = now - state.lastOutputChangeAt;
 
-        // Find end marker (simple check - just needs to be present)
-        const hasEndMarker = output.includes(state.endMarker);
+        // Find end marker (case-insensitive to handle agent variations)
+        const endMarkerRegex = makeEndMarkerRegex(state.nonce);
+        const hasEndMarker = endMarkerRegex.test(output);
 
         // Completion conditions (same as single-agent mode):
         // 1. Must wait at least MIN_WAIT_MS
@@ -698,10 +768,10 @@ async function cmdTalkAllWait(
         const responseLines = flags.lines ?? 100;
         const lines = output.split('\n');
 
-        // Find the line with the agent's end marker (last occurrence)
+        // Find end marker line (case-insensitive)
         let endMarkerLineIndex = -1;
         for (let i = lines.length - 1; i >= 0; i--) {
-          if (lines[i].includes(state.endMarker)) {
+          if (endMarkerRegex.test(lines[i])) {
             endMarkerLineIndex = i;
             break;
           }
@@ -709,10 +779,25 @@ async function cmdTalkAllWait(
 
         if (endMarkerLineIndex === -1) continue;
 
-        // Determine where response starts (after instruction marker if visible)
-        const firstMarkerLineIndex = lines.findIndex((line) => line.includes(state.endMarker));
-        let startLine = firstMarkerLineIndex + 1;
-        startLine = Math.max(startLine, endMarkerLineIndex - responseLines);
+        // Protocol: instruction describes the marker verbally but doesn't contain the literal string.
+        // So any occurrence of the literal marker is definitively from the agent.
+        //
+        // Try to anchor extraction to the instruction line (cleaner output when visible).
+        // Fall back to N lines before marker if instruction scrolled off.
+        let startLine: number;
+        const instructionLineIndex = lines.findIndex(
+          (line) =>
+            line.toLowerCase().includes(`response-end-${state.nonce.toLowerCase()}`) &&
+            !endMarkerRegex.test(line)
+        );
+
+        if (instructionLineIndex !== -1 && instructionLineIndex < endMarkerLineIndex) {
+          // Instruction visible: extract from after instruction to marker
+          startLine = instructionLineIndex + 1;
+        } else {
+          // Instruction scrolled off: extract N lines before marker
+          startLine = Math.max(0, endMarkerLineIndex - responseLines);
+        }
 
         let response = lines.slice(startLine, endMarkerLineIndex).join('\n').trim();
         // Clean Gemini CLI UI artifacts
@@ -721,7 +806,7 @@ async function cmdTalkAllWait(
         }
         state.response = response;
         state.status = 'completed';
-        state.elapsedMs = Date.now() - startedAt;
+        state.elapsedMs = elapsedMs;
         clearActiveRequest(paths, state.agent, state.requestId);
 
         if (!flags.json) {
