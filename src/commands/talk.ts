@@ -401,7 +401,8 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
       if (!flags.json) {
         if (isTTY) {
           process.stdout.write('\r' + renderWaitLine(target, elapsedSeconds));
-        } else {
+        } else if (flags.verbose || flags.debug) {
+          // Non-TTY progress logs only with --verbose or --debug
           const now = Date.now();
           if (now - lastNonTtyLogAt >= 30000) {
             lastNonTtyLogAt = now;
@@ -707,8 +708,8 @@ async function cmdTalkAllWait(
       // All done?
       if (pendingAgents().length === 0) break;
 
-      // Progress logging (non-TTY)
-      if (!flags.json && !isTTY) {
+      // Progress logging (non-TTY, only with --verbose or --debug)
+      if (!flags.json && !isTTY && (flags.verbose || flags.debug)) {
         const now = Date.now();
         if (now - lastLogAt >= 30000) {
           lastLogAt = now;
