@@ -18,6 +18,7 @@ export interface ConfigDefaults {
   timeout: number; // seconds
   pollInterval: number; // seconds
   captureLines: number;
+  maxCaptureLines: number; // max lines for final extraction (default: 2000)
   preambleEvery: number; // inject preamble every N messages (default: 3)
 }
 

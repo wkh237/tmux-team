@@ -34,7 +34,7 @@ function createCtx(
   const config: ResolvedConfig = {
     mode: 'polling',
     preambleMode: 'always',
-    defaults: { timeout: 180, pollInterval: 1, captureLines: 100, preambleEvery: 3 },
+    defaults: { timeout: 180, pollInterval: 1, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3 },
     agents: {},
     paneRegistry: {},
     ...configOverrides,

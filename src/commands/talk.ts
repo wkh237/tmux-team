@@ -119,6 +119,99 @@ function extractPartialResponse(
 }
 
 // ─────────────────────────────────────────────────────────────
+// Expandable capture extraction
+// ─────────────────────────────────────────────────────────────
+
+interface ExtractResult {
+  response: string;
+  truncated: boolean;
+}
+
+/**
+ * Extract response with expandable capture.
+ *
+ * When the instruction line is not found in the initial capture (response too long),
+ * retry with progressively larger captures up to maxCaptureLines.
+ */
+function extractWithExpandableCapture(
+  tmux: Context['tmux'],
+  pane: string,
+  nonce: string,
+  endMarkerRegex: RegExp,
+  initialCapture: string,
+  captureLines: number,
+  maxCaptureLines: number,
+  responseLines: number,
+  debug?: boolean
+): ExtractResult {
+  let output = initialCapture;
+  let currentCaptureLines = captureLines;
+  let truncated = false;
+
+  // Try extraction with progressively larger captures
+  while (true) {
+    const lines = output.split('\n');
+
+    // Find end marker line (case-insensitive, last occurrence)
+    let endMarkerLineIndex = -1;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (endMarkerRegex.test(lines[i])) {
+        endMarkerLineIndex = i;
+        break;
+      }
+    }
+
+    if (endMarkerLineIndex === -1) {
+      // No marker found - shouldn't happen if called correctly
+      return { response: '', truncated: true };
+    }
+
+    // Find instruction line (contains nonce but is not the marker)
+    const instructionLineIndex = lines.findIndex(
+      (line) =>
+        line.toLowerCase().includes(`response-end-${nonce.toLowerCase()}`) &&
+        !endMarkerRegex.test(line)
+    );
+
+    if (instructionLineIndex !== -1 && instructionLineIndex < endMarkerLineIndex) {
+      // Instruction visible: extract from after instruction to marker
+      const response = lines.slice(instructionLineIndex + 1, endMarkerLineIndex).join('\n').trim();
+      return { response, truncated: false };
+    }
+
+    // Instruction not found - try larger capture if possible
+    if (currentCaptureLines >= maxCaptureLines) {
+      // Already at max, fall back to N lines before marker
+      if (debug) {
+        console.error(
+          `[DEBUG] Instruction line not found after max capture (${maxCaptureLines} lines), falling back`
+        );
+      }
+      truncated = true;
+      const startLine = Math.max(0, endMarkerLineIndex - responseLines);
+      const response = lines.slice(startLine, endMarkerLineIndex).join('\n').trim();
+      return { response, truncated };
+    }
+
+    // Double capture size and retry
+    currentCaptureLines = Math.min(currentCaptureLines * 2, maxCaptureLines);
+    if (debug) {
+      console.error(`[DEBUG] Expanding capture to ${currentCaptureLines} lines`);
+    }
+
+    try {
+      output = tmux.capture(pane, currentCaptureLines);
+    } catch {
+      // Capture failed, use what we have
+      truncated = true;
+      const startLine = Math.max(0, endMarkerLineIndex - responseLines);
+      const response = lines.slice(startLine, endMarkerLineIndex).join('\n').trim();
+      return { response, truncated };
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 // Types for broadcast wait mode
 // ─────────────────────────────────────────────────────────────
 
@@ -131,6 +224,7 @@ interface AgentWaitState {
   status: 'pending' | 'completed' | 'timeout' | 'error';
   response?: string;
   partialResponse?: string | null;
+  truncated?: boolean;
   error?: string;
   elapsedMs?: number;
   // Per-agent timing
@@ -138,6 +232,20 @@ interface AgentWaitState {
   // Debounce tracking (per-agent)
   lastOutput: string;
   lastOutputChangeAt: number;
+}
+
+interface AgentResultOutput {
+  agent: string;
+  pane: string;
+  requestId: string;
+  nonce: string;
+  endMarker: string;
+  status: 'pending' | 'completed' | 'timeout' | 'error';
+  response?: string;
+  partialResponse?: string | null;
+  truncated?: boolean;
+  error?: string;
+  elapsedMs?: number;
 }
 
 interface BroadcastWaitResult {
@@ -152,7 +260,7 @@ interface BroadcastWaitResult {
     error: number;
     skipped: number;
   };
-  results: AgentWaitState[];
+  results: AgentResultOutput[];
 }
 
 /**
@@ -483,47 +591,24 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
         console.error(`[DEBUG] Agent completed (elapsed: ${elapsedMs}ms, idle: ${idleMs}ms)`);
       }
 
-      // Extract response: get N lines before the end marker
+      // Extract response with expandable capture (handles long responses)
       const responseLines = flags.lines ?? 100;
-      const lines = output.split('\n');
+      const maxCaptureLines = config.defaults.maxCaptureLines;
 
-      // Find the line with the end marker (last occurrence = agent's marker)
-      // Find end marker line (case-insensitive)
-      let endMarkerLineIndex = -1;
-      for (let i = lines.length - 1; i >= 0; i--) {
-        if (endMarkerRegex.test(lines[i])) {
-          endMarkerLineIndex = i;
-          break;
-        }
-      }
-
-      if (endMarkerLineIndex === -1) continue;
-
-      // Protocol: instruction describes the marker verbally but doesn't contain the literal string.
-      // So any occurrence of the literal marker is definitively from the agent.
-      //
-      // Try to anchor extraction to the instruction line (cleaner output when visible).
-      // Fall back to N lines before marker if instruction scrolled off.
-      let startLine: number;
-      const instructionLineIndex = lines.findIndex(
-        (line) =>
-          line.toLowerCase().includes(`response-end-${nonce.toLowerCase()}`) &&
-          !endMarkerRegex.test(line)
+      const { response: extractedResponse, truncated } = extractWithExpandableCapture(
+        tmux,
+        pane,
+        nonce,
+        endMarkerRegex,
+        output,
+        captureLines,
+        maxCaptureLines,
+        responseLines,
+        flags.debug
       );
 
-      if (instructionLineIndex !== -1 && instructionLineIndex < endMarkerLineIndex) {
-        // Instruction visible: extract from after instruction to marker
-        startLine = instructionLineIndex + 1;
-      } else {
-        // Instruction scrolled off: extract N lines before marker
-        startLine = Math.max(0, endMarkerLineIndex - responseLines);
-      }
-
-      let response = lines.slice(startLine, endMarkerLineIndex).join('\n').trim();
       // Clean Gemini CLI UI artifacts
-      if (target === 'gemini') {
-        response = cleanGeminiResponse(response);
-      }
+      const response = target === 'gemini' ? cleanGeminiResponse(extractedResponse) : extractedResponse;
 
       if (!flags.json && isTTY) {
         process.stdout.write('\r' + ' '.repeat(80) + '\r');
@@ -536,8 +621,11 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
 
       const result: WaitResult = { requestId, nonce, endMarker, response };
       if (flags.json) {
-        ui.json({ target, pane, status: 'completed', ...result });
+        ui.json({ target, pane, status: 'completed', truncated, ...result });
       } else {
+        if (truncated) {
+          ui.warn('Response may be truncated (instruction line not found in scrollback)');
+        }
         console.log(colors.cyan(`─── Response from ${target} (${pane}) ───`));
         console.log(response);
       }
@@ -765,47 +853,26 @@ async function cmdTalkAllWait(
           continue;
         }
 
-        // Extract response: get N lines before the agent's end marker
+        // Extract response with expandable capture (handles long responses)
         const responseLines = flags.lines ?? 100;
-        const lines = output.split('\n');
+        const maxCaptureLines = config.defaults.maxCaptureLines;
 
-        // Find end marker line (case-insensitive)
-        let endMarkerLineIndex = -1;
-        for (let i = lines.length - 1; i >= 0; i--) {
-          if (endMarkerRegex.test(lines[i])) {
-            endMarkerLineIndex = i;
-            break;
-          }
-        }
-
-        if (endMarkerLineIndex === -1) continue;
-
-        // Protocol: instruction describes the marker verbally but doesn't contain the literal string.
-        // So any occurrence of the literal marker is definitively from the agent.
-        //
-        // Try to anchor extraction to the instruction line (cleaner output when visible).
-        // Fall back to N lines before marker if instruction scrolled off.
-        let startLine: number;
-        const instructionLineIndex = lines.findIndex(
-          (line) =>
-            line.toLowerCase().includes(`response-end-${state.nonce.toLowerCase()}`) &&
-            !endMarkerRegex.test(line)
+        const { response: extractedResponse, truncated } = extractWithExpandableCapture(
+          tmux,
+          state.pane,
+          state.nonce,
+          endMarkerRegex,
+          output,
+          captureLines,
+          maxCaptureLines,
+          responseLines,
+          flags.debug
         );
 
-        if (instructionLineIndex !== -1 && instructionLineIndex < endMarkerLineIndex) {
-          // Instruction visible: extract from after instruction to marker
-          startLine = instructionLineIndex + 1;
-        } else {
-          // Instruction scrolled off: extract N lines before marker
-          startLine = Math.max(0, endMarkerLineIndex - responseLines);
-        }
-
-        let response = lines.slice(startLine, endMarkerLineIndex).join('\n').trim();
         // Clean Gemini CLI UI artifacts
-        if (state.agent === 'gemini') {
-          response = cleanGeminiResponse(response);
-        }
+        const response = state.agent === 'gemini' ? cleanGeminiResponse(extractedResponse) : extractedResponse;
         state.response = response;
+        state.truncated = truncated;
         state.status = 'completed';
         state.elapsedMs = elapsedMs;
         clearActiveRequest(paths, state.agent, state.requestId);
@@ -871,6 +938,7 @@ function outputBroadcastResults(
         status: s.status,
         response: s.response,
         partialResponse: s.partialResponse,
+        truncated: s.truncated,
         error: s.error,
         elapsedMs: s.elapsedMs,
       })),
@@ -889,6 +957,9 @@ function outputBroadcastResults(
   // Print responses
   for (const state of agentStates) {
     if (state.status === 'completed' && state.response) {
+      if (state.truncated) {
+        ui.warn(`Response from ${state.agent} may be truncated`);
+      }
       console.log(colors.cyan(`─── Response from ${state.agent} (${state.pane}) ───`));
       console.log(state.response);
       console.log();

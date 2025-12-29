@@ -26,7 +26,8 @@ const DEFAULT_CONFIG: GlobalConfig = {
     timeout: 180,
     pollInterval: 1,
     captureLines: 100,
-    preambleEvery: 3, // inject preamble every 3 messages
+    maxCaptureLines: 2000, // max lines for final extraction (expandable capture)
+    preambleEvery: 3, // inject preamble every N messages
   },
 };
 

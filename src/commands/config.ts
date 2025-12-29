@@ -155,6 +155,7 @@ function setConfig(ctx: Context, key: string, value: string, global: boolean): v
           timeout: 180,
           pollInterval: 1,
           captureLines: 100,
+          maxCaptureLines: 2000,
           preambleEvery: parseInt(value, 10),
         };
       } else {
