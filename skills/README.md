@@ -29,7 +29,7 @@ tmux-team install claude
 tmux-team install codex
 ```
 
-After installation, run `tmux-team setup` to configure your agents interactively.
+After installation, run `tmux-team add <name> <pane>` to register your agents, or use `tmux-team this <name>` inside each agent's tmux pane.
 
 ## Claude Code
 

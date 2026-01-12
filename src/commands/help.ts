@@ -49,10 +49,10 @@ ${colors.yellow('COMMANDS')}
   ${colors.green('check')} <target> [lines]      Capture output from agent's pane
   ${colors.green('list')}                        List all configured agents
   ${colors.green('add')} <name> <pane> [remark]  Add a new agent
+  ${colors.green('this')} <name> [remark]       Register current pane as an agent
   ${colors.green('update')} <name> [options]     Update an agent's config
   ${colors.green('remove')} <name>               Remove an agent
   ${colors.green('install')} [claude|codex]       Install tmux-team for an AI agent
-  ${colors.green('setup')}                       Interactive wizard to configure agents
   ${colors.green('init')}                        Create empty tmux-team.json
   ${colors.green('config')} [show|set|clear]     View/modify settings
   ${colors.green('preamble')} [show|set|clear]   Manage agent preambles

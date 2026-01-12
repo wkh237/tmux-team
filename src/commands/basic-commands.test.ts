@@ -7,6 +7,7 @@ import { ExitCodes } from '../exits.js';
 
 import { cmdInit } from './init.js';
 import { cmdAdd } from './add.js';
+import { cmdThis } from './this.js';
 import { cmdRemove } from './remove.js';
 import { cmdUpdate } from './update.js';
 import { cmdList } from './list.js';
@@ -113,12 +114,52 @@ describe('basic commands', () => {
     expect(() => cmdAdd(ctx, 'codex', '1.1')).toThrow(`exit(${ExitCodes.ERROR})`);
   });
 
+  it('cmdThis registers current pane with given name', () => {
+    const ctx = createCtx(testDir);
+    (ctx.tmux.getCurrentPaneId as ReturnType<typeof vi.fn>).mockReturnValue('%5');
+    cmdThis(ctx, 'myagent', 'test remark');
+    const saved = JSON.parse(fs.readFileSync(ctx.paths.localConfig, 'utf-8'));
+    expect(saved.myagent.pane).toBe('%5');
+    expect(saved.myagent.remark).toBe('test remark');
+  });
+
+  it('cmdThis errors when not in tmux', () => {
+    const ctx = createCtx(testDir);
+    (ctx.tmux.getCurrentPaneId as ReturnType<typeof vi.fn>).mockReturnValue(null);
+    expect(() => cmdThis(ctx, 'myagent')).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(ctx.ui.error).toHaveBeenCalledWith('Not running inside tmux.');
+  });
+
+  it('cmdThis outputs JSON when --json flag set', () => {
+    const ctx = createCtx(testDir, { flags: { json: true } });
+    (ctx.tmux.getCurrentPaneId as ReturnType<typeof vi.fn>).mockReturnValue('%3');
+    cmdThis(ctx, 'jsonagent');
+    expect((ctx.ui as any).jsonCalls.length).toBe(1);
+    expect((ctx.ui as any).jsonCalls[0]).toMatchObject({ added: 'jsonagent', pane: '%3' });
+  });
+
   it('cmdRemove deletes agent', () => {
     const ctx = createCtx(testDir, { config: { paneRegistry: { codex: { pane: '1.1' } } } });
     fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({ codex: { pane: '1.1' } }, null, 2));
     cmdRemove(ctx, 'codex');
     const saved = JSON.parse(fs.readFileSync(ctx.paths.localConfig, 'utf-8'));
     expect(saved.codex).toBeUndefined();
+  });
+
+  it('cmdRemove errors when agent not found', () => {
+    const ctx = createCtx(testDir);
+    expect(() => cmdRemove(ctx, 'notfound')).toThrow(`exit(${ExitCodes.PANE_NOT_FOUND})`);
+    expect(ctx.ui.error).toHaveBeenCalledWith("Agent 'notfound' not found.");
+  });
+
+  it('cmdRemove outputs JSON when --json flag set', () => {
+    const ctx = createCtx(testDir, {
+      flags: { json: true },
+      config: { paneRegistry: { codex: { pane: '1.1' } } },
+    });
+    fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({ codex: { pane: '1.1' } }, null, 2));
+    cmdRemove(ctx, 'codex');
+    expect((ctx.ui as any).jsonCalls).toEqual([{ removed: 'codex' }]);
   });
 
   it('cmdUpdate updates pane and remark; creates entry if missing', () => {
@@ -128,6 +169,28 @@ describe('basic commands', () => {
     const saved = JSON.parse(fs.readFileSync(ctx.paths.localConfig, 'utf-8'));
     expect(saved.codex.pane).toBe('2.2');
     expect(saved.codex.remark).toBe('new');
+  });
+
+  it('cmdUpdate errors when agent not found', () => {
+    const ctx = createCtx(testDir);
+    expect(() => cmdUpdate(ctx, 'notfound', { pane: '1.0' })).toThrow(`exit(${ExitCodes.PANE_NOT_FOUND})`);
+    expect(ctx.ui.error).toHaveBeenCalledWith("Agent 'notfound' not found. Use 'tmux-team add' to create.");
+  });
+
+  it('cmdUpdate errors when no updates specified', () => {
+    const ctx = createCtx(testDir, { config: { paneRegistry: { codex: { pane: '1.1' } } } });
+    expect(() => cmdUpdate(ctx, 'codex', {})).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(ctx.ui.error).toHaveBeenCalledWith('No updates specified. Use --pane or --remark.');
+  });
+
+  it('cmdUpdate outputs JSON when --json flag set', () => {
+    const ctx = createCtx(testDir, {
+      flags: { json: true },
+      config: { paneRegistry: { codex: { pane: '1.1' } } },
+    });
+    fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({ codex: { pane: '1.1' } }, null, 2));
+    cmdUpdate(ctx, 'codex', { pane: '2.0', remark: 'updated' });
+    expect((ctx.ui as any).jsonCalls).toEqual([{ updated: 'codex', pane: '2.0', remark: 'updated' }]);
   });
 
   it('cmdList outputs JSON when --json', () => {
@@ -166,6 +229,17 @@ describe('basic commands', () => {
   it('cmdCheck errors when agent missing', () => {
     const ctx = createCtx(testDir);
     expect(() => cmdCheck(ctx, 'nope')).toThrow(`exit(${ExitCodes.PANE_NOT_FOUND})`);
+  });
+
+  it('cmdCheck errors when tmux capture fails', () => {
+    const ctx = createCtx(testDir, {
+      config: { paneRegistry: { claude: { pane: '1.0' } } },
+    });
+    (ctx.tmux.capture as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error('tmux not running');
+    });
+    expect(() => cmdCheck(ctx, 'claude')).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(ctx.ui.error).toHaveBeenCalledWith('Failed to capture pane 1.0. Is tmux running?');
   });
 
   it('cmdCheck outputs JSON when --json', () => {
@@ -232,6 +306,40 @@ describe('basic commands', () => {
     expect(saved.mode).toBe('wait');
   });
 
+  it('cmdConfig set errors when not enough args', () => {
+    const ctx = createCtx(testDir);
+    expect(() => cmdConfig(ctx, ['set', 'mode'])).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(ctx.ui.error).toHaveBeenCalledWith('Usage: tmux-team config set <key> <value> [--global]');
+  });
+
+  it('cmdConfig errors on unknown subcommand', () => {
+    const ctx = createCtx(testDir);
+    expect(() => cmdConfig(ctx, ['unknown'])).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(ctx.ui.error).toHaveBeenCalledWith('Unknown config subcommand: unknown');
+  });
+
+  it('cmdConfig set preambleMode locally', () => {
+    const ctx = createCtx(testDir);
+    fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({}, null, 2));
+    cmdConfig(ctx, ['set', 'preambleMode', 'disabled']);
+    const saved = JSON.parse(fs.readFileSync(ctx.paths.localConfig, 'utf-8'));
+    expect(saved.$config.preambleMode).toBe('disabled');
+  });
+
+  it('cmdConfig set preambleEvery locally', () => {
+    const ctx = createCtx(testDir);
+    fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({}, null, 2));
+    cmdConfig(ctx, ['set', 'preambleEvery', '5']);
+    const saved = JSON.parse(fs.readFileSync(ctx.paths.localConfig, 'utf-8'));
+    expect(saved.$config.preambleEvery).toBe(5);
+  });
+
+  it('cmdConfig clear errors on invalid key', () => {
+    const ctx = createCtx(testDir);
+    expect(() => cmdConfig(ctx, ['clear', 'invalidkey'])).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(ctx.ui.error).toHaveBeenCalledWith('Invalid key: invalidkey. Valid keys: mode, preambleMode, preambleEvery');
+  });
+
   it('cmdCompletion prints scripts', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     cmdCompletion('bash');
@@ -240,6 +348,10 @@ describe('basic commands', () => {
     logSpy.mockClear();
     cmdCompletion('zsh');
     expect(logSpy.mock.calls.join('\n')).toContain('#compdef tmux-team');
+
+    logSpy.mockClear();
+    cmdCompletion();
+    expect(logSpy.mock.calls.join('\n')).toContain('Shell Completion Setup');
   });
 
   it('cmdHelp/cmdLearn print output', () => {

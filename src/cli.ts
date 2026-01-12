@@ -20,8 +20,8 @@ import { cmdCompletion } from './commands/completion.js';
 import { cmdConfig } from './commands/config.js';
 import { cmdPreamble } from './commands/preamble.js';
 import { cmdInstall } from './commands/install.js';
-import { cmdSetup } from './commands/setup.js';
 import { cmdLearn } from './commands/learn.js';
+import { cmdThis } from './commands/this.js';
 
 // ─────────────────────────────────────────────────────────────
 // Argument parsing
@@ -147,7 +147,7 @@ function main(): void {
   const ctx = createContext({ argv, flags });
 
   // Warn if not in tmux for commands that require it
-  const TMUX_REQUIRED_COMMANDS = ['talk', 'send', 'check', 'read', 'setup'];
+  const TMUX_REQUIRED_COMMANDS = ['talk', 'send', 'check', 'read', 'this'];
   if (!process.env.TMUX && TMUX_REQUIRED_COMMANDS.includes(command)) {
     ctx.ui.warn('Not running inside tmux. Some features may not work.');
   }
@@ -202,6 +202,14 @@ function main(): void {
         cmdRemove(ctx, args[0]);
         break;
 
+      case 'this':
+        if (args.length < 1) {
+          ctx.ui.error('Usage: tmux-team this <name> [remark]');
+          ctx.exit(ExitCodes.ERROR);
+        }
+        cmdThis(ctx, args[0], args[1]);
+        break;
+
       case 'talk':
       case 'send':
         if (args.length < 2) {
@@ -230,10 +238,6 @@ function main(): void {
 
       case 'install':
         await cmdInstall(ctx, args[0]);
-        break;
-
-      case 'setup':
-        await cmdSetup(ctx);
         break;
 
       case 'learn':

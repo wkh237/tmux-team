@@ -14,11 +14,11 @@ import { cmdTalk } from './talk.js';
 // Constants
 // ─────────────────────────────────────────────────────────────
 
-// Regex to match the END marker (as printed by agent) - used to find markers in output
-const END_MARKER_REGEX = /---RESPONSE-END-([a-f0-9]+)---/;
+// Regex to match the END marker (as printed by agent) - tolerates optional dashes
+const END_MARKER_REGEX = /-{0,3}RESPONSE-END-([a-f0-9]+)-{0,3}/;
 
-// Regex to extract nonce from instruction (instruction says "RESPONSE-END-xxxx" without dashes)
-const INSTRUCTION_NONCE_REGEX = /RESPONSE-END-([a-f0-9]+)/;
+// Regex to extract nonce from instruction (new format: "where xxxx = <nonce>")
+const INSTRUCTION_NONCE_REGEX = /where xxxx = ([a-f0-9]+)/;
 
 // ─────────────────────────────────────────────────────────────
 // Test utilities
@@ -352,6 +352,20 @@ describe('cmdTalk - basic send', () => {
     expect(tmux.sends.map((s) => s.pane).sort()).toEqual(['1.0', '1.1', '1.2']);
   });
 
+  it('errors when sending to all with no agents configured', async () => {
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+    const ctx = createContext({
+      tmux,
+      ui,
+      paths: createTestPaths(testDir),
+      config: { paneRegistry: {} },
+    });
+
+    await expect(cmdTalk(ctx, 'all', 'Hello')).rejects.toThrow(`exit(${ExitCodes.CONFIG_MISSING})`);
+    expect(ui.errors).toContain("No agents configured. Use 'tmux-team add' first.");
+  });
+
   it('skips self when sending to all (via env var)', async () => {
     // Simulate being an agent via env var (when not in tmux)
     const originalEnv = { ...process.env };
@@ -464,11 +478,11 @@ describe('cmdTalk - --wait mode', () => {
   });
 
   // Helper: generate mock capture output with proper marker structure
-  // New protocol: instruction describes the marker verbally (doesn't contain literal marker)
+  // New protocol: instruction shows format with placeholder "xxxx" then actual nonce
   // Include the instruction line so extraction can anchor to it for clean output
   function mockCompleteResponse(nonce: string, response: string): string {
-    const instruction = `When you finish responding, output a completion marker on its own line: three dashes, RESPONSE-END-${nonce}, three dashes (no spaces).`;
-    const endMarker = `---RESPONSE-END-${nonce}---`;
+    const instruction = `When done, output exactly: RESPONSE-END-xxxx (where xxxx = ${nonce})`;
+    const endMarker = `RESPONSE-END-${nonce}`;
     // Simulate: scrollback, user message with instruction, agent response, marker
     return `Some scrollback content\nUser message here\n\n${instruction}\n${response}\n${endMarker}`;
   }
@@ -489,10 +503,10 @@ describe('cmdTalk - --wait mode', () => {
     const ctx = createContext({
       tmux,
       paths: createTestPaths(testDir),
-      flags: { wait: true, timeout: 5 },
+      flags: { wait: true, timeout: 0.5 },
       config: {
         defaults: {
-          timeout: 5,
+          timeout: 0.5,
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
@@ -504,11 +518,11 @@ describe('cmdTalk - --wait mode', () => {
     await cmdTalk(ctx, 'claude', 'Hello');
 
     expect(tmux.sends).toHaveLength(1);
-    // New protocol: instruction describes marker verbally, doesn't contain literal marker
-    expect(tmux.sends[0].message).toContain('output a completion marker on its own line');
-    expect(tmux.sends[0].message).toContain('three dashes, RESPONSE-END-');
-    // Should NOT contain the literal marker format
-    expect(tmux.sends[0].message).not.toMatch(/---RESPONSE-END-[a-f0-9]+---/);
+    // New protocol: instruction shows format with placeholder, then actual nonce
+    expect(tmux.sends[0].message).toContain('output exactly: RESPONSE-END-xxxx');
+    expect(tmux.sends[0].message).toContain('where xxxx =');
+    // Should NOT contain the literal marker format (marker appears only in agent response)
+    expect(tmux.sends[0].message).not.toMatch(/^RESPONSE-END-[a-f0-9]+$/m);
   });
 
   it('detects nonce marker and extracts response', async () => {
@@ -533,10 +547,10 @@ describe('cmdTalk - --wait mode', () => {
       tmux,
       ui,
       paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 5 },
+      flags: { wait: true, json: true, timeout: 0.5 },
       config: {
         defaults: {
-          timeout: 5,
+          timeout: 0.5,
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
@@ -601,7 +615,7 @@ describe('cmdTalk - --wait mode', () => {
       const sent = tmux.sends[0]?.message || '';
       const nonceMatch = sent.match(INSTRUCTION_NONCE_REGEX);
       if (nonceMatch) {
-        const endMarker = `---RESPONSE-END-${nonceMatch[1]}---`;
+        const endMarker = `RESPONSE-END-${nonceMatch[1]}`;
         // Only ONE marker from agent
         return `${oldContent}\nNew response content\n\n${endMarker}`;
       }
@@ -612,10 +626,10 @@ describe('cmdTalk - --wait mode', () => {
       tmux,
       ui,
       paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 5 },
+      flags: { wait: true, json: true, timeout: 0.5 },
       config: {
         defaults: {
-          timeout: 5,
+          timeout: 0.5,
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
@@ -648,10 +662,10 @@ describe('cmdTalk - --wait mode', () => {
     const ctx = createContext({
       tmux,
       paths,
-      flags: { wait: true, timeout: 5 },
+      flags: { wait: true, timeout: 0.5 },
       config: {
         defaults: {
-          timeout: 5,
+          timeout: 0.5,
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
@@ -732,10 +746,10 @@ describe('cmdTalk - --wait mode', () => {
       ui,
       tmux,
       paths,
-      flags: { wait: true, timeout: 5 },
+      flags: { wait: true, timeout: 0.5 },
       config: {
         defaults: {
-          timeout: 5,
+          timeout: 0.5,
           pollInterval: 0.05,
           captureLines: 100,
           maxCaptureLines: 2000,
@@ -838,10 +852,10 @@ describe('cmdTalk - --wait mode', () => {
     const ctx = createContext({
       tmux,
       paths,
-      flags: { wait: true, timeout: 5 },
+      flags: { wait: true, timeout: 0.5 },
       config: {
         defaults: {
-          timeout: 5,
+          timeout: 0.5,
           pollInterval: 0.02,
           captureLines: 100,
           maxCaptureLines: 2000,
@@ -921,7 +935,7 @@ describe('cmdTalk - nonce collision handling', () => {
     const ui = createMockUI();
 
     let captureCount = 0;
-    const oldEndMarker = '---RESPONSE-END-0000---'; // Old marker from previous request
+    const oldEndMarker = 'RESPONSE-END-0000'; // Old marker from previous request
 
     tmux.capture = () => {
       captureCount++;
@@ -937,7 +951,7 @@ describe('cmdTalk - nonce collision handling', () => {
       const sent = tmux.sends[0]?.message || '';
       const nonceMatch = sent.match(INSTRUCTION_NONCE_REGEX);
       if (nonceMatch) {
-        const newEndMarker = `---RESPONSE-END-${nonceMatch[1]}---`;
+        const newEndMarker = `RESPONSE-END-${nonceMatch[1]}`;
         // Old markers in scrollback + new response + agent's end marker
         return `Old question\nOld response\n${oldEndMarker}\nNew response\n\n${newEndMarker}`;
       }
@@ -948,10 +962,10 @@ describe('cmdTalk - nonce collision handling', () => {
       tmux,
       ui,
       paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 5 },
+      flags: { wait: true, json: true, timeout: 0.5 },
       config: {
         defaults: {
-          timeout: 5,
+          timeout: 0.5,
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
@@ -1003,10 +1017,10 @@ describe('cmdTalk - JSON output contract', () => {
       tmux,
       ui,
       paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 5 },
+      flags: { wait: true, json: true, timeout: 0.5 },
       config: {
         defaults: {
-          timeout: 5,
+          timeout: 0.5,
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
@@ -1030,8 +1044,8 @@ describe('cmdTalk - JSON output contract', () => {
   // Helper moved to describe scope for JSON output tests
   // Include instruction line for proper extraction anchoring
   function mockCompleteResponse(nonce: string, response: string): string {
-    const instruction = `When you finish responding, output a completion marker on its own line: three dashes, RESPONSE-END-${nonce}, three dashes (no spaces).`;
-    const endMarker = `---RESPONSE-END-${nonce}---`;
+    const instruction = `When done, output exactly: RESPONSE-END-xxxx (where xxxx = ${nonce})`;
+    const endMarker = `RESPONSE-END-${nonce}`;
     return `Some scrollback\n${instruction}\n${response}\n${endMarker}`;
   }
 
@@ -1161,8 +1175,8 @@ describe('cmdTalk - JSON output contract', () => {
     tmux.capture = (pane: string) => {
       if (pane === '10.1') {
         const nonce = markersByPane['10.1'];
-        const endMarker = `---RESPONSE-END-${nonce}---`;
-        // Complete response with end marker (only ONE marker in new protocol)
+        const endMarker = `RESPONSE-END-${nonce}`;
+        // Complete response with end marker
         return `Response\n${endMarker}`;
       }
       // gemini has no end marker at all - agent is still responding
@@ -1238,8 +1252,8 @@ describe('cmdTalk - end marker detection', () => {
   // Helper: generate mock capture output with proper marker structure
   // Include instruction line for proper extraction anchoring
   function mockResponse(nonce: string, response: string): string {
-    const instruction = `When you finish responding, output a completion marker on its own line: three dashes, RESPONSE-END-${nonce}, three dashes (no spaces).`;
-    const endMarker = `---RESPONSE-END-${nonce}---`;
+    const instruction = `When done, output exactly: RESPONSE-END-xxxx (where xxxx = ${nonce})`;
+    const endMarker = `RESPONSE-END-${nonce}`;
     return `Some scrollback\n${instruction}\n${response}\n${endMarker}`;
   }
 
@@ -1251,7 +1265,7 @@ describe('cmdTalk - end marker detection', () => {
     tmux.capture = () => {
       const sent = tmux.sends[0]?.message || '';
       // Extract nonce from instruction (looks for RESPONSE-END-xxxx pattern)
-      const nonceMatch = sent.match(/RESPONSE-END-([a-f0-9]+)/);
+      const nonceMatch = sent.match(INSTRUCTION_NONCE_REGEX);
       if (nonceMatch) {
         return mockResponse(nonceMatch[1], 'Response');
       }
@@ -1262,17 +1276,18 @@ describe('cmdTalk - end marker detection', () => {
       tmux,
       ui,
       paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 5 },
-      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3 } },
+      flags: { wait: true, json: true, timeout: 0.5 },
+      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3 } },
     });
 
     await cmdTalk(ctx, 'claude', 'Test message');
 
     const sent = tmux.sends[0].message;
-    // New protocol: instruction describes marker verbally, doesn't contain literal marker
-    expect(sent).not.toMatch(/---RESPONSE-END-[a-f0-9]+---/);
-    expect(sent).toContain('output a completion marker on its own line');
-    expect(sent).toContain('three dashes, RESPONSE-END-');
+    // New protocol: instruction shows format with placeholder, then actual nonce
+    expect(sent).toContain('output exactly: RESPONSE-END-xxxx');
+    expect(sent).toContain('where xxxx =');
+    // Should NOT contain the literal marker format (marker appears only in agent response)
+    expect(sent).not.toMatch(/^RESPONSE-END-[a-f0-9]+$/m);
   });
 
   it('extracts response before end marker', async () => {
@@ -1282,9 +1297,9 @@ describe('cmdTalk - end marker detection', () => {
     tmux.capture = () => {
       const sent = tmux.sends[0]?.message || '';
       // Extract nonce from instruction
-      const nonceMatch = sent.match(/RESPONSE-END-([a-f0-9]+)/);
+      const nonceMatch = sent.match(INSTRUCTION_NONCE_REGEX);
       if (nonceMatch) {
-        const endMarker = `---RESPONSE-END-${nonceMatch[1]}---`;
+        const endMarker = `RESPONSE-END-${nonceMatch[1]}`;
         // Simulate scrollback with old content, then agent's response with marker
         return `Old garbage\nMore old stuff\nThis is the actual response\n\n${endMarker}\nContent after marker`;
       }
@@ -1295,8 +1310,8 @@ describe('cmdTalk - end marker detection', () => {
       tmux,
       ui,
       paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 5 },
-      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3 } },
+      flags: { wait: true, json: true, timeout: 0.5 },
+      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3 } },
     });
 
     await cmdTalk(ctx, 'claude', 'Test');
@@ -1318,7 +1333,7 @@ Line 4 final`;
     tmux.capture = () => {
       const sent = tmux.sends[0]?.message || '';
       // Extract nonce from instruction
-      const nonceMatch = sent.match(/RESPONSE-END-([a-f0-9]+)/);
+      const nonceMatch = sent.match(INSTRUCTION_NONCE_REGEX);
       if (nonceMatch) {
         return mockResponse(nonceMatch[1], multilineResponse);
       }
@@ -1329,8 +1344,8 @@ Line 4 final`;
       tmux,
       ui,
       paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 5 },
-      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3 } },
+      flags: { wait: true, json: true, timeout: 0.5 },
+      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3 } },
     });
 
     await cmdTalk(ctx, 'claude', 'Test');
@@ -1347,9 +1362,9 @@ Line 4 final`;
     tmux.capture = () => {
       const sent = tmux.sends[0]?.message || '';
       // Extract nonce from instruction
-      const nonceMatch = sent.match(/RESPONSE-END-([a-f0-9]+)/);
+      const nonceMatch = sent.match(INSTRUCTION_NONCE_REGEX);
       if (nonceMatch) {
-        const endMarker = `---RESPONSE-END-${nonceMatch[1]}---`;
+        const endMarker = `RESPONSE-END-${nonceMatch[1]}`;
         // Agent printed end marker immediately with no content before it
         return `${endMarker}`;
       }
@@ -1360,8 +1375,8 @@ Line 4 final`;
       tmux,
       ui,
       paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 5 },
-      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3 } },
+      flags: { wait: true, json: true, timeout: 0.5 },
+      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3 } },
     });
 
     await cmdTalk(ctx, 'claude', 'Test');
@@ -1380,9 +1395,9 @@ Line 4 final`;
       captureCount++;
       const sent = tmux.sends[0]?.message || '';
       // Extract nonce from instruction
-      const nonceMatch = sent.match(/RESPONSE-END-([a-f0-9]+)/);
+      const nonceMatch = sent.match(INSTRUCTION_NONCE_REGEX);
       if (nonceMatch) {
-        const endMarker = `---RESPONSE-END-${nonceMatch[1]}---`;
+        const endMarker = `RESPONSE-END-${nonceMatch[1]}`;
         if (captureCount < 3) {
           // No marker yet - agent is still thinking
           return `Agent is still thinking...`;
@@ -1397,8 +1412,8 @@ Line 4 final`;
       tmux,
       ui,
       paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 5 },
-      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3 } },
+      flags: { wait: true, json: true, timeout: 0.5 },
+      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3 } },
     });
 
     await cmdTalk(ctx, 'claude', 'Test');
@@ -1420,9 +1435,9 @@ Line 4 final`;
     tmux.capture = () => {
       const sent = tmux.sends[0]?.message || '';
       // Extract nonce from instruction
-      const nonceMatch = sent.match(/RESPONSE-END-([a-f0-9]+)/);
+      const nonceMatch = sent.match(INSTRUCTION_NONCE_REGEX);
       if (nonceMatch) {
-        const endMarker = `---RESPONSE-END-${nonceMatch[1]}---`;
+        const endMarker = `RESPONSE-END-${nonceMatch[1]}`;
         // ONE marker only - from agent response
         return `${lotsOfContent}\nThe actual response\n\n${endMarker}`;
       }
@@ -1433,8 +1448,8 @@ Line 4 final`;
       tmux,
       ui,
       paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 5 },
-      config: { defaults: { timeout: 5, pollInterval: 0.01, captureLines: 200, maxCaptureLines: 2000, preambleEvery: 3 } },
+      flags: { wait: true, json: true, timeout: 0.5 },
+      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 200, maxCaptureLines: 2000, preambleEvery: 3 } },
     });
 
     await cmdTalk(ctx, 'claude', 'Test');

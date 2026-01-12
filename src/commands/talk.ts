@@ -46,27 +46,48 @@ function makeNonce(): string {
 }
 
 function makeEndMarker(nonce: string): string {
-  return `---RESPONSE-END-${nonce}---`;
+  return `RESPONSE-END-${nonce}`;
 }
 
 /**
  * Build a regex to match the end marker case-insensitively.
  * This handles agents that might print the marker in different case.
+ * Also tolerates optional surrounding dashes for backwards compatibility.
  */
 function makeEndMarkerRegex(nonce: string): RegExp {
-  return new RegExp(`---response-end-${nonce}---`, 'i');
+  return new RegExp(`-{0,3}RESPONSE-END-${nonce}-{0,3}`, 'i');
 }
 
 /**
- * Build the end marker instruction WITHOUT embedding the literal marker string.
- * This prevents false-positive detection when the instruction is still visible
- * in scrollback but the agent hasn't responded yet.
+ * Build the end marker instruction showing the exact format with a placeholder.
  *
- * The instruction describes how to construct the marker verbally, so the literal
- * marker string can ONLY appear if the agent actually prints it.
+ * The instruction uses "xxxx" as a placeholder, so the literal marker with the
+ * actual nonce can ONLY appear if the agent prints it. This avoids false-positive
+ * detection when the instruction is still visible in scrollback.
  */
 function makeEndMarkerInstruction(nonce: string): string {
-  return `When you finish responding, output a completion marker on its own line: three dashes, RESPONSE-END-${nonce}, three dashes (no spaces).`;
+  return `When done, output exactly: RESPONSE-END-xxxx (where xxxx = ${nonce})`;
+}
+
+/**
+ * Check if a line is the instruction line (not the actual marker).
+ * The instruction line contains both the nonce AND instruction keywords.
+ */
+function isInstructionLine(line: string, nonce: string): boolean {
+  const lowerLine = line.toLowerCase();
+  return (
+    lowerLine.includes(`response-end-${nonce.toLowerCase()}`) &&
+    (lowerLine.includes('output exactly') || lowerLine.includes('where xxxx'))
+  );
+}
+
+/**
+ * Check if output contains an actual end marker (not just the instruction).
+ * Returns true only if there's a line with the marker that isn't the instruction.
+ */
+function hasActualEndMarker(output: string, nonce: string, endMarkerRegex: RegExp): boolean {
+  const lines = output.split('\n');
+  return lines.some((line) => endMarkerRegex.test(line) && !isInstructionLine(line, nonce));
 }
 
 function renderWaitLine(agent: string, elapsedSeconds: number): string {
@@ -78,8 +99,7 @@ function renderWaitLine(agent: string, elapsedSeconds: number): string {
  * Extract partial response from output when end marker is not found.
  * Used to capture whatever the agent wrote before timeout.
  *
- * With the new protocol, the instruction doesn't contain the literal marker.
- * We look for the instruction line (contains "RESPONSE-END-<nonce>" without dashes)
+ * We look for the instruction line (contains instruction keywords like "output exactly")
  * and extract content after it. Falls back to last N lines if instruction not found.
  */
 function extractPartialResponse(
@@ -89,19 +109,14 @@ function extractPartialResponse(
 ): string | null {
   const lines = output.split('\n');
 
-  // Extract nonce from endMarker (format: ---RESPONSE-END-xxxx---)
+  // Extract nonce from endMarker (format: RESPONSE-END-xxxx)
   // Use case-insensitive match to be flexible with nonce format changes
   const nonceMatch = endMarker.match(/RESPONSE-END-([a-f0-9]+)/i);
   if (!nonceMatch) return null;
   const nonce = nonceMatch[1];
 
-  // Find the instruction line (contains "RESPONSE-END-<nonce>" but not the full marker)
-  // Case-insensitive to handle potential format variations
-  const instructionLineIndex = lines.findIndex(
-    (line) =>
-      line.toLowerCase().includes(`response-end-${nonce.toLowerCase()}`) &&
-      !line.includes(endMarker)
-  );
+  // Find the instruction line using consistent detection
+  const instructionLineIndex = lines.findIndex((line) => isInstructionLine(line, nonce));
 
   let responseLines: string[];
   if (instructionLineIndex !== -1) {
@@ -152,10 +167,10 @@ function extractWithExpandableCapture(
   while (true) {
     const lines = output.split('\n');
 
-    // Find end marker line (case-insensitive, last occurrence)
+    // Find end marker line (case-insensitive, last occurrence, excluding instruction lines)
     let endMarkerLineIndex = -1;
     for (let i = lines.length - 1; i >= 0; i--) {
-      if (endMarkerRegex.test(lines[i])) {
+      if (endMarkerRegex.test(lines[i]) && !isInstructionLine(lines[i], nonce)) {
         endMarkerLineIndex = i;
         break;
       }
@@ -166,12 +181,8 @@ function extractWithExpandableCapture(
       return { response: '', truncated: true };
     }
 
-    // Find instruction line (contains nonce but is not the marker)
-    const instructionLineIndex = lines.findIndex(
-      (line) =>
-        line.toLowerCase().includes(`response-end-${nonce.toLowerCase()}`) &&
-        !endMarkerRegex.test(line)
-    );
+    // Find instruction line using consistent detection
+    const instructionLineIndex = lines.findIndex((line) => isInstructionLine(line, nonce));
 
     if (instructionLineIndex !== -1 && instructionLineIndex < endMarkerLineIndex) {
       // Instruction visible: extract from after instruction to marker
@@ -571,8 +582,9 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
       const idleMs = Date.now() - lastOutputChangeAt;
 
       // Find end marker (case-insensitive to handle agent variations)
+      // Must be an actual marker line, not the instruction line
       const endMarkerRegex = makeEndMarkerRegex(nonce);
-      const hasEndMarker = endMarkerRegex.test(output);
+      const hasEndMarker = hasActualEndMarker(output, nonce, endMarkerRegex);
 
       // Completion conditions:
       // 1. Must wait at least MIN_WAIT_MS
@@ -842,8 +854,9 @@ async function cmdTalkAllWait(
         const idleMs = now - state.lastOutputChangeAt;
 
         // Find end marker (case-insensitive to handle agent variations)
+        // Must be an actual marker line, not the instruction line
         const endMarkerRegex = makeEndMarkerRegex(state.nonce);
-        const hasEndMarker = endMarkerRegex.test(output);
+        const hasEndMarker = hasActualEndMarker(output, state.nonce, endMarkerRegex);
 
         // Completion conditions (same as single-agent mode):
         // 1. Must wait at least MIN_WAIT_MS

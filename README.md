@@ -16,13 +16,18 @@ npm install -g tmux-team
 
 ```bash
 # 1. Install for your AI agent
-tmux-team install claude   # or: tmux-team install codex
+tmt install claude   # or: tmux-team install codex
 
-# 2. Run the setup wizard (auto-detects panes)
-tmux-team setup
+# 2. Go to working folder and initialize a tmux-team file
+tmt init
+tmt add codex 2.2
 
 # 3. Talk to agents
-tmux-team talk codex "Review this code" --wait
+tmt talk codex "Review this code" --wait
+
+# 4. Update ot remove an agent from a team
+tmt update codex --pane 2.3
+tmt rm codex
 ```
 
 The `--wait` flag blocks until the agent responds, returning the response directly.
@@ -32,7 +37,6 @@ The `--wait` flag blocks until the agent responds, returning the response direct
 | Command | Description |
 |---------|-------------|
 | `install [claude\|codex]` | Install tmux-team for an AI agent |
-| `setup` | Interactive wizard to configure agents |
 | `talk <agent> "msg" --wait` | Send message and wait for response |
 | `talk all "msg" --wait` | Broadcast to all agents |
 | `check <agent> [lines]` | Read agent's pane output (fallback if --wait times out) |
@@ -49,14 +53,10 @@ Run `tmux-team help` for all commands and options.
 
 Configuration lives in `tmux-team.json` in your project root.
 
-**Create** - Run the setup wizard to auto-detect agents:
-```bash
-tmux-team setup
-```
 
 **Read** - List configured agents:
 ```bash
-tmux-team list
+tmt ls
 ```
 
 **Update** - Edit `tmux-team.json` directly or re-run setup:

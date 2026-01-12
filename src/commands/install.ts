@@ -10,7 +10,6 @@ import { fileURLToPath } from 'node:url';
 import type { Context } from '../types.js';
 import { ExitCodes } from '../exits.js';
 import { colors } from '../ui.js';
-import { cmdSetup } from './setup.js';
 
 type AgentType = 'claude' | 'codex';
 
@@ -183,22 +182,11 @@ export async function cmdInstall(ctx: Context, agent?: string): Promise<void> {
       console.log();
     }
 
-    // Offer to run setup
-    if (process.env.TMUX) {
-      const runSetup = await confirm(rl, 'Run setup wizard now?');
-      if (runSetup) {
-        rl.close();
-        await cmdSetup(ctx);
-        return;
-      }
-    } else {
-      ui.info('Run tmux-team setup inside tmux to configure your agents.');
-    }
-
     console.log();
     console.log(colors.yellow('Next steps:'));
     console.log(`  1. Start tmux and open panes for your AI agents`);
-    console.log(`  2. Run ${colors.cyan('tmux-team setup')} to configure agents`);
+    console.log(`  2. Run ${colors.cyan('tmux-team add <name> <pane>')} to register agents`);
+    console.log(`     Or use ${colors.cyan('tmux-team this <name>')} in each pane`);
     console.log(`  3. Use ${colors.cyan('tmux-team talk <agent> "message" --wait')}`);
     console.log();
   } finally {
