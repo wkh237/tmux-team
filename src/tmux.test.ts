@@ -179,6 +179,17 @@ describe('createTmux', () => {
       const tmux = createTmux();
       expect(tmux.listPanes()).toEqual([]);
     });
+
+    it('handles malformed output with missing tab separator', () => {
+      // When a line has no tab, id will be the whole line and command will be empty
+      mockedExecSync.mockReturnValue('%1\n%2\tcodex\n');
+      const tmux = createTmux();
+      const panes = tmux.listPanes();
+      expect(panes).toEqual([
+        { id: '%1', command: '', suggestedName: null },
+        { id: '%2', command: 'codex', suggestedName: 'codex' },
+      ]);
+    });
   });
 
   describe('getCurrentPaneId', () => {
@@ -205,6 +216,15 @@ describe('createTmux', () => {
       mockedExecSync.mockImplementationOnce(() => {
         throw new Error('fail');
       });
+      const tmux = createTmux();
+      expect(tmux.getCurrentPaneId()).toBeNull();
+      process.env.TMUX_PANE = old;
+    });
+
+    it('returns null when tmux output is empty', () => {
+      const old = process.env.TMUX_PANE;
+      delete process.env.TMUX_PANE;
+      mockedExecSync.mockReturnValue('   \n');
       const tmux = createTmux();
       expect(tmux.getCurrentPaneId()).toBeNull();
       process.env.TMUX_PANE = old;

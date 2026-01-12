@@ -20,7 +20,7 @@ const STATE_FILENAME = 'state.json';
 
 // Default configuration values
 const DEFAULT_CONFIG: GlobalConfig = {
-  mode: 'polling',
+  mode: 'wait',
   preambleMode: 'always',
   defaults: {
     timeout: 180,

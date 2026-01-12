@@ -201,7 +201,7 @@ describe('loadConfig', () => {
   it('returns default config when no config files exist', () => {
     const config = loadConfig(mockPaths);
 
-    expect(config.mode).toBe('polling');
+    expect(config.mode).toBe('wait');
     expect(config.preambleMode).toBe('always');
     expect(config.defaults.timeout).toBe(180);
     expect(config.defaults.pollInterval).toBe(1);

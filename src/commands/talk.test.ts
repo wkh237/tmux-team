@@ -366,6 +366,44 @@ describe('cmdTalk - basic send', () => {
     expect(ui.errors).toContain("No agents configured. Use 'tmux-team add' first.");
   });
 
+  it('outputs JSON when sending to all with --json flag', async () => {
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+    const ctx = createContext({
+      tmux,
+      ui,
+      paths: createTestPaths(testDir),
+      flags: { json: true },
+    });
+
+    await cmdTalk(ctx, 'all', 'Hello');
+
+    expect(ui.jsonOutput).toHaveLength(1);
+    expect(ui.jsonOutput[0]).toMatchObject({
+      target: 'all',
+      results: expect.any(Array),
+    });
+  });
+
+  it('handles tmux.send failure gracefully', async () => {
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+    // Make send throw for one agent
+    const originalSend = tmux.send.bind(tmux);
+    let callCount = 0;
+    tmux.send = (pane: string, message: string) => {
+      callCount++;
+      if (callCount === 2) throw new Error('tmux error');
+      originalSend(pane, message);
+    };
+
+    const ctx = createContext({ tmux, ui, paths: createTestPaths(testDir) });
+
+    await cmdTalk(ctx, 'all', 'Hello');
+
+    expect(ui.warnings).toContain('Failed to send to codex');
+  });
+
   it('skips self when sending to all (via env var)', async () => {
     // Simulate being an agent via env var (when not in tmux)
     const originalEnv = { ...process.env };

@@ -16,60 +16,75 @@ npm install -g tmux-team
 
 ```bash
 # 1. Install for your AI agent
-tmt install claude   # or: tmux-team install codex
+tmt install claude   # or: tmt install codex
 
-# 2. Go to working folder and initialize a tmux-team file
+# 2. Go to working folder and initialize
 tmt init
-tmt add codex 2.2
 
-# 3. Talk to agents
-tmt talk codex "Review this code" --wait
+# 3. Register agents (run inside each agent's pane)
+tmt this claude      # registers current pane as "claude"
+tmt this codex       # registers current pane as "codex"
 
-# 4. Update ot remove an agent from a team
+# 4. Talk to agents
+tmt talk codex "Review this code"    # waits for response by default
+
+# 5. Update or remove an agent
 tmt update codex --pane 2.3
 tmt rm codex
 ```
 
-The `--wait` flag blocks until the agent responds, returning the response directly.
+> **Tip:** Most AI agents support `!` to run bash commands. From inside Claude Code, Codex, or Gemini CLI, you can run `!tmt this myname` to quickly register that pane.
+
+## Cross-Folder Collaboration
+
+Agents don't need to be in the same folder to collaborate. You can add an agent from one project to another:
+
+```bash
+# In project-a folder, add an agent that's running in project-b
+tmt add codex-reviewer 5.1    # Use the pane ID from the other project
+```
+
+Find pane IDs with: `tmux display-message -p "#{pane_id}"`
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
 | `install [claude\|codex]` | Install tmux-team for an AI agent |
-| `talk <agent> "msg" --wait` | Send message and wait for response |
-| `talk all "msg" --wait` | Broadcast to all agents |
-| `check <agent> [lines]` | Read agent's pane output (fallback if --wait times out) |
+| `this <name> [remark]` | Register current pane as an agent |
+| `talk <agent> "msg"` | Send message and wait for response |
+| `talk all "msg"` | Broadcast to all agents |
+| `check <agent> [lines]` | Read agent's pane output |
 | `list` | Show configured agents |
 | `learn` | Show educational guide |
 
-**Options for `talk --wait`:**
+**Options for `talk`:**
 - `--timeout <seconds>` - Max wait time (default: 180s)
 - `--lines <number>` - Lines to capture from response (default: 100)
 
-Run `tmux-team help` for all commands and options.
+Run `tmt help` for all commands and options.
 
 ## Managing Your Team
 
 Configuration lives in `tmux-team.json` in your project root.
 
-
-**Read** - List configured agents:
+**List** - Show configured agents:
 ```bash
 tmt ls
 ```
 
-**Update** - Edit `tmux-team.json` directly or re-run setup:
+**Edit** - Modify `tmux-team.json` directly:
 ```json
 {
-  "codex": { "pane": "%1", "remark": "Code reviewer" },
-  "gemini": { "pane": "%2", "remark": "Documentation" }
+  "codex": { "pane": "1.1", "remark": "Code reviewer" },
+  "gemini": { "pane": "1.2", "remark": "Documentation" }
 }
 ```
 
-**Delete** - Remove an agent entry from `tmux-team.json` or delete the file entirely.
-
-Find pane IDs: `tmux display-message -p "#{pane_id}"`
+**Remove** - Delete an agent:
+```bash
+tmt rm codex
+```
 
 ## Claude Code Plugin
 
@@ -88,8 +103,8 @@ Run this once when starting a session. Claude will understand how to coordinate 
 
 **`/team`** - Talk to other agents
 ```
-/team talk codex "Review my authentication changes" --wait
-/team talk all "I'm starting the database migration" --wait
+/team talk codex "Review my authentication changes"
+/team talk all "I'm starting the database migration"
 /team list
 ```
 Use this to delegate tasks, ask for reviews, or broadcast updates.
@@ -97,8 +112,8 @@ Use this to delegate tasks, ask for reviews, or broadcast updates.
 ## Learn More
 
 ```bash
-tmux-team learn   # Comprehensive guide
-tmux-team help    # All commands and options
+tmt learn   # Comprehensive guide
+tmt help    # All commands and options
 ```
 
 ## License

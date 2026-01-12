@@ -12,7 +12,7 @@ export interface HelpConfig {
 }
 
 export function cmdHelp(config?: HelpConfig): void {
-  const mode = config?.mode ?? 'polling';
+  const mode = config?.mode ?? 'wait';
   const timeout = config?.timeout ?? 180;
   const isWaitMode = mode === 'wait';
 

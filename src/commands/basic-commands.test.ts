@@ -100,6 +100,13 @@ describe('basic commands', () => {
     expect(() => cmdInit(ctx)).toThrow(`exit(${ExitCodes.ERROR})`);
   });
 
+  it('cmdInit outputs JSON when --json flag set', () => {
+    const ctx = createCtx(testDir, { flags: { json: true } });
+    cmdInit(ctx);
+    expect((ctx.ui as any).jsonCalls.length).toBe(1);
+    expect((ctx.ui as any).jsonCalls[0]).toMatchObject({ created: ctx.paths.localConfig });
+  });
+
   it('cmdAdd creates config if missing and writes new agent', () => {
     const ctx = createCtx(testDir);
     cmdAdd(ctx, 'codex', '1.1', 'review');
@@ -214,6 +221,17 @@ describe('basic commands', () => {
     });
     cmdList(ctx);
     expect(ctx.ui.table).toHaveBeenCalled();
+  });
+
+  it('cmdList shows dash for missing remark', () => {
+    const ctx = createCtx(testDir, {
+      config: { paneRegistry: { claude: { pane: '1.0' } } }, // no remark
+    });
+    cmdList(ctx);
+    expect(ctx.ui.table).toHaveBeenCalled();
+    const tableCall = (ctx.ui.table as ReturnType<typeof vi.fn>).mock.calls[0];
+    // Third column should be '-' for missing remark
+    expect(tableCall[1][0][2]).toBe('-');
   });
 
   it('cmdCheck captures pane output', () => {

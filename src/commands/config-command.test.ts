@@ -113,4 +113,83 @@ describe('cmdConfig', () => {
     const saved = JSON.parse(fs.readFileSync(ctx.paths.globalConfig, 'utf-8'));
     expect(saved.defaults.preambleEvery).toBe(5);
   });
+
+  it('shows local source when local config has settings', () => {
+    const ctx = createCtx(testDir, { json: true });
+    // Create local config with all settings
+    fs.writeFileSync(
+      ctx.paths.localConfig,
+      JSON.stringify({
+        $config: { mode: 'wait', preambleMode: 'disabled', preambleEvery: 5 },
+      })
+    );
+    cmdConfig(ctx, ['show']);
+    const out = (ctx.ui as any).jsonCalls[0] as any;
+    expect(out.sources.mode).toBe('local');
+    expect(out.sources.preambleMode).toBe('local');
+    expect(out.sources.preambleEvery).toBe('local');
+  });
+
+  it('shows global source when only global config has settings', () => {
+    const ctx = createCtx(testDir, { json: true });
+    // Create global config with settings
+    fs.mkdirSync(ctx.paths.globalDir, { recursive: true });
+    fs.writeFileSync(
+      ctx.paths.globalConfig,
+      JSON.stringify({
+        mode: 'wait',
+        preambleMode: 'disabled',
+        defaults: { preambleEvery: 7 },
+      })
+    );
+    cmdConfig(ctx, ['show']);
+    const out = (ctx.ui as any).jsonCalls[0] as any;
+    expect(out.sources.mode).toBe('global');
+    expect(out.sources.preambleMode).toBe('global');
+    expect(out.sources.preambleEvery).toBe('global');
+  });
+
+  it('shows default source when no config has settings', () => {
+    const ctx = createCtx(testDir, { json: true });
+    cmdConfig(ctx, ['show']);
+    const out = (ctx.ui as any).jsonCalls[0] as any;
+    expect(out.sources.mode).toBe('default');
+    expect(out.sources.preambleMode).toBe('default');
+    expect(out.sources.preambleEvery).toBe('default');
+  });
+
+  it('shows sources in table mode with local settings', () => {
+    const ctx = createCtx(testDir);
+    fs.writeFileSync(
+      ctx.paths.localConfig,
+      JSON.stringify({ $config: { mode: 'wait' } })
+    );
+    cmdConfig(ctx, ['show']);
+    expect(ctx.ui.table).toHaveBeenCalled();
+    // The table call should include (local) source
+    const tableCall = (ctx.ui.table as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(tableCall[1].some((row: string[]) => row[2]?.includes('local'))).toBe(true);
+  });
+
+  it('shows sources in table mode with global settings', () => {
+    const ctx = createCtx(testDir);
+    fs.mkdirSync(ctx.paths.globalDir, { recursive: true });
+    fs.writeFileSync(
+      ctx.paths.globalConfig,
+      JSON.stringify({ mode: 'wait' })
+    );
+    cmdConfig(ctx, ['show']);
+    expect(ctx.ui.table).toHaveBeenCalled();
+    const tableCall = (ctx.ui.table as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(tableCall[1].some((row: string[]) => row[2]?.includes('global'))).toBe(true);
+  });
+
+  it('sets global mode and preambleMode', () => {
+    const ctx = createCtx(testDir);
+    cmdConfig(ctx, ['set', 'mode', 'wait', '--global']);
+    cmdConfig(ctx, ['set', 'preambleMode', 'disabled', '--global']);
+    const saved = JSON.parse(fs.readFileSync(ctx.paths.globalConfig, 'utf-8'));
+    expect(saved.mode).toBe('wait');
+    expect(saved.preambleMode).toBe('disabled');
+  });
 });
