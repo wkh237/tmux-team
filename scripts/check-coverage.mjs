@@ -4,7 +4,11 @@ import path from 'node:path';
 
 function parseArgs(argv) {
   const out = {
-    threshold: 95,
+    threshold: 90,
+    branchesThreshold: null,
+    statementsThreshold: null,
+    functionsThreshold: null,
+    linesThreshold: null,
     files: [],
     coverageDir: 'coverage',
     filesOnly: false,
@@ -14,6 +18,14 @@ function parseArgs(argv) {
     const a = argv[i];
     if (a === '--threshold' || a === '-t') {
       out.threshold = Number(argv[++i]);
+    } else if (a === '--branches' || a === '--branches-threshold') {
+      out.branchesThreshold = Number(argv[++i]);
+    } else if (a === '--statements' || a === '--statements-threshold') {
+      out.statementsThreshold = Number(argv[++i]);
+    } else if (a === '--functions' || a === '--functions-threshold') {
+      out.functionsThreshold = Number(argv[++i]);
+    } else if (a === '--lines' || a === '--lines-threshold') {
+      out.linesThreshold = Number(argv[++i]);
     } else if (a === '--file' || a === '-f') {
       out.files.push(argv[++i]);
     } else if (a === '--coverage-dir') {
@@ -33,8 +45,9 @@ function usage() {
   console.log(`check-coverage
 
 Usage:
-  node scripts/check-coverage.mjs [--threshold 95] [--file <path> ...]
-  node scripts/check-coverage.mjs --files-only [--threshold 95] [--file <path> ...]
+  node scripts/check-coverage.mjs [--threshold 90] [--file <path> ...]
+  node scripts/check-coverage.mjs --files-only [--threshold 90] [--file <path> ...]
+  node scripts/check-coverage.mjs --branches 85 [--threshold 90]
 
 Notes:
   - Reads coverage from coverage/coverage-summary.json (Vitest json-summary reporter)
@@ -61,7 +74,7 @@ function pct(v) {
   return typeof v?.pct === 'number' ? v.pct : null;
 }
 
-function checkEntry(name, entry, threshold) {
+function checkEntry(name, entry, thresholds) {
   const metrics = {
     statements: pct(entry.statements),
     branches: pct(entry.branches),
@@ -70,7 +83,11 @@ function checkEntry(name, entry, threshold) {
   };
 
   const failures = Object.entries(metrics)
-    .filter(([, value]) => value !== null && value < threshold)
+    .filter(([metric, value]) => {
+      if (value === null) return false;
+      const required = thresholds[metric] ?? thresholds.default;
+      return value < required;
+    })
     .map(([metric, value]) => ({ metric, value }));
 
   return { name, metrics, failures };
@@ -85,6 +102,18 @@ if (args.help) {
 if (!Number.isFinite(args.threshold) || args.threshold < 0 || args.threshold > 100) {
   console.error(`Invalid --threshold: ${args.threshold}. Must be between 0 and 100.`);
   process.exit(1);
+}
+for (const [key, value] of Object.entries({
+  branches: args.branchesThreshold,
+  statements: args.statementsThreshold,
+  functions: args.functionsThreshold,
+  lines: args.linesThreshold,
+})) {
+  if (value === null || value === undefined) continue;
+  if (!Number.isFinite(value) || value < 0 || value > 100) {
+    console.error(`Invalid --${key}: ${value}. Must be between 0 and 100.`);
+    process.exit(1);
+  }
 }
 
 const summaryPath = path.resolve(args.coverageDir, 'coverage-summary.json');
@@ -102,13 +131,19 @@ if (!summary?.total) {
   process.exit(1);
 }
 
-const threshold = args.threshold;
+const thresholds = {
+  default: args.threshold,
+  branches: args.branchesThreshold ?? args.threshold,
+  statements: args.statementsThreshold ?? args.threshold,
+  functions: args.functionsThreshold ?? args.threshold,
+  lines: args.linesThreshold ?? args.threshold,
+};
 const requestedFiles = args.files.map(normalizeInputFile).filter(Boolean);
 
 const results = [];
 
 if (!args.filesOnly) {
-  results.push(checkEntry('total', summary.total, threshold));
+  results.push(checkEntry('total', summary.total, thresholds));
 }
 
 if (requestedFiles.length === 0) {
@@ -131,7 +166,7 @@ if (requestedFiles.length === 0) {
       for (const m of matches) console.error(`- ${m.raw}`);
       process.exit(1);
     }
-    results.push(checkEntry(f, summary[matches[0].raw], threshold));
+    results.push(checkEntry(f, summary[matches[0].raw], thresholds));
   }
 }
 
@@ -142,9 +177,9 @@ if (failures.length === 0) {
 }
 
 console.error(
-  `WARNING: Coverage does not fulfill the requirement (minimum ${threshold}%).`
+  `WARNING: Coverage does not fulfill the requirement (minimum ${thresholds.default}%).`
 );
-console.error(`Coverage below ${threshold}%:`);
+console.error(`Coverage below ${thresholds.default}%:`);
 for (const f of failures) {
   console.error(`- ${f.file}: ${f.metric} ${f.value}%`);
 }

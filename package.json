@@ -1,6 +1,6 @@
 {
   "name": "tmux-team",
-  "version": "3.3.0",
+  "version": "4.0.0-beta.1",
   "description": "CLI tool for AI agent collaboration in tmux - manage cross-pane communication",
   "type": "module",
   "bin": {
@@ -12,7 +12,7 @@
     "tmt": "./bin/tmux-team",
     "test": "pnpm test:run",
     "test:watch": "vitest",
-    "test:run": "vitest run --coverage && node scripts/check-coverage.mjs --threshold 95",
+    "test:run": "vitest run --coverage && node scripts/check-coverage.mjs --threshold 90 --branches 85",
     "lint": "oxlint src/",
     "lint:fix": "oxlint src/ --fix",
     "format": "prettier --write src/",

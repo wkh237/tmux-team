@@ -14,11 +14,11 @@ import {
 } from '../config.js';
 
 type EnumConfigKey = 'mode' | 'preambleMode';
-type NumericConfigKey = 'preambleEvery';
+type NumericConfigKey = 'preambleEvery' | 'pasteEnterDelayMs';
 type ConfigKey = EnumConfigKey | NumericConfigKey;
 
 const ENUM_KEYS: EnumConfigKey[] = ['mode', 'preambleMode'];
-const NUMERIC_KEYS: NumericConfigKey[] = ['preambleEvery'];
+const NUMERIC_KEYS: NumericConfigKey[] = ['preambleEvery', 'pasteEnterDelayMs'];
 const VALID_KEYS: ConfigKey[] = [...ENUM_KEYS, ...NUMERIC_KEYS];
 
 const VALID_VALUES: Record<EnumConfigKey, string[]> = {
@@ -56,6 +56,7 @@ function showConfig(ctx: Context): void {
         mode: ctx.config.mode,
         preambleMode: ctx.config.preambleMode,
         preambleEvery: ctx.config.defaults.preambleEvery,
+        pasteEnterDelayMs: ctx.config.defaults.pasteEnterDelayMs,
         defaults: ctx.config.defaults,
       },
       sources: {
@@ -69,6 +70,12 @@ function showConfig(ctx: Context): void {
           localSettings?.preambleEvery !== undefined
             ? 'local'
             : globalConfig.defaults?.preambleEvery !== undefined
+              ? 'global'
+              : 'default',
+        pasteEnterDelayMs:
+          localSettings?.pasteEnterDelayMs !== undefined
+            ? 'local'
+            : globalConfig.defaults?.pasteEnterDelayMs !== undefined
               ? 'global'
               : 'default',
       },
@@ -93,6 +100,12 @@ function showConfig(ctx: Context): void {
       : globalConfig.defaults?.preambleEvery !== undefined
         ? '(global)'
         : '(default)';
+  const pasteEnterDelaySource =
+    localSettings?.pasteEnterDelayMs !== undefined
+      ? '(local)'
+      : globalConfig.defaults?.pasteEnterDelayMs !== undefined
+        ? '(global)'
+        : '(default)';
 
   ctx.ui.info('Current configuration:\n');
   ctx.ui.table(
@@ -101,6 +114,11 @@ function showConfig(ctx: Context): void {
       ['mode', ctx.config.mode, modeSource],
       ['preambleMode', ctx.config.preambleMode, preambleSource],
       ['preambleEvery', String(ctx.config.defaults.preambleEvery), preambleEverySource],
+      [
+        'pasteEnterDelayMs',
+        String(ctx.config.defaults.pasteEnterDelayMs),
+        pasteEnterDelaySource,
+      ],
       ['defaults.timeout', String(ctx.config.defaults.timeout), '(global)'],
       ['defaults.pollInterval', String(ctx.config.defaults.pollInterval), '(global)'],
       ['defaults.captureLines', String(ctx.config.defaults.captureLines), '(global)'],
@@ -157,9 +175,23 @@ function setConfig(ctx: Context, key: string, value: string, global: boolean): v
           captureLines: 100,
           maxCaptureLines: 2000,
           preambleEvery: parseInt(value, 10),
+          pasteEnterDelayMs: 500,
         };
       } else {
         globalConfig.defaults.preambleEvery = parseInt(value, 10);
+      }
+    } else if (key === 'pasteEnterDelayMs') {
+      if (!globalConfig.defaults) {
+        globalConfig.defaults = {
+          timeout: 180,
+          pollInterval: 1,
+          captureLines: 100,
+          maxCaptureLines: 2000,
+          preambleEvery: 3,
+          pasteEnterDelayMs: parseInt(value, 10),
+        };
+      } else {
+        globalConfig.defaults.pasteEnterDelayMs = parseInt(value, 10);
       }
     }
     saveGlobalConfig(ctx.paths, globalConfig);
@@ -172,6 +204,8 @@ function setConfig(ctx: Context, key: string, value: string, global: boolean): v
       updateLocalSettings(ctx.paths, { preambleMode: value as 'always' | 'disabled' });
     } else if (key === 'preambleEvery') {
       updateLocalSettings(ctx.paths, { preambleEvery: parseInt(value, 10) });
+    } else if (key === 'pasteEnterDelayMs') {
+      updateLocalSettings(ctx.paths, { pasteEnterDelayMs: parseInt(value, 10) });
     }
     ctx.ui.success(`Set ${key}=${value} in local config (repo override)`);
   }

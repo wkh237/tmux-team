@@ -12,8 +12,8 @@ tmux-team enables AI agents (like Claude, Codex, Gemini) running in separate ter
 ## Core Concept
 
 Each agent runs in its own tmux pane. When you want to talk to another agent:
-1. Your message is sent to their pane via tmux send-keys
-2. They see it as if a human typed it
+1. Your message is pasted via a tmux buffer
+2. tmux-team waits briefly, then sends Enter to submit
 3. You read their response by capturing their pane output
 
 ## Essential Commands (use --wait for better token utilization)
@@ -54,7 +54,8 @@ tmux-team is configured via tmux-team.json in your project root:
 ```json
 {
   "$config": {
-    "mode": "polling"
+    "mode": "polling",
+    "pasteEnterDelayMs": 500
   },
   "codex": { "pane": "%1", "remark": "OpenAI Codex agent" },
   "gemini": { "pane": "%2", "remark": "Google Gemini agent" },

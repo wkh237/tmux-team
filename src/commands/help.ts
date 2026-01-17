@@ -64,6 +64,7 @@ ${colors.yellow('OPTIONS')}
   ${colors.green('--json')}                      Output in JSON format
   ${colors.green('--verbose')}                   Show detailed output
   ${colors.green('--force')}                     Skip warnings
+  ${colors.green('--team')} <name>               Use shared team (cross-folder)
 
 ${colors.yellow('TALK OPTIONS')}
   ${colors.green('--delay')} <seconds>           Wait before sending
@@ -90,6 +91,7 @@ ${colors.yellow('EXAMPLES')}${
 ${colors.yellow('CONFIG')}
   Local:  ./tmux-team.json (pane registry + $config override)
   Global: ~/.config/tmux-team/config.json (settings)
+  Teams:  ~/.config/tmux-team/teams/<name>.json (shared teams)
 
 ${colors.yellow('CHANGE MODE')}
   tmux-team config set mode wait            ${colors.dim('Enable wait mode (local)')}

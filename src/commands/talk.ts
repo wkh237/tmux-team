@@ -319,6 +319,7 @@ function buildMessage(message: string, agentName: string, ctx: Context): string 
 export async function cmdTalk(ctx: Context, target: string, message: string): Promise<void> {
   const { ui, config, tmux, flags, exit } = ctx;
   const waitEnabled = Boolean(flags.wait) || config.mode === 'wait';
+  const enterDelayMs = config.defaults.pasteEnterDelayMs;
 
   if (target === 'all') {
     const agents = Object.entries(config.paneRegistry);
@@ -357,9 +358,8 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
 
       for (const [name, data] of targetAgents) {
         try {
-          let msg = buildMessage(message, name, ctx);
-          if (name === 'gemini') msg = msg.replace(/!/g, '');
-          tmux.send(data.pane, msg);
+          const msg = buildMessage(message, name, ctx);
+          tmux.send(data.pane, msg, { enterDelayMs });
           results.push({ agent: name, pane: data.pane, status: 'sent' });
           if (!flags.json) {
             console.log(`${colors.green('→')} Sent to ${colors.cyan(name)} (${data.pane})`);
@@ -399,9 +399,8 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
   if (!waitEnabled) {
     try {
       // Build message with preamble, then apply Gemini filter
-      let msg = buildMessage(message, target, ctx);
-      if (target === 'gemini') msg = msg.replace(/!/g, '');
-      tmux.send(pane, msg);
+      const msg = buildMessage(message, target, ctx);
+      tmux.send(pane, msg, { enterDelayMs });
 
       if (flags.json) {
         ui.json({ target, pane, status: 'sent' });
@@ -462,7 +461,7 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
   process.once('SIGINT', onSigint);
 
   try {
-    const msg = target === 'gemini' ? fullMessage.replace(/!/g, '') : fullMessage;
+    const msg = fullMessage;
 
     if (flags.debug) {
       console.error(`[DEBUG] Starting wait mode for ${target}`);
@@ -470,7 +469,7 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
       console.error(`[DEBUG] Message sent:\n${msg}`);
     }
 
-    tmux.send(pane, msg);
+    tmux.send(pane, msg, { enterDelayMs });
 
     while (true) {
       const elapsedSeconds = (Date.now() - startedAt) / 1000;
@@ -662,6 +661,7 @@ async function cmdTalkAllWait(
   skippedSelf: boolean
 ): Promise<void> {
   const { ui, config, tmux, flags, exit, paths } = ctx;
+  const enterDelayMs = config.defaults.pasteEnterDelayMs;
   const timeoutSeconds = flags.timeout ?? config.defaults.timeout;
   const pollIntervalSeconds = Math.max(0.1, config.defaults.pollInterval);
   const captureLines = config.defaults.captureLines;
@@ -694,11 +694,11 @@ async function cmdTalkAllWait(
     // Note: instruction doesn't contain literal marker to prevent false-positive detection
     const messageWithPreamble = buildMessage(message, name, ctx);
     const fullMessage = `${messageWithPreamble}\n\n${makeEndMarkerInstruction(nonce)}`;
-    const msg = name === 'gemini' ? fullMessage.replace(/!/g, '') : fullMessage;
+    const msg = fullMessage;
 
     try {
       const now = Date.now();
-      tmux.send(data.pane, msg);
+      tmux.send(data.pane, msg, { enterDelayMs });
       setActiveRequest(paths, name, {
         id: requestId,
         nonce,

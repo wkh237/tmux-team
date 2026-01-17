@@ -64,6 +64,16 @@ Find pane IDs with: `tmux display-message -p "#{pane_id}"`
 
 Run `tmt help` for all commands and options.
 
+## Message Delivery
+
+tmux-team uses tmux buffers + paste, then waits briefly before sending Enter. This avoids shell history expansion and handles paste-safety windows in CLIs like Gemini.
+
+**Config:** `pasteEnterDelayMs` (default: 500)
+
+```bash
+tmt config set pasteEnterDelayMs 500
+```
+
 ## Managing Your Team
 
 Configuration lives in `tmux-team.json` in your project root.
@@ -76,6 +86,7 @@ tmt ls
 **Edit** - Modify `tmux-team.json` directly:
 ```json
 {
+  "$config": { "pasteEnterDelayMs": 500 },
   "codex": { "pane": "1.1", "remark": "Code reviewer" },
   "gemini": { "pane": "1.2", "remark": "Documentation" }
 }
@@ -86,28 +97,125 @@ tmt ls
 tmt rm codex
 ```
 
-## Claude Code Plugin
+---
+
+## Shared Teams
+
+> *Work on different folders but talk to the same team of agents.*
+
+By default, `tmux-team.json` is local to each folder. The `--team` flag lets agents across different folders share a team:
+
+```bash
+# Initialize a shared team
+tmt init --team myproject
+
+# Register agents from ANY folder
+cd ~/code/frontend && tmt this claude --team myproject
+cd ~/code/backend && tmt this codex --team myproject
+cd ~/code/infra && tmt this gemini --team myproject
+
+# Now talk to them from anywhere
+tmt talk codex "What's the user API schema?" --team myproject
+tmt talk all "Starting deploy - heads up" --team myproject
+```
+
+> **Tip:** Most AI coding agents (Claude Code, Codex, Gemini CLI) support `!` to run shell commands. Agents can register themselves without leaving the session:
+> ```
+> !tmt this claude --team myproject
+> ```
+
+### When to use shared teams
+
+**Single project** (default) — agents work in the same folder:
+```bash
+tmt init
+tmt this claude
+tmt add codex 1.1
+```
+
+**Shared team** — agents work across folders but collaborate:
+```bash
+tmt init --team acme-app
+tmt this frontend-claude --team acme-app   # from ~/acme/frontend
+tmt this backend-codex --team acme-app     # from ~/acme/backend
+```
+
+### Multi-team coordination
+
+For large systems, create team hierarchies where leaders coordinate sub-teams:
+
+```mermaid
+flowchart
+
+A["you (claude)"]
+A2["codex"]
+A3["gemini"]
+B["backend-lead"]
+B2["codex"]
+C["infra-lead"]
+C2["codex"]
+
+subgraph your-team
+  A <--> A2
+  A <--> A3
+end
+
+A e1@<--> B
+A e2@<--> C
+
+e1@{ animate: true }
+e2@{ animate: true }
+
+subgraph backend-team
+  B <--> B2
+end
+
+subgraph infra-team
+  C <--> C2
+end
+```
+
+---
+
+## Using /team in Claude Code
+
+The `/team` command lets Claude talk to other AI agents directly. Install the plugin:
 
 ```
 /plugin marketplace add wkh237/tmux-team
 /plugin install tmux-team
 ```
 
-Gives you two slash commands:
+### /team Commands
 
-**`/learn`** - Teach Claude how to use tmux-team
-```
-/learn
-```
-Run this once when starting a session. Claude will understand how to coordinate with other agents.
+| Command | What it does |
+|---------|--------------|
+| `/team list` | Show all registered agents |
+| `/team talk <agent> "msg"` | Send a message and wait for response |
+| `/team talk all "msg"` | Broadcast to all agents |
 
-**`/team`** - Talk to other agents
+### Real-World Examples
+
+**Code review delegation:**
 ```
-/team talk codex "Review my authentication changes"
-/team talk all "I'm starting the database migration"
-/team list
+/team talk codex "Review my changes in src/auth/ for security issues"
 ```
-Use this to delegate tasks, ask for reviews, or broadcast updates.
+
+**Cross-agent coordination:**
+```
+/team talk all "Starting database migration - hold off on API changes"
+```
+
+**Ask a specialist:**
+```
+/team talk gemini "What's the best practice for rate limiting in GCP?"
+```
+
+### Tips
+
+- `/team talk` waits for the agent to respond before continuing
+- Use `/team list` to see who's available
+- Run `/learn` once per session to teach Claude the full tmux-team workflow
 
 ## Learn More
 

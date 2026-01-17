@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────
-// Tmux Wrapper Tests - send-keys, capture-pane
+// Tmux Wrapper Tests - buffer paste, capture-pane
 // ─────────────────────────────────────────────────────────────
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -23,26 +23,32 @@ describe('createTmux', () => {
   });
 
   describe('send', () => {
-    it('calls tmux send-keys with pane ID and message', () => {
+    it('uses buffer paste and then sends Enter', () => {
       const tmux = createTmux();
 
-      tmux.send('1.0', 'Hello world');
+      tmux.send('1.0', 'Hello world', { enterDelayMs: 0 });
 
       expect(mockedExecSync).toHaveBeenCalledWith(
-        'tmux send-keys -t "1.0" "Hello world"',
+        expect.stringContaining('tmux set-buffer -b "tmt-'),
+        expect.any(Object)
+      );
+      expect(mockedExecSync).toHaveBeenCalledWith(
+        expect.stringContaining('tmux paste-buffer -b "tmt-'),
+        expect.any(Object)
+      );
+      expect(mockedExecSync).toHaveBeenCalledWith(
+        'tmux send-keys -t "1.0" Enter',
         expect.any(Object)
       );
     });
 
-    it('sends Enter key after message', () => {
+    it('adds a trailing newline to the buffer payload', () => {
       const tmux = createTmux();
 
-      tmux.send('1.0', 'Hello');
+      tmux.send('1.0', 'Line 1\nLine 2', { enterDelayMs: 0 });
 
-      expect(mockedExecSync).toHaveBeenCalledTimes(2);
-      expect(mockedExecSync).toHaveBeenNthCalledWith(
-        2,
-        'tmux send-keys -t "1.0" Enter',
+      expect(mockedExecSync).toHaveBeenCalledWith(
+        expect.stringContaining('"Line 1\\nLine 2\\n"'),
         expect.any(Object)
       );
     });
@@ -50,41 +56,37 @@ describe('createTmux', () => {
     it('escapes special characters in message', () => {
       const tmux = createTmux();
 
-      tmux.send('1.0', 'Hello "world" with \'quotes\'');
+      tmux.send('1.0', 'Hello "world" with \'quotes\'', { enterDelayMs: 0 });
 
       expect(mockedExecSync).toHaveBeenCalledWith(
-        expect.stringContaining('"Hello \\"world\\" with \'quotes\'"'),
+        expect.stringContaining('"Hello \\"world\\" with \'quotes\'\\n"'),
         expect.any(Object)
       );
     });
 
-    it('handles newlines in message', () => {
-      const tmux = createTmux();
-
-      tmux.send('1.0', 'Line 1\nLine 2');
-
-      // JSON.stringify escapes newlines as \n
-      expect(mockedExecSync).toHaveBeenCalledWith(
-        expect.stringContaining('"Line 1\\nLine 2"'),
-        expect.any(Object)
-      );
-    });
-
-    it('throws when pane does not exist', () => {
-      const error = new Error("can't find pane: 99.99");
+    it('falls back to send-keys when buffer paste fails', () => {
+      const error = new Error('set-buffer failed');
       mockedExecSync.mockImplementationOnce(() => {
         throw error;
       });
-
       const tmux = createTmux();
 
-      expect(() => tmux.send('99.99', 'Hello')).toThrow("can't find pane: 99.99");
+      tmux.send('1.0', 'Hello', { enterDelayMs: 0 });
+
+      expect(mockedExecSync).toHaveBeenCalledWith(
+        'tmux send-keys -t "1.0" "Hello"',
+        expect.any(Object)
+      );
+      expect(mockedExecSync).toHaveBeenCalledWith(
+        'tmux send-keys -t "1.0" Enter',
+        expect.any(Object)
+      );
     });
 
     it('uses pipe stdio to suppress output', () => {
       const tmux = createTmux();
 
-      tmux.send('1.0', 'Hello');
+      tmux.send('1.0', 'Hello', { enterDelayMs: 0 });
 
       expect(mockedExecSync).toHaveBeenCalledWith(expect.any(String), { stdio: 'pipe' });
     });
@@ -236,9 +238,13 @@ describe('createTmux', () => {
       mockedExecSync.mockReturnValue('');
       const tmux = createTmux();
 
-      tmux.send('1.2', 'Hello');
+      tmux.send('1.2', 'Hello', { enterDelayMs: 0 });
       tmux.capture('1.2', 100);
 
+      expect(mockedExecSync).toHaveBeenCalledWith(
+        expect.stringContaining('tmux paste-buffer -b "tmt-'),
+        expect.any(Object)
+      );
       expect(mockedExecSync).toHaveBeenCalledWith(
         expect.stringContaining('-t "1.2"'),
         expect.any(Object)
@@ -249,9 +255,13 @@ describe('createTmux', () => {
       mockedExecSync.mockReturnValue('');
       const tmux = createTmux();
 
-      tmux.send('main:1.2', 'Hello');
+      tmux.send('main:1.2', 'Hello', { enterDelayMs: 0 });
       tmux.capture('main:1.2', 100);
 
+      expect(mockedExecSync).toHaveBeenCalledWith(
+        expect.stringContaining('tmux paste-buffer -b "tmt-'),
+        expect.any(Object)
+      );
       expect(mockedExecSync).toHaveBeenCalledWith(
         expect.stringContaining('-t "main:1.2"'),
         expect.any(Object)
@@ -263,11 +273,11 @@ describe('createTmux', () => {
       const tmux = createTmux();
 
       // Malicious pane ID attempt
-      tmux.send('1.0; rm -rf /', 'Hello');
+      tmux.send('1.0; rm -rf /', 'Hello', { enterDelayMs: 0 });
 
       // Should be quoted and treated as literal string
       expect(mockedExecSync).toHaveBeenCalledWith(
-        'tmux send-keys -t "1.0; rm -rf /" "Hello"',
+        expect.stringContaining('-t "1.0; rm -rf /"'),
         expect.any(Object)
       );
     });

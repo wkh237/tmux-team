@@ -17,8 +17,8 @@ ${colors.yellow('WHAT IS TMUX-TEAM?')}
 ${colors.yellow('CORE CONCEPT')}
 
   Each agent runs in its own tmux pane. When you talk to another agent:
-  1. Your message is sent to their pane via tmux send-keys
-  2. They see it as if a human typed it
+  1. Your message is pasted via a tmux buffer
+  2. tmux-team waits briefly, then sends Enter to submit
   3. You read their response by capturing their pane output
 
 ${colors.yellow('ESSENTIAL COMMANDS')}
@@ -59,7 +59,7 @@ ${colors.yellow('CONFIGURATION')}
   Config file: ${colors.cyan('./tmux-team.json')}
 
   {
-    "$config": { "mode": "wait" },
+    "$config": { "mode": "wait", "pasteEnterDelayMs": 500 },
     "codex": { "pane": "%1", "remark": "Code reviewer" },
     "gemini": { "pane": "%2", "remark": "Documentation" }
   }

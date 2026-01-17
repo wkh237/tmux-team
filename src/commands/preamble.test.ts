@@ -48,7 +48,7 @@ function createDefaultConfig(): ResolvedConfig {
       pollInterval: 1,
       captureLines: 100,
       maxCaptureLines: 2000,
-      preambleEvery: 3,
+      preambleEvery: 3, pasteEnterDelayMs: 500,
     },
     agents: {},
     paneRegistry: {

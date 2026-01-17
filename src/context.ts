@@ -17,7 +17,7 @@ export interface CreateContextOptions {
 export function createContext(options: CreateContextOptions): Context {
   const { argv, flags, cwd = process.cwd() } = options;
 
-  const paths = resolvePaths(cwd);
+  const paths = resolvePaths(cwd, flags.team);
   const config = loadConfig(paths);
   const ui = createUI(flags.json);
   const tmux = createTmux();

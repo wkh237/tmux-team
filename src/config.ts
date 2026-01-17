@@ -17,6 +17,7 @@ import type {
 const CONFIG_FILENAME = 'config.json';
 const LOCAL_CONFIG_FILENAME = 'tmux-team.json';
 const STATE_FILENAME = 'state.json';
+const TEAMS_DIR = 'teams';
 
 // Default configuration values
 const DEFAULT_CONFIG: GlobalConfig = {
@@ -28,6 +29,7 @@ const DEFAULT_CONFIG: GlobalConfig = {
     captureLines: 100,
     maxCaptureLines: 2000, // max lines for final extraction (expandable capture)
     preambleEvery: 3, // inject preamble every N messages
+    pasteEnterDelayMs: 500, // delay after paste before Enter
   },
 };
 
@@ -101,8 +103,36 @@ function findUpward(filename: string, startDir: string): string | null {
   }
 }
 
-export function resolvePaths(cwd: string = process.cwd()): Paths {
+/**
+ * Get the path to a shared team config file.
+ */
+export function getTeamConfigPath(globalDir: string, teamName: string): string {
+  return path.join(globalDir, TEAMS_DIR, `${teamName}.json`);
+}
+
+/**
+ * Ensure the teams directory exists.
+ */
+export function ensureTeamsDir(globalDir: string): void {
+  const teamsDir = path.join(globalDir, TEAMS_DIR);
+  if (!fs.existsSync(teamsDir)) {
+    fs.mkdirSync(teamsDir, { recursive: true });
+  }
+}
+
+export function resolvePaths(cwd: string = process.cwd(), teamName?: string): Paths {
   const globalDir = resolveGlobalDir();
+
+  // If team name is specified, use the shared team config
+  if (teamName) {
+    const teamConfig = getTeamConfigPath(globalDir, teamName);
+    return {
+      globalDir,
+      globalConfig: path.join(globalDir, CONFIG_FILENAME),
+      localConfig: teamConfig,
+      stateFile: path.join(globalDir, STATE_FILENAME),
+    };
+  }
 
   // Search up for local config (like .git discovery)
   const localConfigPath =
@@ -179,6 +209,9 @@ export function loadConfig(paths: Paths): ResolvedConfig {
       if (localSettings.preambleMode) config.preambleMode = localSettings.preambleMode;
       if (localSettings.preambleEvery !== undefined) {
         config.defaults.preambleEvery = localSettings.preambleEvery;
+      }
+      if (localSettings.pasteEnterDelayMs !== undefined) {
+        config.defaults.pasteEnterDelayMs = localSettings.pasteEnterDelayMs;
       }
     }
 

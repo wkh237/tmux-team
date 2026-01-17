@@ -39,8 +39,8 @@ tmux-team list
 
 ## Notes
 
-- `talk` automatically sends Enter key after the message
-- `talk` automatically filters exclamation marks for Gemini (TTY issue)
+- `talk` sends via tmux buffer paste, then waits briefly before Enter
+- Control the delay with `pasteEnterDelayMs` in config (default: 500)
 - Use `--delay` instead of sleep (safer for tool whitelists)
 - Use `--wait` for synchronous request-response patterns
 - Run `tmux-team help` for full CLI documentation

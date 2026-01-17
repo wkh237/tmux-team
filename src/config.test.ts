@@ -206,6 +206,7 @@ describe('loadConfig', () => {
     expect(config.defaults.timeout).toBe(180);
     expect(config.defaults.pollInterval).toBe(1);
     expect(config.defaults.captureLines).toBe(100);
+    expect(config.defaults.pasteEnterDelayMs).toBe(500);
     expect(config.agents).toEqual({});
     expect(config.paneRegistry).toEqual({});
   });

@@ -81,6 +81,7 @@ function createDefaultConfig(): ResolvedConfig {
       captureLines: 100,
       maxCaptureLines: 2000,
       preambleEvery: 3,
+      pasteEnterDelayMs: 500,
     },
     agents: {},
     paneRegistry: {
@@ -238,7 +239,7 @@ describe('buildMessage (via cmdTalk)', () => {
         pollInterval: 0.1,
         captureLines: 100,
         maxCaptureLines: 2000,
-        preambleEvery: 3,
+        preambleEvery: 3, pasteEnterDelayMs: 500,
       },
     };
 
@@ -276,6 +277,7 @@ describe('buildMessage (via cmdTalk)', () => {
         captureLines: 100,
         maxCaptureLines: 2000,
         preambleEvery: 1,
+        pasteEnterDelayMs: 500,
       },
     };
 
@@ -300,6 +302,7 @@ describe('buildMessage (via cmdTalk)', () => {
         captureLines: 100,
         maxCaptureLines: 2000,
         preambleEvery: 0,
+        pasteEnterDelayMs: 500,
       },
     };
 
@@ -425,14 +428,14 @@ describe('cmdTalk - basic send', () => {
     }
   });
 
-  it('removes exclamation marks for gemini agent', async () => {
+  it('preserves exclamation marks for gemini agent', async () => {
     const tmux = createMockTmux();
     const ctx = createContext({ tmux, paths: createTestPaths(testDir) });
 
     await cmdTalk(ctx, 'gemini', 'Hello! This is exciting!');
 
     expect(tmux.sends).toHaveLength(1);
-    expect(tmux.sends[0].message).toBe('Hello This is exciting');
+    expect(tmux.sends[0].message).toBe('Hello! This is exciting!');
   });
 
   it('exits with error for unknown agent', async () => {
@@ -548,7 +551,7 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3,
+          preambleEvery: 3, pasteEnterDelayMs: 500,
         },
       },
     });
@@ -592,7 +595,7 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3,
+          preambleEvery: 3, pasteEnterDelayMs: 500,
         },
       },
     });
@@ -623,7 +626,7 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.02,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3,
+          preambleEvery: 3, pasteEnterDelayMs: 500,
         },
       },
     });
@@ -671,7 +674,7 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3,
+          preambleEvery: 3, pasteEnterDelayMs: 500,
         },
       },
     });
@@ -707,7 +710,7 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3,
+          preambleEvery: 3, pasteEnterDelayMs: 500,
         },
       },
     });
@@ -736,7 +739,7 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3,
+          preambleEvery: 3, pasteEnterDelayMs: 500,
         },
       },
     });
@@ -758,22 +761,19 @@ describe('cmdTalk - --wait mode', () => {
     // Create mock tmux that returns markers for each agent after a delay
     const tmux = createMockTmux();
     let captureCount = 0;
-    const noncesByPane: Record<string, string> = {};
-
-    // Mock send to capture the nonce for each pane
-    tmux.send = (pane: string, msg: string) => {
-      const match = msg.match(INSTRUCTION_NONCE_REGEX);
-      if (match) {
-        noncesByPane[pane] = match[1];
-      }
+    const getNonceForPane = (pane: string): string | undefined => {
+      const sent = tmux.sends.find((s) => s.pane === pane)?.message ?? '';
+      const match = String(sent).match(INSTRUCTION_NONCE_REGEX);
+      return match?.[1];
     };
 
     // Mock capture to return complete response after first poll
     tmux.capture = (pane: string) => {
       captureCount++;
       // Return complete response on second capture for each pane
-      if (captureCount > 3 && noncesByPane[pane]) {
-        return mockCompleteResponse(noncesByPane[pane], 'Response from agent');
+      const nonce = getNonceForPane(pane);
+      if (captureCount > 3 && nonce) {
+        return mockCompleteResponse(nonce, 'Response from agent');
       }
       return 'working...';
     };
@@ -791,7 +791,7 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.05,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3,
+          preambleEvery: 3, pasteEnterDelayMs: 500,
         },
         paneRegistry: {
           codex: { pane: '10.1' },
@@ -808,19 +808,17 @@ describe('cmdTalk - --wait mode', () => {
 
   it('handles partial timeout in wait mode with all target', async () => {
     const tmux = createMockTmux();
-    const noncesByPane: Record<string, string> = {};
-
-    tmux.send = (pane: string, msg: string) => {
-      const match = msg.match(INSTRUCTION_NONCE_REGEX);
-      if (match) {
-        noncesByPane[pane] = match[1];
-      }
+    const getNonceForPane = (pane: string): string | undefined => {
+      const sent = tmux.sends.find((s) => s.pane === pane)?.message ?? '';
+      const match = String(sent).match(INSTRUCTION_NONCE_REGEX);
+      return match?.[1];
     };
 
     // Only pane 10.1 responds with end marker, 10.2 never has end marker
     tmux.capture = (pane: string) => {
-      if (pane === '10.1' && noncesByPane[pane]) {
-        return mockCompleteResponse(noncesByPane[pane], 'Response from codex');
+      const nonce = getNonceForPane(pane);
+      if (pane === '10.1' && nonce) {
+        return mockCompleteResponse(nonce, 'Response from codex');
       }
       // gemini has no end marker - still typing
       return 'still working...';
@@ -839,7 +837,7 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.02,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3,
+          preambleEvery: 3, pasteEnterDelayMs: 500,
         },
         paneRegistry: {
           codex: { pane: '10.1' },
@@ -868,18 +866,15 @@ describe('cmdTalk - --wait mode', () => {
 
   it('uses unique nonces per agent in broadcast', async () => {
     const tmux = createMockTmux();
-    const nonces: string[] = [];
-
-    tmux.send = (_pane: string, msg: string) => {
-      const match = msg.match(INSTRUCTION_NONCE_REGEX);
-      if (match) {
-        nonces.push(match[1]);
-      }
-    };
+    const getNonces = (): string[] =>
+      tmux.sends
+        .map((s) => String(s.message).match(INSTRUCTION_NONCE_REGEX)?.[1])
+        .filter((nonce): nonce is string => Boolean(nonce));
 
     // Return complete response immediately
     tmux.capture = (pane: string) => {
       const idx = pane === '10.1' ? 0 : 1;
+      const nonces = getNonces();
       if (nonces[idx]) {
         return mockCompleteResponse(nonces[idx], 'Response');
       }
@@ -897,7 +892,7 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.02,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3,
+          preambleEvery: 3, pasteEnterDelayMs: 500,
         },
         paneRegistry: {
           codex: { pane: '10.1' },
@@ -909,6 +904,7 @@ describe('cmdTalk - --wait mode', () => {
     await cmdTalk(ctx, 'all', 'Hello');
 
     // Each agent should have a unique nonce
+    const nonces = getNonces();
     expect(nonces.length).toBe(2);
     expect(nonces[0]).not.toBe(nonces[1]);
   });
@@ -1007,7 +1003,7 @@ describe('cmdTalk - nonce collision handling', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3,
+          preambleEvery: 3, pasteEnterDelayMs: 500,
         },
       },
     });
@@ -1062,7 +1058,7 @@ describe('cmdTalk - JSON output contract', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3,
+          preambleEvery: 3, pasteEnterDelayMs: 500,
         },
       },
     });
@@ -1103,7 +1099,7 @@ describe('cmdTalk - JSON output contract', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3,
+          preambleEvery: 3, pasteEnterDelayMs: 500,
         },
       },
     });
@@ -1145,7 +1141,7 @@ describe('cmdTalk - JSON output contract', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3,
+          preambleEvery: 3, pasteEnterDelayMs: 500,
         },
       },
     });
@@ -1182,7 +1178,7 @@ describe('cmdTalk - JSON output contract', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3,
+          preambleEvery: 3, pasteEnterDelayMs: 500,
         },
       },
     });
@@ -1202,17 +1198,16 @@ describe('cmdTalk - JSON output contract', () => {
   it('handles broadcast with mixed completion and timeout', async () => {
     const tmux = createMockTmux();
     const ui = createMockUI();
-    const markersByPane: Record<string, string> = {};
-
-    tmux.send = (pane: string, msg: string) => {
-      const match = msg.match(INSTRUCTION_NONCE_REGEX);
-      if (match) markersByPane[pane] = match[1];
+    const getNonceForPane = (pane: string): string | undefined => {
+      const sent = tmux.sends.find((s) => s.pane === pane)?.message ?? '';
+      const match = String(sent).match(INSTRUCTION_NONCE_REGEX);
+      return match?.[1];
     };
 
     // codex completes with end marker, gemini has no end marker (still typing)
     tmux.capture = (pane: string) => {
       if (pane === '10.1') {
-        const nonce = markersByPane['10.1'];
+        const nonce = getNonceForPane('10.1');
         const endMarker = `RESPONSE-END-${nonce}`;
         // Complete response with end marker
         return `Response\n${endMarker}`;
@@ -1233,7 +1228,7 @@ describe('cmdTalk - JSON output contract', () => {
           pollInterval: 0.02,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3,
+          preambleEvery: 3, pasteEnterDelayMs: 500,
         },
         paneRegistry: {
           codex: { pane: '10.1' },
@@ -1315,7 +1310,7 @@ describe('cmdTalk - end marker detection', () => {
       ui,
       paths: createTestPaths(testDir),
       flags: { wait: true, json: true, timeout: 0.5 },
-      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3 } },
+      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3, pasteEnterDelayMs: 500 } },
     });
 
     await cmdTalk(ctx, 'claude', 'Test message');
@@ -1349,7 +1344,7 @@ describe('cmdTalk - end marker detection', () => {
       ui,
       paths: createTestPaths(testDir),
       flags: { wait: true, json: true, timeout: 0.5 },
-      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3 } },
+      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3, pasteEnterDelayMs: 500 } },
     });
 
     await cmdTalk(ctx, 'claude', 'Test');
@@ -1383,7 +1378,7 @@ Line 4 final`;
       ui,
       paths: createTestPaths(testDir),
       flags: { wait: true, json: true, timeout: 0.5 },
-      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3 } },
+      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3, pasteEnterDelayMs: 500 } },
     });
 
     await cmdTalk(ctx, 'claude', 'Test');
@@ -1414,7 +1409,7 @@ Line 4 final`;
       ui,
       paths: createTestPaths(testDir),
       flags: { wait: true, json: true, timeout: 0.5 },
-      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3 } },
+      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3, pasteEnterDelayMs: 500 } },
     });
 
     await cmdTalk(ctx, 'claude', 'Test');
@@ -1451,7 +1446,7 @@ Line 4 final`;
       ui,
       paths: createTestPaths(testDir),
       flags: { wait: true, json: true, timeout: 0.5 },
-      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3 } },
+      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3, pasteEnterDelayMs: 500 } },
     });
 
     await cmdTalk(ctx, 'claude', 'Test');
@@ -1487,7 +1482,7 @@ Line 4 final`;
       ui,
       paths: createTestPaths(testDir),
       flags: { wait: true, json: true, timeout: 0.5 },
-      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 200, maxCaptureLines: 2000, preambleEvery: 3 } },
+      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 200, maxCaptureLines: 2000, preambleEvery: 3, pasteEnterDelayMs: 500 } },
     });
 
     await cmdTalk(ctx, 'claude', 'Test');

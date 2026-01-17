@@ -54,7 +54,7 @@ function createCtx(
   const baseConfig: ResolvedConfig = {
     mode: 'polling',
     preambleMode: 'always',
-    defaults: { timeout: 180, pollInterval: 1, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3 },
+    defaults: { timeout: 180, pollInterval: 1, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3, pasteEnterDelayMs: 500 },
     agents: {},
     paneRegistry: {},
     ...overrides?.config,
@@ -355,7 +355,9 @@ describe('basic commands', () => {
   it('cmdConfig clear errors on invalid key', () => {
     const ctx = createCtx(testDir);
     expect(() => cmdConfig(ctx, ['clear', 'invalidkey'])).toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(ctx.ui.error).toHaveBeenCalledWith('Invalid key: invalidkey. Valid keys: mode, preambleMode, preambleEvery');
+    expect(ctx.ui.error).toHaveBeenCalledWith(
+      'Invalid key: invalidkey. Valid keys: mode, preambleMode, preambleEvery, pasteEnterDelayMs'
+    );
   });
 
   it('cmdCompletion prints scripts', () => {

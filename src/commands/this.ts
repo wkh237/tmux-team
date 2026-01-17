@@ -12,7 +12,7 @@ export function cmdThis(ctx: Context, name: string, remark?: string): void {
   const currentPaneId = tmux.getCurrentPaneId();
   if (!currentPaneId) {
     ui.error('Not running inside tmux.');
-    exit(ExitCodes.ERROR);
+    return exit(ExitCodes.ERROR);
   }
 
   // Reuse existing add logic

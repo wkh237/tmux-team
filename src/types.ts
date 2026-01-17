@@ -20,6 +20,7 @@ export interface ConfigDefaults {
   captureLines: number;
   maxCaptureLines: number; // max lines for final extraction (default: 2000)
   preambleEvery: number; // inject preamble every N messages (default: 3)
+  pasteEnterDelayMs: number; // delay after paste before Enter (default: 500)
 }
 
 export interface GlobalConfig {
@@ -32,6 +33,7 @@ export interface LocalSettings {
   mode?: 'polling' | 'wait';
   preambleMode?: 'always' | 'disabled';
   preambleEvery?: number; // local override for preamble frequency
+  pasteEnterDelayMs?: number; // local override for paste-enter delay
 }
 
 export interface LocalConfigFile {
@@ -62,6 +64,7 @@ export interface Flags {
   timeout?: number; // seconds
   lines?: number; // lines to capture before end marker
   noPreamble?: boolean;
+  team?: string; // shared team name for cross-folder collaboration
 }
 
 export interface Paths {
@@ -87,7 +90,7 @@ export interface PaneInfo {
 }
 
 export interface Tmux {
-  send: (paneId: string, message: string) => void;
+  send: (paneId: string, message: string, options?: { enterDelayMs?: number }) => void;
   capture: (paneId: string, lines: number) => string;
   listPanes: () => PaneInfo[];
   getCurrentPaneId: () => string | null;

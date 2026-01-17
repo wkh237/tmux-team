@@ -1,8 +1,9 @@
 // ─────────────────────────────────────────────────────────────
-// Pure tmux wrapper - send-keys, capture-pane, pane detection
+// Pure tmux wrapper - buffer paste, capture-pane, pane detection
 // ─────────────────────────────────────────────────────────────
 
 import { execSync } from 'child_process';
+import crypto from 'crypto';
 import type { Tmux, PaneInfo } from './types.js';
 
 // Known agent patterns for auto-detection
@@ -27,14 +28,54 @@ function detectAgentName(command: string): string | null {
 }
 
 export function createTmux(): Tmux {
+  function sleepMs(ms: number): void {
+    if (ms <= 0) return;
+    const buffer = new SharedArrayBuffer(4);
+    const view = new Int32Array(buffer);
+    Atomics.wait(view, 0, 0, ms);
+  }
+
+  function ensureTrailingNewline(message: string): string {
+    return message.endsWith('\n') ? message : `${message}\n`;
+  }
+
+  function escapeExclamation(message: string): string {
+    // Replace "!" with fullwidth "！" (U+FF01) to avoid shell history expansion
+    return message.replace(/!/g, '\uff01');
+  }
+
+  function makeBufferName(): string {
+    const nonce = crypto.randomBytes(4).toString('hex');
+    return `tmt-${process.pid}-${Date.now()}-${nonce}`;
+  }
+
   return {
-    send(paneId: string, message: string): void {
-      execSync(`tmux send-keys -t "${paneId}" ${JSON.stringify(message)}`, {
-        stdio: 'pipe',
-      });
-      execSync(`tmux send-keys -t "${paneId}" Enter`, {
-        stdio: 'pipe',
-      });
+    send(paneId: string, message: string, options?: { enterDelayMs?: number }): void {
+      const enterDelayMs = Math.max(0, options?.enterDelayMs ?? 500);
+      const bufferName = makeBufferName();
+      const escaped = escapeExclamation(message);
+      const payload = ensureTrailingNewline(escaped);
+
+      try {
+        execSync(`tmux set-buffer -b "${bufferName}" -- ${JSON.stringify(payload)}`, {
+          stdio: 'pipe',
+        });
+        execSync(`tmux paste-buffer -b "${bufferName}" -d -t "${paneId}" -p`, {
+          stdio: 'pipe',
+        });
+        sleepMs(enterDelayMs);
+        execSync(`tmux send-keys -t "${paneId}" Enter`, {
+          stdio: 'pipe',
+        });
+      } catch {
+        // Fallback to legacy send-keys if buffer/paste fails
+        execSync(`tmux send-keys -t "${paneId}" ${JSON.stringify(message)}`, {
+          stdio: 'pipe',
+        });
+        execSync(`tmux send-keys -t "${paneId}" Enter`, {
+          stdio: 'pipe',
+        });
+      }
     },
 
     capture(paneId: string, lines: number): string {

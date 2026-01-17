@@ -59,6 +59,10 @@ function parseArgs(argv: string[]): { command: string; args: string[]; flags: Fl
       flags.lines = parseInt(argv[++i], 10) || 100;
     } else if (arg === '--no-preamble') {
       flags.noPreamble = true;
+    } else if (arg === '--team') {
+      flags.team = argv[++i];
+    } else if (arg.startsWith('--team=')) {
+      flags.team = arg.slice(7);
     } else if (arg.startsWith('--pane=')) {
       // Handled in update command
       positional.push(arg);

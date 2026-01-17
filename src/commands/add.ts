@@ -5,16 +5,25 @@
 import fs from 'fs';
 import type { Context, PaneEntry } from '../types.js';
 import { ExitCodes } from '../exits.js';
-import { loadLocalConfigFile, saveLocalConfigFile } from '../config.js';
+import { loadLocalConfigFile, saveLocalConfigFile, ensureTeamsDir } from '../config.js';
 
 export function cmdAdd(ctx: Context, name: string, pane: string, remark?: string): void {
   const { ui, config, paths, flags, exit } = ctx;
+
+  // Ensure teams directory exists if using --team
+  if (flags.team) {
+    ensureTeamsDir(paths.globalDir);
+  }
 
   // Create config file if it doesn't exist
   if (!fs.existsSync(paths.localConfig)) {
     fs.writeFileSync(paths.localConfig, '{}\n');
     if (!flags.json) {
-      ui.info(`Created ${paths.localConfig}`);
+      if (flags.team) {
+        ui.info(`Created shared team "${flags.team}"`);
+      } else {
+        ui.info(`Created ${paths.localConfig}`);
+      }
     }
   }
 
@@ -35,8 +44,12 @@ export function cmdAdd(ctx: Context, name: string, pane: string, remark?: string
   saveLocalConfigFile(paths, localConfig);
 
   if (flags.json) {
-    ui.json({ added: name, pane, remark });
+    ui.json({ added: name, pane, remark, team: flags.team });
   } else {
-    ui.success(`Added agent '${name}' at pane ${pane}`);
+    if (flags.team) {
+      ui.success(`Added agent '${name}' to team "${flags.team}" at pane ${pane}`);
+    } else {
+      ui.success(`Added agent '${name}' at pane ${pane}`);
+    }
   }
 }
