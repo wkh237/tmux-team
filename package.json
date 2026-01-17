@@ -1,6 +1,6 @@
 {
   "name": "tmux-team",
-  "version": "4.0.0-beta.1",
+  "version": "4.0.0",
   "description": "CLI tool for AI agent collaboration in tmux - manage cross-pane communication",
   "type": "module",
   "bin": {
