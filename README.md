@@ -54,7 +54,7 @@ Find pane IDs with: `tmux display-message -p "#{pane_id}"`
 | `check <agent> [lines]` | Read agent's pane output |
 | `list` | Show configured agents |
 | `migrate [--dry-run]` | Copy legacy `tmux-team.json` entries into tmux metadata |
-| `team ls` / `team rm <team>` | Manage explicit shared teams |
+| `team ls` / `team rm <team>` | Inspect pane scopes and manage explicit shared teams |
 | `learn` | Show educational guide |
 
 **Options for `talk`:**
@@ -82,6 +82,15 @@ usual same-folder workflow does not need `--team`.
 **List** - Show configured agents:
 ```bash
 tmt ls
+```
+
+**Inspect tmux panes** - Show every tmux pane, its `session:window.pane`
+target, cwd, and workspace/team registrations:
+
+```bash
+tmt team ls
+tmt team ls --json
+tmt team ls --summary   # shared-team aggregate only
 ```
 
 **Add from another pane** - Pane targets can be `%pane_id`, `window.pane`, or

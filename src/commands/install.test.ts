@@ -48,6 +48,7 @@ function createCtx(testDir: string, overrides?: Partial<{ flags: Partial<Flags> 
     setAgentRegistration: vi.fn(),
     clearAgentRegistration: vi.fn(() => false),
     listTeams: vi.fn(() => ({})),
+    listTeamPanes: vi.fn(() => []),
     removeTeam: vi.fn(() => ({ removed: 0, agents: [] })),
   };
   return {

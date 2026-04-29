@@ -10,6 +10,7 @@ import type {
   Tmux,
   PaneInfo,
   RegistryScope,
+  TeamPaneInfo,
   TmuxRegistry,
 } from './types.js';
 
@@ -143,6 +144,44 @@ function registryFromPanes(panes: PaneInfo[], scope: RegistryScope): TmuxRegistr
   return { paneRegistry, agents };
 }
 
+function teamPaneInfoFromPane(pane: PaneInfo): TeamPaneInfo {
+  const registrations: TeamPaneInfo['registrations'] = [];
+
+  for (const [workspaceRoot, registration] of Object.entries(pane.metadata?.workspaces ?? {})) {
+    registrations.push({
+      scopeType: 'workspace',
+      scope: workspaceRoot,
+      agent: registration.name,
+      ...(registration.remark !== undefined && { remark: registration.remark }),
+    });
+  }
+
+  for (const [teamName, registration] of Object.entries(pane.metadata?.teams ?? {})) {
+    registrations.push({
+      scopeType: 'team',
+      scope: teamName,
+      agent: registration.name,
+      ...(registration.remark !== undefined && { remark: registration.remark }),
+    });
+  }
+
+  registrations.sort(
+    (a, b) =>
+      a.scopeType.localeCompare(b.scopeType) ||
+      a.scope.localeCompare(b.scope) ||
+      a.agent.localeCompare(b.agent)
+  );
+
+  return {
+    pane: pane.id,
+    ...(pane.target && { target: pane.target }),
+    ...(pane.cwd && { cwd: pane.cwd }),
+    command: pane.command,
+    suggestedName: pane.suggestedName,
+    registrations,
+  };
+}
+
 export function createTmux(): Tmux {
   function sleepMs(ms: number): void {
     if (ms <= 0) return;
@@ -204,9 +243,9 @@ export function createTmux(): Tmux {
 
     listPanes(): PaneInfo[] {
       try {
-        // Get all panes with their IDs, current commands, and tmux-team metadata.
+        // Get all panes with stable IDs, human tmux targets, cwd, commands, and tmux-team metadata.
         const output = execSync(
-          `tmux list-panes -a -F "#{pane_id}\t#{pane_current_command}\t#{${AGENT_METADATA_OPTION}}"`,
+          `tmux list-panes -a -F "#{pane_id}\t#{session_name}:#{window_index}.#{pane_index}\t#{pane_current_path}\t#{pane_current_command}\t#{${AGENT_METADATA_OPTION}}"`,
           {
             encoding: 'utf-8',
             stdio: ['pipe', 'pipe', 'pipe'],
@@ -215,14 +254,19 @@ export function createTmux(): Tmux {
 
         const seen = new Set<string>();
         return output
-          .trim()
           .split('\n')
           .filter((line) => line.trim())
           .map((line) => {
-            const [id, command, metadataText = ''] = line.split('\t');
+            const fields = line.split('\t');
+            const [id, target, cwd, command, metadataText = ''] =
+              fields.length >= 5
+                ? fields
+                : [fields[0], undefined, undefined, fields[1] ?? '', fields[2] ?? ''];
             const metadata = safeParseMetadata(metadataText);
             return {
               id: id || '',
+              ...(target && { target }),
+              ...(cwd && { cwd }),
               command: command || '',
               suggestedName: detectAgentName(command || ''),
               ...(metadata && { metadata }),
@@ -307,6 +351,10 @@ export function createTmux(): Tmux {
       return Object.fromEntries(
         Object.entries(teams).map(([teamName, agents]) => [teamName, [...agents].sort()])
       );
+    },
+
+    listTeamPanes(): TeamPaneInfo[] {
+      return this.listPanes().map(teamPaneInfoFromPane);
     },
 
     removeTeam(teamName: string): { removed: number; agents: string[] } {

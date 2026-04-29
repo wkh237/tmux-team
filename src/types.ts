@@ -105,9 +105,27 @@ export interface UI {
 
 export interface PaneInfo {
   id: string; // e.g., "%1"
+  target?: string; // e.g., "main:1.0"
+  cwd?: string; // pane_current_path
   command: string; // e.g., "node", "python", "zsh"
   suggestedName: string | null; // e.g., "codex" if detected from command
   metadata?: PaneAgentMetadata;
+}
+
+export interface TeamPaneRegistration {
+  scopeType: 'workspace' | 'team';
+  scope: string;
+  agent: string;
+  remark?: string;
+}
+
+export interface TeamPaneInfo {
+  pane: string;
+  target?: string;
+  cwd?: string;
+  command: string;
+  suggestedName: string | null;
+  registrations: TeamPaneRegistration[];
 }
 
 export interface Tmux {
@@ -124,6 +142,7 @@ export interface Tmux {
   ) => void;
   clearAgentRegistration: (name: string, scope: RegistryScope) => boolean;
   listTeams: () => Record<string, string[]>;
+  listTeamPanes: () => TeamPaneInfo[];
   removeTeam: (teamName: string) => { removed: number; agents: string[] };
 }
 

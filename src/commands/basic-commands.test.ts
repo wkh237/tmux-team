@@ -45,6 +45,7 @@ function createMockTmux(): Tmux {
     setAgentRegistration: vi.fn(),
     clearAgentRegistration: vi.fn(() => false),
     listTeams: vi.fn(() => ({})),
+    listTeamPanes: vi.fn(() => []),
     removeTeam: vi.fn(() => ({ removed: 0, agents: [] })),
   };
 }
@@ -467,24 +468,63 @@ describe('basic commands', () => {
     expect(ctx.ui.info).toHaveBeenCalledWith(`No legacy agents found in ${ctx.paths.localConfig}`);
   });
 
-  it('cmdTeam lists shared teams', () => {
+  it('cmdTeam lists all pane team/workspace scopes', () => {
     const ctx = createCtx(testDir, { flags: { json: true } });
     (ctx.tmux.listTeams as ReturnType<typeof vi.fn>).mockReturnValue({
       egp: ['claude', 'codex'],
     });
+    (ctx.tmux.listTeamPanes as ReturnType<typeof vi.fn>).mockReturnValue([
+      {
+        pane: '%1',
+        target: 'main:1.0',
+        cwd: '/repo',
+        command: 'claude',
+        suggestedName: 'claude',
+        registrations: [
+          { scopeType: 'workspace', scope: '/repo', agent: 'claude', remark: 'lead' },
+          { scopeType: 'team', scope: 'egp', agent: 'claude' },
+        ],
+      },
+    ]);
 
     cmdTeam(ctx, ['ls']);
 
-    expect((ctx.ui as any).jsonCalls).toEqual([{ teams: { egp: ['claude', 'codex'] } }]);
+    expect((ctx.ui as any).jsonCalls).toEqual([
+      {
+        teams: { egp: ['claude', 'codex'] },
+        panes: [
+          {
+            pane: '%1',
+            target: 'main:1.0',
+            cwd: '/repo',
+            command: 'claude',
+            suggestedName: 'claude',
+            registrations: [
+              { scopeType: 'workspace', scope: '/repo', agent: 'claude', remark: 'lead' },
+              { scopeType: 'team', scope: 'egp', agent: 'claude' },
+            ],
+          },
+        ],
+      },
+    ]);
   });
 
   it('cmdTeam shows empty state and errors on unknown subcommands', () => {
     const ctx = createCtx(testDir);
 
     cmdTeam(ctx, ['ls']);
-    expect(ctx.ui.info).toHaveBeenCalledWith('No shared teams found.');
+    expect(ctx.ui.info).toHaveBeenCalledWith('No tmux panes found.');
 
     expect(() => cmdTeam(ctx, ['wat'])).toThrow(`exit(${ExitCodes.ERROR})`);
+  });
+
+  it('cmdTeam summary keeps shared-team aggregate view', () => {
+    const ctx = createCtx(testDir);
+    (ctx.tmux.listTeams as ReturnType<typeof vi.fn>).mockReturnValue({ egp: ['claude'] });
+
+    cmdTeam(ctx, ['ls', '--summary']);
+
+    expect(ctx.ui.table).toHaveBeenCalledWith(['TEAM', 'AGENTS'], [['egp', 'claude']]);
   });
 
   it('cmdTeam rm supports dry-run and force removal', () => {

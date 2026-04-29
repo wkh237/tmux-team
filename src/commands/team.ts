@@ -1,8 +1,8 @@
 // ─────────────────────────────────────────────────────────────
-// team command - manage explicit shared teams
+// team command - inspect pane team/workspace scope and manage explicit shared teams
 // ─────────────────────────────────────────────────────────────
 
-import type { Context } from '../types.js';
+import type { Context, TeamPaneInfo, TeamPaneRegistration } from '../types.js';
 import { ExitCodes } from '../exits.js';
 
 export function cmdTeam(ctx: Context, args: string[]): void {
@@ -11,7 +11,7 @@ export function cmdTeam(ctx: Context, args: string[]): void {
   switch (subcommand) {
     case 'ls':
     case 'list':
-      listTeams(ctx);
+      listTeams(ctx, args.slice(1));
       break;
     case 'rm':
     case 'remove':
@@ -19,29 +19,70 @@ export function cmdTeam(ctx: Context, args: string[]): void {
       break;
     default:
       ctx.ui.error(`Unknown team subcommand: ${subcommand}`);
-      ctx.ui.error('Usage: tmux-team team [ls|rm <team> --force]');
+      ctx.ui.error('Usage: tmux-team team [ls [--summary]|rm <team> --force]');
       ctx.exit(ExitCodes.ERROR);
   }
 }
 
-function listTeams(ctx: Context): void {
+function listTeams(ctx: Context, args: string[]): void {
   const teams = ctx.tmux.listTeams();
-  const rows = Object.entries(teams).sort(([a], [b]) => a.localeCompare(b));
+  const panes = ctx.tmux.listTeamPanes();
+  const summaryOnly = args.includes('--summary');
 
   if (ctx.flags.json) {
-    ctx.ui.json({ teams });
+    ctx.ui.json({ teams, panes });
     return;
   }
 
+  if (summaryOnly) {
+    const rows = Object.entries(teams).sort(([a], [b]) => a.localeCompare(b));
+    if (rows.length === 0) {
+      ctx.ui.info('No shared teams found.');
+      return;
+    }
+    ctx.ui.table(
+      ['TEAM', 'AGENTS'],
+      rows.map(([teamName, agents]) => [teamName, agents.join(', ') || '-'])
+    );
+    return;
+  }
+
+  const rows = panesToRows(panes);
   if (rows.length === 0) {
-    ctx.ui.info('No shared teams found.');
+    ctx.ui.info('No tmux panes found.');
     return;
   }
 
-  ctx.ui.table(
-    ['TEAM', 'AGENTS'],
-    rows.map(([teamName, agents]) => [teamName, agents.join(', ') || '-'])
-  );
+  ctx.ui.table(['PANE', 'TARGET', 'AGENT', 'SCOPE', 'CWD', 'CMD'], rows);
+}
+
+function panesToRows(panes: TeamPaneInfo[]): string[][] {
+  return panes.flatMap((pane) => {
+    const registrations: Partial<TeamPaneRegistration>[] = pane.registrations.length
+      ? pane.registrations
+      : [{ scope: '-', agent: '-' }];
+
+    return registrations.map((registration) => [
+      pane.pane,
+      pane.target ?? '-',
+      formatAgent(registration),
+      formatScope(registration),
+      pane.cwd ?? '-',
+      pane.command || '-',
+    ]);
+  });
+}
+
+function formatAgent(registration: Partial<TeamPaneRegistration>): string {
+  if (!registration.agent || registration.agent === '-') return '-';
+  return registration.remark
+    ? `${registration.agent} (${registration.remark})`
+    : registration.agent;
+}
+
+function formatScope(registration: Partial<TeamPaneRegistration>): string {
+  if (!registration.scopeType || !registration.scope) return '-';
+  return `${registration.scopeType}:${registration.scope}`;
 }
 
 function removeTeam(ctx: Context, args: string[]): void {

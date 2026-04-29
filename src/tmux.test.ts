@@ -219,6 +219,21 @@ describe('createTmux', () => {
       });
     });
 
+    it('parses pane target and cwd from modern list-panes output', () => {
+      mockedExecSync.mockReturnValue('%1\tmain:2.0\t/repo\tcodex\t{"version":1}\n');
+      const tmux = createTmux();
+      expect(tmux.listPanes()).toEqual([
+        {
+          id: '%1',
+          target: 'main:2.0',
+          cwd: '/repo',
+          command: 'codex',
+          suggestedName: 'codex',
+          metadata: { version: 1 },
+        },
+      ]);
+    });
+
     it('builds team registries and agent config from metadata', () => {
       mockedExecSync.mockReturnValue(
         '%1\tcodex\t{"version":1,"teams":{"egp":{"name":"codex","preamble":"Be strict","deny":["x"]}}}\n'
@@ -356,6 +371,34 @@ describe('createTmux', () => {
       );
       const tmux = createTmux();
       expect(tmux.listTeams()).toEqual({ checkout: ['claude'], egp: ['codex'] });
+    });
+
+    it('lists pane team and workspace details', () => {
+      mockedExecSync.mockReturnValue(
+        '%1\tmain:1.0\t/repo\tclaude\t{"version":1,"workspaces":{"/repo":{"name":"claude","remark":"lead"}},"teams":{"egp":{"name":"reviewer"}}}\n%2\tmain:1.1\t/tmp\tzsh\t\n'
+      );
+      const tmux = createTmux();
+      expect(tmux.listTeamPanes()).toEqual([
+        {
+          pane: '%1',
+          target: 'main:1.0',
+          cwd: '/repo',
+          command: 'claude',
+          suggestedName: 'claude',
+          registrations: [
+            { scopeType: 'team', scope: 'egp', agent: 'reviewer' },
+            { scopeType: 'workspace', scope: '/repo', agent: 'claude', remark: 'lead' },
+          ],
+        },
+        {
+          pane: '%2',
+          target: 'main:1.1',
+          cwd: '/tmp',
+          command: 'zsh',
+          suggestedName: null,
+          registrations: [],
+        },
+      ]);
     });
 
     it('removes one team while preserving other registrations', () => {

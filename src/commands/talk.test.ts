@@ -56,6 +56,9 @@ function createMockTmux(): Tmux & {
     listTeams() {
       return {};
     },
+    listTeamPanes() {
+      return [];
+    },
     removeTeam() {
       return { removed: 0, agents: [] };
     },

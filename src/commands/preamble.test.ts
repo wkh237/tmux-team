@@ -75,6 +75,7 @@ function createMockTmux(): Tmux {
     setAgentRegistration: vi.fn(),
     clearAgentRegistration: vi.fn(() => false),
     listTeams: vi.fn(() => ({})),
+    listTeamPanes: vi.fn(() => []),
     removeTeam: vi.fn(() => ({ removed: 0, agents: [] })),
   };
 }
