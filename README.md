@@ -84,14 +84,18 @@ usual same-folder workflow does not need `--team`.
 tmt ls
 ```
 
-**Inspect tmux panes** - Show every tmux pane, its `session:window.pane`
-target, cwd, and workspace/team registrations:
+**Inspect tmux panes** - Show every tmux pane grouped by shared team,
+workspace, or unregistered status. Each group lists `session:window.pane`,
+cwd, and command:
 
 ```bash
 tmt team ls
 tmt team ls --json
 tmt team ls --summary   # shared-team aggregate only
 ```
+
+The table is grouped by scope: shared teams first, workspace registrations
+next, and unregistered panes last.
 
 **Add from another pane** - Pane targets can be `%pane_id`, `window.pane`, or
 `session:window.pane`; tmux-team stores the canonical `%pane_id`.

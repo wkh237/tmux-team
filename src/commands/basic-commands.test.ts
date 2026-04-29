@@ -527,6 +527,67 @@ describe('basic commands', () => {
     expect(ctx.ui.table).toHaveBeenCalledWith(['TEAM', 'AGENTS'], [['egp', 'claude']]);
   });
 
+  it('cmdTeam table groups by team/workspace scope before pane order', () => {
+    const ctx = createCtx(testDir);
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    (ctx.tmux.listTeamPanes as ReturnType<typeof vi.fn>).mockReturnValue([
+      {
+        pane: '%3',
+        target: 'main:3.0',
+        cwd: '/tmp',
+        command: 'zsh',
+        suggestedName: null,
+        registrations: [],
+      },
+      {
+        pane: '%1',
+        target: 'main:1.0',
+        cwd: '/repo',
+        command: 'claude',
+        suggestedName: 'claude',
+        registrations: [{ scopeType: 'workspace', scope: '/repo', agent: 'claude' }],
+      },
+      {
+        pane: '%2',
+        target: 'main:2.0',
+        cwd: '/repo',
+        command: 'codex',
+        suggestedName: 'codex',
+        registrations: [{ scopeType: 'team', scope: 'beta', agent: 'codex' }],
+      },
+      {
+        pane: '%4',
+        target: 'main:4.0',
+        cwd: '/repo',
+        command: 'gemini',
+        suggestedName: 'gemini',
+        registrations: [{ scopeType: 'team', scope: 'alpha', agent: 'gemini' }],
+      },
+    ]);
+
+    cmdTeam(ctx, ['ls']);
+
+    expect(logSpy.mock.calls.map((call) => call[0])).toEqual([
+      'Team: alpha (gemini)',
+      '',
+      'Team: beta (codex)',
+      '',
+      'Workspace: /repo (claude)',
+      '',
+      'Unregistered panes',
+    ]);
+    expect((ctx.ui.table as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0])).toEqual([
+      ['PANE', 'TARGET', 'CWD', 'CMD'],
+      ['PANE', 'TARGET', 'CWD', 'CMD'],
+      ['PANE', 'TARGET', 'CWD', 'CMD'],
+      ['PANE', 'TARGET', 'CWD', 'CMD'],
+    ]);
+    expect((ctx.ui.table as ReturnType<typeof vi.fn>).mock.calls[0][1]).toEqual([
+      ['%4', 'main:4.0', '/repo', 'gemini'],
+    ]);
+    logSpy.mockRestore();
+  });
+
   it('cmdTeam rm supports dry-run and force removal', () => {
     const ctx = createCtx(testDir);
     (ctx.tmux.listTeams as ReturnType<typeof vi.fn>).mockReturnValue({

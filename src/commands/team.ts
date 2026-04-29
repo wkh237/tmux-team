@@ -47,42 +47,86 @@ function listTeams(ctx: Context, args: string[]): void {
     return;
   }
 
-  const rows = panesToRows(panes);
-  if (rows.length === 0) {
+  const groups = panesToGroups(panes);
+  if (groups.length === 0) {
     ctx.ui.info('No tmux panes found.');
     return;
   }
 
-  ctx.ui.table(['PANE', 'TARGET', 'AGENT', 'SCOPE', 'CWD', 'CMD'], rows);
+  for (const [index, group] of groups.entries()) {
+    if (index > 0) console.log('');
+    console.log(group.title);
+    ctx.ui.table(['PANE', 'TARGET', 'CWD', 'CMD'], group.rows);
+  }
 }
 
-function panesToRows(panes: TeamPaneInfo[]): string[][] {
-  return panes.flatMap((pane) => {
-    const registrations: Partial<TeamPaneRegistration>[] = pane.registrations.length
-      ? pane.registrations
-      : [{ scope: '-', agent: '-' }];
-
-    return registrations.map((registration) => [
-      pane.pane,
-      pane.target ?? '-',
-      formatAgent(registration),
-      formatScope(registration),
-      pane.cwd ?? '-',
-      pane.command || '-',
-    ]);
-  });
+interface PaneGroup {
+  key: string;
+  title: string;
+  agents: Set<string>;
+  rows: string[][];
 }
 
-function formatAgent(registration: Partial<TeamPaneRegistration>): string {
-  if (!registration.agent || registration.agent === '-') return '-';
+function panesToGroups(panes: TeamPaneInfo[]): PaneGroup[] {
+  const groups = new Map<string, PaneGroup>();
+
+  for (const pane of panes) {
+    if (pane.registrations.length === 0) {
+      addPaneToGroup(groups, '2:', 'Unregistered panes', pane);
+      continue;
+    }
+
+    for (const registration of pane.registrations) {
+      addPaneToGroup(
+        groups,
+        scopeSortKey(registration),
+        groupTitle(registration),
+        pane,
+        registration
+      );
+    }
+  }
+
+  return [...groups.values()]
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .map((group) => ({
+      ...group,
+      title:
+        group.agents.size > 0
+          ? `${group.title} (${[...group.agents].sort().join(', ')})`
+          : group.title,
+      rows: group.rows.sort((a, b) => a[1].localeCompare(b[1])),
+    }));
+}
+
+function addPaneToGroup(
+  groups: Map<string, PaneGroup>,
+  key: string,
+  title: string,
+  pane: TeamPaneInfo,
+  registration?: TeamPaneRegistration
+): void {
+  const group = groups.get(key) ?? { key, title, agents: new Set<string>(), rows: [] };
+  if (registration) group.agents.add(formatAgent(registration));
+  group.rows.push([pane.pane, pane.target ?? '-', pane.cwd ?? '-', pane.command || '-']);
+  groups.set(key, group);
+}
+
+function scopeSortKey(registration: TeamPaneRegistration): string {
+  if (registration.scopeType === 'team') return `0:${registration.scope}`;
+  if (registration.scopeType === 'workspace') return `1:${registration.scope}`;
+  return '2:';
+}
+
+function groupTitle(registration: TeamPaneRegistration): string {
+  if (registration.scopeType === 'team') return `Team: ${registration.scope}`;
+  return `Workspace: ${registration.scope}`;
+}
+
+function formatAgent(registration: TeamPaneRegistration): string {
   return registration.remark
     ? `${registration.agent} (${registration.remark})`
     : registration.agent;
-}
-
-function formatScope(registration: Partial<TeamPaneRegistration>): string {
-  if (!registration.scopeType || !registration.scope) return '-';
-  return `${registration.scopeType}:${registration.scope}`;
 }
 
 function removeTeam(ctx: Context, args: string[]): void {
