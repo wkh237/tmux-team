@@ -16,15 +16,15 @@ _tmux-team() {
     'add:Add a new agent'
     'update:Update agent config'
     'remove:Remove an agent'
-    'init:Create empty tmux-team.json'
+    'migrate:Copy legacy tmux-team.json registry into tmux metadata'
+    'team:Manage shared teams'
+    'init:Create empty legacy tmux-team.json'
     'completion:Output shell completion script'
     'help:Show help message'
   )
 
   _get_agents() {
-    if [[ -f ./tmux-team.json ]]; then
-      agents=(\${(f)"$(node -e "console.log(Object.keys(JSON.parse(require('fs').readFileSync('./tmux-team.json'))).join('\\\\n'))" 2>/dev/null)"})
-    fi
+    agents=(\${(f)"$(tmux-team list --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{try{const j=JSON.parse(s); console.log(Object.keys(j.agents||{}).join("\\n"))}catch{}})')"})
   }
 
   if (( CURRENT == 2 )); then
@@ -64,16 +64,14 @@ const bashCompletion = `_tmux_team() {
   cur="\${COMP_WORDS[COMP_CWORD]}"
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
-  commands="talk check list add update remove init completion help"
+  commands="talk check list add update remove migrate team init completion help"
 
   if [[ \${COMP_CWORD} -eq 1 ]]; then
     COMPREPLY=( $(compgen -W "\${commands}" -- \${cur}) )
   elif [[ \${COMP_CWORD} -eq 2 ]]; then
     case "\${prev}" in
       talk|check|update|remove|rm)
-        if [[ -f ./tmux-team.json ]]; then
-          agents=$(node -e "console.log(Object.keys(JSON.parse(require('fs').readFileSync('./tmux-team.json'))).join(' '))" 2>/dev/null)
-        fi
+        agents=$(tmux-team list --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{try{const j=JSON.parse(s); console.log(Object.keys(j.agents||{}).join(" "))}catch{}})')
         if [[ "\${prev}" == "talk" ]]; then
           agents="\${agents} all"
         fi

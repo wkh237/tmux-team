@@ -5,13 +5,14 @@
 import type { Context, PaneEntry } from '../types.js';
 import { ExitCodes } from '../exits.js';
 import { loadLocalConfigFile, saveLocalConfigFile } from '../config.js';
+import { getRegistryScope, registrationFromEntry } from '../registry.js';
 
 export function cmdUpdate(
   ctx: Context,
   name: string,
   options: { pane?: string; remark?: string }
 ): void {
-  const { ui, config, paths, flags, exit } = ctx;
+  const { ui, config, paths, flags, tmux, exit } = ctx;
 
   if (!config.paneRegistry[name]) {
     ui.error(`Agent '${name}' not found. Use 'tmux-team add' to create.`);
@@ -23,22 +24,18 @@ export function cmdUpdate(
     exit(ExitCodes.ERROR);
   }
 
-  // Load existing config to preserve all fields (preamble, deny, etc.)
-  const localConfig = loadLocalConfigFile(paths);
-
-  // Handle edge case where local config was modified externally
-  let entry = localConfig[name] as PaneEntry | undefined;
-  if (!entry) {
-    // Fall back to in-memory paneRegistry if entry is missing
-    entry = { ...config.paneRegistry[name] };
-    localConfig[name] = entry;
-  }
+  let entry: PaneEntry = { ...config.paneRegistry[name] };
 
   const updates: string[] = [];
 
   if (options.pane) {
-    entry.pane = options.pane;
-    updates.push(`pane → ${options.pane}`);
+    const resolvedPane = tmux.resolvePaneTarget(options.pane);
+    if (!resolvedPane) {
+      ui.error(`Pane '${options.pane}' not found. Is tmux running?`);
+      exit(ExitCodes.PANE_NOT_FOUND);
+    }
+    entry.pane = resolvedPane as string;
+    updates.push(`pane → ${entry.pane}`);
   }
 
   if (options.remark) {
@@ -46,7 +43,21 @@ export function cmdUpdate(
     updates.push(`remark updated`);
   }
 
-  saveLocalConfigFile(paths, localConfig);
+  const canonicalPane = tmux.resolvePaneTarget(entry.pane);
+  if (!canonicalPane) {
+    ui.error(`Pane '${entry.pane}' not found. Is tmux running?`);
+    exit(ExitCodes.PANE_NOT_FOUND);
+  }
+  entry.pane = canonicalPane as string;
+
+  const scope = getRegistryScope(ctx);
+  const updatedLegacy = updateLegacyEntryIfPresent(paths, name, entry);
+  const removed = options.pane ? tmux.clearAgentRegistration(name, scope) : false;
+  tmux.setAgentRegistration(entry.pane, scope, registrationFromEntry(name, entry));
+
+  if (updatedLegacy && removed) {
+    pruneLegacyEntry(paths, name);
+  }
 
   if (flags.json) {
     ui.json({ updated: name, ...options });
@@ -55,4 +66,24 @@ export function cmdUpdate(
       ui.success(`Updated '${name}': ${update}`);
     }
   }
+}
+
+function updateLegacyEntryIfPresent(
+  paths: Context['paths'],
+  name: string,
+  entry: PaneEntry
+): boolean {
+  const localConfig = loadLocalConfigFile(paths);
+  if (!localConfig[name]) return false;
+
+  localConfig[name] = { ...entry };
+  saveLocalConfigFile(paths, localConfig);
+  return true;
+}
+
+function pruneLegacyEntry(paths: Context['paths'], name: string): void {
+  const localConfig = loadLocalConfigFile(paths);
+  if (!localConfig[name]) return;
+  delete localConfig[name];
+  saveLocalConfigFile(paths, localConfig);
 }

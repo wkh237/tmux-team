@@ -12,7 +12,7 @@ export interface ActorResolution {
 }
 
 /**
- * Get current tmux pane ID (e.g., "1.0").
+ * Get current tmux pane ID (e.g., "%12").
  */
 function getCurrentPane(): string | null {
   if (!process.env.TMUX) {
@@ -20,16 +20,14 @@ function getCurrentPane(): string | null {
   }
 
   const tmuxPane = process.env.TMUX_PANE;
-  if (!tmuxPane) {
-    return null;
-  }
+  if (tmuxPane) return tmuxPane;
 
   try {
-    const result = execSync(
-      `tmux display-message -p -t "${tmuxPane}" '#{window_index}.#{pane_index}'`,
-      { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }
-    );
-    return result.trim();
+    const result = execSync(`tmux display-message -p '#{pane_id}'`, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    return result.trim() || null;
   } catch {
     return null;
   }

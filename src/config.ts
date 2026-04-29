@@ -12,6 +12,7 @@ import type {
   LocalSettings,
   ResolvedConfig,
   Paths,
+  TmuxRegistry,
 } from './types.js';
 
 const CONFIG_FILENAME = 'config.json';
@@ -104,6 +105,27 @@ function findUpward(filename: string, startDir: string): string | null {
 }
 
 /**
+ * Resolve the workspace scope used for default registrations.
+ *
+ * Prefer the nearest Git root so commands run from subdirectories share the
+ * same default team. Fall back to cwd for non-Git folders.
+ */
+export function resolveWorkspaceRoot(cwd: string = process.cwd()): string {
+  let dir = path.resolve(cwd);
+  while (true) {
+    const gitPath = path.join(dir, '.git');
+    if (fs.existsSync(gitPath)) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      return path.resolve(cwd);
+    }
+    dir = parent;
+  }
+}
+
+/**
  * Get the path to a shared team config file.
  */
 export function getTeamConfigPath(globalDir: string, teamName: string): string {
@@ -122,6 +144,7 @@ export function ensureTeamsDir(globalDir: string): void {
 
 export function resolvePaths(cwd: string = process.cwd(), teamName?: string): Paths {
   const globalDir = resolveGlobalDir();
+  const workspaceRoot = resolveWorkspaceRoot(cwd);
 
   // If team name is specified, use the shared team config
   if (teamName) {
@@ -131,6 +154,7 @@ export function resolvePaths(cwd: string = process.cwd(), teamName?: string): Pa
       globalConfig: path.join(globalDir, CONFIG_FILENAME),
       localConfig: teamConfig,
       stateFile: path.join(globalDir, STATE_FILENAME),
+      workspaceRoot,
     };
   }
 
@@ -143,6 +167,7 @@ export function resolvePaths(cwd: string = process.cwd(), teamName?: string): Pa
     globalConfig: path.join(globalDir, CONFIG_FILENAME),
     localConfig: localConfigPath,
     stateFile: path.join(globalDir, STATE_FILENAME),
+    workspaceRoot,
   };
 }
 
@@ -177,13 +202,14 @@ function loadJsonFile<T>(filePath: string): T | null {
  *
  * Note: CLI flags are applied by the caller after this function returns.
  */
-export function loadConfig(paths: Paths): ResolvedConfig {
+export function loadConfig(paths: Paths, tmuxRegistry?: TmuxRegistry): ResolvedConfig {
   // Start with defaults
   const config: ResolvedConfig = {
     ...DEFAULT_CONFIG,
     defaults: { ...DEFAULT_CONFIG.defaults },
     agents: {},
     paneRegistry: {},
+    registrySource: 'none',
   };
 
   // Merge global config (mode, preambleMode, defaults only)
@@ -196,8 +222,9 @@ export function loadConfig(paths: Paths): ResolvedConfig {
     }
   }
 
-  // Load local config (pane registry + optional settings + agent config)
-  // Local config is the SSOT for agent configuration (preamble, deny)
+  // Load local config (legacy pane registry + optional settings + agent config).
+  // Runtime agent registration now prefers tmux pane metadata; local pane entries
+  // remain as a compatibility fallback when no tmux metadata exists for the scope.
   const localConfigFile = loadJsonFile<LocalConfigFile>(paths.localConfig);
   if (localConfigFile) {
     // Extract local settings if present
@@ -222,6 +249,7 @@ export function loadConfig(paths: Paths): ResolvedConfig {
       // Add to pane registry if has valid pane field
       if (paneEntry.pane) {
         config.paneRegistry[agentName] = paneEntry;
+        config.registrySource = 'legacy';
       }
 
       // Build agents config from preamble/deny fields
@@ -235,6 +263,12 @@ export function loadConfig(paths: Paths): ResolvedConfig {
         };
       }
     }
+  }
+
+  if (tmuxRegistry && Object.keys(tmuxRegistry.paneRegistry).length > 0) {
+    config.paneRegistry = { ...config.paneRegistry, ...tmuxRegistry.paneRegistry };
+    config.agents = { ...config.agents, ...tmuxRegistry.agents };
+    config.registrySource = 'tmux';
   }
 
   return config;

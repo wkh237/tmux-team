@@ -5,6 +5,7 @@
 import type { Context } from '../types.js';
 import { ExitCodes } from '../context.js';
 import { loadLocalConfigFile, saveLocalConfigFile } from '../config.js';
+import { getRegistryScope, registrationFromEntry } from '../registry.js';
 
 /**
  * Show preamble(s) for agent(s).
@@ -60,7 +61,7 @@ function showPreamble(ctx: Context, agentName?: string): void {
  * Set preamble for an agent (in local config).
  */
 function setPreamble(ctx: Context, agentName: string, preamble: string): void {
-  const { ui, paths, flags, config } = ctx;
+  const { ui, paths, flags, config, tmux } = ctx;
 
   // Check if agent exists in pane registry
   if (!config.paneRegistry[agentName]) {
@@ -69,15 +70,19 @@ function setPreamble(ctx: Context, agentName: string, preamble: string): void {
     ctx.exit(ExitCodes.ERROR);
   }
 
-  const localConfig = loadLocalConfigFile(paths);
-
-  // Update preamble in local config
-  const agentEntry = localConfig[agentName] as { pane: string; preamble?: string } | undefined;
-  if (agentEntry) {
-    agentEntry.preamble = preamble;
+  const pane = tmux.resolvePaneTarget(config.paneRegistry[agentName].pane);
+  if (!pane) {
+    ui.error(`Pane '${config.paneRegistry[agentName].pane}' not found. Is tmux running?`);
+    ctx.exit(ExitCodes.PANE_NOT_FOUND);
   }
 
-  saveLocalConfigFile(paths, localConfig);
+  const nextEntry = { ...config.paneRegistry[agentName], pane, preamble };
+  tmux.setAgentRegistration(
+    pane,
+    getRegistryScope(ctx),
+    registrationFromEntry(agentName, nextEntry)
+  );
+  updateLegacyPreambleIfPresent(paths, agentName, preamble);
 
   if (flags.json) {
     ui.json({ agent: agentName, preamble, status: 'set' });
@@ -90,14 +95,28 @@ function setPreamble(ctx: Context, agentName: string, preamble: string): void {
  * Clear preamble for an agent (in local config).
  */
 function clearPreamble(ctx: Context, agentName: string): void {
-  const { ui, paths, flags } = ctx;
+  const { ui, paths, flags, config, tmux } = ctx;
 
-  const localConfig = loadLocalConfigFile(paths);
-  const agentEntry = localConfig[agentName] as { pane?: string; preamble?: string } | undefined;
+  const entry = config.paneRegistry[agentName];
+  const hasPreamble =
+    entry?.preamble !== undefined ||
+    config.agents[agentName]?.preamble !== undefined ||
+    legacyHasPreamble(paths, agentName);
 
-  if (agentEntry?.preamble) {
-    delete agentEntry.preamble;
-    saveLocalConfigFile(paths, localConfig);
+  if (entry && hasPreamble) {
+    const pane = tmux.resolvePaneTarget(entry.pane);
+    if (!pane) {
+      ui.error(`Pane '${entry.pane}' not found. Is tmux running?`);
+      ctx.exit(ExitCodes.PANE_NOT_FOUND);
+    }
+    const nextEntry = { ...entry, pane };
+    delete nextEntry.preamble;
+    tmux.setAgentRegistration(
+      pane,
+      getRegistryScope(ctx),
+      registrationFromEntry(agentName, nextEntry)
+    );
+    clearLegacyPreambleIfPresent(paths, agentName);
 
     if (flags.json) {
       ui.json({ agent: agentName, status: 'cleared' });
@@ -111,6 +130,32 @@ function clearPreamble(ctx: Context, agentName: string): void {
       ui.info(`No preamble was set for ${agentName}`);
     }
   }
+}
+
+function updateLegacyPreambleIfPresent(
+  paths: Context['paths'],
+  agentName: string,
+  preamble: string
+): void {
+  const localConfig = loadLocalConfigFile(paths);
+  const agentEntry = localConfig[agentName] as { pane?: string; preamble?: string } | undefined;
+  if (!agentEntry) return;
+  agentEntry.preamble = preamble;
+  saveLocalConfigFile(paths, localConfig);
+}
+
+function clearLegacyPreambleIfPresent(paths: Context['paths'], agentName: string): void {
+  const localConfig = loadLocalConfigFile(paths);
+  const agentEntry = localConfig[agentName] as { pane?: string; preamble?: string } | undefined;
+  if (!agentEntry || !Object.prototype.hasOwnProperty.call(agentEntry, 'preamble')) return;
+  delete agentEntry.preamble;
+  saveLocalConfigFile(paths, localConfig);
+}
+
+function legacyHasPreamble(paths: Context['paths'], agentName: string): boolean {
+  const localConfig = loadLocalConfigFile(paths);
+  const agentEntry = localConfig[agentName] as { pane?: string; preamble?: string } | undefined;
+  return Boolean(agentEntry && Object.prototype.hasOwnProperty.call(agentEntry, 'preamble'));
 }
 
 /**

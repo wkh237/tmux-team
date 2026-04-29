@@ -52,6 +52,8 @@ ${colors.yellow('COMMANDS')}
   ${colors.green('this')} <name> [remark]       Register current pane as an agent
   ${colors.green('update')} <name> [options]     Update an agent's config
   ${colors.green('remove')} <name>               Remove an agent
+  ${colors.green('migrate')} [--dry-run]          Copy legacy JSON registry to tmux metadata
+  ${colors.green('team')} [ls|rm]                 Manage explicit shared teams
   ${colors.green('install')} [claude|codex]       Install tmux-team for an AI agent
   ${colors.green('init')}                        Create empty tmux-team.json
   ${colors.green('config')} [show|set|clear]     View/modify settings
@@ -89,9 +91,10 @@ ${colors.yellow('EXAMPLES')}${
   tmux-team add codex 10.1 "Code review specialist"
 
 ${colors.yellow('CONFIG')}
-  Local:  ./tmux-team.json (pane registry + $config override)
+  Runtime: tmux pane metadata (agent registry)
+  Local:  ./tmux-team.json (legacy registry + $config override)
   Global: ~/.config/tmux-team/config.json (settings)
-  Teams:  ~/.config/tmux-team/teams/<name>.json (shared teams)
+  Teams:  tmux pane metadata under explicit --team scopes
 
 ${colors.yellow('CHANGE MODE')}
   tmux-team config set mode wait            ${colors.dim('Enable wait mode (local)')}

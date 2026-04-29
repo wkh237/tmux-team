@@ -18,17 +18,14 @@ npm install -g tmux-team
 # 1. Install for your AI agent
 tmt install claude   # or: tmt install codex
 
-# 2. Go to working folder and initialize
-tmt init
-
-# 3. Register agents (run inside each agent's pane)
+# 2. Go to working folder and register agents (run inside each agent's pane)
 tmt this claude      # registers current pane as "claude"
 tmt this codex       # registers current pane as "codex"
 
-# 4. Talk to agents
+# 3. Talk to agents
 tmt talk codex "Review this code"    # waits for response by default
 
-# 5. Update or remove an agent
+# 4. Update or remove an agent
 tmt update codex --pane 2.3
 tmt rm codex
 ```
@@ -56,6 +53,8 @@ Find pane IDs with: `tmux display-message -p "#{pane_id}"`
 | `talk all "msg"` | Broadcast to all agents |
 | `check <agent> [lines]` | Read agent's pane output |
 | `list` | Show configured agents |
+| `migrate [--dry-run]` | Copy legacy `tmux-team.json` entries into tmux metadata |
+| `team ls` / `team rm <team>` | Manage explicit shared teams |
 | `learn` | Show educational guide |
 
 **Options for `talk`:**
@@ -76,20 +75,20 @@ tmt config set pasteEnterDelayMs 500
 
 ## Managing Your Team
 
-Configuration lives in `tmux-team.json` in your project root.
+Agent registrations live in tmux pane metadata. By default they are scoped to
+the current workspace (Git root, or the current folder when not in Git), so the
+usual same-folder workflow does not need `--team`.
 
 **List** - Show configured agents:
 ```bash
 tmt ls
 ```
 
-**Edit** - Modify `tmux-team.json` directly:
-```json
-{
-  "$config": { "pasteEnterDelayMs": 500 },
-  "codex": { "pane": "1.1", "remark": "Code reviewer" },
-  "gemini": { "pane": "1.2", "remark": "Documentation" }
-}
+**Add from another pane** - Pane targets can be `%pane_id`, `window.pane`, or
+`session:window.pane`; tmux-team stores the canonical `%pane_id`.
+
+```bash
+tmt add codex 1.1 "Code reviewer"
 ```
 
 **Remove** - Delete an agent:
@@ -97,18 +96,51 @@ tmt ls
 tmt rm codex
 ```
 
+**Migrate** - Copy an existing legacy `tmux-team.json` registry into tmux:
+
+```bash
+tmt migrate --dry-run
+tmt migrate
+tmt migrate --cleanup
+```
+
+`tmux-team.json` is still used for local `$config` overrides and as a legacy
+fallback when no tmux metadata exists.
+
 ---
+
+## Agent Preambles
+
+Set a per-agent preamble to steer behavior (stored with the pane registration):
+
+```bash
+tmt preamble set codex "You are the code quality guard. Be strict."
+```
+
+### What Happens When a Preamble Is Set
+
+When you send a message, tmux-team injects the preamble like this:
+
+```
+[SYSTEM: You are the code quality guard. Be strict.]
+
+Review the login flow changes.
+```
+
+Control how often it’s injected with `preambleEvery`:
+
+```bash
+tmt config set preambleEvery 3
+```
 
 ## Shared Teams
 
 > *Work on different folders but talk to the same team of agents.*
 
-By default, `tmux-team.json` is local to each folder. The `--team` flag lets agents across different folders share a team:
+By default, registrations are scoped to the current workspace. The `--team` flag
+creates an explicit shared team that works across folders:
 
 ```bash
-# Initialize a shared team
-tmt init --team myproject
-
 # Register agents from ANY folder
 cd ~/code/frontend && tmt this claude --team myproject
 cd ~/code/backend && tmt this codex --team myproject
@@ -128,16 +160,16 @@ tmt talk all "Starting deploy - heads up" --team myproject
 
 **Single project** (default) — agents work in the same folder:
 ```bash
-tmt init
 tmt this claude
 tmt add codex 1.1
 ```
 
 **Shared team** — agents work across folders but collaborate:
 ```bash
-tmt init --team acme-app
 tmt this frontend-claude --team acme-app   # from ~/acme/frontend
 tmt this backend-codex --team acme-app     # from ~/acme/backend
+tmt team ls
+tmt team rm acme-app --force
 ```
 
 ### Multi-team coordination

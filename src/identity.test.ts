@@ -1,18 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { PaneEntry } from './types.js';
 import { resolveActor } from './identity.js';
-import { execSync } from 'child_process';
 
 vi.mock('child_process', () => ({
   execSync: vi.fn(),
 }));
 
-const mockedExec = vi.mocked(execSync);
-
 describe('resolveActor', () => {
   const paneRegistry: Record<string, PaneEntry> = {
-    claude: { pane: '10.0' },
-    codex: { pane: '10.1' },
+    claude: { pane: '%98' },
+    codex: { pane: '%99' },
   };
 
   beforeEach(() => {
@@ -41,7 +38,6 @@ describe('resolveActor', () => {
   it('uses pane identity when in tmux and pane matches registry', () => {
     process.env.TMUX = '1';
     process.env.TMUX_PANE = '%99';
-    mockedExec.mockReturnValue('10.1\n');
     const res = resolveActor(paneRegistry);
     expect(res.actor).toBe('codex');
     expect(res.source).toBe('pane');
@@ -51,7 +47,6 @@ describe('resolveActor', () => {
     process.env.TMUX = '1';
     process.env.TMUX_PANE = '%99';
     process.env.TMT_AGENT_NAME = 'claude';
-    mockedExec.mockReturnValue('10.1\n');
     const res = resolveActor(paneRegistry);
     expect(res.actor).toBe('codex');
     expect(res.warning).toContain('Identity mismatch');
@@ -59,9 +54,8 @@ describe('resolveActor', () => {
 
   it('uses env actor with warning when pane is unregistered', () => {
     process.env.TMUX = '1';
-    process.env.TMUX_PANE = '%99';
+    process.env.TMUX_PANE = '%100';
     process.env.TMT_AGENT_NAME = 'someone';
-    mockedExec.mockReturnValue('99.9\n');
     const res = resolveActor(paneRegistry);
     expect(res.actor).toBe('someone');
     expect(res.source).toBe('env');

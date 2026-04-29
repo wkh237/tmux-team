@@ -51,6 +51,12 @@ function createCtx(
     capture: vi.fn(),
     listPanes: vi.fn(() => []),
     getCurrentPaneId: vi.fn(() => null),
+    resolvePaneTarget: vi.fn((target: string) => target),
+    getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
+    setAgentRegistration: vi.fn(),
+    clearAgentRegistration: vi.fn(() => false),
+    listTeams: vi.fn(() => ({})),
+    removeTeam: vi.fn(() => ({ removed: 0, agents: [] })),
   };
   return {
     argv: [],
@@ -167,10 +173,7 @@ describe('cmdConfig', () => {
 
   it('shows sources in table mode with local settings', () => {
     const ctx = createCtx(testDir);
-    fs.writeFileSync(
-      ctx.paths.localConfig,
-      JSON.stringify({ $config: { mode: 'wait' } })
-    );
+    fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({ $config: { mode: 'wait' } }));
     cmdConfig(ctx, ['show']);
     expect(ctx.ui.table).toHaveBeenCalled();
     // The table call should include (local) source
@@ -181,10 +184,7 @@ describe('cmdConfig', () => {
   it('shows sources in table mode with global settings', () => {
     const ctx = createCtx(testDir);
     fs.mkdirSync(ctx.paths.globalDir, { recursive: true });
-    fs.writeFileSync(
-      ctx.paths.globalConfig,
-      JSON.stringify({ mode: 'wait' })
-    );
+    fs.writeFileSync(ctx.paths.globalConfig, JSON.stringify({ mode: 'wait' }));
     cmdConfig(ctx, ['show']);
     expect(ctx.ui.table).toHaveBeenCalled();
     const tableCall = (ctx.ui.table as ReturnType<typeof vi.fn>).mock.calls[0];

@@ -18,9 +18,15 @@ export function createContext(options: CreateContextOptions): Context {
   const { argv, flags, cwd = process.cwd() } = options;
 
   const paths = resolvePaths(cwd, flags.team);
-  const config = loadConfig(paths);
   const ui = createUI(flags.json);
   const tmux = createTmux();
+  const registryScope = flags.team
+    ? { type: 'team' as const, teamName: flags.team }
+    : {
+        type: 'workspace' as const,
+        workspaceRoot: paths.workspaceRoot ?? cwd,
+      };
+  const config = loadConfig(paths, tmux.getAgentRegistry(registryScope));
 
   return {
     argv,
@@ -29,6 +35,7 @@ export function createContext(options: CreateContextOptions): Context {
     config,
     tmux,
     paths,
+    registryScope,
     exit(code: number): never {
       process.exit(code);
     },

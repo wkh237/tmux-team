@@ -14,7 +14,12 @@ import { cmdPreamble } from './preamble.js';
 // Test utilities
 // ─────────────────────────────────────────────────────────────
 
-function createMockUI(): UI & { errors: string[]; warnings: string[]; infos: string[]; jsonOutput: unknown[] } {
+function createMockUI(): UI & {
+  errors: string[];
+  warnings: string[];
+  infos: string[];
+  jsonOutput: unknown[];
+} {
   const mock = {
     errors: [] as string[],
     warnings: [] as string[],
@@ -48,7 +53,8 @@ function createDefaultConfig(): ResolvedConfig {
       pollInterval: 1,
       captureLines: 100,
       maxCaptureLines: 2000,
-      preambleEvery: 3, pasteEnterDelayMs: 500,
+      preambleEvery: 3,
+      pasteEnterDelayMs: 500,
     },
     agents: {},
     paneRegistry: {
@@ -64,6 +70,12 @@ function createMockTmux(): Tmux {
     capture: vi.fn(() => ''),
     listPanes: vi.fn(() => []),
     getCurrentPaneId: vi.fn(() => null),
+    resolvePaneTarget: vi.fn((target: string) => target),
+    getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
+    setAgentRegistration: vi.fn(),
+    clearAgentRegistration: vi.fn(() => false),
+    listTeams: vi.fn(() => ({})),
+    removeTeam: vi.fn(() => ({ removed: 0, agents: [] })),
   };
 }
 

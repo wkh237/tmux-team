@@ -246,6 +246,30 @@ describe('loadConfig', () => {
     expect(config.paneRegistry.codex?.pane).toBe('1.1');
   });
 
+  it('overlays tmux registry on top of legacy local entries', () => {
+    const localConfig = {
+      claude: { pane: '1.0', remark: 'legacy' },
+      codex: { pane: '1.1', remark: 'legacy codex' },
+    };
+
+    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
+
+    const config = loadConfig(mockPaths, {
+      paneRegistry: {
+        claude: { pane: '%9', remark: 'tmux' },
+      },
+      agents: {
+        claude: { preamble: 'from tmux' },
+      },
+    });
+
+    expect(config.registrySource).toBe('tmux');
+    expect(config.paneRegistry.claude).toEqual({ pane: '%9', remark: 'tmux' });
+    expect(config.paneRegistry.codex).toEqual({ pane: '1.1', remark: 'legacy codex' });
+    expect(config.agents.claude?.preamble).toBe('from tmux');
+  });
+
   it('merges both global and local config (agents from local only)', () => {
     const globalConfig = {
       mode: 'wait',

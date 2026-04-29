@@ -186,7 +186,10 @@ function extractWithExpandableCapture(
 
     if (instructionLineIndex !== -1 && instructionLineIndex < endMarkerLineIndex) {
       // Instruction visible: extract from after instruction to marker
-      const response = lines.slice(instructionLineIndex + 1, endMarkerLineIndex).join('\n').trim();
+      const response = lines
+        .slice(instructionLineIndex + 1, endMarkerLineIndex)
+        .join('\n')
+        .trim();
       return { response, truncated: false };
     }
 
@@ -619,7 +622,8 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
       );
 
       // Clean Gemini CLI UI artifacts
-      const response = target === 'gemini' ? cleanGeminiResponse(extractedResponse) : extractedResponse;
+      const response =
+        target === 'gemini' ? cleanGeminiResponse(extractedResponse) : extractedResponse;
 
       if (!flags.json && isTTY) {
         process.stdout.write('\r' + ' '.repeat(80) + '\r');
@@ -883,7 +887,8 @@ async function cmdTalkAllWait(
         );
 
         // Clean Gemini CLI UI artifacts
-        const response = state.agent === 'gemini' ? cleanGeminiResponse(extractedResponse) : extractedResponse;
+        const response =
+          state.agent === 'gemini' ? cleanGeminiResponse(extractedResponse) : extractedResponse;
         state.response = response;
         state.truncated = truncated;
         state.status = 'completed';

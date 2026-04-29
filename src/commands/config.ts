@@ -114,11 +114,7 @@ function showConfig(ctx: Context): void {
       ['mode', ctx.config.mode, modeSource],
       ['preambleMode', ctx.config.preambleMode, preambleSource],
       ['preambleEvery', String(ctx.config.defaults.preambleEvery), preambleEverySource],
-      [
-        'pasteEnterDelayMs',
-        String(ctx.config.defaults.pasteEnterDelayMs),
-        pasteEnterDelaySource,
-      ],
+      ['pasteEnterDelayMs', String(ctx.config.defaults.pasteEnterDelayMs), pasteEnterDelaySource],
       ['defaults.timeout', String(ctx.config.defaults.timeout), '(global)'],
       ['defaults.pollInterval', String(ctx.config.defaults.pollInterval), '(global)'],
       ['defaults.captureLines', String(ctx.config.defaults.captureLines), '(global)'],

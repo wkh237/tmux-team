@@ -101,7 +101,13 @@ describe('ui', () => {
     const { createUI } = await import('./ui.js');
     const ui = createUI(false);
 
-    ui.table(['Name', 'Value'], [['test', ''], ['empty', null as unknown as string]]);
+    ui.table(
+      ['Name', 'Value'],
+      [
+        ['test', ''],
+        ['empty', null as unknown as string],
+      ]
+    );
     const output = logSpy.mock.calls.map((c) => String(c[0])).join('\n');
     // Empty cells should be rendered as '-'
     expect(output).toContain('-');

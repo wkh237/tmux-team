@@ -14,6 +14,24 @@ export interface PaneEntry {
   deny?: string[]; // Permission deny patterns
 }
 
+export interface AgentRegistration {
+  name: string;
+  remark?: string;
+  preamble?: string;
+  deny?: string[];
+}
+
+export interface PaneAgentMetadata {
+  version: 1;
+  workspaces?: Record<string, AgentRegistration>;
+  teams?: Record<string, AgentRegistration>;
+}
+
+export interface TmuxRegistry {
+  paneRegistry: Record<string, PaneEntry>;
+  agents: Record<string, AgentConfig>;
+}
+
 export interface ConfigDefaults {
   timeout: number; // seconds
   pollInterval: number; // seconds
@@ -51,6 +69,7 @@ export interface ResolvedConfig {
   defaults: ConfigDefaults;
   agents: Record<string, AgentConfig>;
   paneRegistry: Record<string, PaneEntry>;
+  registrySource?: 'tmux' | 'legacy' | 'none';
 }
 
 export interface Flags {
@@ -72,6 +91,7 @@ export interface Paths {
   globalConfig: string;
   localConfig: string;
   stateFile: string;
+  workspaceRoot?: string;
 }
 
 export interface UI {
@@ -87,6 +107,7 @@ export interface PaneInfo {
   id: string; // e.g., "%1"
   command: string; // e.g., "node", "python", "zsh"
   suggestedName: string | null; // e.g., "codex" if detected from command
+  metadata?: PaneAgentMetadata;
 }
 
 export interface Tmux {
@@ -94,7 +115,21 @@ export interface Tmux {
   capture: (paneId: string, lines: number) => string;
   listPanes: () => PaneInfo[];
   getCurrentPaneId: () => string | null;
+  resolvePaneTarget: (target: string) => string | null;
+  getAgentRegistry: (scope: RegistryScope) => TmuxRegistry;
+  setAgentRegistration: (
+    paneId: string,
+    scope: RegistryScope,
+    registration: AgentRegistration
+  ) => void;
+  clearAgentRegistration: (name: string, scope: RegistryScope) => boolean;
+  listTeams: () => Record<string, string[]>;
+  removeTeam: (teamName: string) => { removed: number; agents: string[] };
 }
+
+export type RegistryScope =
+  | { type: 'workspace'; workspaceRoot: string }
+  | { type: 'team'; teamName: string };
 
 export interface WaitResult {
   requestId: string;
@@ -110,5 +145,6 @@ export interface Context {
   config: ResolvedConfig;
   tmux: Tmux;
   paths: Paths;
+  registryScope?: RegistryScope;
   exit: (code: number) => never;
 }

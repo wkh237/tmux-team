@@ -18,7 +18,14 @@ describe('createContext', () => {
     const config: ResolvedConfig = {
       mode: 'polling',
       preambleMode: 'always',
-      defaults: { timeout: 180, pollInterval: 1, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3, pasteEnterDelayMs: 500 },
+      defaults: {
+        timeout: 180,
+        pollInterval: 1,
+        captureLines: 100,
+        maxCaptureLines: 2000,
+        preambleEvery: 3,
+        pasteEnterDelayMs: 500,
+      },
       agents: {},
       paneRegistry: {},
     };
@@ -35,6 +42,12 @@ describe('createContext', () => {
       capture: vi.fn(),
       listPanes: vi.fn(() => []),
       getCurrentPaneId: vi.fn(() => null),
+      resolvePaneTarget: vi.fn((target: string) => target),
+      getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
+      setAgentRegistration: vi.fn(),
+      clearAgentRegistration: vi.fn(() => false),
+      listTeams: vi.fn(() => ({})),
+      removeTeam: vi.fn(() => ({ removed: 0, agents: [] })),
     };
 
     vi.doMock('./config.js', () => ({
@@ -52,6 +65,66 @@ describe('createContext', () => {
     expect(ctx.config).toEqual(config);
     expect(ctx.ui).toBe(ui);
     expect(ctx.tmux).toBe(tmux);
+  });
+
+  it('uses team registry scope when --team is set', async () => {
+    vi.resetModules();
+
+    const paths: Paths = {
+      globalDir: '/g',
+      globalConfig: '/g/config.json',
+      localConfig: '/g/teams/egp.json',
+      stateFile: '/g/state.json',
+      workspaceRoot: '/repo',
+    };
+    const config: ResolvedConfig = {
+      mode: 'polling',
+      preambleMode: 'always',
+      defaults: {
+        timeout: 180,
+        pollInterval: 1,
+        captureLines: 100,
+        maxCaptureLines: 2000,
+        preambleEvery: 3,
+        pasteEnterDelayMs: 500,
+      },
+      agents: {},
+      paneRegistry: {},
+    };
+    const tmux: Tmux = {
+      send: vi.fn(),
+      capture: vi.fn(),
+      listPanes: vi.fn(() => []),
+      getCurrentPaneId: vi.fn(() => null),
+      resolvePaneTarget: vi.fn((target: string) => target),
+      getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
+      setAgentRegistration: vi.fn(),
+      clearAgentRegistration: vi.fn(() => false),
+      listTeams: vi.fn(() => ({})),
+      removeTeam: vi.fn(() => ({ removed: 0, agents: [] })),
+    };
+
+    vi.doMock('./config.js', () => ({
+      resolvePaths: () => paths,
+      loadConfig: () => config,
+    }));
+    vi.doMock('./ui.js', () => ({
+      createUI: () => ({
+        info: vi.fn(),
+        success: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        table: vi.fn(),
+        json: vi.fn(),
+      }),
+    }));
+    vi.doMock('./tmux.js', () => ({ createTmux: () => tmux }));
+
+    const { createContext } = await import('./context.js');
+    const ctx = createContext({ argv: [], flags: { json: false, verbose: false, team: 'egp' } });
+
+    expect(ctx.registryScope).toEqual({ type: 'team', teamName: 'egp' });
+    expect(tmux.getAgentRegistry).toHaveBeenCalledWith({ type: 'team', teamName: 'egp' });
   });
 
   it('ctx.exit calls process.exit', async () => {

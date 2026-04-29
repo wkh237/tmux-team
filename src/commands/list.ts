@@ -15,7 +15,9 @@ export function cmdList(ctx: Context): void {
 
   if (agents.length === 0) {
     if (flags.team) {
-      ui.info(`No agents in team "${flags.team}". Use 'tmt this <name> --team ${flags.team}' to add one.`);
+      ui.info(
+        `No agents in team "${flags.team}". Use 'tmt this <name> --team ${flags.team}' to add one.`
+      );
     } else {
       ui.info("No agents configured. Use 'tmux-team add <name> <pane>' to add one.");
     }
@@ -26,6 +28,10 @@ export function cmdList(ctx: Context): void {
   if (flags.team) {
     console.log(`Team: ${flags.team}`);
     console.log();
+  } else if (config.registrySource === 'legacy') {
+    ui.warn(
+      'Using legacy tmux-team.json registry. Run `tmt migrate` to store registrations in tmux.'
+    );
   }
   ui.table(
     ['NAME', 'PANE', 'REMARK'],

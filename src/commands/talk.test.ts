@@ -43,6 +43,22 @@ function createMockTmux(): Tmux & {
     getCurrentPaneId() {
       return null;
     },
+    resolvePaneTarget(target: string) {
+      return target;
+    },
+    getAgentRegistry() {
+      return { paneRegistry: {}, agents: {} };
+    },
+    setAgentRegistration() {},
+    clearAgentRegistration() {
+      return false;
+    },
+    listTeams() {
+      return {};
+    },
+    removeTeam() {
+      return { removed: 0, agents: [] };
+    },
   };
   return mock;
 }
@@ -239,7 +255,8 @@ describe('buildMessage (via cmdTalk)', () => {
         pollInterval: 0.1,
         captureLines: 100,
         maxCaptureLines: 2000,
-        preambleEvery: 3, pasteEnterDelayMs: 500,
+        preambleEvery: 3,
+        pasteEnterDelayMs: 500,
       },
     };
 
@@ -551,7 +568,8 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3, pasteEnterDelayMs: 500,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
         },
       },
     });
@@ -595,7 +613,8 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3, pasteEnterDelayMs: 500,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
         },
       },
     });
@@ -626,7 +645,8 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.02,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3, pasteEnterDelayMs: 500,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
         },
       },
     });
@@ -674,7 +694,8 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3, pasteEnterDelayMs: 500,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
         },
       },
     });
@@ -710,7 +731,8 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3, pasteEnterDelayMs: 500,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
         },
       },
     });
@@ -739,7 +761,8 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3, pasteEnterDelayMs: 500,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
         },
       },
     });
@@ -791,7 +814,8 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.05,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3, pasteEnterDelayMs: 500,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
         },
         paneRegistry: {
           codex: { pane: '10.1' },
@@ -837,7 +861,8 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.02,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3, pasteEnterDelayMs: 500,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
         },
         paneRegistry: {
           codex: { pane: '10.1' },
@@ -892,7 +917,8 @@ describe('cmdTalk - --wait mode', () => {
           pollInterval: 0.02,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3, pasteEnterDelayMs: 500,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
         },
         paneRegistry: {
           codex: { pane: '10.1' },
@@ -1003,7 +1029,8 @@ describe('cmdTalk - nonce collision handling', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3, pasteEnterDelayMs: 500,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
         },
       },
     });
@@ -1058,7 +1085,8 @@ describe('cmdTalk - JSON output contract', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3, pasteEnterDelayMs: 500,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
         },
       },
     });
@@ -1099,7 +1127,8 @@ describe('cmdTalk - JSON output contract', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3, pasteEnterDelayMs: 500,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
         },
       },
     });
@@ -1141,7 +1170,8 @@ describe('cmdTalk - JSON output contract', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3, pasteEnterDelayMs: 500,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
         },
       },
     });
@@ -1178,7 +1208,8 @@ describe('cmdTalk - JSON output contract', () => {
           pollInterval: 0.01,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3, pasteEnterDelayMs: 500,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
         },
       },
     });
@@ -1228,7 +1259,8 @@ describe('cmdTalk - JSON output contract', () => {
           pollInterval: 0.02,
           captureLines: 100,
           maxCaptureLines: 2000,
-          preambleEvery: 3, pasteEnterDelayMs: 500,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
         },
         paneRegistry: {
           codex: { pane: '10.1' },
@@ -1310,7 +1342,16 @@ describe('cmdTalk - end marker detection', () => {
       ui,
       paths: createTestPaths(testDir),
       flags: { wait: true, json: true, timeout: 0.5 },
-      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3, pasteEnterDelayMs: 500 } },
+      config: {
+        defaults: {
+          timeout: 0.5,
+          pollInterval: 0.01,
+          captureLines: 100,
+          maxCaptureLines: 2000,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
+        },
+      },
     });
 
     await cmdTalk(ctx, 'claude', 'Test message');
@@ -1344,7 +1385,16 @@ describe('cmdTalk - end marker detection', () => {
       ui,
       paths: createTestPaths(testDir),
       flags: { wait: true, json: true, timeout: 0.5 },
-      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3, pasteEnterDelayMs: 500 } },
+      config: {
+        defaults: {
+          timeout: 0.5,
+          pollInterval: 0.01,
+          captureLines: 100,
+          maxCaptureLines: 2000,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
+        },
+      },
     });
 
     await cmdTalk(ctx, 'claude', 'Test');
@@ -1378,7 +1428,16 @@ Line 4 final`;
       ui,
       paths: createTestPaths(testDir),
       flags: { wait: true, json: true, timeout: 0.5 },
-      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3, pasteEnterDelayMs: 500 } },
+      config: {
+        defaults: {
+          timeout: 0.5,
+          pollInterval: 0.01,
+          captureLines: 100,
+          maxCaptureLines: 2000,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
+        },
+      },
     });
 
     await cmdTalk(ctx, 'claude', 'Test');
@@ -1409,7 +1468,16 @@ Line 4 final`;
       ui,
       paths: createTestPaths(testDir),
       flags: { wait: true, json: true, timeout: 0.5 },
-      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3, pasteEnterDelayMs: 500 } },
+      config: {
+        defaults: {
+          timeout: 0.5,
+          pollInterval: 0.01,
+          captureLines: 100,
+          maxCaptureLines: 2000,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
+        },
+      },
     });
 
     await cmdTalk(ctx, 'claude', 'Test');
@@ -1446,7 +1514,16 @@ Line 4 final`;
       ui,
       paths: createTestPaths(testDir),
       flags: { wait: true, json: true, timeout: 0.5 },
-      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3, pasteEnterDelayMs: 500 } },
+      config: {
+        defaults: {
+          timeout: 0.5,
+          pollInterval: 0.01,
+          captureLines: 100,
+          maxCaptureLines: 2000,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
+        },
+      },
     });
 
     await cmdTalk(ctx, 'claude', 'Test');
@@ -1482,7 +1559,16 @@ Line 4 final`;
       ui,
       paths: createTestPaths(testDir),
       flags: { wait: true, json: true, timeout: 0.5 },
-      config: { defaults: { timeout: 0.5, pollInterval: 0.01, captureLines: 200, maxCaptureLines: 2000, preambleEvery: 3, pasteEnterDelayMs: 500 } },
+      config: {
+        defaults: {
+          timeout: 0.5,
+          pollInterval: 0.01,
+          captureLines: 200,
+          maxCaptureLines: 2000,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
+        },
+      },
     });
 
     await cmdTalk(ctx, 'claude', 'Test');

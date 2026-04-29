@@ -26,7 +26,14 @@ function createCtx(testDir: string, overrides?: Partial<{ flags: Partial<Flags> 
   const config: ResolvedConfig = {
     mode: 'polling',
     preambleMode: 'always',
-    defaults: { timeout: 180, pollInterval: 1, captureLines: 100, maxCaptureLines: 2000, preambleEvery: 3, pasteEnterDelayMs: 500 },
+    defaults: {
+      timeout: 180,
+      pollInterval: 1,
+      captureLines: 100,
+      maxCaptureLines: 2000,
+      preambleEvery: 3,
+      pasteEnterDelayMs: 500,
+    },
     agents: {},
     paneRegistry: {},
   };
@@ -36,6 +43,12 @@ function createCtx(testDir: string, overrides?: Partial<{ flags: Partial<Flags> 
     capture: vi.fn(),
     listPanes: vi.fn(() => []),
     getCurrentPaneId: vi.fn(() => null),
+    resolvePaneTarget: vi.fn((target: string) => target),
+    getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
+    setAgentRegistration: vi.fn(),
+    clearAgentRegistration: vi.fn(() => false),
+    listTeams: vi.fn(() => ({})),
+    removeTeam: vi.fn(() => ({ removed: 0, agents: [] })),
   };
   return {
     argv: [],

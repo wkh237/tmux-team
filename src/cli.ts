@@ -22,6 +22,8 @@ import { cmdPreamble } from './commands/preamble.js';
 import { cmdInstall } from './commands/install.js';
 import { cmdLearn } from './commands/learn.js';
 import { cmdThis } from './commands/this.js';
+import { cmdMigrate } from './commands/migrate.js';
+import { cmdTeam } from './commands/team.js';
 
 // ─────────────────────────────────────────────────────────────
 // Argument parsing
@@ -204,6 +206,14 @@ function main(): void {
           ctx.exit(ExitCodes.ERROR);
         }
         cmdRemove(ctx, args[0]);
+        break;
+
+      case 'migrate':
+        cmdMigrate(ctx, args);
+        break;
+
+      case 'team':
+        cmdTeam(ctx, args);
         break;
 
       case 'this':
