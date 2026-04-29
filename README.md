@@ -32,9 +32,21 @@ tmt rm codex
 
 > **Tip:** Most AI agents support `!` to run bash commands. From inside Claude Code, Codex, or Gemini CLI, you can run `!tmt this myname` to quickly register that pane.
 
+### How scopes work
+
+Registrations live in tmux pane metadata, not in a JSON file you have to track.
+By default they are scoped to the current **workspace** — the nearest Git root,
+or the current folder when you are not inside a Git repo. So `tmt this`,
+`tmt add`, `tmt rm`, `tmt update`, `tmt preamble`, and `tmt list` all act on
+the workspace you are currently in.
+
+Reach for `--team <name>` only when you want an explicit shared team that spans
+folders (see [Shared Teams](#shared-teams)).
+
 ## Cross-Folder Collaboration
 
-Agents don't need to be in the same folder to collaborate. You can add an agent from one project to another:
+Agents don't need to be in the same folder to collaborate. From your current
+workspace you can add an agent whose pane lives in another project:
 
 ```bash
 # In project-a folder, add an agent that's running in project-b
@@ -42,6 +54,10 @@ tmt add codex-reviewer 5.1    # Use the pane ID from the other project
 ```
 
 Find pane IDs with: `tmux display-message -p "#{pane_id}"`
+
+This still uses the default workspace scope: the registration is visible from
+project-a, not from project-b. For long-running collaboration that should be
+visible on both sides, use a [shared team](#shared-teams).
 
 ## Commands
 
@@ -52,9 +68,10 @@ Find pane IDs with: `tmux display-message -p "#{pane_id}"`
 | `talk <agent> "msg"` | Send message and wait for response |
 | `talk all "msg"` | Broadcast to all agents |
 | `check <agent> [lines]` | Read agent's pane output |
-| `list` | Show configured agents |
-| `migrate [--dry-run]` | Copy legacy `tmux-team.json` entries into tmux metadata |
-| `team ls` / `team rm <team>` | Inspect pane scopes and manage explicit shared teams |
+| `list` | Show agents in the current workspace (or `--team <name>`) |
+| `migrate [--dry-run] [--cleanup]` | Move legacy `tmux-team.json` entries into tmux pane metadata |
+| `team ls [--summary\|--json]` | Inspect tmux panes grouped by scope; `--summary` aggregates shared teams |
+| `team rm <team> --force` | Remove a shared team registration from every pane |
 | `learn` | Show educational guide |
 
 **Options for `talk`:**
@@ -75,50 +92,65 @@ tmt config set pasteEnterDelayMs 500
 
 ## Managing Your Team
 
-Agent registrations live in tmux pane metadata. By default they are scoped to
-the current workspace (Git root, or the current folder when not in Git), so the
-usual same-folder workflow does not need `--team`.
+Agent registrations live in tmux pane metadata, scoped per workspace by
+default. The same-folder workflow never needs `--team`.
 
-**List** - Show configured agents:
+**List agents in this workspace:**
 ```bash
 tmt ls
+tmt ls --team myproject   # or list a shared team
 ```
 
-**Inspect tmux panes** - Show every tmux pane grouped by shared team,
-workspace, or unregistered status. Each group lists `session:window.pane`,
-cwd, and command:
+**Inspect every tmux pane** with `tmt team ls`. Output is grouped by scope —
+shared teams first, then workspaces, then unregistered panes — and each
+section's title lists the agents living there:
+
+```
+Team: acme-app (codex, gemini)
+PANE   TARGET             CWD              CMD
+%12    main:1.0           ~/acme/frontend  node
+%17    main:2.0           ~/acme/backend   python
+
+Workspace: ~/dev/tmux-team (claude)
+PANE   TARGET             CWD              CMD
+%3     work:0.1           ~/dev/tmux-team  node
+
+Unregistered panes
+PANE   TARGET             CWD              CMD
+%9     misc:0.0           ~/scratch        zsh
+```
 
 ```bash
-tmt team ls
-tmt team ls --json
-tmt team ls --summary   # shared-team aggregate only
+tmt team ls               # grouped pane inventory (default)
+tmt team ls --summary     # collapse to a shared-team aggregate (TEAM / AGENTS)
+tmt team ls --json        # { teams, panes } incl. each pane's registrations
 ```
 
-The table is grouped by scope: shared teams first, workspace registrations
-next, and unregistered panes last.
-
-**Add from another pane** - Pane targets can be `%pane_id`, `window.pane`, or
+**Add an agent from any pane.** Targets can be `%pane_id`, `window.pane`, or
 `session:window.pane`; tmux-team stores the canonical `%pane_id`.
 
 ```bash
 tmt add codex 1.1 "Code reviewer"
 ```
 
-**Remove** - Delete an agent:
+**Remove an agent** from the current scope:
 ```bash
 tmt rm codex
 ```
 
-**Migrate** - Copy an existing legacy `tmux-team.json` registry into tmux:
+**Migrate from legacy `tmux-team.json`.** Versions before v4 stored agents in
+a JSON file. `tmt migrate` copies those entries into tmux pane metadata so the
+new commands can see them. Run it once per project that still has the file:
 
 ```bash
-tmt migrate --dry-run
-tmt migrate
-tmt migrate --cleanup
+tmt migrate --dry-run     # preview what would move
+tmt migrate               # move entries into tmux metadata
+tmt migrate --cleanup     # also delete the migrated entries from the JSON file
 ```
 
-`tmux-team.json` is still used for local `$config` overrides and as a legacy
-fallback when no tmux metadata exists.
+`tmux-team.json` is still loaded as a fallback when no tmux metadata exists,
+and it remains the home for local `$config` overrides. If you don't use it,
+you can ignore it.
 
 ---
 
@@ -181,8 +213,9 @@ tmt add codex 1.1
 ```bash
 tmt this frontend-claude --team acme-app   # from ~/acme/frontend
 tmt this backend-codex --team acme-app     # from ~/acme/backend
-tmt team ls
-tmt team rm acme-app --force
+tmt ls --team acme-app                     # list members
+tmt team ls --summary                      # all shared teams at a glance
+tmt team rm acme-app --force               # remove the team from every pane
 ```
 
 ### Multi-team coordination
