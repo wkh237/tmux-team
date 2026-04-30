@@ -319,6 +319,21 @@ function buildMessage(message: string, agentName: string, ctx: Context): string 
   return `[SYSTEM: ${preamble}]\n\n${message}`;
 }
 
+function teamHintForMissingAgent(ctx: Context, target: string): string | null {
+  if (ctx.flags.team) return null;
+
+  const matches = Object.entries(ctx.tmux.listTeams())
+    .filter(([, agents]) => agents.includes(target))
+    .map(([teamName]) => teamName)
+    .sort();
+
+  if (matches.length === 0) return null;
+  if (matches.length === 1) {
+    return `Agent '${target}' is in shared team '${matches[0]}'. Specify it: tmt talk ${target} "..." --team ${matches[0]}`;
+  }
+  return `Agent '${target}' is in multiple shared teams: ${matches.join(', ')}. Specify one with --team <team>.`;
+}
+
 export async function cmdTalk(ctx: Context, target: string, message: string): Promise<void> {
   const { ui, config, tmux, flags, exit } = ctx;
   const waitEnabled = Boolean(flags.wait) || config.mode === 'wait';
@@ -389,6 +404,11 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
   // Single agent
   if (!config.paneRegistry[target]) {
     const available = Object.keys(config.paneRegistry).join(', ');
+    const teamHint = teamHintForMissingAgent(ctx, target);
+    if (teamHint) {
+      ui.error(teamHint);
+      exit(ExitCodes.PANE_NOT_FOUND);
+    }
     ui.error(`Agent '${target}' not found. Available: ${available || 'none'}`);
     exit(ExitCodes.PANE_NOT_FOUND);
   }

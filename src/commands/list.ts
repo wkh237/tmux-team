@@ -3,9 +3,22 @@
 // ─────────────────────────────────────────────────────────────
 
 import type { Context } from '../types.js';
+import { listPaneStatus, listTeamMembers } from './team.js';
 
-export function cmdList(ctx: Context): void {
+export function cmdList(ctx: Context, target?: string): void {
   const { ui, config, flags } = ctx;
+
+  if (target) {
+    const teams = ctx.tmux.listTeams();
+    if (teams[target]) {
+      listTeamMembers(ctx, [target]);
+      return;
+    }
+
+    listPaneStatus(ctx, target);
+    return;
+  }
+
   const agents = Object.entries(config.paneRegistry);
 
   if (flags.json) {

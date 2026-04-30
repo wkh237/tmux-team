@@ -284,6 +284,98 @@ describe('basic commands', () => {
     expect(tableCall[1][0][2]).toBe('-');
   });
 
+  it('cmdList can list a shared team by positional name', () => {
+    const ctx = createCtx(testDir);
+    (ctx.tmux.listTeams as ReturnType<typeof vi.fn>).mockReturnValue({ egp: ['claude'] });
+    (ctx.tmux.listTeamPanes as ReturnType<typeof vi.fn>).mockReturnValue([
+      {
+        pane: '%1',
+        target: 'main:1.0',
+        cwd: '/repo',
+        command: 'claude',
+        suggestedName: 'claude',
+        registrations: [{ scopeType: 'team', scope: 'egp', agent: 'claude' }],
+      },
+    ]);
+
+    cmdList(ctx, 'egp');
+
+    expect(ctx.ui.table).toHaveBeenCalledWith(
+      ['NAME', 'PANE', 'TARGET', 'CWD', 'CMD', 'REMARK'],
+      [['claude', '%1', 'main:1.0', '/repo', 'claude', '-']]
+    );
+  });
+
+  it('cmdList can show pane status by pane target', () => {
+    const ctx = createCtx(testDir);
+    (ctx.tmux.resolvePaneTarget as ReturnType<typeof vi.fn>).mockImplementation((target: string) =>
+      target === 'main:1.0' ? '%1' : null
+    );
+    (ctx.tmux.listTeamPanes as ReturnType<typeof vi.fn>).mockReturnValue([
+      {
+        pane: '%1',
+        target: 'main:1.0',
+        cwd: '/repo',
+        command: 'claude',
+        suggestedName: 'claude',
+        registrations: [
+          { scopeType: 'workspace', scope: '/repo', agent: 'claude' },
+          { scopeType: 'team', scope: 'egp', agent: 'reviewer', remark: 'strict' },
+        ],
+      },
+    ]);
+
+    cmdList(ctx, 'main.1.0');
+
+    expect(ctx.tmux.resolvePaneTarget).toHaveBeenCalledWith('main.1.0');
+    expect(ctx.tmux.resolvePaneTarget).toHaveBeenCalledWith('main:1.0');
+    expect(ctx.ui.table).toHaveBeenCalledWith(
+      ['SCOPE', 'NAME', 'REMARK'],
+      [
+        ['workspace:/repo', 'claude', '-'],
+        ['team:egp', 'reviewer', 'strict'],
+      ]
+    );
+  });
+
+  it('cmdList outputs pane status JSON and handles unregistered panes', () => {
+    const ctx = createCtx(testDir, { flags: { json: true } });
+    (ctx.tmux.resolvePaneTarget as ReturnType<typeof vi.fn>).mockReturnValue('%9');
+    (ctx.tmux.listTeamPanes as ReturnType<typeof vi.fn>).mockReturnValue([
+      {
+        pane: '%9',
+        target: 'main:9.0',
+        cwd: '/tmp',
+        command: 'zsh',
+        suggestedName: null,
+        registrations: [],
+      },
+    ]);
+
+    cmdList(ctx, '9.0');
+
+    expect((ctx.ui as any).jsonCalls).toEqual([
+      {
+        pane: {
+          pane: '%9',
+          target: 'main:9.0',
+          cwd: '/tmp',
+          command: 'zsh',
+          suggestedName: null,
+          registrations: [],
+        },
+      },
+    ]);
+  });
+
+  it('cmdList errors when positional target is neither team nor pane', () => {
+    const ctx = createCtx(testDir);
+    (ctx.tmux.resolvePaneTarget as ReturnType<typeof vi.fn>).mockReturnValue(null);
+
+    expect(() => cmdList(ctx, 'missing')).toThrow(`exit(${ExitCodes.PANE_NOT_FOUND})`);
+    expect(ctx.ui.error).toHaveBeenCalledWith("Pane or team 'missing' not found.");
+  });
+
   it('cmdCheck captures pane output', () => {
     const ctx = createCtx(testDir, {
       config: { paneRegistry: { claude: { pane: '1.0' } } },
@@ -297,6 +389,31 @@ describe('basic commands', () => {
   it('cmdCheck errors when agent missing', () => {
     const ctx = createCtx(testDir);
     expect(() => cmdCheck(ctx, 'nope')).toThrow(`exit(${ExitCodes.PANE_NOT_FOUND})`);
+  });
+
+  it('cmdCheck points at shared teams when a missing agent is only registered there', () => {
+    const ctx = createCtx(testDir);
+    (ctx.tmux.listTeams as ReturnType<typeof vi.fn>).mockReturnValue({
+      alpha: ['codex'],
+      beta: ['codex'],
+    });
+
+    expect(() => cmdCheck(ctx, 'codex')).toThrow(`exit(${ExitCodes.PANE_NOT_FOUND})`);
+    expect(ctx.ui.error).toHaveBeenCalledWith(
+      "Agent 'codex' is in multiple shared teams: alpha, beta. Specify one with --team <team>."
+    );
+  });
+
+  it('cmdCheck points at the single shared team when there is no ambiguity', () => {
+    const ctx = createCtx(testDir);
+    (ctx.tmux.listTeams as ReturnType<typeof vi.fn>).mockReturnValue({
+      alpha: ['codex'],
+    });
+
+    expect(() => cmdCheck(ctx, 'codex')).toThrow(`exit(${ExitCodes.PANE_NOT_FOUND})`);
+    expect(ctx.ui.error).toHaveBeenCalledWith(
+      "Agent 'codex' is in shared team 'alpha'. Specify it: tmt check codex --team alpha"
+    );
   });
 
   it('cmdCheck errors when tmux capture fails', () => {
@@ -468,7 +585,18 @@ describe('basic commands', () => {
     expect(ctx.ui.info).toHaveBeenCalledWith(`No legacy agents found in ${ctx.paths.localConfig}`);
   });
 
-  it('cmdTeam lists all pane team/workspace scopes', () => {
+  it('cmdTeam lists team names by default', () => {
+    const ctx = createCtx(testDir, { flags: { json: true } });
+    (ctx.tmux.listTeams as ReturnType<typeof vi.fn>).mockReturnValue({
+      egp: ['claude', 'codex'],
+    });
+
+    cmdTeam(ctx, []);
+
+    expect((ctx.ui as any).jsonCalls).toEqual([{ teams: { egp: ['claude', 'codex'] } }]);
+  });
+
+  it('cmdTeam panes lists all pane team/workspace scopes', () => {
     const ctx = createCtx(testDir, { flags: { json: true } });
     (ctx.tmux.listTeams as ReturnType<typeof vi.fn>).mockReturnValue({
       egp: ['claude', 'codex'],
@@ -487,7 +615,7 @@ describe('basic commands', () => {
       },
     ]);
 
-    cmdTeam(ctx, ['ls']);
+    cmdTeam(ctx, ['panes']);
 
     expect((ctx.ui as any).jsonCalls).toEqual([
       {
@@ -512,8 +640,8 @@ describe('basic commands', () => {
   it('cmdTeam shows empty state and errors on unknown subcommands', () => {
     const ctx = createCtx(testDir);
 
-    cmdTeam(ctx, ['ls']);
-    expect(ctx.ui.info).toHaveBeenCalledWith('No tmux panes found.');
+    cmdTeam(ctx, []);
+    expect(ctx.ui.info).toHaveBeenCalledWith('No shared teams found.');
 
     expect(() => cmdTeam(ctx, ['wat'])).toThrow(`exit(${ExitCodes.ERROR})`);
   });
@@ -527,7 +655,117 @@ describe('basic commands', () => {
     expect(ctx.ui.table).toHaveBeenCalledWith(['TEAM', 'AGENTS'], [['egp', 'claude']]);
   });
 
-  it('cmdTeam table groups by team/workspace scope before pane order', () => {
+  it('cmdTeam ls lists members for one team', () => {
+    const ctx = createCtx(testDir);
+    (ctx.tmux.listTeamPanes as ReturnType<typeof vi.fn>).mockReturnValue([
+      {
+        pane: '%2',
+        target: 'main:2.0',
+        cwd: '/repo',
+        command: 'codex',
+        suggestedName: 'codex',
+        registrations: [{ scopeType: 'team', scope: 'egp', agent: 'codex', remark: 'review' }],
+      },
+      {
+        pane: '%1',
+        target: 'main:1.0',
+        cwd: '/repo',
+        command: 'claude',
+        suggestedName: 'claude',
+        registrations: [{ scopeType: 'team', scope: 'egp', agent: 'claude' }],
+      },
+    ]);
+
+    cmdTeam(ctx, ['ls', 'egp']);
+
+    expect(ctx.ui.table).toHaveBeenCalledWith(
+      ['NAME', 'PANE', 'TARGET', 'CWD', 'CMD', 'REMARK'],
+      [
+        ['claude', '%1', 'main:1.0', '/repo', 'claude', '-'],
+        ['codex', '%2', 'main:2.0', '/repo', 'codex', 'review'],
+      ]
+    );
+  });
+
+  it('cmdTeam ls outputs JSON and reports empty teams', () => {
+    const ctx = createCtx(testDir, { flags: { json: true } });
+    (ctx.tmux.listTeamPanes as ReturnType<typeof vi.fn>).mockReturnValue([]);
+
+    cmdTeam(ctx, ['ls', 'missing']);
+
+    expect((ctx.ui as any).jsonCalls).toEqual([{ team: 'missing', members: [] }]);
+
+    const humanCtx = createCtx(testDir);
+    cmdTeam(humanCtx, ['ls', 'missing']);
+    expect(humanCtx.ui.info).toHaveBeenCalledWith(
+      'No agents in team "missing". Use \'tmt team add missing <name>\' to add one.'
+    );
+  });
+
+  it('cmdTeam add registers current pane in a team', () => {
+    const ctx = createCtx(testDir);
+    (ctx.tmux.getCurrentPaneId as ReturnType<typeof vi.fn>).mockReturnValue('%5');
+    (ctx.tmux.resolvePaneTarget as ReturnType<typeof vi.fn>).mockReturnValue('%5');
+
+    cmdTeam(ctx, ['add', 'egp', 'claude']);
+
+    expect(ctx.tmux.setAgentRegistration).toHaveBeenCalledWith(
+      '%5',
+      { type: 'team', teamName: 'egp' },
+      { name: 'claude' }
+    );
+  });
+
+  it('cmdTeam add supports explicit panes, remarks, JSON, and duplicate errors', () => {
+    const ctx = createCtx(testDir, { flags: { json: true } });
+    (ctx.tmux.resolvePaneTarget as ReturnType<typeof vi.fn>).mockReturnValue('%6');
+
+    cmdTeam(ctx, ['add', 'egp', 'codex', '1.2', 'reviewer']);
+
+    expect(ctx.tmux.setAgentRegistration).toHaveBeenCalledWith(
+      '%6',
+      { type: 'team', teamName: 'egp' },
+      { name: 'codex', remark: 'reviewer' }
+    );
+    expect((ctx.ui as any).jsonCalls).toEqual([
+      { added: 'codex', team: 'egp', pane: '%6', remark: 'reviewer' },
+    ]);
+
+    const duplicateCtx = createCtx(testDir);
+    (duplicateCtx.tmux.getAgentRegistry as ReturnType<typeof vi.fn>).mockReturnValue({
+      paneRegistry: { codex: { pane: '%6' } },
+      agents: {},
+    });
+    expect(() => cmdTeam(duplicateCtx, ['add', 'egp', 'codex', '1.2'])).toThrow(
+      `exit(${ExitCodes.ERROR})`
+    );
+  });
+
+  it('cmdTeam add requires a pane when outside tmux', () => {
+    const ctx = createCtx(testDir);
+
+    expect(() => cmdTeam(ctx, ['add', 'egp', 'codex'])).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(ctx.ui.error).toHaveBeenCalledWith(
+      'Not running inside tmux. Provide a pane target: tmt team add <team> <name> <pane>'
+    );
+  });
+
+  it('cmdTeam add validates arguments and pane targets', () => {
+    const ctx = createCtx(testDir);
+    expect(() => cmdTeam(ctx, ['add', 'egp'])).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(ctx.ui.error).toHaveBeenCalledWith(
+      'Usage: tmux-team team add <team> <name> [pane] [remark]'
+    );
+
+    const paneCtx = createCtx(testDir);
+    (paneCtx.tmux.resolvePaneTarget as ReturnType<typeof vi.fn>).mockReturnValue(null);
+    expect(() => cmdTeam(paneCtx, ['add', 'egp', 'codex', 'missing'])).toThrow(
+      `exit(${ExitCodes.PANE_NOT_FOUND})`
+    );
+    expect(paneCtx.ui.error).toHaveBeenCalledWith("Pane 'missing' not found. Is tmux running?");
+  });
+
+  it('cmdTeam panes table groups by team/workspace scope before pane order', () => {
     const ctx = createCtx(testDir);
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     (ctx.tmux.listTeamPanes as ReturnType<typeof vi.fn>).mockReturnValue([
@@ -565,7 +803,7 @@ describe('basic commands', () => {
       },
     ]);
 
-    cmdTeam(ctx, ['ls']);
+    cmdTeam(ctx, ['panes']);
 
     expect(logSpy.mock.calls.map((call) => call[0])).toEqual([
       'Team: alpha (gemini)',
@@ -609,6 +847,9 @@ describe('basic commands', () => {
   it('cmdTeam rm requires --force and errors for missing teams', () => {
     const ctx = createCtx(testDir);
     (ctx.tmux.listTeams as ReturnType<typeof vi.fn>).mockReturnValue({ egp: ['claude'] });
+
+    expect(() => cmdTeam(ctx, ['rm'])).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(ctx.ui.error).toHaveBeenCalledWith('Usage: tmux-team team rm <team> --force');
 
     expect(() => cmdTeam(ctx, ['rm', 'egp'])).toThrow(`exit(${ExitCodes.ERROR})`);
 

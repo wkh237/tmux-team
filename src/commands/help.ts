@@ -47,13 +47,13 @@ ${colors.yellow('USAGE')}
 ${colors.yellow('COMMANDS')}
   ${colors.green('talk')} <target> <message>     Send message to an agent (or "all")
   ${colors.green('check')} <target> [lines]      Capture output from agent's pane
-  ${colors.green('list')}                        List all configured agents
+  ${colors.green('list')} [team|pane]             List workspace, team, or pane status
   ${colors.green('add')} <name> <pane> [remark]  Add a new agent
   ${colors.green('this')} <name> [remark]       Register current pane as an agent
   ${colors.green('update')} <name> [options]     Update an agent's config
   ${colors.green('remove')} <name>               Remove an agent
   ${colors.green('migrate')} [--dry-run]          Copy legacy JSON registry to tmux metadata
-  ${colors.green('team')} [ls|rm]                 Inspect pane scopes and manage teams
+  ${colors.green('team')} [ls|add|rm|panes]       Manage shared teams
   ${colors.green('install')} [claude|codex]       Install tmux-team for an AI agent
   ${colors.green('init')}                        Create empty tmux-team.json
   ${colors.green('config')} [show|set|clear]     View/modify settings
@@ -88,13 +88,15 @@ ${colors.yellow('EXAMPLES')}${
   tmux-team check codex                     ${colors.dim('← read response later')}`
   }
   tmux-team list --json
+  tmux-team list acme-app
+  tmux-team list main.1.0
   tmux-team add codex 10.1 "Code review specialist"
 
 ${colors.yellow('CONFIG')}
   Runtime: tmux pane metadata (agent registry)
   Local:  ./tmux-team.json (legacy registry + $config override)
   Global: ~/.config/tmux-team/config.json (settings)
-  Teams:  tmux pane metadata; team ls shows pane cwd + workspace/team scopes
+  Teams:  tmux pane metadata; team panes shows cwd + workspace/team scopes
 
 ${colors.yellow('CHANGE MODE')}
   tmux-team config set mode wait            ${colors.dim('Enable wait mode (local)')}

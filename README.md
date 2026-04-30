@@ -68,9 +68,12 @@ visible on both sides, use a [shared team](#shared-teams).
 | `talk <agent> "msg"` | Send message and wait for response |
 | `talk all "msg"` | Broadcast to all agents |
 | `check <agent> [lines]` | Read agent's pane output |
-| `list` | Show agents in the current workspace (or `--team <name>`) |
+| `list [team\|pane]` | Show current workspace agents, one shared team, or one pane's registrations |
 | `migrate [--dry-run] [--cleanup]` | Move legacy `tmux-team.json` entries into tmux pane metadata |
-| `team ls [--summary\|--json]` | Inspect tmux panes grouped by scope; `--summary` aggregates shared teams |
+| `team` | List shared team names |
+| `team ls <team>` | List members of a shared team |
+| `team add <team> <name> [pane]` | Add current or specified pane to a shared team |
+| `team panes [--json]` | Inspect tmux panes grouped by scope |
 | `team rm <team> --force` | Remove a shared team registration from every pane |
 | `learn` | Show educational guide |
 
@@ -95,13 +98,31 @@ tmt config set pasteEnterDelayMs 500
 Agent registrations live in tmux pane metadata, scoped per workspace by
 default. The same-folder workflow never needs `--team`.
 
-**List agents in this workspace:**
+**List agents and status:**
 ```bash
-tmt ls
-tmt ls --team myproject   # or list a shared team
+tmt ls              # agents in this workspace
+tmt ls myproject    # members of a shared team
+tmt ls 10.1         # registrations on a pane
+tmt ls main.10.1    # shorthand for main:10.1
 ```
 
-**Inspect every tmux pane** with `tmt team ls`. Output is grouped by scope —
+**Manage shared teams** with the `team` namespace:
+
+```bash
+tmt team                         # list shared team names
+tmt team ls myproject            # list team members
+tmt team add myproject claude    # add current pane to a team
+tmt team add myproject codex 1.1 # add a specific pane to a team
+tmt team rm myproject --force    # remove a team from every pane
+```
+
+A single pane can belong to multiple teams. Commands never guess across teams:
+`tmt talk codex` uses the current workspace, while `tmt talk codex --team
+myproject` uses only that shared team. If an agent name appears in multiple
+shared teams and is not in the current workspace, tmux-team asks you to specify
+the team.
+
+**Inspect every tmux pane** with `tmt team panes`. Output is grouped by scope —
 shared teams first, then workspaces, then unregistered panes — and each
 section's title lists the agents living there:
 
@@ -121,9 +142,8 @@ PANE   TARGET             CWD              CMD
 ```
 
 ```bash
-tmt team ls               # grouped pane inventory (default)
-tmt team ls --summary     # collapse to a shared-team aggregate (TEAM / AGENTS)
-tmt team ls --json        # { teams, panes } incl. each pane's registrations
+tmt team panes        # grouped pane inventory
+tmt team panes --json # { teams, panes } incl. each pane's registrations
 ```
 
 **Add an agent from any pane.** Targets can be `%pane_id`, `window.pane`, or
@@ -213,8 +233,8 @@ tmt add codex 1.1
 ```bash
 tmt this frontend-claude --team acme-app   # from ~/acme/frontend
 tmt this backend-codex --team acme-app     # from ~/acme/backend
-tmt ls --team acme-app                     # list members
-tmt team ls --summary                      # all shared teams at a glance
+tmt team                                   # list shared teams
+tmt team ls acme-app                       # list members
 tmt team rm acme-app --force               # remove the team from every pane
 ```
 

@@ -468,6 +468,27 @@ describe('cmdTalk - basic send', () => {
     expect(ui.errors[0]).toContain("Agent 'unknown' not found");
   });
 
+  it('requires explicit team when a missing agent appears in shared teams', async () => {
+    const tmux = createMockTmux();
+    vi.spyOn(tmux, 'listTeams').mockReturnValue({
+      frontend: ['codex'],
+      release: ['codex'],
+    });
+    const ui = createMockUI();
+    const ctx = createContext({
+      tmux,
+      ui,
+      paths: createTestPaths(testDir),
+      config: { paneRegistry: {} },
+    });
+
+    await expect(cmdTalk(ctx, 'codex', 'Hello')).rejects.toThrow('exit(3)');
+
+    expect(ui.errors).toEqual([
+      "Agent 'codex' is in multiple shared teams: frontend, release. Specify one with --team <team>.",
+    ]);
+  });
+
   it('outputs JSON when --json flag is set', async () => {
     const tmux = createMockTmux();
     const ui = createMockUI();

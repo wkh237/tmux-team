@@ -166,7 +166,11 @@ function main(): void {
 
       case 'list':
       case 'ls':
-        cmdList(ctx);
+        if (args[0] === undefined) {
+          cmdList(ctx);
+        } else {
+          cmdList(ctx, args[0]);
+        }
         break;
 
       case 'add':
