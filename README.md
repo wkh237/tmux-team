@@ -15,19 +15,21 @@ npm install -g tmux-team
 ## Quick Start
 
 ```bash
-# 1. Install for your AI agent
-tmt install claude   # or: tmt install codex
-
-# 2. Go to working folder and register agents (run inside each agent's pane)
+# 1. Go to working folder and register agents (run inside each agent's pane)
 tmt this claude      # registers current pane as "claude"
 tmt this codex       # registers current pane as "codex"
+# Alternatively, register a specific panel to the session
+tmt add gemini 10.1  # register a panel 10.1 as "gemini"
 
-# 3. Talk to agents
+# 2. Talk to agents
 tmt talk codex "Review this code"    # waits for response by default
 
 # 4. Update or remove an agent
 tmt update codex --pane 2.3
 tmt rm codex
+
+# List panels in the session
+tmt ls 
 ```
 
 > **Tip:** Most AI agents support `!` to run bash commands. From inside Claude Code, Codex, or Gemini CLI, you can run `!tmt this myname` to quickly register that pane.
