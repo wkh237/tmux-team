@@ -134,6 +134,7 @@ export interface Tmux {
   listPanes: () => PaneInfo[];
   getCurrentPaneId: () => string | null;
   resolvePaneTarget: (target: string) => string | null;
+  setPaneTitle: (paneId: string, title: string) => void;
   getAgentRegistry: (scope: RegistryScope) => TmuxRegistry;
   setAgentRegistration: (
     paneId: string,

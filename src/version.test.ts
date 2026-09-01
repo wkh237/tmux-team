@@ -26,6 +26,6 @@ describe('version', () => {
     }));
 
     const { VERSION } = await import('./version.js');
-    expect(VERSION).toBe('3.0.1');
+    expect(VERSION).toBe('4.3.0');
   });
 });

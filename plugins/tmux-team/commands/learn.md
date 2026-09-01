@@ -1,5 +1,5 @@
 ---
-allowed-tools: Read(*), Bash(tmux-team:*)
+allowed-tools: Read(*), Bash(tmt:*), Bash(tmux-team:*)
 description: Learn how to use tmux-team for multi-agent coordination
 ---
 
@@ -16,44 +16,45 @@ Each agent runs in its own tmux pane. When you want to talk to another agent:
 2. tmux-team waits briefly, then sends Enter to submit
 3. You read their response by capturing their pane output
 
-## Essential Commands (use --wait for better token utilization)
+## Essential Commands
 
 ```bash
 # List available agents in this project
-tmux-team list
+tmt list
 
 # Send and wait for response (recommended)
-tmux-team talk <agent> "<message>" --wait
+tmt talk <agent> "<message>" --wait
 
 # Broadcast to all agents
-tmux-team talk all "<message>" --wait
+tmt talk all "<message>" --wait
 ```
 
 ## Practical Examples
 
 ### Quick question to another agent
 ```bash
-tmux-team talk codex "What's the status of the authentication refactor?" --wait
+tmt talk codex "What's the status of the authentication refactor?" --wait
 # Response is returned directly
 ```
 
 ### Delegate a task with longer timeout and more output
 ```bash
-tmux-team talk codex "Please implement the login form. Reply when done." --wait --timeout 300 --lines 200
+tmt talk codex "Please implement the login form. Reply when done." --wait --timeout 300 --lines 200
 ```
 
 ### Broadcast to all agents
 ```bash
-tmux-team talk all "Sync: PR #123 was merged, please pull latest" --wait
+tmt talk all "Sync: PR #123 was merged, please pull latest" --wait
 ```
 
 ## Configuration
 
-tmux-team is configured via tmux-team.json in your project root:
+Agent registrations are stored in tmux pane metadata. Legacy projects may
+still have `tmux-team.json`; use `tmt migrate` to import it.
 
 ```json
-{
-  "$config": {
+  {
+    "$config": {
     "mode": "polling",
     "pasteEnterDelayMs": 500
   },
@@ -71,15 +72,15 @@ If the agent takes longer than expected, --wait will timeout. Use the check comm
 
 ```bash
 # Check for response after timeout (default 100 lines)
-tmux-team check <agent>
+tmt check <agent>
 
 # Check with more lines for long responses
-tmux-team check <agent> 200
+tmt check <agent> 200
 ```
 
 ## Best Practices
 
-1. **Always use --wait** - More token-efficient than polling with check command
+1. Use `--wait` for synchronous request/response; use `check` after timeout
 2. **Be explicit** - Tell the other agent exactly what you need and how to respond
 3. **Set timeout appropriately** - Use --timeout 300 for complex tasks
 4. **Use --lines for long responses** - Default is 100 lines, increase for verbose output
@@ -88,4 +89,9 @@ tmux-team check <agent> 200
 
 ## Your Next Step
 
-Run tmux-team list to see which agents are available in your current project.
+Run `tmt list` to see which agents are available in your current workspace.
+
+Install integrations with `tmt install`. `tmt upgrade` updates the package, and
+managed skill links then use the new bundled files automatically. Sending pane
+input is an external action and must be authorized by the user; preserve
+multiline text.

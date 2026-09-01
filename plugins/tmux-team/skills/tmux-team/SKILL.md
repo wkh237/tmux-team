@@ -14,18 +14,20 @@ You are working in a multi-agent tmux environment. Use the `tmux-team` CLI to co
 - Checking responses from agents you've messaged
 - Coordinating parallel work across multiple agents
 
-## Commands (use --wait for better token utilization)
+## Commands
 
 ```bash
 # Send and wait for response (recommended)
-tmux-team talk codex "your message" --wait
-tmux-team talk gemini "your message" --wait --timeout 120
+tmt talk codex "your message" --wait
+tmt talk gemini "your message" --wait --timeout 120
 
 # Broadcast to all agents
-tmux-team talk all "message for everyone" --wait
+tmt talk all "message for everyone" --wait
 
 # List configured agents
-tmux-team list
+tmt list
+tmt name backend
+tmt team add project codex %12
 ```
 
 ## Workflow
@@ -39,7 +41,11 @@ tmux-team talk codex "Review this authentication code" --wait
 
 ## Tips
 
-- **Always use `--wait`** - it's more token-efficient than polling with `check`
-- Use `--timeout 300` for complex tasks that need more time
-- Use `--delay 5` to add delay between messages (rate limiting)
-- Run `tmux-team learn` for a comprehensive guide
+- Use `--wait` when the user needs a response before continuing; use `check`
+  after a timeout or for polling.
+- `tmt name` sets a visible pane title. `team` commands manage registrations
+  shared across folders; ordinary commands use the current workspace.
+- Preserve multiline text. Sending input to another pane is an external action
+  and requires user authorization; do not infer permission to send commands.
+- Install integrations with `tmt install`. `tmt upgrade` updates the package;
+  managed skill links then use the new bundled files automatically.

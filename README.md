@@ -6,11 +6,25 @@ Coordinate AI agents (Claude, Codex, Gemini) running in tmux panes. Send message
 
 ```bash
 npm install -g tmux-team
+tmt install
 ```
+
+`tmt install` auto-detects Claude Code, Codex, and Gemini. Codex and Gemini
+share a managed skill link at `~/.agents/skills/tmux-team`; Claude gets its own
+integration. Repeating the command is idempotent, and unmanaged files are
+backed up only with `--force`. Use `tmt upgrade` to update the package; managed
+skill links immediately use the new bundled files. Interactive commands make a
+once-daily cached update check, while local drift checks work without network.
 
 **Requirements:** Node.js >= 18, tmux
 
 **Alias:** `tmt` (shorthand for `tmux-team`)
+
+## What's new in 4.3
+
+- `tmt name <name>` labels a pane in its border using tmux highlight colors.
+- Multiline messages now preserve real line breaks when delivered.
+- Skills can be installed and refreshed with `tmt install` and `tmt upgrade`.
 
 ## Quick Start
 
@@ -30,6 +44,9 @@ tmt rm codex
 
 # List panels in the session
 tmt ls 
+
+# Name the current pane (shown at the upper-right of its border)
+tmt name backend
 ```
 
 > **Tip:** Most AI agents support `!` to run bash commands. From inside Claude Code, Codex, or Gemini CLI, you can run `!tmt this myname` to quickly register that pane.
@@ -65,8 +82,10 @@ visible on both sides, use a [shared team](#shared-teams).
 
 | Command | Description |
 |---------|-------------|
-| `install [claude\|codex]` | Install tmux-team for an AI agent |
+| `install [claude\|codex\|gemini\|all]` | Install or repair agent integrations |
+| `upgrade` | Upgrade tmux-team; managed skill links update automatically |
 | `this <name> [remark]` | Register current pane as an agent |
+| `name <name> [pane]` | Set a pane title, shown upper-right in its border |
 | `talk <agent> "msg"` | Send message and wait for response |
 | `talk all "msg"` | Broadcast to all agents |
 | `check <agent> [lines]` | Read agent's pane output |
@@ -84,6 +103,11 @@ visible on both sides, use a [shared team](#shared-teams).
 - `--lines <number>` - Lines to capture from response (default: 100)
 
 Run `tmt help` for all commands and options.
+
+`tmt name <name> [pane]` sets a visible title on the current pane, or on the
+specified tmux pane target (`%pane_id`, `window.pane`, or `session:window.pane`).
+The title appears in the upper-right of the pane border and inherits tmux's
+active/inactive pane-border highlight colors.
 
 ## Message Delivery
 
@@ -170,9 +194,10 @@ tmt migrate               # move entries into tmux metadata
 tmt migrate --cleanup     # also delete the migrated entries from the JSON file
 ```
 
-`tmux-team.json` is still loaded as a fallback when no tmux metadata exists,
-and it remains the home for local `$config` overrides. If you don't use it,
-you can ignore it.
+`tmux-team.json` is a compatibility fallback for projects migrating from
+pre-v4 releases and remains available for local `$config` overrides. New
+registrations are stored in tmux pane metadata; if you do not use the legacy
+file, you can ignore it.
 
 ---
 
@@ -283,7 +308,7 @@ The `/team` command lets Claude talk to other AI agents directly. Install the pl
 
 ```
 /plugin marketplace add wkh237/tmux-team
-/plugin install tmux-team
+/plugin install tmux-team@tmux-team
 ```
 
 ### /team Commands

@@ -24,6 +24,9 @@ import { cmdLearn } from './commands/learn.js';
 import { cmdThis } from './commands/this.js';
 import { cmdMigrate } from './commands/migrate.js';
 import { cmdTeam } from './commands/team.js';
+import { cmdName } from './commands/name.js';
+import { cmdUpgrade } from './commands/upgrade.js';
+import { runStartupChecks } from './update-check.js';
 
 // ─────────────────────────────────────────────────────────────
 // Argument parsing
@@ -153,12 +156,13 @@ function main(): void {
   const ctx = createContext({ argv, flags });
 
   // Warn if not in tmux for commands that require it
-  const TMUX_REQUIRED_COMMANDS = ['talk', 'send', 'check', 'read', 'this'];
+  const TMUX_REQUIRED_COMMANDS = ['talk', 'send', 'check', 'read', 'this', 'name'];
   if (!process.env.TMUX && TMUX_REQUIRED_COMMANDS.includes(command)) {
     ctx.ui.warn('Not running inside tmux. Some features may not work.');
   }
 
   const run = async (): Promise<void> => {
+    await runStartupChecks(ctx, command);
     switch (command) {
       case 'init':
         cmdInit(ctx);
@@ -228,6 +232,14 @@ function main(): void {
         cmdThis(ctx, args[0], args[1]);
         break;
 
+      case 'name':
+        if (args.length < 1 || args.length > 2) {
+          ctx.ui.error('Usage: tmux-team name <name> [pane]');
+          ctx.exit(ExitCodes.ERROR);
+        }
+        cmdName(ctx, args[0], args[1]);
+        break;
+
       case 'talk':
       case 'send':
         if (args.length < 2) {
@@ -256,6 +268,10 @@ function main(): void {
 
       case 'install':
         await cmdInstall(ctx, args[0]);
+        break;
+
+      case 'upgrade':
+        cmdUpgrade(ctx);
         break;
 
       case 'learn':

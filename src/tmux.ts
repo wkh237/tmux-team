@@ -212,22 +212,22 @@ export function createTmux(): Tmux {
       const payload = ensureTrailingNewline(escaped);
 
       try {
-        execSync(`tmux set-buffer -b "${bufferName}" -- ${JSON.stringify(payload)}`, {
+        execFileSync('tmux', ['set-buffer', '-b', bufferName, '--', payload], {
           stdio: 'pipe',
         });
-        execSync(`tmux paste-buffer -b "${bufferName}" -d -t "${paneId}" -p`, {
+        execFileSync('tmux', ['paste-buffer', '-b', bufferName, '-d', '-t', paneId, '-p'], {
           stdio: 'pipe',
         });
         sleepMs(enterDelayMs);
-        execSync(`tmux send-keys -t "${paneId}" Enter`, {
+        execFileSync('tmux', ['send-keys', '-t', paneId, 'Enter'], {
           stdio: 'pipe',
         });
       } catch {
         // Fallback to legacy send-keys if buffer/paste fails
-        execSync(`tmux send-keys -t "${paneId}" ${JSON.stringify(message)}`, {
+        execFileSync('tmux', ['send-keys', '-t', paneId, message], {
           stdio: 'pipe',
         });
-        execSync(`tmux send-keys -t "${paneId}" Enter`, {
+        execFileSync('tmux', ['send-keys', '-t', paneId, 'Enter'], {
           stdio: 'pipe',
         });
       }
@@ -292,6 +292,20 @@ export function createTmux(): Tmux {
       } catch {
         return null;
       }
+    },
+
+    setPaneTitle(paneId: string, title: string): void {
+      execFileSync('tmux', ['select-pane', '-t', paneId, '-T', title], { stdio: 'pipe' });
+      // Keep the title visible in the pane border and let tmux inherit the
+      // active/inactive border colors from the user's theme.
+      execFileSync('tmux', ['set-window-option', '-t', paneId, 'pane-border-status', 'top'], {
+        stdio: 'pipe',
+      });
+      execFileSync(
+        'tmux',
+        ['set-window-option', '-t', paneId, 'pane-border-format', '#[align=right]#{pane_title}'],
+        { stdio: 'pipe' }
+      );
     },
 
     getCurrentPaneId(): string | null {

@@ -52,6 +52,7 @@ function createCtx(
     listPanes: vi.fn(() => []),
     getCurrentPaneId: vi.fn(() => null),
     resolvePaneTarget: vi.fn((target: string) => target),
+    setPaneTitle: vi.fn(),
     getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
     setAgentRegistration: vi.fn(),
     clearAgentRegistration: vi.fn(() => false),

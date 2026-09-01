@@ -33,6 +33,7 @@ function makeStubContext(): Context {
       listPanes: vi.fn(() => []),
       getCurrentPaneId: vi.fn(() => null),
       resolvePaneTarget: vi.fn((target: string) => target),
+      setPaneTitle: vi.fn(),
       getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
       setAgentRegistration: vi.fn(),
       clearAgentRegistration: vi.fn(() => false),
@@ -234,6 +235,45 @@ describe('cli', () => {
 
     expect(thisSpy).toHaveBeenCalledWith(ctx, 'myagent', 'remark');
     expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it('routes name command with an optional pane target', async () => {
+    vi.resetModules();
+    process.argv = ['node', 'cli', 'name', 'backend', 'main:1.2'];
+
+    const ctx = makeStubContext();
+    const nameSpy = vi.fn();
+    vi.doMock('./context.js', () => ({
+      createContext: () => ctx,
+      ExitCodes: { SUCCESS: 0, ERROR: 1 },
+    }));
+    vi.doMock('./commands/name.js', () => ({ cmdName: nameSpy }));
+    vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+
+    await import('./cli.js');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(nameSpy).toHaveBeenCalledWith(ctx, 'backend', 'main:1.2');
+  });
+
+  it('errors when name command has missing or extra arguments', async () => {
+    vi.resetModules();
+    process.argv = ['node', 'cli', 'name', 'backend', 'main:1.2', 'extra'];
+
+    const ctx = makeStubContext();
+    const exitSpy = vi.fn();
+    ctx.exit = exitSpy as any;
+    vi.doMock('./context.js', () => ({
+      createContext: () => ctx,
+      ExitCodes: { SUCCESS: 0, ERROR: 1 },
+    }));
+    vi.doMock('./commands/name.js', () => ({ cmdName: vi.fn() }));
+
+    await import('./cli.js');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(ctx.ui.error).toHaveBeenCalledWith('Usage: tmux-team name <name> [pane]');
+    expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
   it('errors when this command is missing name', async () => {

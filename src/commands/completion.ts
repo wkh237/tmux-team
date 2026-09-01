@@ -18,6 +18,9 @@ _tmux-team() {
     'remove:Remove an agent'
     'migrate:Copy legacy tmux-team.json registry into tmux metadata'
     'team:Manage shared teams'
+    'name:Set a visible pane title'
+    'install:Install agent skills'
+    'upgrade:Upgrade tmux-team and refresh skills'
     'init:Create empty legacy tmux-team.json'
     'completion:Output shell completion script'
     'help:Show help message'
@@ -43,6 +46,9 @@ _tmux-team() {
       completion)
         compadd "zsh" "bash"
         ;;
+      install)
+        compadd "claude" "codex" "gemini" "all"
+        ;;
     esac
   elif (( CURRENT == 4 )); then
     case \${words[2]} in
@@ -64,7 +70,7 @@ const bashCompletion = `_tmux_team() {
   cur="\${COMP_WORDS[COMP_CWORD]}"
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
-  commands="talk check list add update remove migrate team init completion help"
+  commands="talk check list add update remove migrate team init completion help name install upgrade"
 
   if [[ \${COMP_CWORD} -eq 1 ]]; then
     COMPREPLY=( $(compgen -W "\${commands}" -- \${cur}) )
@@ -79,6 +85,9 @@ const bashCompletion = `_tmux_team() {
         ;;
       completion)
         COMPREPLY=( $(compgen -W "zsh bash" -- \${cur}) )
+        ;;
+      install)
+        COMPREPLY=( $(compgen -W "claude codex gemini all" -- \${cur}) )
         ;;
     esac
   elif [[ \${COMP_CWORD} -eq 3 ]]; then

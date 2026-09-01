@@ -3,44 +3,53 @@ name: tmux-team
 description: Communicate with other AI agents in tmux panes. Use when you need to talk to codex, claude, gemini, or other agents.
 ---
 
-When invoked, execute the tmux-team command with the provided arguments.
+When invoked, execute the `tmt` (short for `tmux-team`) command with the provided arguments.
 
 You are working in a multi-agent tmux environment.
 Use the tmux-team CLI to communicate with other agents.
+
+Registrations live in tmux pane metadata: current workspace by default, or an
+explicit cross-folder team with `--team <name>`.
 
 ## Commands
 
 ```bash
 # Send message to an agent
-tmux-team talk codex "your message"
-tmux-team talk gemini "your message"
-tmux-team talk all "broadcast message"
+tmt talk codex "your message"
+tmt talk gemini "your message"
+tmt talk all "broadcast message"
 
 # Send with delay (useful for rate limiting)
-tmux-team talk codex "message" --delay 5
+tmt talk codex "message" --delay 5
 
 # Send and wait for response (blocks until agent replies)
-tmux-team talk codex "message" --wait --timeout 120
+tmt talk codex "message" --wait --timeout 120
 
 # Read agent response (default: 100 lines)
-tmux-team check codex
-tmux-team check gemini 200
+tmt check codex
+tmt check gemini 200
 
 # List all configured agents
-tmux-team list
+tmt list
+tmt name backend
+tmt team panes
 ```
 
 ## Workflow
 
-1. Send message: `tmux-team talk codex "Review this code"`
-2. Wait 5-15 seconds (or use `--wait` flag)
-3. Read response: `tmux-team check codex`
-4. If response is cut off: `tmux-team check codex 200`
+1. Send and wait: `tmt talk codex "Review this code" --wait`
+2. If the request times out, read the pane later with `tmt check codex`.
+3. If the response is cut off, increase the capture with `tmt check codex 200`.
 
 ## Notes
 
-- `talk` sends via tmux buffer paste, then waits briefly before Enter
+- `talk` sends via tmux buffer paste, then waits briefly before Enter; multiline
+  messages preserve their line breaks.
 - Control the delay with `pasteEnterDelayMs` in config (default: 500)
 - Use `--delay` instead of sleep (safer for tool whitelists)
-- Use `--wait` for synchronous request-response patterns
-- Run `tmux-team help` for full CLI documentation
+- Use `--wait` for synchronous request-response patterns; use `check` after a
+  timeout or when polling.
+- Sending text or commands to another pane is an external action. Do it only
+  with user authorization; do not send secrets or unrelated commands.
+- Install integrations with `tmt install`. `tmt upgrade` updates the package;
+  managed skill links then use the new bundled files automatically.

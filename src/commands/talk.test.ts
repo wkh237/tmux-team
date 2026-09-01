@@ -46,6 +46,7 @@ function createMockTmux(): Tmux & {
     resolvePaneTarget(target: string) {
       return target;
     },
+    setPaneTitle() {},
     getAgentRegistry() {
       return { paneRegistry: {}, agents: {} };
     },
