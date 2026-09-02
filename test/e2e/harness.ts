@@ -16,10 +16,11 @@ export interface CliResult<T = unknown> {
 }
 
 export interface MockEvent {
-  event: string;
+  event: 'ready' | 'request' | 'response' | 'silent' | 'malformed' | 'stopped';
   message?: string;
   nonce?: string;
   mode?: string;
+  pid?: number;
 }
 
 function shellQuote(value: string): string {
@@ -38,6 +39,8 @@ export class E2EFixture {
   readonly wrapperDir = path.join(this.root, 'bin');
   readonly tmuxPath: string;
   pane = '';
+  panePid = 0;
+  serverPid = 0;
   socketPath = '';
   private started = false;
   private serverStarted = false;
@@ -59,7 +62,9 @@ export class E2EFixture {
     }
   }
 
-  start(options: { mode?: 'respond' | 'silent' | 'malformed'; delayMs?: number } = {}): void {
+  async start(
+    options: { mode?: 'respond' | 'silent' | 'malformed'; delayMs?: number } = {}
+  ): Promise<void> {
     try {
       fs.mkdirSync(this.workspace, { recursive: true });
       fs.mkdirSync(this.globalDir, { recursive: true });
@@ -97,13 +102,24 @@ export class E2EFixture {
       ]);
       this.serverStarted = true;
       this.socketPath = this.tmux(['display-message', '-p', '#{socket_path}']).trim();
+      this.serverPid = Number(this.tmux(['display-message', '-p', '#{pid}']).trim());
       this.pane = this.tmux(['display-message', '-p', '-t', 'e2e:0.0', '#{pane_id}']).trim();
+      this.panePid = Number(
+        this.tmux(['display-message', '-p', '-t', this.pane, '#{pane_pid}']).trim()
+      );
       if (!this.socketPath || !this.pane) {
         throw new Error('E2E fixture could not determine its socket path and mock-agent pane ID.');
       }
+      if (!Number.isInteger(this.panePid) || this.panePid <= 0) {
+        throw new Error('E2E fixture could not determine its mock-agent pane process ID.');
+      }
+      if (!Number.isInteger(this.serverPid) || this.serverPid <= 0) {
+        throw new Error('E2E fixture could not determine its private tmux server process ID.');
+      }
+      await this.waitForEvent((event) => event.event === 'ready');
       this.started = true;
     } catch (error) {
-      this.stop();
+      await this.stop();
       throw new Error(
         `E2E fixture failed to start its private tmux server: ${error instanceof Error ? error.message : String(error)}`,
         { cause: error }
@@ -113,7 +129,7 @@ export class E2EFixture {
 
   runCli<T = Record<string, unknown>>(args: string[]): Promise<CliResult<T>> {
     if (!this.started) throw new Error('E2E fixture must be started before invoking the CLI.');
-    const child = spawn(binPath, ['--json', ...args], {
+    const child = spawn(binPath, args, {
       cwd: this.workspace,
       env: { ...this.env, TMUX_PANE: this.pane },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -144,12 +160,26 @@ export class E2EFixture {
     });
   }
 
+  runJsonCli<T = Record<string, unknown>>(args: string[]): Promise<CliResult<T>> {
+    return this.runCli<T>(['--json', ...args]);
+  }
+
   tmux(args: string[]): string {
     return execFileSync(path.join(this.wrapperDir, 'tmux'), args, {
       env: this.env,
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+  }
+
+  paneTarget(pane = this.pane): string {
+    return this.tmux([
+      'display-message',
+      '-p',
+      '-t',
+      pane,
+      '#{session_name}:#{window_index}.#{pane_index}',
+    ]).trim();
   }
 
   events(): MockEvent[] {
@@ -162,7 +192,22 @@ export class E2EFixture {
       .map((line) => JSON.parse(line) as MockEvent);
   }
 
-  stop(): void {
+  async waitForEvent(
+    predicate: (event: MockEvent) => boolean,
+    timeoutMs = 2_000
+  ): Promise<MockEvent> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const event = this.events().find(predicate);
+      if (event) return event;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error(
+      `Timed out waiting for mock-agent event. Events: ${JSON.stringify(this.events())}`
+    );
+  }
+
+  async stop(): Promise<void> {
     if (this.serverStarted) {
       try {
         this.tmux(['kill-server']);
@@ -172,6 +217,7 @@ export class E2EFixture {
     }
     this.serverStarted = false;
     this.started = false;
+    await this.waitForProcessExit();
     fs.rmSync(this.root, { recursive: true, force: true });
     fs.rmSync(this.socketRoot, { recursive: true, force: true });
   }
@@ -179,12 +225,40 @@ export class E2EFixture {
   serverIsRunning(): boolean {
     if (!this.socketPath) return false;
     try {
-      execFileSync(this.tmuxPath, ['-S', this.socketPath, 'has-session', '-t', 'e2e'], {
+      execFileSync(this.tmuxPath, ['-S', this.socketPath, 'list-sessions'], {
         stdio: 'ignore',
       });
       return true;
     } catch {
+      return this.serverProcessIsRunning();
+    }
+  }
+
+  serverProcessIsRunning(): boolean {
+    if (!Number.isInteger(this.serverPid) || this.serverPid <= 0) return false;
+    try {
+      process.kill(this.serverPid, 0);
+      return true;
+    } catch {
       return false;
+    }
+  }
+
+  mockProcessIsRunning(): boolean {
+    if (!Number.isInteger(this.panePid) || this.panePid <= 0) return false;
+    try {
+      process.kill(this.panePid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async waitForProcessExit(timeoutMs = 2_000): Promise<void> {
+    if (!this.panePid) return;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline && this.mockProcessIsRunning()) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
     }
   }
 
@@ -221,10 +295,10 @@ export async function withE2EFixture<T>(
   options: { mode?: 'respond' | 'silent' | 'malformed'; delayMs?: number } = {}
 ): Promise<T> {
   const fixture = new E2EFixture();
-  fixture.start(options);
   try {
+    await fixture.start(options);
     return await callback(fixture);
   } finally {
-    fixture.stop();
+    await fixture.stop();
   }
 }

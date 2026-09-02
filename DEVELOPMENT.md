@@ -6,13 +6,13 @@
 - Install dependencies:
 
 ```bash
-npm install
+pnpm install
 ```
 
 - Run the CLI locally:
 
 ```bash
-npm run dev -- --help
+pnpm dev -- --help
 ```
 
 ## Running Tests
@@ -20,13 +20,13 @@ npm run dev -- --help
 - Watch mode:
 
 ```bash
-npm test
+pnpm test:watch
 ```
 
 - Single run:
 
 ```bash
-npm run test:run
+pnpm test:run
 ```
 
 - Docker-backed end-to-end smoke tests:
@@ -49,7 +49,7 @@ its temporary state.
 - Full checks:
 
 ```bash
-npm run check
+pnpm check
 ```
 
 ## Testing Strategy

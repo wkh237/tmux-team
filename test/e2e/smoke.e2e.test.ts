@@ -35,24 +35,85 @@ describe.sequential('Docker/Vitest tmux foundation smoke scenarios', () => {
           capture.includes('mock-agent response: hello from the foundation') &&
           capture.includes(`RESPONSE-END-${nonce}`)
       );
+      await fixture.waitForEvent((event) => event.event === 'response' && event.nonce === nonce);
 
-      expect(fixture.events()).toEqual([
-        { event: 'request', message: 'hello from the foundation', nonce, mode: 'respond' },
-      ]);
+      const events = fixture.events();
+      expect(events[0]).toEqual({
+        event: 'ready',
+        mode: 'respond',
+        pid: fixture.panePid,
+      });
+      expect(events).toContainEqual({
+        event: 'request',
+        message: 'hello from the foundation',
+        nonce,
+        mode: 'respond',
+      });
+      expect(events).toContainEqual({
+        event: 'response',
+        message: 'hello from the foundation',
+        nonce,
+        mode: 'respond',
+      });
       expect(output).toContain('mock-agent response: hello from the foundation');
     });
+  });
+
+  it('records a silent mock-agent lifecycle without fabricating a response', async () => {
+    await withE2EFixture(
+      async (fixture) => {
+        const nonce = 'silent123';
+        fixture.sendMockInput([
+          'silent request',
+          '',
+          `When done, output exactly: RESPONSE-END-xxxx (where xxxx = ${nonce})`,
+        ]);
+        await fixture.waitForEvent((event) => event.event === 'silent' && event.nonce === nonce);
+
+        const events = fixture.events();
+        expect(events.map((event) => event.event)).toEqual(['ready', 'request', 'silent']);
+        expect(fixture.capture()).not.toContain('mock-agent response: silent request');
+      },
+      { mode: 'silent' }
+    );
+  });
+
+  it('records malformed output separately from a valid response', async () => {
+    await withE2EFixture(
+      async (fixture) => {
+        const nonce = 'malformed123';
+        fixture.sendMockInput([
+          'malformed request',
+          '',
+          `When done, output exactly: RESPONSE-END-xxxx (where xxxx = ${nonce})`,
+        ]);
+        const output = await fixture.waitForCapture((capture) =>
+          capture.includes('mock-agent malformed response: malformed request')
+        );
+        await fixture.waitForEvent((event) => event.event === 'malformed' && event.nonce === nonce);
+
+        const events = fixture.events();
+        expect(events.map((event) => event.event)).toEqual(['ready', 'request', 'malformed']);
+        expect(output).not.toContain(`RESPONSE-END-${nonce}`);
+      },
+      { mode: 'malformed' }
+    );
   });
 
   it('keeps the canonical pane ID across a real tmux move', async () => {
     await withE2EFixture((fixture) => {
       const originalPane = fixture.pane;
+      const originalTarget = fixture.paneTarget(originalPane);
       const targetPane = fixture
         .tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', '-t', 'e2e', '-n', 'sink', 'sleep 30'])
         .trim();
+      const targetWindow = fixture.paneTarget(targetPane);
       fixture.tmux(['move-pane', '-s', originalPane, '-t', targetPane]);
 
       expect(fixture.pane).toBe(originalPane);
-      expect(fixture.tmux(['list-panes', '-a']).trim()).toContain(originalPane);
+      expect(fixture.paneTarget(originalPane)).not.toBe(originalTarget);
+      expect(fixture.paneTarget(originalPane)).toContain(targetWindow.split('.')[0]);
+      expect(fixture.tmux(['list-panes', '-a', '-F', '#{pane_id}']).trim()).toContain(originalPane);
     });
   });
 
@@ -67,6 +128,7 @@ describe.sequential('Docker/Vitest tmux foundation smoke scenarios', () => {
 
     expect(failedFixture).toBeDefined();
     expect(failedFixture?.serverIsRunning()).toBe(false);
+    expect(failedFixture?.mockProcessIsRunning()).toBe(false);
     expect(fs.existsSync(failedFixture?.socketPath ?? '')).toBe(false);
     expect(fs.existsSync(failedFixture?.root ?? '')).toBe(false);
     expect(fs.existsSync(failedFixture?.socketRoot ?? '')).toBe(false);
@@ -79,5 +141,6 @@ describe.sequential('Docker/Vitest tmux foundation smoke scenarios', () => {
       expect(fixture.root).not.toBe(failedFixture?.root);
     });
     expect(secondFixture?.serverIsRunning()).toBe(false);
+    expect(secondFixture?.mockProcessIsRunning()).toBe(false);
   });
 });

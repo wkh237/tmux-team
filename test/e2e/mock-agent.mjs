@@ -14,11 +14,13 @@ function appendEvent(event) {
 
 function respond(message, nonce) {
   const output = `mock-agent response: ${message || '(empty)'}\nRESPONSE-END-${nonce}\n`;
-  process.stdout.write(output);
+  process.stdout.write(output, () => appendEvent({ event: 'response', message, nonce, mode }));
 }
 
 const input = readline.createInterface({ input: process.stdin, terminal: false });
 let messageLines = [];
+
+appendEvent({ event: 'ready', mode, pid: process.pid });
 
 input.on('line', (line) => {
   const instruction = line.match(
@@ -34,10 +36,19 @@ input.on('line', (line) => {
   messageLines = [];
   appendEvent({ event: 'request', message, nonce, mode });
 
-  if (mode === 'silent') return;
+  if (mode === 'silent') {
+    appendEvent({ event: 'silent', message, nonce, mode });
+    return;
+  }
   const send = () => respond(message, nonce);
   if (mode === 'malformed') {
-    setTimeout(() => process.stdout.write(`mock-agent malformed response: ${message}\n`), delayMs);
+    setTimeout(
+      () =>
+        process.stdout.write(`mock-agent malformed response: ${message}\n`, () =>
+          appendEvent({ event: 'malformed', message, nonce, mode })
+        ),
+      delayMs
+    );
     return;
   }
   setTimeout(send, delayMs);
