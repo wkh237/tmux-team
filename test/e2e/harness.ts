@@ -23,14 +23,25 @@ export interface MockEvent {
   pid?: number;
 }
 
+export interface MockPane {
+  pane: string;
+  pid: number;
+  workspace: string;
+}
+
+export interface CliRunOptions {
+  cwd?: string;
+  pane?: string;
+}
+
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 export class E2EFixture {
-  readonly root = fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-e2e-'));
-  readonly socketRoot = fs.mkdtempSync(
-    path.join(process.platform === 'darwin' ? '/private/tmp' : os.tmpdir(), 'te2e-')
+  readonly root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-e2e-')));
+  readonly socketRoot = fs.realpathSync(
+    fs.mkdtempSync(path.join(process.platform === 'darwin' ? '/private/tmp' : os.tmpdir(), 'te2e-'))
   );
   readonly workspace = path.join(this.root, 'workspace');
   readonly globalDir = path.join(this.root, 'global');
@@ -45,6 +56,7 @@ export class E2EFixture {
   private started = false;
   private serverStarted = false;
   private env: NodeJS.ProcessEnv = {};
+  private panePids: number[] = [];
 
   constructor() {
     try {
@@ -71,7 +83,7 @@ export class E2EFixture {
       fs.mkdirSync(this.wrapperDir, { recursive: true });
       fs.writeFileSync(
         path.join(this.wrapperDir, 'tmux'),
-        `#!/bin/sh\nexec ${shellQuote(this.tmuxPath)} -L "$TMT_E2E_SOCKET" "$@"\n`
+        `#!/bin/sh\nexec ${shellQuote(this.tmuxPath)} -f /dev/null -L "$TMT_E2E_SOCKET" "$@"\n`
       );
       fs.chmodSync(path.join(this.wrapperDir, 'tmux'), 0o755);
 
@@ -98,6 +110,8 @@ export class E2EFixture {
         '160',
         '-y',
         '50',
+        '-c',
+        this.workspace,
         `${shellQuote(process.execPath)} ${shellQuote(mockAgentPath)}`,
       ]);
       this.serverStarted = true;
@@ -107,6 +121,7 @@ export class E2EFixture {
       this.panePid = Number(
         this.tmux(['display-message', '-p', '-t', this.pane, '#{pane_pid}']).trim()
       );
+      this.panePids = [this.panePid];
       if (!this.socketPath || !this.pane) {
         throw new Error('E2E fixture could not determine its socket path and mock-agent pane ID.');
       }
@@ -127,11 +142,14 @@ export class E2EFixture {
     }
   }
 
-  runCli<T = Record<string, unknown>>(args: string[]): Promise<CliResult<T>> {
+  runCli<T = Record<string, unknown>>(
+    args: string[],
+    options: CliRunOptions = {}
+  ): Promise<CliResult<T>> {
     if (!this.started) throw new Error('E2E fixture must be started before invoking the CLI.');
     const child = spawn(binPath, args, {
-      cwd: this.workspace,
-      env: { ...this.env, TMUX_PANE: this.pane },
+      cwd: options.cwd ?? this.workspace,
+      env: { ...this.env, TMUX_PANE: options.pane ?? this.pane },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -160,8 +178,43 @@ export class E2EFixture {
     });
   }
 
-  runJsonCli<T = Record<string, unknown>>(args: string[]): Promise<CliResult<T>> {
-    return this.runCli<T>(['--json', ...args]);
+  runJsonCli<T = Record<string, unknown>>(
+    args: string[],
+    options: CliRunOptions = {}
+  ): Promise<CliResult<T>> {
+    return this.runCli<T>(['--json', ...args], options);
+  }
+
+  createWorkspace(name: string): string {
+    const workspace = path.join(this.root, name);
+    fs.mkdirSync(workspace, { recursive: true });
+    return workspace;
+  }
+
+  async createMockPane(name: string, workspace = this.workspace): Promise<MockPane> {
+    if (!this.started) throw new Error('E2E fixture must be started before creating panes.');
+    fs.mkdirSync(workspace, { recursive: true });
+    const pane = this.tmux([
+      'new-window',
+      '-d',
+      '-P',
+      '-F',
+      '#{pane_id}',
+      '-t',
+      'e2e',
+      '-n',
+      name,
+      '-c',
+      workspace,
+      `${shellQuote(process.execPath)} ${shellQuote(mockAgentPath)}`,
+    ]).trim();
+    const pid = Number(this.tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']).trim());
+    if (!pane || !Number.isInteger(pid) || pid <= 0) {
+      throw new Error(`E2E fixture could not create mock pane '${name}'.`);
+    }
+    this.panePids.push(pid);
+    await this.waitForEvent((event) => event.event === 'ready' && event.pid === pid);
+    return { pane, pid, workspace };
   }
 
   tmux(args: string[]): string {
@@ -180,6 +233,14 @@ export class E2EFixture {
       pane,
       '#{session_name}:#{window_index}.#{pane_index}',
     ]).trim();
+  }
+
+  paneMetadata(pane = this.pane): string {
+    try {
+      return this.tmux(['show-options', '-p', '-t', pane, '-v', '@tmux-team.agent']).trim();
+    } catch {
+      return '';
+    }
   }
 
   events(): MockEvent[] {
@@ -244,10 +305,10 @@ export class E2EFixture {
     }
   }
 
-  mockProcessIsRunning(): boolean {
-    if (!Number.isInteger(this.panePid) || this.panePid <= 0) return false;
+  mockProcessIsRunning(pid = this.panePid): boolean {
+    if (!Number.isInteger(pid) || pid <= 0) return false;
     try {
-      process.kill(this.panePid, 0);
+      process.kill(pid, 0);
       return true;
     } catch {
       return false;
@@ -255,18 +316,21 @@ export class E2EFixture {
   }
 
   private async waitForProcessExit(timeoutMs = 2_000): Promise<void> {
-    if (!this.panePid) return;
+    if (this.panePids.length === 0) return;
     const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline && this.mockProcessIsRunning()) {
+    while (
+      Date.now() < deadline &&
+      this.panePids.some((panePid) => this.mockProcessIsRunning(panePid))
+    ) {
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
   }
 
-  sendMockInput(lines: string[]): void {
+  sendMockInput(lines: string[], pane = this.pane): void {
     for (const line of lines) {
       execFileSync(
         path.join(this.wrapperDir, 'tmux'),
-        ['send-keys', '-t', this.pane, '--', line, 'Enter'],
+        ['send-keys', '-t', pane, '--', line, 'Enter'],
         {
           env: this.env,
           stdio: 'ignore',
@@ -275,18 +339,18 @@ export class E2EFixture {
     }
   }
 
-  capture(lines = 100): string {
-    return this.tmux(['capture-pane', '-p', '-t', this.pane, '-S', `-${lines}`]);
+  capture(lines = 100, pane = this.pane): string {
+    return this.tmux(['capture-pane', '-p', '-t', pane, '-S', `-${lines}`]);
   }
 
-  async waitForCapture(predicate: (output: string) => boolean): Promise<string> {
+  async waitForCapture(predicate: (output: string) => boolean, pane = this.pane): Promise<string> {
     const deadline = Date.now() + 2_000;
     while (Date.now() < deadline) {
-      const output = this.capture();
+      const output = this.capture(100, pane);
       if (predicate(output)) return output;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
-    throw new Error(`Timed out waiting for mock-agent pane output.\n${this.capture()}`);
+    throw new Error(`Timed out waiting for mock-agent pane output.\n${this.capture(100, pane)}`);
   }
 }
 

@@ -45,9 +45,9 @@ ${colors.yellow('USAGE')}
   tmt <command> [arguments]
 
 ${colors.yellow('COMMANDS')}
-  ${colors.green('talk')} <target> <message>     Send message to an agent (or "all")
+  ${colors.green('talk')} <target> <message>     Send message to an identity or pane
   ${colors.green('check')} <target> [lines]      Capture output from agent's pane
-  ${colors.green('list')} [team|pane]             List workspace, team, or pane status
+  ${colors.green('list')} [target]                List active identities or pane status
   ${colors.green('add')} <pane-target> <global-name> Bind an explicit pane identity
   ${colors.green('this')} <global-name>       Bind the current pane (alias of name)
   ${colors.green('name')} <global-name>       Bind the current pane identity
@@ -56,12 +56,11 @@ ${colors.yellow('COMMANDS')}
   ${colors.green('update')} <name> [options]     Update an agent's config
   ${colors.green('remove')} <name>               Remove an agent
   ${colors.green('migrate')} [--dry-run]          Copy legacy JSON registry to tmux metadata
-  ${colors.green('team')} [ls|add|rm|panes]       Manage shared teams
   ${colors.green('install')} [claude|codex|gemini|all] Install/refresh agent skills
   ${colors.green('upgrade')}                     Upgrade tmux-team (links update automatically)
   ${colors.green('init')}                        Create empty tmux-team.json
   ${colors.green('config')} [show|set|clear]     View/modify settings
-  ${colors.green('preamble')} [show|set|clear]   Manage agent preambles
+  ${colors.green('preamble')} [show|set|clear]   Manage legacy workspace preambles
   ${colors.green('completion')}                  Output shell completion script
   ${colors.green('learn')}                       Show educational guide
   ${colors.green('help')}                        Show this help message
@@ -70,7 +69,6 @@ ${colors.yellow('OPTIONS')}
   ${colors.green('--json')}                      Output in JSON format
   ${colors.green('--verbose')}                   Show detailed output
   ${colors.green('--force')}                     Skip warnings
-  ${colors.green('--team')} <name>               Use shared team (cross-folder)
 
 ${colors.yellow('TALK OPTIONS')}
   ${colors.green('--delay')} <seconds>           Wait before sending
@@ -85,25 +83,23 @@ ${colors.yellow('EXAMPLES')}${
       ? `
   ${colors.dim('# Wait mode: commands block until response')}
   tmux-team talk codex "Review this PR"     ${colors.dim('← blocks, returns response')}
-  tmux-team talk all "Status update"        ${colors.dim('← waits for all agents')}`
+  tmux-team talk %12 "Status update"       ${colors.dim('← waits for one pane')}`
       : `
   ${colors.dim('# Polling mode: send then check')}
   tmux-team talk codex "Review this PR"     ${colors.dim('← sends immediately')}
   tmux-team check codex                     ${colors.dim('← read response later')}`
   }
   tmux-team list --json
-  tmux-team list acme-app
-  tmux-team list main.1.0
+  tmux-team list main:1.0
   tmux-team add 10.1 codex
   tmux-team name backend
   tmt install
   tmt upgrade
 
 ${colors.yellow('CONFIG')}
-  Runtime: tmux pane metadata (agent registry)
-  Local:  ./tmux-team.json (legacy registry + $config override)
+  Runtime: active global identities in tmux pane metadata
+  Local:  ./tmux-team.json (legacy registry + settings override)
   Global: ~/.config/tmux-team/config.json (settings)
-  Teams:  tmux pane metadata; team panes shows cwd + workspace/team scopes
 
 ${colors.yellow('CHANGE MODE')}
   tmux-team config set mode wait            ${colors.dim('Enable wait mode (local)')}

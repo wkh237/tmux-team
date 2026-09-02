@@ -56,16 +56,13 @@ function createCtx(
     getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
     setAgentRegistration: vi.fn(),
     clearAgentRegistration: vi.fn(() => false),
-    listTeams: vi.fn(() => ({})),
-    listTeamPanes: vi.fn(() => []),
-    removeTeam: vi.fn(() => ({ removed: 0, agents: [] })),
     listGlobalIdentities: vi.fn(() => []),
     setGlobalIdentity: vi.fn(),
     clearGlobalIdentity: vi.fn(() => false),
   };
   return {
     argv: [],
-    flags: { json: false, verbose: false, ...(flags ?? {}) } as Flags,
+    flags: { json: false, verbose: false, ...flags } as Flags,
     ui: createMockUI(),
     config,
     tmux,

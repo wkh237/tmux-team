@@ -1,8 +1,8 @@
 // ─────────────────────────────────────────────────────────────
-// talk command - send message to agent(s)
+// talk command - send a message to one resolved pane
 // ─────────────────────────────────────────────────────────────
 
-import type { Context, PaneEntry } from '../types.js';
+import type { Context } from '../types.js';
 import type { WaitResult } from '../types.js';
 import { ExitCodes } from '../exits.js';
 import { colors } from '../ui.js';
@@ -13,7 +13,8 @@ import {
   setActiveRequest,
   incrementPreambleCounter,
 } from '../state.js';
-import { resolveActor } from '../identity.js';
+import { resolveTarget } from '../target-resolver.js';
+import { normalizeName } from '../domain/names.js';
 
 function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -132,8 +133,6 @@ function extractPartialResponse(
   const partial = limitedLines.join('\n').trim();
   return partial || null;
 }
-
-// ─────────────────────────────────────────────────────────────
 // Expandable capture extraction
 // ─────────────────────────────────────────────────────────────
 
@@ -225,58 +224,6 @@ function extractWithExpandableCapture(
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Types for broadcast wait mode
-// ─────────────────────────────────────────────────────────────
-
-interface AgentWaitState {
-  agent: string;
-  pane: string;
-  requestId: string;
-  nonce: string;
-  endMarker: string;
-  status: 'pending' | 'completed' | 'timeout' | 'error';
-  response?: string;
-  partialResponse?: string | null;
-  truncated?: boolean;
-  error?: string;
-  elapsedMs?: number;
-  // Per-agent timing
-  startedAtMs: number;
-  // Debounce tracking (per-agent)
-  lastOutput: string;
-  lastOutputChangeAt: number;
-}
-
-interface AgentResultOutput {
-  agent: string;
-  pane: string;
-  requestId: string;
-  nonce: string;
-  endMarker: string;
-  status: 'pending' | 'completed' | 'timeout' | 'error';
-  response?: string;
-  partialResponse?: string | null;
-  truncated?: boolean;
-  error?: string;
-  elapsedMs?: number;
-}
-
-interface BroadcastWaitResult {
-  target: 'all';
-  mode: 'wait';
-  self?: string;
-  identityWarning?: string;
-  summary: {
-    total: number;
-    completed: number;
-    timeout: number;
-    error: number;
-    skipped: number;
-  };
-  results: AgentResultOutput[];
-}
-
 /**
  * Build the final message with optional preamble.
  * Format: [SYSTEM: <preamble>]\n\n<message>
@@ -293,7 +240,11 @@ function buildMessage(message: string, agentName: string, ctx: Context): string 
   }
 
   // Get agent-specific preamble
-  const agentConfig = config.agents[agentName];
+  const agentConfig =
+    config.agents[agentName] ??
+    Object.entries(config.agents).find(
+      ([name]) => normalizeName(name) === normalizeName(agentName)
+    )?.[1];
   const preamble = agentConfig?.preamble;
 
   if (!preamble) {
@@ -319,101 +270,34 @@ function buildMessage(message: string, agentName: string, ctx: Context): string 
   return `[SYSTEM: ${preamble}]\n\n${message}`;
 }
 
-function teamHintForMissingAgent(ctx: Context, target: string): string | null {
-  if (ctx.flags.team) return null;
-
-  const matches = Object.entries(ctx.tmux.listTeams())
-    .filter(([, agents]) => agents.includes(target))
-    .map(([teamName]) => teamName)
-    .sort();
-
-  if (matches.length === 0) return null;
-  if (matches.length === 1) {
-    return `Agent '${target}' is in shared team '${matches[0]}'. Specify it: tmt talk ${target} "..." --team ${matches[0]}`;
-  }
-  return `Agent '${target}' is in multiple shared teams: ${matches.join(', ')}. Specify one with --team <team>.`;
-}
-
 export async function cmdTalk(ctx: Context, target: string, message: string): Promise<void> {
   const { ui, config, tmux, flags, exit } = ctx;
   const waitEnabled = Boolean(flags.wait) || config.mode === 'wait';
   const enterDelayMs = config.defaults.pasteEnterDelayMs;
 
-  if (target === 'all') {
-    const agents = Object.entries(config.paneRegistry);
-    if (agents.length === 0) {
-      ui.error("No agents configured. Use 'tmux-team add' first.");
-      exit(ExitCodes.CONFIG_MISSING);
-    }
-
-    // Determine current agent to skip self
-    const { actor: self, warning: identityWarning } = resolveActor(config.paneRegistry);
-
-    // Surface identity warnings (mismatch, unregistered pane, etc.)
-    if (identityWarning && !flags.json) {
-      ui.warn(identityWarning);
-    }
-
-    if (flags.delay && flags.delay > 0) {
-      await sleepMs(flags.delay * 1000);
-    }
-
-    // Filter out self
-    const targetAgents = agents.filter(([name]) => name !== self);
-    const skippedSelf = agents.length !== targetAgents.length;
-
-    if (!waitEnabled) {
-      // Non-wait mode: fire and forget
-      const results: { agent: string; pane: string; status: string }[] = [];
-
-      if (skippedSelf) {
-        const selfData = config.paneRegistry[self];
-        results.push({ agent: self, pane: selfData?.pane || '', status: 'skipped (self)' });
-        if (!flags.json) {
-          console.log(`${colors.dim('○')} Skipped ${colors.cyan(self)} (self)`);
-        }
-      }
-
-      for (const [name, data] of targetAgents) {
-        try {
-          const msg = buildMessage(message, name, ctx);
-          tmux.send(data.pane, msg, { enterDelayMs });
-          results.push({ agent: name, pane: data.pane, status: 'sent' });
-          if (!flags.json) {
-            console.log(`${colors.green('→')} Sent to ${colors.cyan(name)} (${data.pane})`);
-          }
-        } catch {
-          results.push({ agent: name, pane: data.pane, status: 'failed' });
-          if (!flags.json) {
-            ui.warn(`Failed to send to ${name}`);
-          }
-        }
-      }
-
-      if (flags.json) {
-        ui.json({ target: 'all', self, identityWarning, results });
-      }
-      return;
-    }
-
-    // Wait mode: parallel polling
-    await cmdTalkAllWait(ctx, targetAgents, message, self, identityWarning, skippedSelf);
-    return;
+  const resolution = resolveTarget(tmux, target);
+  if (!resolution.ok) {
+    if (flags.json) ui.json({ error: resolution.error });
+    else ui.error(resolution.error.message);
+    return exit(
+      resolution.error.code === 'NAME_NOT_FOUND'
+        ? ExitCodes.NAME_NOT_FOUND
+        : ExitCodes.PANE_NOT_FOUND
+    );
   }
 
-  // Single agent
-  if (!config.paneRegistry[target]) {
-    const available = Object.keys(config.paneRegistry).join(', ');
-    const teamHint = teamHintForMissingAgent(ctx, target);
-    if (teamHint) {
-      ui.error(teamHint);
-      exit(ExitCodes.PANE_NOT_FOUND);
-    }
-    ui.error(`Agent '${target}' not found. Available: ${available || 'none'}`);
-    exit(ExitCodes.PANE_NOT_FOUND);
-  }
-
-  const pane = config.paneRegistry[target].pane;
+  const pane = resolution.value.paneId;
+  // Preserve identity-specific behavior (preambles and Gemini cleanup) while
+  // allowing direct pane targets to address unnamed panes.
+  const agentName = resolution.value.identity?.name ?? pane;
+  const isGemini = normalizeName(agentName) === 'gemini';
+  const identity = resolution.value.identity
+    ? {
+        name: resolution.value.identity.name,
+        canonicalName:
+          resolution.value.identity.canonicalName || normalizeName(resolution.value.identity.name),
+      }
+    : undefined;
 
   if (flags.delay && flags.delay > 0) {
     await sleepMs(flags.delay * 1000);
@@ -422,17 +306,19 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
   if (!waitEnabled) {
     try {
       // Build message with preamble, then apply Gemini filter
-      const msg = buildMessage(message, target, ctx);
+      const msg = buildMessage(message, agentName, ctx);
       tmux.send(pane, msg, { enterDelayMs });
 
       if (flags.json) {
-        ui.json({ target, pane, status: 'sent' });
+        ui.json({ target, pane, ...(identity && { identity }), status: 'sent' });
       } else {
         console.log(`${colors.green('→')} Sent to ${colors.cyan(target)} (${pane})`);
       }
       return;
     } catch {
-      ui.error(`Failed to send to pane ${pane}. Is tmux running?`);
+      const error = { code: 'ERROR', message: `Failed to send to pane ${pane}. Is tmux running?` };
+      if (flags.json) ui.json({ error });
+      else ui.error(error.message);
       exit(ExitCodes.ERROR);
     }
   }
@@ -448,19 +334,19 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
 
   // Build message with preamble and end marker instruction
   // Note: instruction doesn't contain literal marker to prevent false-positive detection
-  const messageWithPreamble = buildMessage(message, target, ctx);
+  const messageWithPreamble = buildMessage(message, agentName, ctx);
   const fullMessage = `${messageWithPreamble}\n\n${makeEndMarkerInstruction(nonce)}`;
 
   // Best-effort cleanup and soft-lock warning
   const state = cleanupState(ctx.paths, 60 * 60); // 1 hour TTL
-  const existing = state.requests[target];
+  const existing = state.requests[pane];
   if (existing && !flags.json && !flags.force) {
     ui.warn(
-      `Another recent wait request exists for '${target}' (id: ${existing.id}). Results may interleave.`
+      `Another recent wait request exists for '${agentName}' (id: ${existing.id}). Results may interleave.`
     );
   }
 
-  setActiveRequest(ctx.paths, target, { id: requestId, nonce, pane, startedAtMs: Date.now() });
+  setActiveRequest(ctx.paths, pane, { id: requestId, nonce, pane, startedAtMs: Date.now() });
 
   const startedAt = Date.now();
   let lastNonTtyLogAt = 0;
@@ -475,7 +361,7 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
   let lastOutputChangeAt = Date.now();
 
   const onSigint = (): void => {
-    clearActiveRequest(ctx.paths, target, requestId);
+    clearActiveRequest(ctx.paths, pane, requestId);
     if (!flags.json) process.stdout.write('\n');
     ui.error('Interrupted.');
     exit(ExitCodes.ERROR);
@@ -487,7 +373,7 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
     const msg = fullMessage;
 
     if (flags.debug) {
-      console.error(`[DEBUG] Starting wait mode for ${target}`);
+      console.error(`[DEBUG] Starting wait mode for ${agentName}`);
       console.error(`[DEBUG] End marker: ${endMarker}`);
       console.error(`[DEBUG] Message sent:\n${msg}`);
     }
@@ -497,7 +383,7 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
     while (true) {
       const elapsedSeconds = (Date.now() - startedAt) / 1000;
       if (elapsedSeconds >= timeoutSeconds) {
-        clearActiveRequest(ctx.paths, target, requestId);
+        clearActiveRequest(ctx.paths, pane, requestId);
 
         // Capture partial response on timeout
         const responseLines = flags.lines ?? 100;
@@ -506,7 +392,7 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
           const output = tmux.capture(pane, captureLines);
           const extracted = extractPartialResponse(output, endMarker, responseLines);
           if (extracted) {
-            partialResponse = target === 'gemini' ? cleanGeminiResponse(extracted) : extracted;
+            partialResponse = isGemini ? cleanGeminiResponse(extracted) : extracted;
           }
         } catch {
           // Ignore capture errors on timeout
@@ -520,8 +406,9 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
           ui.json({
             target,
             pane,
+            ...(identity && { identity }),
             status: 'timeout',
-            error: `Timed out waiting for ${target} after ${Math.floor(timeoutSeconds)}s`,
+            error: `Timed out waiting for ${agentName} after ${Math.floor(timeoutSeconds)}s`,
             requestId,
             nonce,
             endMarker,
@@ -533,7 +420,7 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
         ui.error(`Timed out waiting for ${target} after ${Math.floor(timeoutSeconds)}s.`);
         if (partialResponse) {
           console.log();
-          console.log(colors.yellow(`─── Partial response from ${target} (${pane}) ───`));
+          console.log(colors.yellow(`─── Partial response from ${agentName} (${pane}) ───`));
           console.log(partialResponse);
         }
         exit(ExitCodes.TIMEOUT);
@@ -541,7 +428,7 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
 
       if (!flags.json) {
         if (isTTY) {
-          process.stdout.write('\r' + renderWaitLine(target, elapsedSeconds));
+          process.stdout.write('\r' + renderWaitLine(agentName, elapsedSeconds));
         } else if (flags.verbose || flags.debug) {
           // Non-TTY progress logs only with --verbose or --debug
           const now = Date.now();
@@ -560,8 +447,13 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
       try {
         output = tmux.capture(pane, captureLines);
       } catch {
-        clearActiveRequest(ctx.paths, target, requestId);
-        ui.error(`Failed to capture pane ${pane}. Is tmux running?`);
+        clearActiveRequest(ctx.paths, pane, requestId);
+        const error = {
+          code: 'ERROR',
+          message: `Failed to capture pane ${pane}. Is tmux running?`,
+        };
+        if (flags.json) ui.json({ error });
+        else ui.error(error.message);
         exit(ExitCodes.ERROR);
       }
 
@@ -642,8 +534,7 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
       );
 
       // Clean Gemini CLI UI artifacts
-      const response =
-        target === 'gemini' ? cleanGeminiResponse(extractedResponse) : extractedResponse;
+      const response = isGemini ? cleanGeminiResponse(extractedResponse) : extractedResponse;
 
       if (!flags.json && isTTY) {
         process.stdout.write('\r' + ' '.repeat(80) + '\r');
@@ -652,359 +543,31 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
         process.stdout.write('\n');
       }
 
-      clearActiveRequest(ctx.paths, target, requestId);
+      clearActiveRequest(ctx.paths, pane, requestId);
 
       const result: WaitResult = { requestId, nonce, endMarker, response };
       if (flags.json) {
-        ui.json({ target, pane, status: 'completed', truncated, ...result });
+        ui.json({
+          target,
+          pane,
+          ...(identity && { identity }),
+          status: 'completed',
+          truncated,
+          ...result,
+        });
       } else {
         if (truncated) {
           ui.warn('Response may be truncated (instruction line not found in scrollback)');
         }
-        console.log(colors.cyan(`─── Response from ${target} (${pane}) ───`));
+        console.log(colors.cyan(`─── Response from ${agentName} (${pane}) ───`));
         console.log(response);
       }
       return;
     }
   } finally {
     process.removeListener('SIGINT', onSigint);
-    clearActiveRequest(ctx.paths, target, requestId);
+    clearActiveRequest(ctx.paths, pane, requestId);
   }
 }
 
 // ─────────────────────────────────────────────────────────────
-// Broadcast wait mode: parallel polling for all agents
-// ─────────────────────────────────────────────────────────────
-
-async function cmdTalkAllWait(
-  ctx: Context,
-  targetAgents: [string, PaneEntry][],
-  message: string,
-  self: string,
-  identityWarning: string | undefined,
-  skippedSelf: boolean
-): Promise<void> {
-  const { ui, config, tmux, flags, exit, paths } = ctx;
-  const enterDelayMs = config.defaults.pasteEnterDelayMs;
-  const timeoutSeconds = flags.timeout ?? config.defaults.timeout;
-  const pollIntervalSeconds = Math.max(0.1, config.defaults.pollInterval);
-  const captureLines = config.defaults.captureLines;
-
-  // Debounce detection constants (same as single-agent mode)
-  // Adaptive: for very short timeouts (testing), reduce debounce thresholds
-  const timeoutMs = timeoutSeconds * 1000;
-  const MIN_WAIT_MS = Math.min(3000, timeoutMs * 0.3); // Wait at least 3s or 30% of timeout
-  const IDLE_THRESHOLD_MS = Math.min(3000, timeoutMs * 0.3); // Stable for 3s or 30% of timeout
-
-  // Best-effort state cleanup
-  cleanupState(paths, 60 * 60);
-
-  // Initialize wait state for each agent with unique nonces
-  const agentStates: AgentWaitState[] = [];
-
-  if (!flags.json) {
-    console.log(
-      `${colors.cyan('→')} Broadcasting to ${targetAgents.length} agent(s) (wait mode)...`
-    );
-  }
-
-  // Phase 1: Send messages to all agents with end markers
-  for (const [name, data] of targetAgents) {
-    const requestId = makeRequestId();
-    const nonce = makeNonce(); // Unique nonce per agent (#19)
-    const endMarker = makeEndMarker(nonce);
-
-    // Build and send message with end marker instruction
-    // Note: instruction doesn't contain literal marker to prevent false-positive detection
-    const messageWithPreamble = buildMessage(message, name, ctx);
-    const fullMessage = `${messageWithPreamble}\n\n${makeEndMarkerInstruction(nonce)}`;
-    const msg = fullMessage;
-
-    try {
-      const now = Date.now();
-      tmux.send(data.pane, msg, { enterDelayMs });
-      setActiveRequest(paths, name, {
-        id: requestId,
-        nonce,
-        pane: data.pane,
-        startedAtMs: now,
-      });
-      agentStates.push({
-        agent: name,
-        pane: data.pane,
-        requestId,
-        nonce,
-        endMarker,
-        status: 'pending',
-        // Per-agent timing
-        startedAtMs: now,
-        // Initialize debounce tracking
-        lastOutput: '',
-        lastOutputChangeAt: now,
-      });
-      if (!flags.json) {
-        console.log(`  ${colors.green('→')} Sent to ${colors.cyan(name)} (${data.pane})`);
-      }
-    } catch {
-      const now = Date.now();
-      agentStates.push({
-        agent: name,
-        pane: data.pane,
-        requestId,
-        nonce,
-        endMarker,
-        status: 'error',
-        error: `Failed to send to pane ${data.pane}`,
-        startedAtMs: now,
-        lastOutput: '',
-        lastOutputChangeAt: now,
-      });
-      if (!flags.json) {
-        ui.warn(`Failed to send to ${name}`);
-      }
-    }
-  }
-
-  // Track pending agents
-  const pendingAgents = () => agentStates.filter((s) => s.status === 'pending');
-
-  if (pendingAgents().length === 0) {
-    // All failed to send, output results and exit with error
-    outputBroadcastResults(ctx, agentStates, self, identityWarning, skippedSelf);
-    exit(ExitCodes.ERROR);
-    return;
-  }
-
-  let lastLogAt = 0;
-  const isTTY = process.stdout.isTTY && !flags.json;
-
-  // SIGINT handler: cleanup ALL active requests (#18)
-  const onSigint = (): void => {
-    for (const state of agentStates) {
-      clearActiveRequest(paths, state.agent, state.requestId);
-    }
-    if (!flags.json) {
-      process.stdout.write('\n');
-      ui.error('Interrupted.');
-    }
-    // Output partial results
-    outputBroadcastResults(ctx, agentStates, self, identityWarning, skippedSelf);
-    exit(ExitCodes.ERROR);
-  };
-
-  process.once('SIGINT', onSigint);
-
-  try {
-    // Phase 2: Poll all agents in parallel until all complete or timeout
-    while (pendingAgents().length > 0) {
-      // Check timeout for each pending agent using per-agent timing
-      for (const state of pendingAgents()) {
-        const agentElapsedMs = Date.now() - state.startedAtMs;
-        const agentElapsedSeconds = agentElapsedMs / 1000;
-
-        if (agentElapsedSeconds >= timeoutSeconds) {
-          state.status = 'timeout';
-          state.error = `Timed out after ${Math.floor(agentElapsedSeconds)}s`;
-          state.elapsedMs = agentElapsedMs;
-
-          // Capture partial response on timeout
-          const responseLines = flags.lines ?? 100;
-          try {
-            const output = tmux.capture(state.pane, captureLines);
-            const extracted = extractPartialResponse(output, state.endMarker, responseLines);
-            if (extracted) {
-              state.partialResponse =
-                state.agent === 'gemini' ? cleanGeminiResponse(extracted) : extracted;
-            }
-          } catch {
-            // Ignore capture errors on timeout
-          }
-
-          clearActiveRequest(paths, state.agent, state.requestId);
-          if (!flags.json) {
-            console.log(
-              `  ${colors.red('✗')} ${colors.cyan(state.agent)} timed out (${Math.floor(agentElapsedSeconds)}s)`
-            );
-          }
-        }
-      }
-
-      // All done?
-      if (pendingAgents().length === 0) break;
-
-      // Progress logging (non-TTY, only with --verbose or --debug)
-      if (!flags.json && !isTTY && (flags.verbose || flags.debug)) {
-        const now = Date.now();
-        if (now - lastLogAt >= 30000) {
-          lastLogAt = now;
-          const pending = pendingAgents()
-            .map((s) => s.agent)
-            .join(', ');
-          // Use the oldest pending agent's elapsed time for logging
-          const maxElapsed = Math.max(...pendingAgents().map((s) => now - s.startedAtMs));
-          console.error(
-            `[tmux-team] Waiting for: ${pending} (${Math.floor(maxElapsed / 1000)}s elapsed)`
-          );
-        }
-      }
-
-      await sleepMs(pollIntervalSeconds * 1000);
-
-      // Poll each pending agent
-      for (const state of pendingAgents()) {
-        let output = '';
-        try {
-          output = tmux.capture(state.pane, captureLines);
-        } catch {
-          state.status = 'error';
-          state.error = `Failed to capture pane ${state.pane}`;
-          state.elapsedMs = Date.now() - state.startedAtMs;
-          clearActiveRequest(paths, state.agent, state.requestId);
-          if (!flags.json) {
-            ui.warn(`Failed to capture ${state.agent}`);
-          }
-          continue;
-        }
-
-        // Track output changes for debounce detection (per-agent)
-        if (output !== state.lastOutput) {
-          state.lastOutput = output;
-          state.lastOutputChangeAt = Date.now();
-        }
-
-        // Use per-agent timing for accurate elapsed calculation
-        const now = Date.now();
-        const elapsedMs = now - state.startedAtMs;
-        const idleMs = now - state.lastOutputChangeAt;
-
-        // Find end marker (case-insensitive to handle agent variations)
-        // Must be an actual marker line, not the instruction line
-        const endMarkerRegex = makeEndMarkerRegex(state.nonce);
-        const hasEndMarker = hasActualEndMarker(output, state.nonce, endMarkerRegex);
-
-        // Completion conditions (same as single-agent mode):
-        // 1. Must wait at least MIN_WAIT_MS
-        // 2. Must have end marker in output
-        // 3. Output must be stable for IDLE_THRESHOLD_MS (debounce)
-        if (elapsedMs < MIN_WAIT_MS || !hasEndMarker || idleMs < IDLE_THRESHOLD_MS) {
-          continue;
-        }
-
-        // Extract response with expandable capture (handles long responses)
-        const responseLines = flags.lines ?? 100;
-        const maxCaptureLines = config.defaults.maxCaptureLines;
-
-        const { response: extractedResponse, truncated } = extractWithExpandableCapture(
-          tmux,
-          state.pane,
-          state.nonce,
-          endMarkerRegex,
-          output,
-          captureLines,
-          maxCaptureLines,
-          responseLines,
-          flags.debug
-        );
-
-        // Clean Gemini CLI UI artifacts
-        const response =
-          state.agent === 'gemini' ? cleanGeminiResponse(extractedResponse) : extractedResponse;
-        state.response = response;
-        state.truncated = truncated;
-        state.status = 'completed';
-        state.elapsedMs = elapsedMs;
-        clearActiveRequest(paths, state.agent, state.requestId);
-
-        if (!flags.json) {
-          console.log(
-            `  ${colors.green('✓')} ${colors.cyan(state.agent)} completed (${Math.floor(state.elapsedMs / 1000)}s)`
-          );
-        }
-      }
-    }
-  } finally {
-    process.removeListener('SIGINT', onSigint);
-    // Cleanup any remaining active requests
-    for (const state of agentStates) {
-      clearActiveRequest(paths, state.agent, state.requestId);
-    }
-  }
-
-  // Output results
-  outputBroadcastResults(ctx, agentStates, self, identityWarning, skippedSelf);
-
-  // Exit with appropriate code
-  const hasTimeout = agentStates.some((s) => s.status === 'timeout');
-  const hasError = agentStates.some((s) => s.status === 'error');
-  if (hasTimeout) {
-    exit(ExitCodes.TIMEOUT);
-  } else if (hasError) {
-    exit(ExitCodes.ERROR);
-  }
-}
-
-function outputBroadcastResults(
-  ctx: Context,
-  agentStates: AgentWaitState[],
-  self: string,
-  identityWarning: string | undefined,
-  skippedSelf: boolean
-): void {
-  const { ui, flags } = ctx;
-
-  const summary = {
-    total: agentStates.length + (skippedSelf ? 1 : 0),
-    completed: agentStates.filter((s) => s.status === 'completed').length,
-    timeout: agentStates.filter((s) => s.status === 'timeout').length,
-    error: agentStates.filter((s) => s.status === 'error').length,
-    skipped: skippedSelf ? 1 : 0,
-  };
-
-  if (flags.json) {
-    const result: BroadcastWaitResult = {
-      target: 'all',
-      mode: 'wait',
-      self,
-      identityWarning,
-      summary,
-      results: agentStates.map((s) => ({
-        agent: s.agent,
-        pane: s.pane,
-        requestId: s.requestId,
-        nonce: s.nonce,
-        endMarker: s.endMarker,
-        status: s.status,
-        response: s.response,
-        partialResponse: s.partialResponse,
-        truncated: s.truncated,
-        error: s.error,
-        elapsedMs: s.elapsedMs,
-      })),
-    };
-    ui.json(result);
-    return;
-  }
-
-  // Human-readable output
-  console.log();
-  console.log(
-    `${colors.cyan('Summary:')} ${summary.completed} completed, ${summary.timeout} timeout, ${summary.error} error, ${summary.skipped} skipped`
-  );
-  console.log();
-
-  // Print responses
-  for (const state of agentStates) {
-    if (state.status === 'completed' && state.response) {
-      if (state.truncated) {
-        ui.warn(`Response from ${state.agent} may be truncated`);
-      }
-      console.log(colors.cyan(`─── Response from ${state.agent} (${state.pane}) ───`));
-      console.log(state.response);
-      console.log();
-    } else if (state.status === 'timeout' && state.partialResponse) {
-      console.log(colors.yellow(`─── Partial response from ${state.agent} (${state.pane}) ───`));
-      console.log(state.partialResponse);
-      console.log();
-    }
-  }
-}

@@ -233,7 +233,9 @@ describe('createTmux', () => {
     });
 
     it('parses pane target and cwd from modern list-panes output', () => {
-      mockedExecSync.mockReturnValue('%1\tmain:2.0\t/repo\tcodex\t{"version":1}\n');
+      mockedExecSync.mockReturnValue(
+        '%1__TMT_FIELD_4f1c__main:2.0__TMT_FIELD_4f1c__/repo__TMT_FIELD_4f1c__codex__TMT_FIELD_4f1c__{"version":1}\n'
+      );
       const tmux = createTmux();
       expect(tmux.listPanes()).toEqual([
         {
@@ -245,6 +247,22 @@ describe('createTmux', () => {
           metadata: { version: 1 },
         },
       ]);
+    });
+
+    it('falls back to pane options when list-panes omits user metadata', () => {
+      mockedExecSync.mockReturnValue('%1\tmain:2.0\t/repo\tnode\t\n');
+      mockedExecFileSync.mockReturnValue(
+        '{"version":1,"globalIdentity":{"name":"Alice","canonicalName":"alice"}}\n'
+      );
+
+      expect(createTmux().listGlobalIdentities()).toEqual([
+        { name: 'Alice', canonicalName: 'alice', paneId: '%1' },
+      ]);
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        ['show-options', '-p', '-t', '%1', '-v', '@tmux-team.agent'],
+        expect.any(Object)
+      );
     });
 
     it('lists global identities independently of workspace metadata', () => {
@@ -321,17 +339,6 @@ describe('createTmux', () => {
         expect.any(Object)
       );
     });
-
-    it('builds team registries and agent config from metadata', () => {
-      mockedExecSync.mockReturnValue(
-        '%1\tcodex\t{"version":1,"teams":{"egp":{"name":"codex","preamble":"Be strict","deny":["x"]}}}\n'
-      );
-      const tmux = createTmux();
-      expect(tmux.getAgentRegistry({ type: 'team', teamName: 'egp' })).toEqual({
-        paneRegistry: { codex: { pane: '%1', preamble: 'Be strict', deny: ['x'] } },
-        agents: { codex: { preamble: 'Be strict', deny: ['x'] } },
-      });
-    });
   });
 
   describe('getCurrentPaneId', () => {
@@ -386,7 +393,7 @@ describe('createTmux', () => {
     });
 
     it('sets workspace registration on pane metadata', () => {
-      mockedExecFileSync.mockReturnValueOnce('');
+      mockedExecFileSync.mockReturnValueOnce('{"version":1,"teams":{"egp":{"name":"legacy"}}}\n');
       const tmux = createTmux();
       tmux.setAgentRegistration(
         '%9',
@@ -401,35 +408,15 @@ describe('createTmux', () => {
           '-t',
           '%9',
           '@tmux-team.agent',
-          '{"version":1,"workspaces":{"/repo":{"name":"codex","preamble":"Be strict"}}}',
+          '{"version":1,"teams":{"egp":{"name":"legacy"}},"workspaces":{"/repo":{"name":"codex","preamble":"Be strict"}}}',
         ],
         expect.any(Object)
       );
     });
 
-    it('sets team registration while preserving existing metadata', () => {
-      mockedExecFileSync.mockReturnValueOnce(
-        '{"version":1,"workspaces":{"/repo":{"name":"codex"}}}\n'
-      );
-      const tmux = createTmux();
-      tmux.setAgentRegistration('%9', { type: 'team', teamName: 'egp' }, { name: 'reviewer' });
-      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
-        'tmux',
-        [
-          'set-option',
-          '-p',
-          '-t',
-          '%9',
-          '@tmux-team.agent',
-          '{"version":1,"workspaces":{"/repo":{"name":"codex"}},"teams":{"egp":{"name":"reviewer"}}}',
-        ],
-        expect.any(Object)
-      );
-    });
-
-    it('clears scoped registration and unsets empty metadata', () => {
+    it('clears workspace registration while preserving legacy team metadata', () => {
       mockedExecSync.mockReturnValue(
-        '%1\tcodex\t{"version":1,"workspaces":{"/repo":{"name":"codex"}}}\n'
+        '%1\tcodex\t{"version":1,"workspaces":{"/repo":{"name":"codex"}},"teams":{"egp":{"name":"legacy"}}}\n'
       );
       const tmux = createTmux();
       expect(
@@ -437,7 +424,14 @@ describe('createTmux', () => {
       ).toBe(true);
       expect(mockedExecFileSync).toHaveBeenCalledWith(
         'tmux',
-        ['set-option', '-p', '-u', '-t', '%1', '@tmux-team.agent'],
+        [
+          'set-option',
+          '-p',
+          '-t',
+          '%1',
+          '@tmux-team.agent',
+          '{"version":1,"teams":{"egp":{"name":"legacy"}}}',
+        ],
         expect.any(Object)
       );
     });
@@ -451,62 +445,6 @@ describe('createTmux', () => {
         tmux.clearAgentRegistration('claude', { type: 'workspace', workspaceRoot: '/repo' })
       ).toBe(false);
       expect(mockedExecFileSync).not.toHaveBeenCalled();
-    });
-
-    it('lists teams from pane metadata', () => {
-      mockedExecSync.mockReturnValue(
-        '%1\tcodex\t{"version":1,"teams":{"egp":{"name":"codex"},"checkout":{"name":"claude"}}}\n'
-      );
-      const tmux = createTmux();
-      expect(tmux.listTeams()).toEqual({ checkout: ['claude'], egp: ['codex'] });
-    });
-
-    it('lists pane team and workspace details', () => {
-      mockedExecSync.mockReturnValue(
-        '%1\tmain:1.0\t/repo\tclaude\t{"version":1,"workspaces":{"/repo":{"name":"claude","remark":"lead"}},"teams":{"egp":{"name":"reviewer"}}}\n%2\tmain:1.1\t/tmp\tzsh\t\n'
-      );
-      const tmux = createTmux();
-      expect(tmux.listTeamPanes()).toEqual([
-        {
-          pane: '%1',
-          target: 'main:1.0',
-          cwd: '/repo',
-          command: 'claude',
-          suggestedName: 'claude',
-          registrations: [
-            { scopeType: 'team', scope: 'egp', agent: 'reviewer' },
-            { scopeType: 'workspace', scope: '/repo', agent: 'claude', remark: 'lead' },
-          ],
-        },
-        {
-          pane: '%2',
-          target: 'main:1.1',
-          cwd: '/tmp',
-          command: 'zsh',
-          suggestedName: null,
-          registrations: [],
-        },
-      ]);
-    });
-
-    it('removes one team while preserving other registrations', () => {
-      mockedExecSync.mockReturnValue(
-        '%1\tcodex\t{"version":1,"teams":{"egp":{"name":"codex"},"checkout":{"name":"claude"}}}\n'
-      );
-      const tmux = createTmux();
-      expect(tmux.removeTeam('egp')).toEqual({ removed: 1, agents: ['codex'] });
-      expect(mockedExecFileSync).toHaveBeenCalledWith(
-        'tmux',
-        [
-          'set-option',
-          '-p',
-          '-t',
-          '%1',
-          '@tmux-team.agent',
-          '{"version":1,"teams":{"checkout":{"name":"claude"}}}',
-        ],
-        expect.any(Object)
-      );
     });
   });
 

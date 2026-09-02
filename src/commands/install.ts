@@ -214,7 +214,7 @@ function printNextSteps(ctx: Context, installed: InstallResult[]): void {
   console.log(
     `  ${colors.cyan('tmt add <pane-target> <global-name>')} or ${colors.cyan('tmt this <global-name>')}`
   );
-  console.log(`  ${colors.cyan('tmt talk <agent> "message" --wait')}`);
+  console.log(`  ${colors.cyan('tmt talk <target> "message" --wait')}`);
 }
 
 export async function cmdInstall(ctx: Context, agent?: string): Promise<void> {

@@ -89,7 +89,6 @@ export interface Flags {
   timeout?: number; // seconds
   lines?: number; // lines to capture before end marker
   noPreamble?: boolean;
-  team?: string; // shared team name for cross-folder collaboration
 }
 
 export interface Paths {
@@ -118,22 +117,6 @@ export interface PaneInfo {
   metadata?: PaneAgentMetadata;
 }
 
-export interface TeamPaneRegistration {
-  scopeType: 'workspace' | 'team';
-  scope: string;
-  agent: string;
-  remark?: string;
-}
-
-export interface TeamPaneInfo {
-  pane: string;
-  target?: string;
-  cwd?: string;
-  command: string;
-  suggestedName: string | null;
-  registrations: TeamPaneRegistration[];
-}
-
 export interface Tmux {
   send: (paneId: string, message: string, options?: { enterDelayMs?: number }) => void;
   capture: (paneId: string, lines: number) => string;
@@ -148,17 +131,15 @@ export interface Tmux {
     registration: AgentRegistration
   ) => void;
   clearAgentRegistration: (name: string, scope: RegistryScope) => boolean;
-  listTeams: () => Record<string, string[]>;
-  listTeamPanes: () => TeamPaneInfo[];
-  removeTeam: (teamName: string) => { removed: number; agents: string[] };
   listGlobalIdentities: () => ActiveRegistration[];
   setGlobalIdentity: (paneId: string, name: string) => void;
   clearGlobalIdentity: (paneId: string) => boolean;
 }
 
-export type RegistryScope =
-  | { type: 'workspace'; workspaceRoot: string }
-  | { type: 'team'; teamName: string };
+export interface RegistryScope {
+  type: 'workspace';
+  workspaceRoot: string;
+}
 
 export interface WaitResult {
   requestId: string;

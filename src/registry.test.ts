@@ -25,21 +25,19 @@ function ctx(overrides: Partial<Context>): Context {
 
 describe('registry helpers', () => {
   it('prefers explicit context registry scope', () => {
-    const scope = { type: 'team' as const, teamName: 'egp' };
+    const scope = { type: 'workspace' as const, workspaceRoot: '/repo' };
     expect(getRegistryScope(ctx({ registryScope: scope }))).toBe(scope);
   });
 
-  it('uses --team when no explicit scope exists', () => {
-    expect(getRegistryScope(ctx({ flags: { json: false, verbose: false, team: 'egp' } }))).toEqual({
-      type: 'team',
-      teamName: 'egp',
+  it('falls back to workspace scope when no explicit scope exists', () => {
+    expect(getRegistryScope(ctx({}))).toEqual({
+      type: 'workspace',
+      workspaceRoot: '/repo',
     });
   });
 
   it('falls back to workspace scope', () => {
-    expect(getRegistryScope(ctx({}))).toEqual({ type: 'workspace', workspaceRoot: '/repo' });
     expect(scopeLabel({ type: 'workspace', workspaceRoot: '/repo' })).toBe('workspace /repo');
-    expect(scopeLabel({ type: 'team', teamName: 'egp' })).toBe('team "egp"');
   });
 
   it('converts pane entries into registrations', () => {

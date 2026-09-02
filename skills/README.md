@@ -50,7 +50,25 @@ After installation, use `tmux-team name <global-name>` (or its exact `this`
 alias) inside each agent's tmux pane. To bind another pane, run
 `tmux-team add <pane-target> <global-name>`; targets are resolved to stable
 tmux `%pane_id` values. Use `tmux-team whoami` to inspect the current identity
-and `tmux-team unbind` to remove it.
+and `tmux-team unbind` to remove it. Identities are global and remain
+addressable from any working directory.
+
+The `talk`, `check`, and `list` commands accept either a global name or a
+direct pane target (`%pane_id`, `window.pane`, or `session:window.pane`):
+
+```bash
+tmt talk codex "Review this PR"
+tmt check %12 100
+tmt list
+tmt list %12
+```
+
+The `add` order is pane target first, then global name. Older name-first
+examples are rejected with a usage error. `all` is an ordinary identity name,
+not a special destination.
+
+tmux-team is CLI-only: each invocation exits after its operation and no daemon
+or background service is required.
 
 ## Claude Code
 
