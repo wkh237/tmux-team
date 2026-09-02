@@ -46,7 +46,11 @@ tmt install codex
 tmt install gemini
 ```
 
-After installation, run `tmux-team add <name> <pane>` to register your agents, or use `tmux-team this <name>` inside each agent's tmux pane.
+After installation, use `tmux-team name <global-name>` (or its exact `this`
+alias) inside each agent's tmux pane. To bind another pane, run
+`tmux-team add <pane-target> <global-name>`; targets are resolved to stable
+tmux `%pane_id` values. Use `tmux-team whoami` to inspect the current identity
+and `tmux-team unbind` to remove it.
 
 ## Claude Code
 

@@ -48,6 +48,9 @@ function createMockTmux(): Tmux {
     listTeams: vi.fn(() => ({})),
     listTeamPanes: vi.fn(() => []),
     removeTeam: vi.fn(() => ({ removed: 0, agents: [] })),
+    listGlobalIdentities: vi.fn(() => []),
+    setGlobalIdentity: vi.fn(),
+    clearGlobalIdentity: vi.fn(() => false),
   };
 }
 
@@ -124,38 +127,33 @@ describe('basic commands', () => {
     expect((ctx.ui as any).jsonCalls[0]).toMatchObject({ created: ctx.paths.localConfig });
   });
 
-  it('cmdAdd writes new agent to tmux metadata', () => {
+  it('cmdAdd writes global identity metadata', () => {
     const ctx = createCtx(testDir);
-    cmdAdd(ctx, 'codex', '1.1', 'review');
-    expect(ctx.tmux.setAgentRegistration).toHaveBeenCalledWith(
-      '1.1',
-      expect.objectContaining({ type: 'workspace' }),
-      { name: 'codex', remark: 'review' }
-    );
+    cmdAdd(ctx, '1.1', 'codex');
+    expect(ctx.tmux.setGlobalIdentity).toHaveBeenCalledWith('1.1', 'codex');
   });
 
   it('cmdAdd errors if agent exists', () => {
     const ctx = createCtx(testDir, { config: { paneRegistry: { codex: { pane: '1.1' } } } });
     fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({ codex: { pane: '1.1' } }, null, 2));
-    expect(() => cmdAdd(ctx, 'codex', '1.1')).toThrow(`exit(${ExitCodes.ERROR})`);
+    (ctx.tmux.listGlobalIdentities as ReturnType<typeof vi.fn>).mockReturnValue([
+      { name: 'codex', canonicalName: 'codex', paneId: '1.1' },
+    ]);
+    expect(() => cmdAdd(ctx, '1.1', 'other')).toThrow(`exit(${ExitCodes.CONFLICT})`);
   });
 
   it('cmdThis registers current pane with given name', () => {
     const ctx = createCtx(testDir);
     (ctx.tmux.getCurrentPaneId as ReturnType<typeof vi.fn>).mockReturnValue('%5');
-    cmdThis(ctx, 'myagent', 'test remark');
-    expect(ctx.tmux.setAgentRegistration).toHaveBeenCalledWith(
-      '%5',
-      expect.objectContaining({ type: 'workspace' }),
-      { name: 'myagent', remark: 'test remark' }
-    );
+    cmdThis(ctx, 'myagent');
+    expect(ctx.tmux.setGlobalIdentity).toHaveBeenCalledWith('%5', 'myagent');
   });
 
   it('cmdThis errors when not in tmux', () => {
     const ctx = createCtx(testDir);
     (ctx.tmux.getCurrentPaneId as ReturnType<typeof vi.fn>).mockReturnValue(null);
-    expect(() => cmdThis(ctx, 'myagent')).toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(ctx.ui.error).toHaveBeenCalledWith('Not running inside tmux.');
+    expect(() => cmdThis(ctx, 'myagent')).toThrow(`exit(${ExitCodes.PANE_NOT_FOUND})`);
+    expect(ctx.ui.error).toHaveBeenCalledWith('Not running inside a resolvable tmux pane.');
   });
 
   it('cmdThis outputs JSON when --json flag set', () => {
@@ -163,7 +161,11 @@ describe('basic commands', () => {
     (ctx.tmux.getCurrentPaneId as ReturnType<typeof vi.fn>).mockReturnValue('%3');
     cmdThis(ctx, 'jsonagent');
     expect((ctx.ui as any).jsonCalls.length).toBe(1);
-    expect((ctx.ui as any).jsonCalls[0]).toMatchObject({ added: 'jsonagent', pane: '%3' });
+    expect((ctx.ui as any).jsonCalls[0]).toMatchObject({
+      bound: true,
+      name: 'jsonagent',
+      pane: '%3',
+    });
   });
 
   it('cmdRemove deletes agent', () => {
@@ -881,11 +883,18 @@ describe('basic commands', () => {
   it('cmdCompletion prints scripts', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     cmdCompletion('bash');
-    expect(logSpy.mock.calls.join('\n')).toContain('complete -F _tmux_team');
+    const bashOutput = logSpy.mock.calls.join('\n');
+    expect(bashOutput).toContain('complete -F _tmux_team');
+    expect(bashOutput).toContain('name this whoami unbind');
 
     logSpy.mockClear();
     cmdCompletion('zsh');
-    expect(logSpy.mock.calls.join('\n')).toContain('#compdef tmux-team');
+    const zshOutput = logSpy.mock.calls.join('\n');
+    expect(zshOutput).toContain('#compdef tmux-team');
+    expect(zshOutput).toContain('name:Bind the current pane identity');
+    expect(zshOutput).toContain('this:Bind the current pane identity');
+    expect(zshOutput).toContain('whoami:Show the current pane identity');
+    expect(zshOutput).toContain('unbind:Remove the current pane identity');
 
     logSpy.mockClear();
     cmdCompletion();
@@ -897,6 +906,11 @@ describe('basic commands', () => {
     cmdHelp({ mode: 'polling', showIntro: true });
     cmdHelp({ mode: 'wait', timeout: 10 });
     cmdLearn();
-    expect(logSpy).toHaveBeenCalled();
+    const output = logSpy.mock.calls.join('\n');
+    expect(output).toContain('add <pane-target> <global-name>');
+    expect(output).toContain('this <global-name>');
+    expect(output).toContain('name <global-name>');
+    expect(output).toContain('whoami');
+    expect(output).toContain('unbind');
   });
 });

@@ -11,9 +11,11 @@ Use `tmt` (the short alias for `tmux-team`) when the user asks you to communicat
 
 ```bash
 tmt list
-tmt name <pane-name> [pane]          # label a pane
-tmt this <agent-name> [remark]       # register the current pane
-tmt add <agent-name> <pane> [remark]
+tmt name <global-name>               # bind the current pane globally
+tmt this <global-name>               # exact supported alias for `name`
+tmt add <pane-target> <global-name>  # bind an explicit pane by stable `%pane_id`
+tmt whoami                            # show the current pane identity
+tmt unbind                            # remove the current pane identity
 tmt talk <agent> "message"           # `all` broadcasts
 tmt check <agent> [lines]
 tmt team add <team> <agent> [pane]
@@ -21,6 +23,12 @@ tmt team panes
 tmt install [claude|codex|gemini|all]
 tmt upgrade
 ```
+
+`name`, `this`, and `add` manage one global identity per pane. Names can be
+undeclared identities; they do not need to match a configured role. `add`
+accepts `%pane_id`, `window.pane`, or `session:window.pane` and stores the
+resolved stable `%pane_id`. There is no daemon. A pane title update is only a
+best-effort side effect and is not a separate command or API.
 
 `talk` sends text to another pane and can cause external input there. Only use it when the user has requested that communication or the surrounding task clearly authorizes it; do not infer permission for unrelated changes. Use `--wait` to wait for a response, `--timeout <seconds>` to bound the wait, and `--delay <seconds>` to delay sending.
 

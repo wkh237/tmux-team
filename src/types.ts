@@ -1,3 +1,5 @@
+import type { ActiveRegistration } from './domain/types.js';
+
 // ─────────────────────────────────────────────────────────────
 // Shared TypeScript interfaces for tmux-team
 // ─────────────────────────────────────────────────────────────
@@ -23,6 +25,10 @@ export interface AgentRegistration {
 
 export interface PaneAgentMetadata {
   version: 1;
+  globalIdentity?: {
+    name: string;
+    canonicalName: string;
+  };
   workspaces?: Record<string, AgentRegistration>;
   teams?: Record<string, AgentRegistration>;
 }
@@ -145,6 +151,9 @@ export interface Tmux {
   listTeams: () => Record<string, string[]>;
   listTeamPanes: () => TeamPaneInfo[];
   removeTeam: (teamName: string) => { removed: number; agents: string[] };
+  listGlobalIdentities: () => ActiveRegistration[];
+  setGlobalIdentity: (paneId: string, name: string) => void;
+  clearGlobalIdentity: (paneId: string) => boolean;
 }
 
 export type RegistryScope =

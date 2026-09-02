@@ -26,6 +26,8 @@ import { cmdMigrate } from './commands/migrate.js';
 import { cmdTeam } from './commands/team.js';
 import { cmdName } from './commands/name.js';
 import { cmdUpgrade } from './commands/upgrade.js';
+import { cmdWhoami } from './commands/whoami.js';
+import { cmdUnbind } from './commands/unbind.js';
 import { runStartupChecks } from './update-check.js';
 
 // ─────────────────────────────────────────────────────────────
@@ -156,7 +158,17 @@ function main(): void {
   const ctx = createContext({ argv, flags });
 
   // Warn if not in tmux for commands that require it
-  const TMUX_REQUIRED_COMMANDS = ['talk', 'send', 'check', 'read', 'this', 'name'];
+  const TMUX_REQUIRED_COMMANDS = [
+    'talk',
+    'send',
+    'check',
+    'read',
+    'this',
+    'name',
+    'add',
+    'whoami',
+    'unbind',
+  ];
   if (!process.env.TMUX && TMUX_REQUIRED_COMMANDS.includes(command)) {
     ctx.ui.warn('Not running inside tmux. Some features may not work.');
   }
@@ -178,11 +190,11 @@ function main(): void {
         break;
 
       case 'add':
-        if (args.length < 2) {
-          ctx.ui.error('Usage: tmux-team add <name> <pane> [remark]');
+        if (args.length !== 2) {
+          ctx.ui.error('Usage: tmux-team add <pane-target> <global-name>');
           ctx.exit(ExitCodes.ERROR);
         }
-        cmdAdd(ctx, args[0], args[1], args[2]);
+        cmdAdd(ctx, args[0], args[1]);
         break;
 
       case 'update':
@@ -225,19 +237,35 @@ function main(): void {
         break;
 
       case 'this':
-        if (args.length < 1) {
-          ctx.ui.error('Usage: tmux-team this <name> [remark]');
+        if (args.length !== 1) {
+          ctx.ui.error('Usage: tmux-team this <global-name>');
           ctx.exit(ExitCodes.ERROR);
         }
-        cmdThis(ctx, args[0], args[1]);
+        cmdThis(ctx, args[0]);
         break;
 
       case 'name':
-        if (args.length < 1 || args.length > 2) {
-          ctx.ui.error('Usage: tmux-team name <name> [pane]');
+        if (args.length !== 1) {
+          ctx.ui.error('Usage: tmux-team name <global-name>');
           ctx.exit(ExitCodes.ERROR);
         }
-        cmdName(ctx, args[0], args[1]);
+        cmdName(ctx, args[0]);
+        break;
+
+      case 'whoami':
+        if (args.length !== 0) {
+          ctx.ui.error('Usage: tmux-team whoami');
+          ctx.exit(ExitCodes.ERROR);
+        }
+        cmdWhoami(ctx);
+        break;
+
+      case 'unbind':
+        if (args.length !== 0) {
+          ctx.ui.error('Usage: tmux-team unbind');
+          ctx.exit(ExitCodes.ERROR);
+        }
+        cmdUnbind(ctx);
         break;
 
       case 'talk':
