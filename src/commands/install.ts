@@ -211,7 +211,9 @@ function printNextSteps(ctx: Context, installed: InstallResult[]): void {
     console.log(`  ${colors.cyan('/plugin install tmux-team@tmux-team')}`);
   }
   console.log(colors.yellow('Next steps:'));
-  console.log(`  ${colors.cyan('tmt add <name> <pane>')} or ${colors.cyan('tmt this <name>')}`);
+  console.log(
+    `  ${colors.cyan('tmt add <pane-target> <global-name>')} or ${colors.cyan('tmt this <global-name>')}`
+  );
   console.log(`  ${colors.cyan('tmt talk <agent> "message" --wait')}`);
 }
 

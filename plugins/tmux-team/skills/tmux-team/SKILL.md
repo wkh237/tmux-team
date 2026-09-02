@@ -26,7 +26,11 @@ tmt talk all "message for everyone" --wait
 
 # List configured agents
 tmt list
-tmt name backend
+tmt name backend                 # bind the current pane globally
+tmt this reviewer                # exact alias for `name`
+tmt add %12 backend              # bind an explicit pane by stable pane ID
+tmt whoami
+tmt unbind
 tmt team add project codex %12
 ```
 
@@ -43,8 +47,9 @@ tmux-team talk codex "Review this authentication code" --wait
 
 - Use `--wait` when the user needs a response before continuing; use `check`
   after a timeout or for polling.
-- `tmt name` sets a visible pane title. `team` commands manage registrations
-  shared across folders; ordinary commands use the current workspace.
+- `tmt name` binds a global identity; `tmt this` is its exact supported alias.
+  `tmt whoami` inspects the current binding and `tmt unbind` removes it. `team`
+  commands manage the separate shared-team material documented below.
 - Preserve multiline text. Sending input to another pane is an external action
   and requires user authorization; do not infer permission to send commands.
 - Install integrations with `tmt install`. `tmt upgrade` updates the package;

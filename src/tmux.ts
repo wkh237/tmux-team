@@ -13,6 +13,7 @@ import type {
   TeamPaneInfo,
   TmuxRegistry,
 } from './types.js';
+import { normalizeName } from './domain/service.js';
 
 const AGENT_METADATA_OPTION = '@tmux-team.agent';
 
@@ -104,6 +105,7 @@ function deleteRegistrationForScope(
 
 function hasRegistrations(metadata: PaneAgentMetadata): boolean {
   return Boolean(
+    metadata.globalIdentity ||
     (metadata.workspaces && Object.keys(metadata.workspaces).length > 0) ||
     (metadata.teams && Object.keys(metadata.teams).length > 0)
   );
@@ -388,6 +390,37 @@ export function createTmux(): Tmux {
         removed += 1;
       }
       return { removed, agents: [...agents].sort() };
+    },
+
+    listGlobalIdentities() {
+      return this.listPanes().flatMap((pane) => {
+        const identity = pane.metadata?.globalIdentity;
+        if (!identity || typeof identity.name !== 'string') return [];
+        return [
+          {
+            name: identity.name,
+            canonicalName:
+              typeof identity.canonicalName === 'string' && identity.canonicalName
+                ? identity.canonicalName
+                : normalizeName(identity.name),
+            paneId: pane.id,
+          },
+        ];
+      });
+    },
+
+    setGlobalIdentity(paneId: string, name: string): void {
+      const metadata = readPaneMetadata(paneId);
+      metadata.globalIdentity = { name, canonicalName: normalizeName(name) };
+      writePaneMetadata(paneId, metadata);
+    },
+
+    clearGlobalIdentity(paneId: string): boolean {
+      const metadata = readPaneMetadata(paneId);
+      if (!metadata.globalIdentity) return false;
+      delete metadata.globalIdentity;
+      writePaneMetadata(paneId, metadata);
+      return true;
     },
   };
 }

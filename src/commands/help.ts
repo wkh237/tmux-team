@@ -48,9 +48,11 @@ ${colors.yellow('COMMANDS')}
   ${colors.green('talk')} <target> <message>     Send message to an agent (or "all")
   ${colors.green('check')} <target> [lines]      Capture output from agent's pane
   ${colors.green('list')} [team|pane]             List workspace, team, or pane status
-  ${colors.green('add')} <name> <pane> [remark]  Add a new agent
-  ${colors.green('this')} <name> [remark]       Register current pane as an agent
-  ${colors.green('name')} <name> [pane]         Set a visible pane title
+  ${colors.green('add')} <pane-target> <global-name> Bind an explicit pane identity
+  ${colors.green('this')} <global-name>       Bind the current pane (alias of name)
+  ${colors.green('name')} <global-name>       Bind the current pane identity
+  ${colors.green('whoami')}                   Show the current pane identity
+  ${colors.green('unbind')}                   Remove the current pane identity
   ${colors.green('update')} <name> [options]     Update an agent's config
   ${colors.green('remove')} <name>               Remove an agent
   ${colors.green('migrate')} [--dry-run]          Copy legacy JSON registry to tmux metadata
@@ -92,7 +94,7 @@ ${colors.yellow('EXAMPLES')}${
   tmux-team list --json
   tmux-team list acme-app
   tmux-team list main.1.0
-  tmux-team add codex 10.1 "Code review specialist"
+  tmux-team add 10.1 codex
   tmux-team name backend
   tmt install
   tmt upgrade

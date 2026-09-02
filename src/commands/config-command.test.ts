@@ -59,6 +59,9 @@ function createCtx(
     listTeams: vi.fn(() => ({})),
     listTeamPanes: vi.fn(() => []),
     removeTeam: vi.fn(() => ({ removed: 0, agents: [] })),
+    listGlobalIdentities: vi.fn(() => []),
+    setGlobalIdentity: vi.fn(),
+    clearGlobalIdentity: vi.fn(() => false),
   };
   return {
     argv: [],

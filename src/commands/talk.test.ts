@@ -63,6 +63,13 @@ function createMockTmux(): Tmux & {
     removeTeam() {
       return { removed: 0, agents: [] };
     },
+    listGlobalIdentities() {
+      return [];
+    },
+    setGlobalIdentity() {},
+    clearGlobalIdentity() {
+      return false;
+    },
   };
   return mock;
 }

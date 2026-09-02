@@ -18,7 +18,10 @@ _tmux-team() {
     'remove:Remove an agent'
     'migrate:Copy legacy tmux-team.json registry into tmux metadata'
     'team:Manage shared teams'
-    'name:Set a visible pane title'
+    'name:Bind the current pane identity'
+    'this:Bind the current pane identity'
+    'whoami:Show the current pane identity'
+    'unbind:Remove the current pane identity'
     'install:Install agent skills'
     'upgrade:Upgrade tmux-team and refresh skills'
     'init:Create empty legacy tmux-team.json'
@@ -70,7 +73,7 @@ const bashCompletion = `_tmux_team() {
   cur="\${COMP_WORDS[COMP_CWORD]}"
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
-  commands="talk check list add update remove migrate team init completion help name install upgrade"
+  commands="talk check list add update remove migrate team init completion help name this whoami unbind install upgrade"
 
   if [[ \${COMP_CWORD} -eq 1 ]]; then
     COMPREPLY=( $(compgen -W "\${commands}" -- \${cur}) )

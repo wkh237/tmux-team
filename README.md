@@ -20,32 +20,36 @@ once-daily cached update check, while local drift checks work without network.
 
 **Alias:** `tmt` (shorthand for `tmux-team`)
 
-## What's new in 4.3
+## What's new in 5.0
 
-- `tmt name <name>` labels a pane in its border using tmux highlight colors.
+- `tmt name <global-name>` assigns a global identity to the current pane.
+- `tmt this <global-name>` remains a supported, exact alias for `tmt name`.
+- `tmt add <pane-target> <global-name>` assigns an identity to an explicit pane
+  after resolving the target to tmux's stable `%pane_id`.
+- `tmt whoami` and `tmt unbind` inspect and remove the current pane's identity.
 - Multiline messages now preserve real line breaks when delivered.
 - Skills can be installed and refreshed with `tmt install` and `tmt upgrade`.
 
 ## Quick Start
 
 ```bash
-# 1. Go to working folder and register agents (run inside each agent's pane)
-tmt this claude      # registers current pane as "claude"
-tmt this codex       # registers current pane as "codex"
-# Alternatively, register a specific panel to the session
-tmt add gemini 10.1  # register a panel 10.1 as "gemini"
+# 1. Assign global identities (run inside each agent's pane)
+tmt name claude      # binds the current pane as "claude"
+tmt this codex       # exact alias for `tmt name codex`
+# Or bind an explicit pane target; it is stored by stable `%pane_id`
+tmt add 10.1 gemini
 
 # 2. Talk to agents
 tmt talk codex "Review this code"    # waits for response by default
 
-# 4. Update or remove an agent
-tmt update codex --pane 2.3
-tmt rm codex
+# 4. Inspect or remove the current pane's identity
+tmt whoami
+tmt unbind
 
 # List panels in the session
 tmt ls 
 
-# Name the current pane (shown at the upper-right of its border)
+# `name` is an identity command; any title update is only a best-effort side effect.
 tmt name backend
 ```
 
@@ -53,11 +57,15 @@ tmt name backend
 
 ### How scopes work
 
-Registrations live in tmux pane metadata, not in a JSON file you have to track.
-By default they are scoped to the current **workspace** — the nearest Git root,
-or the current folder when you are not inside a Git repo. So `tmt this`,
-`tmt add`, `tmt rm`, `tmt update`, `tmt preamble`, and `tmt list` all act on
-the workspace you are currently in.
+Global identities live in tmux pane metadata, not in a JSON file you have to
+track. `tmt name`, `tmt this`, and `tmt add` write the same global identity
+record, independent of the current working folder. `tmt whoami` and `tmt unbind`
+operate on the current pane. The identity name may be an undeclared name; it
+does not need to match a configured agent role. Each pane has at most one
+global identity and each global name identifies at most one pane.
+
+Shared-team and workspace-scoped registrations remain separate from this
+global identity contract.
 
 Reach for `--team <name>` only when you want an explicit shared team that spans
 folders (see [Shared Teams](#shared-teams)).
@@ -69,7 +77,7 @@ workspace you can add an agent whose pane lives in another project:
 
 ```bash
 # In project-a folder, add an agent that's running in project-b
-tmt add codex-reviewer 5.1    # Use the pane ID from the other project
+tmt add 5.1 codex-reviewer    # The target is resolved and stored as `%pane_id`
 ```
 
 Find pane IDs with: `tmux display-message -p "#{pane_id}"`
@@ -84,8 +92,11 @@ visible on both sides, use a [shared team](#shared-teams).
 |---------|-------------|
 | `install [claude\|codex\|gemini\|all]` | Install or repair agent integrations |
 | `upgrade` | Upgrade tmux-team; managed skill links update automatically |
-| `this <name> [remark]` | Register current pane as an agent |
-| `name <name> [pane]` | Set a pane title, shown upper-right in its border |
+| `name <global-name>` | Bind the current pane to a global identity |
+| `this <global-name>` | Exact supported alias for `name` |
+| `add <pane-target> <global-name>` | Bind an explicit pane to a global identity |
+| `whoami` | Show the current pane's global identity, if any |
+| `unbind` | Remove the current pane's global identity |
 | `talk <agent> "msg"` | Send message and wait for response |
 | `talk all "msg"` | Broadcast to all agents |
 | `check <agent> [lines]` | Read agent's pane output |
@@ -104,10 +115,14 @@ visible on both sides, use a [shared team](#shared-teams).
 
 Run `tmt help` for all commands and options.
 
-`tmt name <name> [pane]` sets a visible title on the current pane, or on the
-specified tmux pane target (`%pane_id`, `window.pane`, or `session:window.pane`).
-The title appears in the upper-right of the pane border and inherits tmux's
-active/inactive pane-border highlight colors.
+`tmt name <global-name>` binds the current pane to a global identity.
+`tmt this <global-name>` has exactly the same behavior and is not deprecated.
+Use `tmt add <pane-target> <global-name>` to bind another pane; targets may be
+`%pane_id`, `window.pane`, or `session:window.pane`, and are stored by the
+resolved stable `%pane_id`. `tmt whoami` reports the current binding and
+`tmt unbind` removes only the current pane's binding. A pane title may be
+updated as a best-effort presentation side effect, but titles are not the
+identity API and there is no panel-title command.
 
 ## Message Delivery
 
@@ -172,11 +187,11 @@ tmt team panes        # grouped pane inventory
 tmt team panes --json # { teams, panes } incl. each pane's registrations
 ```
 
-**Add an agent from any pane.** Targets can be `%pane_id`, `window.pane`, or
-`session:window.pane`; tmux-team stores the canonical `%pane_id`.
+**Add an identity from any pane.** Targets can be `%pane_id`, `window.pane`, or
+`session:window.pane`; tmux-team resolves and stores the canonical `%pane_id`.
 
 ```bash
-tmt add codex 1.1 "Code reviewer"
+tmt add 1.1 codex
 ```
 
 **Remove an agent** from the current scope:
@@ -253,7 +268,7 @@ tmt talk all "Starting deploy - heads up" --team myproject
 **Single project** (default) — agents work in the same folder:
 ```bash
 tmt this claude
-tmt add codex 1.1
+tmt add 1.1 codex
 ```
 
 **Shared team** — agents work across folders but collaborate:

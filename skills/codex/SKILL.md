@@ -31,9 +31,19 @@ tmt check gemini 200
 
 # List all configured agents
 tmt list
-tmt name backend
+tmt name backend                 # bind the current pane globally
+tmt this reviewer                # exact alias for `name`
+tmt add %12 backend              # bind an explicit pane by stable pane ID
+tmt whoami
+tmt unbind
 tmt team panes
 ```
+
+Global identities are independent of the current folder. Names may be
+undeclared; they do not need a configured role. `tmt add` resolves `%pane_id`,
+`window.pane`, or `session:window.pane` targets before storing the stable pane
+ID. Pane-title updates are best-effort presentation side effects only; there is
+no panel-title command or daemon.
 
 ## Workflow
 

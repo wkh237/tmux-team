@@ -21,7 +21,11 @@ To broadcast to all agents:
 
 To see available agents:
   tmt list
-  tmt name <name> [pane]
+  tmt name <global-name>
+  tmt this <global-name>
+  tmt add <pane-target> <global-name>
+  tmt whoami
+  tmt unbind
   tmt team ls <team>
 
 ## Examples

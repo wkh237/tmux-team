@@ -247,6 +247,81 @@ describe('createTmux', () => {
       ]);
     });
 
+    it('lists global identities independently of workspace metadata', () => {
+      mockedExecSync.mockReturnValue(
+        '%1\tmain:1.0\t/repo-a\tcodex\t{"version":1,"globalIdentity":{"name":"Alice","canonicalName":"alice"}}\n%2\tmain:2.0\t/repo-b\tzsh\t{"version":1}\n'
+      );
+      const tmux = createTmux();
+      expect(tmux.listGlobalIdentities()).toEqual([
+        { name: 'Alice', canonicalName: 'alice', paneId: '%1' },
+      ]);
+    });
+
+    it('ignores malformed global identity metadata', () => {
+      mockedExecSync.mockReturnValue(
+        '%1\tmain:1.0\t/repo\tzsh\t{"version":1,"globalIdentity":{"name":42}}\n'
+      );
+      expect(createTmux().listGlobalIdentities()).toEqual([]);
+    });
+
+    it('writes and clears global identity metadata without touching workspace entries', () => {
+      mockedExecFileSync.mockReturnValueOnce(
+        '{"version":1,"workspaces":{"/repo":{"name":"legacy"}},"teams":{"egp":{"name":"codex"}},"globalIdentity":{"name":"Old","canonicalName":"old"}}'
+      );
+      const tmux = createTmux();
+      tmux.setGlobalIdentity('%9', 'Alice');
+      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
+        'tmux',
+        [
+          'set-option',
+          '-p',
+          '-t',
+          '%9',
+          '@tmux-team.agent',
+          JSON.stringify({
+            version: 1,
+            workspaces: { '/repo': { name: 'legacy' } },
+            teams: { egp: { name: 'codex' } },
+            globalIdentity: { name: 'Alice', canonicalName: 'alice' },
+          }),
+        ],
+        expect.any(Object)
+      );
+
+      mockedExecFileSync.mockReset();
+      mockedExecFileSync.mockReturnValueOnce(
+        '{"version":1,"workspaces":{"/repo":{"name":"legacy"}},"teams":{"egp":{"name":"codex"}},"globalIdentity":{"name":"Alice","canonicalName":"alice"}}'
+      );
+      expect(tmux.clearGlobalIdentity('%9')).toBe(true);
+      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
+        'tmux',
+        [
+          'set-option',
+          '-p',
+          '-t',
+          '%9',
+          '@tmux-team.agent',
+          JSON.stringify({
+            version: 1,
+            workspaces: { '/repo': { name: 'legacy' } },
+            teams: { egp: { name: 'codex' } },
+          }),
+        ],
+        expect.any(Object)
+      );
+
+      mockedExecFileSync.mockReset();
+      mockedExecFileSync.mockReturnValueOnce(
+        '{"version":1,"globalIdentity":{"name":"Alice","canonicalName":"alice"}}'
+      );
+      expect(tmux.clearGlobalIdentity('%9')).toBe(true);
+      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
+        'tmux',
+        ['set-option', '-p', '-u', '-t', '%9', '@tmux-team.agent'],
+        expect.any(Object)
+      );
+    });
+
     it('builds team registries and agent config from metadata', () => {
       mockedExecSync.mockReturnValue(
         '%1\tcodex\t{"version":1,"teams":{"egp":{"name":"codex","preamble":"Be strict","deny":["x"]}}}\n'
