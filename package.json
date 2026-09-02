@@ -12,13 +12,17 @@
     "tmt": "./bin/tmux-team",
     "test": "pnpm test:run",
     "test:watch": "vitest",
+    "test:e2e": "node scripts/run-e2e.mjs",
     "test:run": "vitest run --coverage && node scripts/check-coverage.mjs --threshold 90 --branches 85",
     "lint": "oxlint src/",
+    "e2e:typecheck": "tsc --project tsconfig.e2e.json --noEmit",
+    "e2e:lint": "oxlint test/e2e/ scripts/run-e2e.mjs",
+    "e2e:format:check": "prettier --check test/e2e/ scripts/run-e2e.mjs tsconfig.e2e.json DEVELOPMENT.md AGENTS.md .agents/skills/tmt-e2e/SKILL.md",
     "lint:fix": "oxlint src/ --fix",
     "format": "prettier --write src/",
     "format:check": "prettier --check src/",
     "type:check": "tsc --noEmit",
-    "check": "pnpm type:check && pnpm lint && pnpm format:check"
+    "check": "pnpm type:check && pnpm e2e:typecheck && pnpm lint && pnpm e2e:lint && pnpm format:check && pnpm e2e:format:check"
   },
   "keywords": [
     "tmux",
