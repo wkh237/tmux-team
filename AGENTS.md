@@ -10,6 +10,14 @@ The primary agent must review the findings before any edits begin, record which 
 
 If delegation is unavailable, document that limitation and perform the same read-only audit locally before editing. Delegation never expands the user's authorization.
 
+## Repository content language
+
+All repository content must be written in English, including code, tests,
+comments, documentation, configuration, workflows, repository skills, commit
+messages, and pull request metadata. Non-language symbols and technically
+required fixture data are allowed when necessary; explain any such exception
+in English.
+
 ## Code organization
 
 - Keep production behavior, test infrastructure, fixtures, and scenario assertions in clearly separated modules.
