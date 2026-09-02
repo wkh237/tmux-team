@@ -12,6 +12,7 @@
     "tmt": "./bin/tmux-team",
     "test": "pnpm test:run",
     "test:watch": "vitest",
+    "test:e2e": "node scripts/run-e2e.mjs",
     "test:run": "vitest run --coverage && node scripts/check-coverage.mjs --threshold 90 --branches 85",
     "lint": "oxlint src/",
     "lint:fix": "oxlint src/ --fix",
