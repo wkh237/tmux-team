@@ -1,0 +1,13 @@
+.git
+.agents
+node_modules
+coverage
+dist
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+tmux-team.json
