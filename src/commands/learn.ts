@@ -10,9 +10,8 @@ ${colors.cyan('tmux-team')} - Multi-Agent Coordination Guide
 
 ${colors.yellow('WHAT IS TMUX-TEAM?')}
 
-  tmux-team enables AI agents (Claude, Codex, Gemini) running in separate
-  terminal panes to communicate with each other. Think of it as a messaging
-  system for terminal-based AI agents.
+  tmux-team enables terminal agents running in separate tmux panes to
+  communicate with each other through active global identities.
 
 ${colors.yellow('CORE CONCEPT')}
 
@@ -23,12 +22,12 @@ ${colors.yellow('CORE CONCEPT')}
 
 ${colors.yellow('ESSENTIAL COMMANDS')}
 
-  ${colors.green('tmux-team list')}                     List available agents
-  ${colors.green('tmux-team talk')} <agent> "<msg>"     Send a message
-  ${colors.green('tmux-team check')} <agent> [lines]    Read agent's response
-  ${colors.green('tmux-team talk')} <agent> --wait      Send and wait for response
+  ${colors.green('tmux-team list')}                     List active identities
+  ${colors.green('tmux-team talk')} <target> "<msg>"   Send a message
+  ${colors.green('tmux-team check')} <target> [lines]  Read pane output
+  ${colors.green('tmux-team talk')} <target> --wait    Send and wait for response
 
-${colors.yellow('RECOMMENDED: ASYNC MODE (--wait)')}
+${colors.yellow('RECOMMENDED: WAIT MODE (--wait)')}
 
   The ${colors.green('--wait')} flag is recommended for better token utilization:
 
@@ -37,7 +36,7 @@ ${colors.yellow('RECOMMENDED: ASYNC MODE (--wait)')}
   ${colors.dim('# ... wait manually ...')}
   tmux-team check codex                    ${colors.dim('← extra command')}
 
-  ${colors.dim('# With --wait (async mode):')}
+  ${colors.dim('# With --wait:')}
   tmux-team talk codex "Review this code" --wait
   ${colors.dim('↳ Blocks until response, returns it directly')}
 
@@ -45,36 +44,32 @@ ${colors.yellow('RECOMMENDED: ASYNC MODE (--wait)')}
 
 ${colors.yellow('PRACTICAL EXAMPLES')}
 
-  ${colors.dim('# Quick question (async)')}
+  ${colors.dim('# Quick question')}
   tmux-team talk codex "What's the auth status?" --wait
 
   ${colors.dim('# Delegate a task with timeout')}
   tmux-team talk gemini "Implement login form" --wait --timeout 300
 
-  ${colors.dim('# Broadcast to all agents')}
-  tmux-team talk all "Sync: PR #123 was merged" --wait
+${colors.yellow('GLOBAL IDENTITIES')}
 
-${colors.yellow('CONFIGURATION')}
+  Identity bindings live in active tmux pane metadata and work across folders:
 
-  Config file: ${colors.cyan('./tmux-team.json')}
-
-  {
-    "$config": { "mode": "wait", "pasteEnterDelayMs": 500 },
-    "codex": { "pane": "%1", "remark": "Code reviewer" },
-    "gemini": { "pane": "%2", "remark": "Documentation" }
-  }
+  ${colors.cyan('tmux-team name codex')}        Bind the current pane
+  ${colors.cyan('tmux-team add %2 gemini')}     Bind another pane by stable ID
 
   Find your pane ID: ${colors.cyan('tmux display-message -p "#{pane_id}"')}
+  ${colors.dim('tmux-team.json is retained only for legacy migration and local settings.')}
+  ${colors.dim('tmux-team is CLI-only; there is no daemon to run.')}
 
 ${colors.yellow('BEST PRACTICES')}
 
   1. ${colors.green('Use --wait for important tasks')} - ensures complete response
   2. ${colors.green('Be explicit')} - tell agents exactly what you need
   3. ${colors.green('Set timeout appropriately')} - complex tasks need more time
-  4. ${colors.green('Broadcast sparingly')} - only for announcements everyone needs
+  4. ${colors.green('Use stable pane IDs in scripts')} - avoid ambiguous locators
 
 ${colors.yellow('NEXT STEP')}
 
-  Run ${colors.cyan('tmux-team list')} to see available agents in your project.
+  Run ${colors.cyan('tmux-team list')} to see active global identities.
 `);
 }

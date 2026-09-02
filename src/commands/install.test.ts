@@ -37,7 +37,7 @@ function createCtx(testDir: string, overrides?: Partial<{ flags: Partial<Flags> 
     agents: {},
     paneRegistry: {},
   };
-  const flags: Flags = { json: false, verbose: false, ...(overrides?.flags ?? {}) } as Flags;
+  const flags: Flags = { json: false, verbose: false, ...overrides?.flags } as Flags;
   const tmux: Tmux = {
     send: vi.fn(),
     capture: vi.fn(),
@@ -48,9 +48,6 @@ function createCtx(testDir: string, overrides?: Partial<{ flags: Partial<Flags> 
     getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
     setAgentRegistration: vi.fn(),
     clearAgentRegistration: vi.fn(() => false),
-    listTeams: vi.fn(() => ({})),
-    listTeamPanes: vi.fn(() => []),
-    removeTeam: vi.fn(() => ({ removed: 0, agents: [] })),
     listGlobalIdentities: vi.fn(() => []),
     setGlobalIdentity: vi.fn(),
     clearGlobalIdentity: vi.fn(() => false),

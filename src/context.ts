@@ -17,15 +17,16 @@ export interface CreateContextOptions {
 export function createContext(options: CreateContextOptions): Context {
   const { argv, flags, cwd = process.cwd() } = options;
 
-  const paths = resolvePaths(cwd, flags.team);
+  // Global identities are intentionally scope-independent in v5. Keep the
+  // legacy metadata fields readable through loadConfig, but always use the
+  // workspace registry for legacy settings.
+  const paths = resolvePaths(cwd);
   const ui = createUI(flags.json);
   const tmux = createTmux();
-  const registryScope = flags.team
-    ? { type: 'team' as const, teamName: flags.team }
-    : {
-        type: 'workspace' as const,
-        workspaceRoot: paths.workspaceRoot ?? cwd,
-      };
+  const registryScope = {
+    type: 'workspace' as const,
+    workspaceRoot: paths.workspaceRoot ?? cwd,
+  };
   const config = loadConfig(paths, tmux.getAgentRegistry(registryScope));
 
   return {

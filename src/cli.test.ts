@@ -37,9 +37,6 @@ function makeStubContext(): Context {
       getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
       setAgentRegistration: vi.fn(),
       clearAgentRegistration: vi.fn(() => false),
-      listTeams: vi.fn(() => ({})),
-      listTeamPanes: vi.fn(() => []),
-      removeTeam: vi.fn(() => ({ removed: 0, agents: [] })),
       listGlobalIdentities: vi.fn(() => []),
       setGlobalIdentity: vi.fn(),
       clearGlobalIdentity: vi.fn(() => false),
@@ -68,6 +65,40 @@ describe('cli', () => {
   afterEach(() => {
     process.argv = originalArgv;
     vi.restoreAllMocks();
+  });
+
+  it.each([
+    ['team', ['node', 'cli', 'team']],
+    ['--team value', ['node', 'cli', 'list', '--team', 'legacy']],
+    ['--team=value', ['node', 'cli', 'list', '--team=legacy']],
+  ])('rejects %s before creating command context', async (_label, argv) => {
+    vi.resetModules();
+    process.argv = argv;
+    const ctx = makeStubContext();
+    const createContext = vi.fn(() => ctx);
+    const jsonSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit(${code})`);
+    }) as any);
+    vi.doMock('./context.js', () => ({
+      createContext,
+      ExitCodes: { SUCCESS: 0, ERROR: 1, UNSUPPORTED_TEAM: 1 },
+    }));
+    vi.doMock('./ui.js', () => ({
+      createUI: () => ({
+        info: vi.fn(),
+        success: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        table: vi.fn(),
+        json: vi.fn(),
+      }),
+    }));
+
+    await expect(import('./cli.js')).rejects.toThrow('exit(1)');
+    expect(createContext).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    jsonSpy.mockRestore();
   });
 
   it('prints completion for bash', async () => {

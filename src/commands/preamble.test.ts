@@ -7,7 +7,6 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import type { Context, Paths, ResolvedConfig, Flags, UI, Tmux } from '../types.js';
-import { ExitCodes } from '../exits.js';
 import { cmdPreamble } from './preamble.js';
 
 // ─────────────────────────────────────────────────────────────
@@ -75,9 +74,6 @@ function createMockTmux(): Tmux {
     getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
     setAgentRegistration: vi.fn(),
     clearAgentRegistration: vi.fn(() => false),
-    listTeams: vi.fn(() => ({})),
-    listTeamPanes: vi.fn(() => []),
-    removeTeam: vi.fn(() => ({ removed: 0, agents: [] })),
     listGlobalIdentities: vi.fn(() => []),
     setGlobalIdentity: vi.fn(),
     clearGlobalIdentity: vi.fn(() => false),

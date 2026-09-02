@@ -10,7 +10,7 @@ You are working in a multi-agent tmux environment. Use the `tmux-team` CLI to co
 ## When to Use This Skill
 
 - Delegating specialized tasks to other agents (e.g., "Ask Codex to review this code")
-- Broadcasting messages to all agents
+- Sending messages to a named identity or pane target
 - Checking responses from agents you've messaged
 - Coordinating parallel work across multiple agents
 
@@ -21,17 +21,18 @@ You are working in a multi-agent tmux environment. Use the `tmux-team` CLI to co
 tmt talk codex "your message" --wait
 tmt talk gemini "your message" --wait --timeout 120
 
-# Broadcast to all agents
-tmt talk all "message for everyone" --wait
+# Send to an identity or direct pane target
+tmt talk codex "message" --wait
+tmt talk %12 "message" --wait
 
-# List configured agents
+# List active identities, or inspect one pane
 tmt list
+tmt list %12
 tmt name backend                 # bind the current pane globally
 tmt this reviewer                # exact alias for `name`
 tmt add %12 backend              # bind an explicit pane by stable pane ID
 tmt whoami
 tmt unbind
-tmt team add project codex %12
 ```
 
 ## Workflow
@@ -48,8 +49,14 @@ tmux-team talk codex "Review this authentication code" --wait
 - Use `--wait` when the user needs a response before continuing; use `check`
   after a timeout or for polling.
 - `tmt name` binds a global identity; `tmt this` is its exact supported alias.
-  `tmt whoami` inspects the current binding and `tmt unbind` removes it. `team`
-  commands manage the separate shared-team material documented below.
+  `tmt whoami` inspects the current binding and `tmt unbind` removes it.
+- `tmt talk`, `tmt check`, and `tmt list` accept either a global name or a
+  direct pane target. The name `all` is an ordinary identity, not a special
+  destination.
+- `tmt add` uses `<pane-target> <global-name>`. The legacy name-first order is
+  rejected with a usage error.
+- tmux-team is CLI-only and has no daemon or background service. Pane metadata
+  is authoritative; pane titles are best-effort presentation only.
 - Preserve multiline text. Sending input to another pane is an external action
   and requires user authorization; do not infer permission to send commands.
 - Install integrations with `tmt install`. `tmt upgrade` updates the package;

@@ -18,7 +18,6 @@ import type {
 const CONFIG_FILENAME = 'config.json';
 const LOCAL_CONFIG_FILENAME = 'tmux-team.json';
 const STATE_FILENAME = 'state.json';
-const TEAMS_DIR = 'teams';
 
 // Default configuration values
 const DEFAULT_CONFIG: GlobalConfig = {
@@ -108,7 +107,7 @@ function findUpward(filename: string, startDir: string): string | null {
  * Resolve the workspace scope used for default registrations.
  *
  * Prefer the nearest Git root so commands run from subdirectories share the
- * same default team. Fall back to cwd for non-Git folders.
+ * same workspace. Fall back to cwd for non-Git folders.
  */
 export function resolveWorkspaceRoot(cwd: string = process.cwd()): string {
   let dir = path.resolve(cwd);
@@ -125,40 +124,12 @@ export function resolveWorkspaceRoot(cwd: string = process.cwd()): string {
   }
 }
 
-/**
- * Get the path to a shared team config file.
- */
-export function getTeamConfigPath(globalDir: string, teamName: string): string {
-  return path.join(globalDir, TEAMS_DIR, `${teamName}.json`);
-}
-
-/**
- * Ensure the teams directory exists.
- */
-export function ensureTeamsDir(globalDir: string): void {
-  const teamsDir = path.join(globalDir, TEAMS_DIR);
-  if (!fs.existsSync(teamsDir)) {
-    fs.mkdirSync(teamsDir, { recursive: true });
-  }
-}
-
-export function resolvePaths(cwd: string = process.cwd(), teamName?: string): Paths {
+export function resolvePaths(cwd: string = process.cwd()): Paths {
   const globalDir = resolveGlobalDir();
   const workspaceRoot = resolveWorkspaceRoot(cwd);
 
-  // If team name is specified, use the shared team config
-  if (teamName) {
-    const teamConfig = getTeamConfigPath(globalDir, teamName);
-    return {
-      globalDir,
-      globalConfig: path.join(globalDir, CONFIG_FILENAME),
-      localConfig: teamConfig,
-      stateFile: path.join(globalDir, STATE_FILENAME),
-      workspaceRoot,
-    };
-  }
-
-  // Search up for local config (like .git discovery)
+  // Search up for the legacy local config. Team-scoped path routing was
+  // removed in v5; old team/workspace metadata remains untouched.
   const localConfigPath =
     findUpward(LOCAL_CONFIG_FILENAME, cwd) ?? path.join(cwd, LOCAL_CONFIG_FILENAME);
 

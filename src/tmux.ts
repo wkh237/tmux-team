@@ -10,12 +10,12 @@ import type {
   Tmux,
   PaneInfo,
   RegistryScope,
-  TeamPaneInfo,
   TmuxRegistry,
 } from './types.js';
 import { normalizeName } from './domain/service.js';
 
 const AGENT_METADATA_OPTION = '@tmux-team.agent';
+const PANE_FIELD_SEPARATOR = '__TMT_FIELD_4f1c__';
 
 // Known agent patterns for auto-detection
 const KNOWN_AGENTS: Record<string, string[]> = {
@@ -59,11 +59,7 @@ function registrationForScope(
   metadata: PaneAgentMetadata | undefined,
   scope: RegistryScope
 ): AgentRegistration | undefined {
-  if (!metadata) return undefined;
-  if (scope.type === 'team') {
-    return metadata.teams?.[scope.teamName];
-  }
-  return metadata.workspaces?.[scope.workspaceRoot];
+  return metadata?.workspaces?.[scope.workspaceRoot];
 }
 
 function setRegistrationForScope(
@@ -71,14 +67,10 @@ function setRegistrationForScope(
   scope: RegistryScope,
   registration: AgentRegistration
 ): PaneAgentMetadata {
-  if (scope.type === 'team') {
-    metadata.teams = { ...metadata.teams, [scope.teamName]: registration };
-  } else {
-    metadata.workspaces = {
-      ...metadata.workspaces,
-      [scope.workspaceRoot]: registration,
-    };
-  }
+  metadata.workspaces = {
+    ...metadata.workspaces,
+    [scope.workspaceRoot]: registration,
+  };
   return metadata;
 }
 
@@ -86,19 +78,10 @@ function deleteRegistrationForScope(
   metadata: PaneAgentMetadata,
   scope: RegistryScope
 ): AgentRegistration | undefined {
-  let removed: AgentRegistration | undefined;
-  if (scope.type === 'team') {
-    removed = metadata.teams?.[scope.teamName];
-    if (metadata.teams) {
-      delete metadata.teams[scope.teamName];
-      if (Object.keys(metadata.teams).length === 0) delete metadata.teams;
-    }
-  } else {
-    removed = metadata.workspaces?.[scope.workspaceRoot];
-    if (metadata.workspaces) {
-      delete metadata.workspaces[scope.workspaceRoot];
-      if (Object.keys(metadata.workspaces).length === 0) delete metadata.workspaces;
-    }
+  const removed = metadata.workspaces?.[scope.workspaceRoot];
+  if (metadata.workspaces) {
+    delete metadata.workspaces[scope.workspaceRoot];
+    if (Object.keys(metadata.workspaces).length === 0) delete metadata.workspaces;
   }
   return removed;
 }
@@ -144,44 +127,6 @@ function registryFromPanes(panes: PaneInfo[], scope: RegistryScope): TmuxRegistr
   }
 
   return { paneRegistry, agents };
-}
-
-function teamPaneInfoFromPane(pane: PaneInfo): TeamPaneInfo {
-  const registrations: TeamPaneInfo['registrations'] = [];
-
-  for (const [workspaceRoot, registration] of Object.entries(pane.metadata?.workspaces ?? {})) {
-    registrations.push({
-      scopeType: 'workspace',
-      scope: workspaceRoot,
-      agent: registration.name,
-      ...(registration.remark !== undefined && { remark: registration.remark }),
-    });
-  }
-
-  for (const [teamName, registration] of Object.entries(pane.metadata?.teams ?? {})) {
-    registrations.push({
-      scopeType: 'team',
-      scope: teamName,
-      agent: registration.name,
-      ...(registration.remark !== undefined && { remark: registration.remark }),
-    });
-  }
-
-  registrations.sort(
-    (a, b) =>
-      a.scopeType.localeCompare(b.scopeType) ||
-      a.scope.localeCompare(b.scope) ||
-      a.agent.localeCompare(b.agent)
-  );
-
-  return {
-    pane: pane.id,
-    ...(pane.target && { target: pane.target }),
-    ...(pane.cwd && { cwd: pane.cwd }),
-    command: pane.command,
-    suggestedName: pane.suggestedName,
-    registrations,
-  };
 }
 
 export function createTmux(): Tmux {
@@ -247,7 +192,7 @@ export function createTmux(): Tmux {
       try {
         // Get all panes with stable IDs, human tmux targets, cwd, commands, and tmux-team metadata.
         const output = execSync(
-          `tmux list-panes -a -F "#{pane_id}\t#{session_name}:#{window_index}.#{pane_index}\t#{pane_current_path}\t#{pane_current_command}\t#{${AGENT_METADATA_OPTION}}"`,
+          `tmux list-panes -a -F "#{pane_id}${PANE_FIELD_SEPARATOR}#{session_name}:#{window_index}.#{pane_index}${PANE_FIELD_SEPARATOR}#{pane_current_path}${PANE_FIELD_SEPARATOR}#{pane_current_command}${PANE_FIELD_SEPARATOR}#{${AGENT_METADATA_OPTION}}"`,
           {
             encoding: 'utf-8',
             stdio: ['pipe', 'pipe', 'pipe'],
@@ -259,12 +204,25 @@ export function createTmux(): Tmux {
           .split('\n')
           .filter((line) => line.trim())
           .map((line) => {
-            const fields = line.split('\t');
-            const [id, target, cwd, command, metadataText = ''] =
-              fields.length >= 5
+            const fields = line.includes(PANE_FIELD_SEPARATOR)
+              ? line.split(PANE_FIELD_SEPARATOR)
+              : line.split('\t');
+            const [id, target, cwd, command, metadataText] = line.includes(PANE_FIELD_SEPARATOR)
+              ? [
+                  fields[0],
+                  fields[1],
+                  fields[2],
+                  fields[3],
+                  fields.slice(4).join(PANE_FIELD_SEPARATOR),
+                ]
+              : fields.length >= 5
                 ? fields
                 : [fields[0], undefined, undefined, fields[1] ?? '', fields[2] ?? ''];
-            const metadata = safeParseMetadata(metadataText);
+            // tmux 3.3 does not reliably expand pane user options inside
+            // list-panes formats. Prefer the inline value on newer versions,
+            // then fall back to the pane-scoped option without consulting any
+            // legacy registry.
+            const metadata = safeParseMetadata(metadataText) ?? tryReadPaneMetadata(id || '');
             return {
               id: id || '',
               ...(target && { target }),
@@ -356,42 +314,6 @@ export function createTmux(): Tmux {
       return removed;
     },
 
-    listTeams(): Record<string, string[]> {
-      const teams: Record<string, Set<string>> = {};
-      for (const pane of this.listPanes()) {
-        for (const [teamName, registration] of Object.entries(pane.metadata?.teams ?? {})) {
-          if (!teams[teamName]) teams[teamName] = new Set<string>();
-          teams[teamName].add(registration.name);
-        }
-      }
-      return Object.fromEntries(
-        Object.entries(teams).map(([teamName, agents]) => [teamName, [...agents].sort()])
-      );
-    },
-
-    listTeamPanes(): TeamPaneInfo[] {
-      return this.listPanes().map(teamPaneInfoFromPane);
-    },
-
-    removeTeam(teamName: string): { removed: number; agents: string[] } {
-      const agents = new Set<string>();
-      let removed = 0;
-      for (const pane of this.listPanes()) {
-        if (!pane.metadata?.teams?.[teamName]) continue;
-
-        agents.add(pane.metadata.teams[teamName].name);
-        const metadata = pane.metadata;
-        const teamRegistrations = metadata.teams;
-        if (teamRegistrations) {
-          delete teamRegistrations[teamName];
-          if (Object.keys(teamRegistrations).length === 0) delete metadata.teams;
-        }
-        writePaneMetadata(pane.id, metadata);
-        removed += 1;
-      }
-      return { removed, agents: [...agents].sort() };
-    },
-
     listGlobalIdentities() {
       return this.listPanes().flatMap((pane) => {
         const identity = pane.metadata?.globalIdentity;
@@ -425,7 +347,8 @@ export function createTmux(): Tmux {
   };
 }
 
-function readPaneMetadata(paneId: string): PaneAgentMetadata {
+function tryReadPaneMetadata(paneId: string): PaneAgentMetadata | undefined {
+  if (!paneId) return undefined;
   try {
     const output = execFileSync(
       'tmux',
@@ -435,10 +358,14 @@ function readPaneMetadata(paneId: string): PaneAgentMetadata {
         stdio: ['pipe', 'pipe', 'pipe'],
       }
     );
-    return safeParseMetadata(output) ?? emptyMetadata();
+    return safeParseMetadata(output);
   } catch {
-    return emptyMetadata();
+    return undefined;
   }
+}
+
+function readPaneMetadata(paneId: string): PaneAgentMetadata {
+  return tryReadPaneMetadata(paneId) ?? emptyMetadata();
 }
 
 function writePaneMetadata(paneId: string, metadata: PaneAgentMetadata): void {

@@ -8,16 +8,16 @@ When invoked, execute the `tmt` (short for `tmux-team`) command with the provide
 You are working in a multi-agent tmux environment.
 Use the tmux-team CLI to communicate with other agents.
 
-Registrations live in tmux pane metadata: current workspace by default, or an
-explicit cross-folder team with `--team <name>`.
+Registrations live in tmux pane metadata as global active identities. They are
+independent of the current working directory.
 
 ## Commands
 
 ```bash
-# Send message to an agent
+# Send a message to a global identity or direct pane target
 tmt talk codex "your message"
 tmt talk gemini "your message"
-tmt talk all "broadcast message"
+tmt talk %12 "your message"
 
 # Send with delay (useful for rate limiting)
 tmt talk codex "message" --delay 5
@@ -25,18 +25,18 @@ tmt talk codex "message" --delay 5
 # Send and wait for response (blocks until agent replies)
 tmt talk codex "message" --wait --timeout 120
 
-# Read agent response (default: 100 lines)
+# Read response (default: 100 lines); names and pane targets are both valid
 tmt check codex
-tmt check gemini 200
+tmt check %12 200
 
-# List all configured agents
+# List all active identities, or inspect one pane
 tmt list
+tmt list %12
 tmt name backend                 # bind the current pane globally
 tmt this reviewer                # exact alias for `name`
 tmt add %12 backend              # bind an explicit pane by stable pane ID
 tmt whoami
 tmt unbind
-tmt team panes
 ```
 
 Global identities are independent of the current folder. Names may be
@@ -44,6 +44,10 @@ undeclared; they do not need a configured role. `tmt add` resolves `%pane_id`,
 `window.pane`, or `session:window.pane` targets before storing the stable pane
 ID. Pane-title updates are best-effort presentation side effects only; there is
 no panel-title command or daemon.
+
+The `add` argument order is `tmt add <pane-target> <global-name>`. The legacy
+name-first order is rejected with a usage error. The name `all` is an ordinary
+identity, not a special destination.
 
 ## Workflow
 

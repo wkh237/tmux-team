@@ -14,7 +14,9 @@ function appendEvent(event) {
 
 function respond(message, nonce) {
   const output = `mock-agent response: ${message || '(empty)'}\nRESPONSE-END-${nonce}\n`;
-  process.stdout.write(output, () => appendEvent({ event: 'response', message, nonce, mode }));
+  process.stdout.write(output, () =>
+    appendEvent({ event: 'response', message, nonce, mode, pid: process.pid })
+  );
 }
 
 const input = readline.createInterface({ input: process.stdin, terminal: false });
@@ -34,10 +36,10 @@ input.on('line', (line) => {
   const nonce = instruction[1];
   const message = messageLines.join('\n').trim();
   messageLines = [];
-  appendEvent({ event: 'request', message, nonce, mode });
+  appendEvent({ event: 'request', message, nonce, mode, pid: process.pid });
 
   if (mode === 'silent') {
-    appendEvent({ event: 'silent', message, nonce, mode });
+    appendEvent({ event: 'silent', message, nonce, mode, pid: process.pid });
     return;
   }
   const send = () => respond(message, nonce);
@@ -45,7 +47,7 @@ input.on('line', (line) => {
     setTimeout(
       () =>
         process.stdout.write(`mock-agent malformed response: ${message}\n`, () =>
-          appendEvent({ event: 'malformed', message, nonce, mode })
+          appendEvent({ event: 'malformed', message, nonce, mode, pid: process.pid })
         ),
       delayMs
     );
@@ -54,4 +56,4 @@ input.on('line', (line) => {
   setTimeout(send, delayMs);
 });
 
-input.on('close', () => appendEvent({ event: 'stopped' }));
+input.on('close', () => appendEvent({ event: 'stopped', pid: process.pid }));

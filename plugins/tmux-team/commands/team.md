@@ -13,11 +13,9 @@ Based on what the user wants, use the tmux-team CLI to coordinate with other age
 
 ## How to Coordinate
 
-To send a message to an agent and wait for their response:
-  tmt talk <agent> "<message>" --wait
-
-To broadcast to all agents:
-  tmt talk all "<message>" --wait
+To send a message to a global identity or direct pane target and wait for a
+response:
+  tmt talk <target> "<message>" --wait
 
 To see available agents:
   tmt list
@@ -26,7 +24,12 @@ To see available agents:
   tmt add <pane-target> <global-name>
   tmt whoami
   tmt unbind
-  tmt team ls <team>
+
+Identities are global across working directories. `list`, `talk`, and `check`
+accept either a global name or a direct pane target (`%pane_id`, `window.pane`,
+or `session:window.pane`). The name `all` is an ordinary identity, not a
+special destination. The `add` order is pane target first, then global name;
+the old name-first order is rejected with a usage error.
 
 ## Examples
 
@@ -36,21 +39,21 @@ You run: tmt talk codex "Please review the auth module and share your findings" 
 User says: "ask gemini about the test coverage"
 You run: tmt talk gemini "What is the current test coverage status?" --wait
 
-User says: "let everyone know we are starting the refactor"
-You run: tmt talk all "Starting the refactor now. Please hold off on conflicting changes." --wait
+User says: "ask codex to review the refactor"
+You run: tmt talk codex "Please review the refactor before I continue." --wait
 
 ## Options
 
 For long responses, increase timeout and lines captured:
 
-  tmt talk <agent> "<message>" --wait --timeout 300 --lines 200
+  tmt talk <target> "<message>" --wait --timeout 300 --lines 200
 
 ## If --wait Times Out
 
 Use the check command to retrieve the response with an optional line count:
 
-  tmt check <agent>
-  tmt check <agent> 200
+  tmt check <target>
+  tmt check <target> 200
 
 ## Important
 

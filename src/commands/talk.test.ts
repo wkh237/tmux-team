@@ -14,9 +14,6 @@ import { cmdTalk } from './talk.js';
 // Constants
 // ─────────────────────────────────────────────────────────────
 
-// Regex to match the END marker (as printed by agent) - tolerates optional dashes
-const END_MARKER_REGEX = /-{0,3}RESPONSE-END-([a-f0-9]+)-{0,3}/;
-
 // Regex to extract nonce from instruction (new format: "where xxxx = <nonce>")
 const INSTRUCTION_NONCE_REGEX = /where xxxx = ([a-f0-9]+)/;
 
@@ -53,15 +50,6 @@ function createMockTmux(): Tmux & {
     setAgentRegistration() {},
     clearAgentRegistration() {
       return false;
-    },
-    listTeams() {
-      return {};
-    },
-    listTeamPanes() {
-      return [];
-    },
-    removeTeam() {
-      return { removed: 0, agents: [] };
     },
     listGlobalIdentities() {
       return [];
@@ -141,13 +129,22 @@ function createContext(
     },
   };
   const flags: Flags = { json: false, verbose: false, ...overrides.flags };
+  const tmux = overrides.tmux || createMockTmux();
+  if (Object.keys(config.paneRegistry).length > 0 && tmux.listGlobalIdentities().length === 0) {
+    tmux.listGlobalIdentities = () =>
+      Object.entries(config.paneRegistry).map(([name, entry]) => ({
+        name,
+        canonicalName: name.toLowerCase(),
+        paneId: entry.pane,
+      }));
+  }
 
   return {
     argv: [],
     flags,
     ui: overrides.ui || createMockUI(),
     config,
-    tmux: overrides.tmux || createMockTmux(),
+    tmux,
     paths: overrides.paths || createTestPaths('/tmp/test'),
     exit: ((code: number) => {
       const err = new Error(`exit(${code})`);
@@ -373,17 +370,7 @@ describe('cmdTalk - basic send', () => {
     expect(tmux.sends[0].message).toBe('Hello Claude');
   });
 
-  it('sends message to all configured agents', async () => {
-    const tmux = createMockTmux();
-    const ctx = createContext({ tmux, paths: createTestPaths(testDir) });
-
-    await cmdTalk(ctx, 'all', 'Hello everyone');
-
-    expect(tmux.sends).toHaveLength(3);
-    expect(tmux.sends.map((s) => s.pane).sort()).toEqual(['1.0', '1.1', '1.2']);
-  });
-
-  it('errors when sending to all with no agents configured', async () => {
+  it('treats all as an ordinary identity and reports it when inactive', async () => {
     const tmux = createMockTmux();
     const ui = createMockUI();
     const ctx = createContext({
@@ -393,67 +380,43 @@ describe('cmdTalk - basic send', () => {
       config: { paneRegistry: {} },
     });
 
-    await expect(cmdTalk(ctx, 'all', 'Hello')).rejects.toThrow(`exit(${ExitCodes.CONFIG_MISSING})`);
-    expect(ui.errors).toContain("No agents configured. Use 'tmux-team add' first.");
+    await expect(cmdTalk(ctx, 'all', 'Hello')).rejects.toThrow(`exit(${ExitCodes.NAME_NOT_FOUND})`);
+    expect(ui.jsonOutput).toEqual([]);
+    expect(ui.errors).toContain("Identity 'all' is not active.");
   });
 
-  it('outputs JSON when sending to all with --json flag', async () => {
+  it('sends to a bound all identity as one pane', async () => {
+    const tmux = createMockTmux();
+    const ctx = createContext({
+      tmux,
+      paths: createTestPaths(testDir),
+      config: { paneRegistry: { all: { pane: '1.9' } } },
+    });
+
+    await cmdTalk(ctx, 'all', 'Hello');
+
+    expect(tmux.sends).toHaveLength(1);
+    expect(tmux.sends[0].pane).toBe('1.9');
+  });
+
+  it('returns a structured error when tmux.send fails', async () => {
     const tmux = createMockTmux();
     const ui = createMockUI();
+    tmux.send = () => {
+      throw new Error('tmux error');
+    };
     const ctx = createContext({
       tmux,
       ui,
       paths: createTestPaths(testDir),
       flags: { json: true },
+      config: { paneRegistry: { claude: { pane: '1.0' } } },
     });
 
-    await cmdTalk(ctx, 'all', 'Hello');
-
-    expect(ui.jsonOutput).toHaveLength(1);
-    expect(ui.jsonOutput[0]).toMatchObject({
-      target: 'all',
-      results: expect.any(Array),
-    });
-  });
-
-  it('handles tmux.send failure gracefully', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-    // Make send throw for one agent
-    const originalSend = tmux.send.bind(tmux);
-    let callCount = 0;
-    tmux.send = (pane: string, message: string) => {
-      callCount++;
-      if (callCount === 2) throw new Error('tmux error');
-      originalSend(pane, message);
-    };
-
-    const ctx = createContext({ tmux, ui, paths: createTestPaths(testDir) });
-
-    await cmdTalk(ctx, 'all', 'Hello');
-
-    expect(ui.warnings).toContain('Failed to send to codex');
-  });
-
-  it('skips self when sending to all (via env var)', async () => {
-    // Simulate being an agent via env var (when not in tmux)
-    const originalEnv = { ...process.env };
-    delete process.env.TMUX; // Ensure pane detection is disabled
-    process.env.TMT_AGENT_NAME = 'claude';
-
-    try {
-      const tmux = createMockTmux();
-      const ui = createMockUI();
-      const ctx = createContext({ tmux, ui, paths: createTestPaths(testDir) });
-
-      await cmdTalk(ctx, 'all', 'Hello team');
-
-      // Should skip claude (self) and only send to codex and gemini
-      expect(tmux.sends).toHaveLength(2);
-      expect(tmux.sends.map((s) => s.pane).sort()).toEqual(['1.1', '1.2']);
-    } finally {
-      process.env = originalEnv;
-    }
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(ui.jsonOutput).toEqual([
+      { error: { code: 'ERROR', message: 'Failed to send to pane 1.0. Is tmux running?' } },
+    ]);
   });
 
   it('preserves exclamation marks for gemini agent', async () => {
@@ -473,28 +436,7 @@ describe('cmdTalk - basic send', () => {
     await expect(cmdTalk(ctx, 'unknown', 'Hello')).rejects.toThrow('exit(3)');
 
     expect(ui.errors).toHaveLength(1);
-    expect(ui.errors[0]).toContain("Agent 'unknown' not found");
-  });
-
-  it('requires explicit team when a missing agent appears in shared teams', async () => {
-    const tmux = createMockTmux();
-    vi.spyOn(tmux, 'listTeams').mockReturnValue({
-      frontend: ['codex'],
-      release: ['codex'],
-    });
-    const ui = createMockUI();
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-      config: { paneRegistry: {} },
-    });
-
-    await expect(cmdTalk(ctx, 'codex', 'Hello')).rejects.toThrow('exit(3)');
-
-    expect(ui.errors).toEqual([
-      "Agent 'codex' is in multiple shared teams: frontend, release. Specify one with --team <team>.",
-    ]);
+    expect(ui.errors[0]).toContain("Identity 'unknown' is not active.");
   });
 
   it('outputs JSON when --json flag is set', async () => {
@@ -811,161 +753,6 @@ describe('cmdTalk - --wait mode', () => {
       expect(state.requests.claude).toBeUndefined();
     }
   });
-
-  it('supports wait mode with all target (parallel polling)', async () => {
-    // Create mock tmux that returns markers for each agent after a delay
-    const tmux = createMockTmux();
-    let captureCount = 0;
-    const getNonceForPane = (pane: string): string | undefined => {
-      const sent = tmux.sends.find((s) => s.pane === pane)?.message ?? '';
-      const match = String(sent).match(INSTRUCTION_NONCE_REGEX);
-      return match?.[1];
-    };
-
-    // Mock capture to return complete response after first poll
-    tmux.capture = (pane: string) => {
-      captureCount++;
-      // Return complete response on second capture for each pane
-      const nonce = getNonceForPane(pane);
-      if (captureCount > 3 && nonce) {
-        return mockCompleteResponse(nonce, 'Response from agent');
-      }
-      return 'working...';
-    };
-
-    const ui = createMockUI();
-    const paths = createTestPaths(testDir);
-    const ctx = createContext({
-      ui,
-      tmux,
-      paths,
-      flags: { wait: true, timeout: 0.5 },
-      config: {
-        defaults: {
-          timeout: 0.5,
-          pollInterval: 0.05,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-        paneRegistry: {
-          codex: { pane: '10.1' },
-          gemini: { pane: '10.2' },
-        },
-      },
-    });
-
-    await cmdTalk(ctx, 'all', 'Hello');
-
-    // Should have captured both panes
-    expect(captureCount).toBeGreaterThan(2);
-  });
-
-  it('handles partial timeout in wait mode with all target', async () => {
-    const tmux = createMockTmux();
-    const getNonceForPane = (pane: string): string | undefined => {
-      const sent = tmux.sends.find((s) => s.pane === pane)?.message ?? '';
-      const match = String(sent).match(INSTRUCTION_NONCE_REGEX);
-      return match?.[1];
-    };
-
-    // Only pane 10.1 responds with end marker, 10.2 never has end marker
-    tmux.capture = (pane: string) => {
-      const nonce = getNonceForPane(pane);
-      if (pane === '10.1' && nonce) {
-        return mockCompleteResponse(nonce, 'Response from codex');
-      }
-      // gemini has no end marker - still typing
-      return 'still working...';
-    };
-
-    const ui = createMockUI();
-    const paths = createTestPaths(testDir);
-    const ctx = createContext({
-      ui,
-      tmux,
-      paths,
-      flags: { wait: true, timeout: 0.5, json: true },
-      config: {
-        defaults: {
-          timeout: 0.5,
-          pollInterval: 0.02,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-        paneRegistry: {
-          codex: { pane: '10.1' },
-          gemini: { pane: '10.2' },
-        },
-      },
-    });
-
-    try {
-      await cmdTalk(ctx, 'all', 'Hello');
-    } catch {
-      // Expected timeout exit for gemini
-    }
-
-    // Should have JSON output with both results
-    expect(ui.jsonOutput.length).toBe(1);
-    const result = ui.jsonOutput[0] as {
-      summary: { completed: number; timeout: number };
-      results: Array<{ agent: string; status: string }>;
-    };
-    expect(result.summary.completed).toBe(1);
-    expect(result.summary.timeout).toBe(1);
-    expect(result.results.find((r) => r.agent === 'codex')?.status).toBe('completed');
-    expect(result.results.find((r) => r.agent === 'gemini')?.status).toBe('timeout');
-  });
-
-  it('uses unique nonces per agent in broadcast', async () => {
-    const tmux = createMockTmux();
-    const getNonces = (): string[] =>
-      tmux.sends
-        .map((s) => String(s.message).match(INSTRUCTION_NONCE_REGEX)?.[1])
-        .filter((nonce): nonce is string => Boolean(nonce));
-
-    // Return complete response immediately
-    tmux.capture = (pane: string) => {
-      const idx = pane === '10.1' ? 0 : 1;
-      const nonces = getNonces();
-      if (nonces[idx]) {
-        return mockCompleteResponse(nonces[idx], 'Response');
-      }
-      return '';
-    };
-
-    const paths = createTestPaths(testDir);
-    const ctx = createContext({
-      tmux,
-      paths,
-      flags: { wait: true, timeout: 0.5 },
-      config: {
-        defaults: {
-          timeout: 0.5,
-          pollInterval: 0.02,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-        paneRegistry: {
-          codex: { pane: '10.1' },
-          gemini: { pane: '10.2' },
-        },
-      },
-    });
-
-    await cmdTalk(ctx, 'all', 'Hello');
-
-    // Each agent should have a unique nonce
-    const nonces = getNonces();
-    expect(nonces.length).toBe(2);
-    expect(nonces[0]).not.toBe(nonces[1]);
-  });
 });
 
 describe('cmdTalk - errors and JSON output', () => {
@@ -976,7 +763,7 @@ describe('cmdTalk - errors and JSON output', () => {
     await expect(cmdTalk(ctx, 'nope', 'hi')).rejects.toMatchObject({
       exitCode: ExitCodes.PANE_NOT_FOUND,
     });
-    expect((ctx.ui as any).errors.join('\n')).toContain("Agent 'nope' not found");
+    expect((ctx.ui as any).errors.join('\n')).toContain("Identity 'nope' is not active.");
   });
 
   it('outputs JSON in non-wait mode', async () => {
@@ -987,25 +774,6 @@ describe('cmdTalk - errors and JSON output', () => {
     await cmdTalk(ctx, 'claude', 'hello');
     const out = (ctx.ui as any).jsonOutput[0] as any;
     expect(out).toMatchObject({ target: 'claude', pane: '1.0', status: 'sent' });
-  });
-
-  it('marks failures in broadcast when send throws', async () => {
-    const tmux = createMockTmux();
-    const sendSpy = vi.spyOn(tmux, 'send').mockImplementationOnce(() => {
-      throw new Error('fail');
-    });
-    const ctx = createContext({
-      tmux,
-      flags: { json: true },
-      config: {
-        paneRegistry: { claude: { pane: '1.0' }, codex: { pane: '1.1' } },
-      },
-    });
-
-    await cmdTalk(ctx, 'all', 'hello');
-    expect(sendSpy).toHaveBeenCalled();
-    const out = (ctx.ui as any).jsonOutput[0] as any;
-    expect(out.results.some((r: any) => r.status === 'failed')).toBe(true);
   });
 });
 
@@ -1256,76 +1024,6 @@ describe('cmdTalk - JSON output contract', () => {
     expect(output).toHaveProperty('status', 'timeout');
     // Fallback captures last N lines even without instruction visible
     expect(output.partialResponse).toBe('random scrollback content');
-  });
-
-  it('handles broadcast with mixed completion and timeout', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-    const getNonceForPane = (pane: string): string | undefined => {
-      const sent = tmux.sends.find((s) => s.pane === pane)?.message ?? '';
-      const match = String(sent).match(INSTRUCTION_NONCE_REGEX);
-      return match?.[1];
-    };
-
-    // codex completes with end marker, gemini has no end marker (still typing)
-    tmux.capture = (pane: string) => {
-      if (pane === '10.1') {
-        const nonce = getNonceForPane('10.1');
-        const endMarker = `RESPONSE-END-${nonce}`;
-        // Complete response with end marker
-        return `Response\n${endMarker}`;
-      }
-      // gemini has no end marker at all - agent is still responding
-      return `Gemini is still typing this response and hasn't finished yet...`;
-    };
-
-    const paths = createTestPaths(testDir);
-    const ctx = createContext({
-      ui,
-      tmux,
-      paths,
-      flags: { wait: true, timeout: 0.5, json: true },
-      config: {
-        defaults: {
-          timeout: 0.5,
-          pollInterval: 0.02,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-        paneRegistry: {
-          codex: { pane: '10.1' },
-          gemini: { pane: '10.2' },
-        },
-      },
-    });
-
-    try {
-      await cmdTalk(ctx, 'all', 'Hello');
-    } catch {
-      // Expected timeout exit for gemini
-    }
-
-    const result = ui.jsonOutput[0] as {
-      results: Array<{
-        agent: string;
-        status: string;
-        response?: string;
-        partialResponse?: string | null;
-      }>;
-    };
-    const codexResult = result.results.find((r) => r.agent === 'codex');
-    const geminiResult = result.results.find((r) => r.agent === 'gemini');
-
-    // Codex should complete (has end marker, output stable)
-    expect(codexResult?.status).toBe('completed');
-    expect(codexResult?.response).toContain('Response');
-
-    // Gemini times out (no end marker in output)
-    expect(geminiResult?.status).toBe('timeout');
-    // Fallback captures the output even without marker
-    expect(geminiResult?.partialResponse).toContain('Gemini is still typing');
   });
 });
 

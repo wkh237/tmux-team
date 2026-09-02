@@ -16,9 +16,6 @@ function context(registrations: ActiveRegistration[] = [], json = false): Contex
     getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
     setAgentRegistration: vi.fn(),
     clearAgentRegistration: vi.fn(() => false),
-    listTeams: vi.fn(() => ({})),
-    listTeamPanes: vi.fn(() => []),
-    removeTeam: vi.fn(() => ({ removed: 0, agents: [] })),
     listGlobalIdentities: vi.fn(() => registrations),
     setGlobalIdentity: vi.fn(),
     clearGlobalIdentity: vi.fn(() => true),
@@ -134,7 +131,7 @@ describe('global identity commands', () => {
     (ctx.tmux.resolvePaneTarget as ReturnType<typeof vi.fn>).mockReturnValue(null);
     expect(() => cmdAdd(ctx, '10.3', 'server-log')).toThrow('exit(3)');
     expect(ctx.ui.json).toHaveBeenCalledWith({
-      error: { code: 'PANE_NOT_FOUND', message: "Pane '10.3' not found. Is tmux running?" },
+      error: { code: 'PANE_NOT_FOUND', message: "Pane target '10.3' was not found." },
     });
     expect(ctx.tmux.listGlobalIdentities).not.toHaveBeenCalled();
     expect(ctx.tmux.setGlobalIdentity).not.toHaveBeenCalled();

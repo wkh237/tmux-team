@@ -48,12 +48,14 @@ describe.sequential('Docker/Vitest tmux foundation smoke scenarios', () => {
         message: 'hello from the foundation',
         nonce,
         mode: 'respond',
+        pid: fixture.panePid,
       });
       expect(events).toContainEqual({
         event: 'response',
         message: 'hello from the foundation',
         nonce,
         mode: 'respond',
+        pid: fixture.panePid,
       });
       expect(output).toContain('mock-agent response: hello from the foundation');
     });
@@ -107,12 +109,13 @@ describe.sequential('Docker/Vitest tmux foundation smoke scenarios', () => {
       const targetPane = fixture
         .tmux(['new-window', '-d', '-P', '-F', '#{pane_id}', '-t', 'e2e', '-n', 'sink', 'sleep 30'])
         .trim();
-      const targetWindow = fixture.paneTarget(targetPane);
       fixture.tmux(['move-pane', '-s', originalPane, '-t', targetPane]);
+      const movedTarget = fixture.paneTarget(originalPane);
+      const sinkTarget = fixture.paneTarget(targetPane);
 
       expect(fixture.pane).toBe(originalPane);
-      expect(fixture.paneTarget(originalPane)).not.toBe(originalTarget);
-      expect(fixture.paneTarget(originalPane)).toContain(targetWindow.split('.')[0]);
+      expect(movedTarget).not.toBe(originalTarget);
+      expect(movedTarget.split('.')[0]).toBe(sinkTarget.split('.')[0]);
       expect(fixture.tmux(['list-panes', '-a', '-F', '#{pane_id}']).trim()).toContain(originalPane);
     });
   });

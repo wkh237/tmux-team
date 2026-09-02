@@ -7,6 +7,8 @@ export const ExitCodes = {
   ERROR: 1,
   CONFIG_MISSING: 2,
   PANE_NOT_FOUND: 3,
+  NAME_NOT_FOUND: 3,
+  UNSUPPORTED_TEAM: 1,
   TIMEOUT: 4,
   CONFLICT: 5,
 } as const;
