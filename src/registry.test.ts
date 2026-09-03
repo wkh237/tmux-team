@@ -14,6 +14,7 @@ function ctx(overrides: Partial<Context>): Context {
       globalConfig: '/g/c',
       localConfig: '/r/tmux-team.json',
       stateFile: '/g/s',
+      databaseFile: '/g/tmux-team.db',
       workspaceRoot: '/repo',
     },
     exit: (() => {

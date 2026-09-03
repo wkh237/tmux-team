@@ -18,6 +18,7 @@ import type {
 const CONFIG_FILENAME = 'config.json';
 const LOCAL_CONFIG_FILENAME = 'tmux-team.json';
 const STATE_FILENAME = 'state.json';
+const DATABASE_FILENAME = 'tmux-team.db';
 
 // Default configuration values
 const DEFAULT_CONFIG: GlobalConfig = {
@@ -138,6 +139,7 @@ export function resolvePaths(cwd: string = process.cwd()): Paths {
     globalConfig: path.join(globalDir, CONFIG_FILENAME),
     localConfig: localConfigPath,
     stateFile: path.join(globalDir, STATE_FILENAME),
+    databaseFile: path.join(globalDir, DATABASE_FILENAME),
     workspaceRoot,
   };
 }

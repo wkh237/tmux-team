@@ -68,6 +68,7 @@ function createCtx(
     globalConfig: path.join(testDir, 'config.json'),
     localConfig: path.join(testDir, 'tmux-team.json'),
     stateFile: path.join(testDir, 'state.json'),
+    databaseFile: path.join(testDir, 'tmux-team.db'),
   };
   const baseConfig: ResolvedConfig = {
     mode: 'polling',

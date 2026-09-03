@@ -2,7 +2,7 @@
 
 ## Project Setup
 
-- Requirements: Node.js >= 18
+- Requirements: Node.js >= 22.12
 - Install dependencies:
 
 ```bash
@@ -51,6 +51,35 @@ its temporary state.
 ```bash
 pnpm check
 ```
+
+## Packed native-install verification
+
+TMT-12 includes a focused check for release artifacts. It installs the actual
+`.tgz` produced by `pnpm pack` into a clean temporary project, loads
+`better-sqlite3`'s native `.node` binding, creates an FTS5 virtual table, and
+executes a query, and invokes the packed `tmt` executable. Installation runs
+with lifecycle scripts disabled, and the verifier requires the exact bundled
+prebuild for the current platform, architecture, and libc. A successful run
+therefore proves that no source compilation is required. Temporary projects
+and caches are removed on every exit path.
+
+Example (after the storage dependency is present):
+
+```bash
+mkdir -p .tmp/tmt-pack
+pnpm pack --pack-destination .tmp/tmt-pack
+node scripts/verify-packed-native-install.mjs \
+  --package-tarball .tmp/tmt-pack/tmux-team-<version>.tgz \
+  --expected-arch x64 --expected-libc glibc
+rm -rf .tmp/tmt-pack
+```
+
+CI runs this check on macOS x64 and arm64, Linux glibc x64 and arm64, and
+Linux musl x64 and arm64. The Linux musl checks run in native Alpine
+containers on matching GitHub-hosted runner architectures. If GitHub-hosted
+arm64 capacity is unavailable for a pull request, the release gate must run
+the same command on a native arm64 runner; emulation does not satisfy this
+matrix.
 
 ## Testing Strategy
 

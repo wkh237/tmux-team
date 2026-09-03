@@ -16,8 +16,8 @@
     "test:run": "vitest run --coverage && node scripts/check-coverage.mjs --threshold 90 --branches 85",
     "lint": "oxlint src/",
     "e2e:typecheck": "tsc --project tsconfig.e2e.json --noEmit",
-    "e2e:lint": "oxlint test/e2e/ scripts/run-e2e.mjs",
-    "e2e:format:check": "prettier --check test/e2e/ scripts/run-e2e.mjs tsconfig.e2e.json DEVELOPMENT.md AGENTS.md .agents/skills/tmt-e2e/SKILL.md .agents/skills/tmt-release/SKILL.md",
+    "e2e:lint": "oxlint test/e2e/ scripts/*.mjs",
+    "e2e:format:check": "prettier --check test/e2e/ scripts/*.mjs tsconfig.e2e.json DEVELOPMENT.md AGENTS.md .agents/skills/tmt-e2e/SKILL.md .agents/skills/tmt-release/SKILL.md",
     "lint:fix": "oxlint src/ --fix",
     "format": "prettier --write src/",
     "format:check": "prettier --check src/",
@@ -52,10 +52,12 @@
     "skills"
   ],
   "dependencies": {
+    "better-sqlite3": "^13.0.3",
     "commander": "^15.0.0",
     "tsx": "^4.7.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^25.0.3",
     "@vitest/coverage-v8": "^1.6.1",
     "oxlint": "^1.34.0",

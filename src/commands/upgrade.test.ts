@@ -15,7 +15,13 @@ function context(json = false): Context {
     },
     config: {} as Context['config'],
     tmux: {} as Context['tmux'],
-    paths: { globalDir: '/tmp/tmt', globalConfig: '', localConfig: '', stateFile: '' },
+    paths: {
+      globalDir: '/tmp/tmt',
+      globalConfig: '',
+      localConfig: '',
+      stateFile: '',
+      databaseFile: '',
+    },
     exit: ((code: number) => {
       throw new Error(`exit(${code})`);
     }) as Context['exit'],
