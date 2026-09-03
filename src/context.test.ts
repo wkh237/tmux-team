@@ -145,4 +145,20 @@ describe('createContext', () => {
     expect(() => ctx.exit(2)).toThrow('exit(2)');
     expect(exitSpy).toHaveBeenCalledWith(2);
   });
+
+  it('does not construct tmux for a no-resource capability', async () => {
+    vi.resetModules();
+    const createTmux = vi.fn(() => {
+      throw new Error('tmux must remain lazy');
+    });
+    vi.doMock('./tmux.js', () => ({ createTmux }));
+    const { createContext } = await import('./context.js');
+    const ctx = createContext({
+      argv: [],
+      flags: { json: false, verbose: false },
+      capability: 'none',
+    });
+    expect(createTmux).not.toHaveBeenCalled();
+    expect(ctx.paths.globalConfig).toBeTypeOf('string');
+  });
 });

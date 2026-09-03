@@ -12,6 +12,8 @@ export interface CreateContextOptions {
   argv: string[];
   flags: Flags;
   cwd?: string;
+  /** Declares the resources a command may need; tmux and config are lazy. */
+  capability?: 'none' | 'storage' | 'tmux';
 }
 
 export function createContext(options: CreateContextOptions): Context {
@@ -22,25 +24,43 @@ export function createContext(options: CreateContextOptions): Context {
   // workspace registry for legacy settings.
   const paths = resolvePaths(cwd);
   const ui = createUI(flags.json);
-  const tmux = createTmux();
+  const capability = options.capability ?? 'tmux';
+  let tmux: Context['tmux'] | undefined;
+  let config: Context['config'] | undefined;
+  const getTmux = (): Context['tmux'] => {
+    tmux ??= createTmux();
+    return tmux;
+  };
   const registryScope = {
     type: 'workspace' as const,
     workspaceRoot: paths.workspaceRoot ?? cwd,
   };
-  const config = loadConfig(paths, tmux.getAgentRegistry(registryScope));
+  const getConfig = (): Context['config'] => {
+    config ??= loadConfig(
+      paths,
+      capability === 'tmux' ? getTmux().getAgentRegistry(registryScope) : undefined
+    );
+    return config;
+  };
 
-  return {
+  const context = {
     argv,
     flags,
     ui,
-    config,
-    tmux,
     paths,
     registryScope,
     exit(code: number): never {
       process.exit(code);
     },
-  };
+  } as Context;
+  Object.defineProperties(context, {
+    config: { enumerable: true, get: getConfig },
+    tmux: { enumerable: true, get: getTmux },
+  });
+  // Preserve the established full-context behavior. Lightweight capabilities
+  // intentionally defer both resources until a command asks for them.
+  if (capability === 'tmux') getConfig();
+  return context;
 }
 
 export { ExitCodes };

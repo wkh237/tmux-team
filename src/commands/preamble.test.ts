@@ -7,7 +7,12 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import type { Context, Paths, ResolvedConfig, Flags, UI, Tmux } from '../types.js';
-import { cmdPreamble } from './preamble.js';
+import { cmdPreamble, type PreambleRequest } from './preamble.js';
+
+const preambleRequest = (
+  operation: PreambleRequest['operation'],
+  values: Omit<PreambleRequest, 'kind' | 'operation'> = {}
+): PreambleRequest => ({ kind: 'preamble', operation, ...values });
 
 // ─────────────────────────────────────────────────────────────
 // Test utilities
@@ -142,7 +147,7 @@ describe('cmdPreamble', () => {
         },
       });
 
-      cmdPreamble(ctx, ['show', 'claude']);
+      cmdPreamble(ctx, preambleRequest('show', { agent: 'claude' }));
 
       expect(ui.infos).toContain('Preamble for claude:');
     });
@@ -155,7 +160,7 @@ describe('cmdPreamble', () => {
         config: { agents: {} },
       });
 
-      cmdPreamble(ctx, ['show', 'claude']);
+      cmdPreamble(ctx, preambleRequest('show', { agent: 'claude' }));
 
       expect(ui.infos).toContain('No preamble set for claude');
     });
@@ -175,7 +180,7 @@ describe('cmdPreamble', () => {
         },
       });
 
-      cmdPreamble(ctx, ['show']);
+      cmdPreamble(ctx, preambleRequest('show'));
 
       expect(logSpy).toHaveBeenCalled();
       logSpy.mockRestore();
@@ -189,7 +194,7 @@ describe('cmdPreamble', () => {
         config: { agents: {} },
       });
 
-      cmdPreamble(ctx, ['show']);
+      cmdPreamble(ctx, preambleRequest('show'));
 
       expect(ui.infos).toContain('No preambles configured');
     });
@@ -205,7 +210,7 @@ describe('cmdPreamble', () => {
         },
       });
 
-      cmdPreamble(ctx, ['show', 'claude']);
+      cmdPreamble(ctx, preambleRequest('show', { agent: 'claude' }));
 
       expect(ui.jsonOutput).toHaveLength(1);
       expect(ui.jsonOutput[0]).toEqual({ agent: 'claude', preamble: 'Be helpful' });
@@ -224,7 +229,7 @@ describe('cmdPreamble', () => {
         },
       });
 
-      cmdPreamble(ctx, ['show']);
+      cmdPreamble(ctx, preambleRequest('show'));
 
       expect(ui.jsonOutput).toHaveLength(1);
       expect(ui.jsonOutput[0]).toMatchObject({
@@ -240,7 +245,7 @@ describe('cmdPreamble', () => {
         config: { agents: {} },
       });
 
-      cmdPreamble(ctx, []);
+      cmdPreamble(ctx, preambleRequest('show'));
 
       expect(ui.infos).toContain('No preambles configured');
     });
@@ -256,7 +261,7 @@ describe('cmdPreamble', () => {
 
       const ctx = createContext({ ui, paths });
 
-      cmdPreamble(ctx, ['set', 'claude', 'Be', 'very', 'helpful']);
+      cmdPreamble(ctx, preambleRequest('set', { agent: 'claude', preamble: 'Be very helpful' }));
 
       // Check file was updated
       const config = JSON.parse(fs.readFileSync(paths.localConfig, 'utf-8'));
@@ -273,7 +278,9 @@ describe('cmdPreamble', () => {
         config: { paneRegistry: {} },
       });
 
-      expect(() => cmdPreamble(ctx, ['set', 'unknown', 'preamble'])).toThrow('exit(1)');
+      expect(() =>
+        cmdPreamble(ctx, preambleRequest('set', { agent: 'unknown', preamble: 'preamble' }))
+      ).toThrow('exit(1)');
       expect(ui.errors[0]).toContain("Agent 'unknown' not found");
     });
 
@@ -281,7 +288,9 @@ describe('cmdPreamble', () => {
       const ui = createMockUI();
       const ctx = createContext({ ui, paths: createTestPaths(testDir) });
 
-      expect(() => cmdPreamble(ctx, ['set', 'claude'])).toThrow('exit(1)');
+      expect(() => cmdPreamble(ctx, preambleRequest('set', { agent: 'claude' }))).toThrow(
+        'exit(1)'
+      );
       expect(ui.errors[0]).toContain('Usage: tmux-team preamble set');
     });
 
@@ -293,7 +302,7 @@ describe('cmdPreamble', () => {
 
       const ctx = createContext({ ui, paths, flags: { json: true } });
 
-      cmdPreamble(ctx, ['set', 'claude', 'Be helpful']);
+      cmdPreamble(ctx, preambleRequest('set', { agent: 'claude', preamble: 'Be helpful' }));
 
       expect(ui.jsonOutput).toHaveLength(1);
       expect(ui.jsonOutput[0]).toMatchObject({
@@ -317,7 +326,7 @@ describe('cmdPreamble', () => {
 
       const ctx = createContext({ ui, paths });
 
-      cmdPreamble(ctx, ['clear', 'claude']);
+      cmdPreamble(ctx, preambleRequest('clear', { agent: 'claude' }));
 
       // Check file was updated
       const config = JSON.parse(fs.readFileSync(paths.localConfig, 'utf-8'));
@@ -333,7 +342,7 @@ describe('cmdPreamble', () => {
 
       const ctx = createContext({ ui, paths });
 
-      cmdPreamble(ctx, ['clear', 'claude']);
+      cmdPreamble(ctx, preambleRequest('clear', { agent: 'claude' }));
 
       expect(ui.infos).toContain('No preamble was set for claude');
     });
@@ -342,7 +351,7 @@ describe('cmdPreamble', () => {
       const ui = createMockUI();
       const ctx = createContext({ ui, paths: createTestPaths(testDir) });
 
-      expect(() => cmdPreamble(ctx, ['clear'])).toThrow('exit(1)');
+      expect(() => cmdPreamble(ctx, preambleRequest('clear'))).toThrow('exit(1)');
       expect(ui.errors[0]).toContain('Usage: tmux-team preamble clear');
     });
 
@@ -357,7 +366,7 @@ describe('cmdPreamble', () => {
 
       const ctx = createContext({ ui, paths, flags: { json: true } });
 
-      cmdPreamble(ctx, ['clear', 'claude']);
+      cmdPreamble(ctx, preambleRequest('clear', { agent: 'claude' }));
 
       expect(ui.jsonOutput).toHaveLength(1);
       expect(ui.jsonOutput[0]).toMatchObject({ agent: 'claude', status: 'cleared' });
@@ -371,7 +380,7 @@ describe('cmdPreamble', () => {
 
       const ctx = createContext({ ui, paths, flags: { json: true } });
 
-      cmdPreamble(ctx, ['clear', 'claude']);
+      cmdPreamble(ctx, preambleRequest('clear', { agent: 'claude' }));
 
       expect(ui.jsonOutput).toHaveLength(1);
       expect(ui.jsonOutput[0]).toMatchObject({ agent: 'claude', status: 'not_set' });
@@ -383,9 +392,10 @@ describe('cmdPreamble', () => {
       const ui = createMockUI();
       const ctx = createContext({ ui, paths: createTestPaths(testDir) });
 
-      expect(() => cmdPreamble(ctx, ['invalid'])).toThrow('exit(1)');
-      expect(ui.errors[0]).toContain('Unknown preamble subcommand: invalid');
-      expect(ui.errors[1]).toContain('Usage: tmux-team preamble [show|set|clear]');
+      expect(() => cmdPreamble(ctx, preambleRequest('set', { agent: 'invalid' }))).toThrow(
+        'exit(1)'
+      );
+      expect(ui.errors[0]).toContain('Usage: tmux-team preamble set');
     });
   });
 });

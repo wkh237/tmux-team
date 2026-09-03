@@ -126,29 +126,37 @@ describe('cli', () => {
   it('errors on invalid time format', async () => {
     vi.resetModules();
     process.argv = ['node', 'cli', 'talk', 'codex', 'hi', '--delay', 'abc'];
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
-      throw new Error(`exit(${code})`);
-    }) as any);
-    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    await expect(import('./cli.js')).rejects.toThrow('exit(1)');
-    expect(errSpy).toHaveBeenCalled();
-    expect(exitSpy).toHaveBeenCalledWith(1);
-  });
-
-  it('routes unknown command to ctx.ui.error and exits', async () => {
-    vi.resetModules();
-    process.argv = ['node', 'cli', 'nope'];
-
     const ctx = makeStubContext();
     vi.doMock('./context.js', () => ({
       createContext: () => ctx,
       ExitCodes: { SUCCESS: 0, ERROR: 1 },
     }));
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit(${code})`);
+    }) as any);
+
+    await expect(import('./cli.js')).rejects.toThrow('exit(1)');
+    expect(ctx.ui.error).toHaveBeenCalledWith(
+      'Invalid time format: abc. Use number (seconds) or number with ms/s suffix.'
+    );
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('reports an unknown command through a no-resource context', async () => {
+    vi.resetModules();
+    process.argv = ['node', 'cli', 'nope'];
+
+    const ctx = makeStubContext();
+    const createContext = vi.fn(() => ctx);
+    vi.doMock('./context.js', () => ({
+      createContext,
+      ExitCodes: { SUCCESS: 0, ERROR: 1 },
+    }));
 
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
     await import('./cli.js');
-    expect(ctx.ui.error).toHaveBeenCalled();
+    expect(ctx.ui.error).toHaveBeenCalledWith(expect.stringContaining('Unknown command'));
+    expect(createContext).toHaveBeenCalledWith(expect.objectContaining({ capability: 'none' }));
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
@@ -247,7 +255,11 @@ describe('cli', () => {
     await import('./cli.js');
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(preambleSpy).toHaveBeenCalledWith(ctx, ['show']);
+    expect(preambleSpy).toHaveBeenCalledWith(ctx, {
+      kind: 'preamble',
+      operation: 'show',
+      agent: undefined,
+    });
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
@@ -525,7 +537,7 @@ describe('cli', () => {
 
   it('routes config command', async () => {
     vi.resetModules();
-    process.argv = ['node', 'cli', 'config', 'get', 'mode'];
+    process.argv = ['node', 'cli', 'config', 'show'];
 
     const ctx = makeStubContext();
     const configSpy = vi.fn();
@@ -539,7 +551,11 @@ describe('cli', () => {
     await import('./cli.js');
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(configSpy).toHaveBeenCalledWith(ctx, ['get', 'mode']);
+    expect(configSpy).toHaveBeenCalledWith(ctx, {
+      kind: 'config',
+      operation: 'show',
+      global: false,
+    });
     expect(exitSpy).not.toHaveBeenCalled();
   });
 

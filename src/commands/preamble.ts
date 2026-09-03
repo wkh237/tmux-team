@@ -7,6 +7,13 @@ import { ExitCodes } from '../context.js';
 import { loadLocalConfigFile, saveLocalConfigFile } from '../config.js';
 import { getRegistryScope, registrationFromEntry } from '../registry.js';
 
+export interface PreambleRequest {
+  readonly kind: 'preamble';
+  readonly operation: 'show' | 'set' | 'clear';
+  readonly agent?: string;
+  readonly preamble?: string;
+}
+
 /**
  * Show preamble(s) for agent(s).
  */
@@ -161,35 +168,24 @@ function legacyHasPreamble(paths: Context['paths'], agentName: string): boolean 
 /**
  * Preamble command entry point.
  */
-export function cmdPreamble(ctx: Context, args: string[]): void {
-  const subcommand = args[0];
-
-  switch (subcommand) {
-    case undefined:
+export function cmdPreamble(ctx: Context, request: PreambleRequest): void {
+  switch (request.operation) {
     case 'show':
-      showPreamble(ctx, args[1]);
-      break;
-
+      showPreamble(ctx, request.agent);
+      return;
     case 'set':
-      if (args.length < 3) {
+      if (request.agent === undefined || request.preamble === undefined) {
         ctx.ui.error('Usage: tmux-team preamble set <agent> <preamble>');
         ctx.exit(ExitCodes.ERROR);
       }
-      // Join remaining args as preamble (allows spaces without quotes)
-      setPreamble(ctx, args[1], args.slice(2).join(' '));
-      break;
-
+      setPreamble(ctx, request.agent, request.preamble);
+      return;
     case 'clear':
-      if (args.length < 2) {
+      if (request.agent === undefined) {
         ctx.ui.error('Usage: tmux-team preamble clear <agent>');
         ctx.exit(ExitCodes.ERROR);
       }
-      clearPreamble(ctx, args[1]);
-      break;
-
-    default:
-      ctx.ui.error(`Unknown preamble subcommand: ${subcommand}`);
-      ctx.ui.error('Usage: tmux-team preamble [show|set|clear]');
-      ctx.exit(ExitCodes.ERROR);
+      clearPreamble(ctx, request.agent);
+      return;
   }
 }
