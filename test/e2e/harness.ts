@@ -101,37 +101,7 @@ export class E2EFixture {
       delete this.env.TMUX_PANE;
 
       this.tmux(['-V']);
-      this.tmux([
-        'new-session',
-        '-d',
-        '-s',
-        'e2e',
-        '-x',
-        '160',
-        '-y',
-        '50',
-        '-c',
-        this.workspace,
-        `${shellQuote(process.execPath)} ${shellQuote(mockAgentPath)}`,
-      ]);
-      this.serverStarted = true;
-      this.socketPath = this.tmux(['display-message', '-p', '#{socket_path}']).trim();
-      this.serverPid = Number(this.tmux(['display-message', '-p', '#{pid}']).trim());
-      this.pane = this.tmux(['display-message', '-p', '-t', 'e2e:0.0', '#{pane_id}']).trim();
-      this.panePid = Number(
-        this.tmux(['display-message', '-p', '-t', this.pane, '#{pane_pid}']).trim()
-      );
-      this.panePids = [this.panePid];
-      if (!this.socketPath || !this.pane) {
-        throw new Error('E2E fixture could not determine its socket path and mock-agent pane ID.');
-      }
-      if (!Number.isInteger(this.panePid) || this.panePid <= 0) {
-        throw new Error('E2E fixture could not determine its mock-agent pane process ID.');
-      }
-      if (!Number.isInteger(this.serverPid) || this.serverPid <= 0) {
-        throw new Error('E2E fixture could not determine its private tmux server process ID.');
-      }
-      await this.waitForEvent((event) => event.event === 'ready');
+      await this.launchPrivateServer();
       this.started = true;
     } catch (error) {
       await this.stop();
@@ -217,6 +187,67 @@ export class E2EFixture {
     return { pane, pid, workspace };
   }
 
+  /**
+   * Restart the fixture's private tmux server while retaining the fixture
+   * environment and global directory. Pane user-options belong to a server,
+   * so a fresh session is the authoritative persistence boundary for global
+   * identities.
+   */
+  async restartServer(): Promise<MockPane> {
+    if (!this.started) throw new Error('E2E fixture must be started before restarting its server.');
+
+    const previousServerPid = this.serverPid;
+    try {
+      this.tmux(['kill-server']);
+    } catch {
+      // The server may have exited between the test operation and restart.
+    }
+    this.serverStarted = false;
+
+    await this.waitFor(
+      () => !this.processIsRunning(previousServerPid),
+      2_000,
+      'private tmux server to exit before restart'
+    );
+
+    return this.launchPrivateServer();
+  }
+
+  private async launchPrivateServer(): Promise<MockPane> {
+    this.tmux([
+      'new-session',
+      '-d',
+      '-s',
+      'e2e',
+      '-x',
+      '160',
+      '-y',
+      '50',
+      '-c',
+      this.workspace,
+      `${shellQuote(process.execPath)} ${shellQuote(mockAgentPath)}`,
+    ]);
+    this.serverStarted = true;
+    this.socketPath = this.tmux(['display-message', '-p', '#{socket_path}']).trim();
+    this.serverPid = Number(this.tmux(['display-message', '-p', '#{pid}']).trim());
+    this.pane = this.tmux(['display-message', '-p', '-t', 'e2e:0.0', '#{pane_id}']).trim();
+    this.panePid = Number(
+      this.tmux(['display-message', '-p', '-t', this.pane, '#{pane_pid}']).trim()
+    );
+    if (!this.socketPath || !this.pane) {
+      throw new Error('E2E fixture could not determine private server socket and pane ID.');
+    }
+    if (!Number.isInteger(this.panePid) || this.panePid <= 0) {
+      throw new Error('E2E fixture could not determine mock-agent pane process ID.');
+    }
+    if (!Number.isInteger(this.serverPid) || this.serverPid <= 0) {
+      throw new Error('E2E fixture could not determine private tmux server process ID.');
+    }
+    await this.waitForEvent((event) => event.event === 'ready' && event.pid === this.panePid);
+    this.panePids.push(this.panePid);
+    return { pane: this.pane, pid: this.panePid, workspace: this.workspace };
+  }
+
   tmux(args: string[]): string {
     return execFileSync(path.join(this.wrapperDir, 'tmux'), args, {
       env: this.env,
@@ -268,6 +299,19 @@ export class E2EFixture {
     );
   }
 
+  async waitFor(
+    predicate: () => boolean,
+    timeoutMs = 2_000,
+    description = 'condition'
+  ): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (predicate()) return;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error(`Timed out waiting for ${description}.`);
+  }
+
   async stop(): Promise<void> {
     if (this.serverStarted) {
       try {
@@ -296,9 +340,13 @@ export class E2EFixture {
   }
 
   serverProcessIsRunning(): boolean {
-    if (!Number.isInteger(this.serverPid) || this.serverPid <= 0) return false;
+    return this.processIsRunning(this.serverPid);
+  }
+
+  private processIsRunning(pid: number): boolean {
+    if (!Number.isInteger(pid) || pid <= 0) return false;
     try {
-      process.kill(this.serverPid, 0);
+      process.kill(pid, 0);
       return true;
     } catch {
       return false;
