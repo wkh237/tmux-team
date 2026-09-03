@@ -7,6 +7,11 @@ npm install -g tmux-team
 tmt install
 ```
 
+The npm `latest` channel remains the stable v4 release. This source tree is the
+v5 alpha line (`5.0.0-alpha.1`), but `@alpha` is not claimed to be published.
+Tags, GitHub Releases, npm publishing, and npm dist-tags remain separate
+release operations.
+
 `tmt install` auto-detects Claude Code, Codex, and Gemini CLI. It manages a
 symlink at `~/.agents/skills/tmux-team` for Codex and Gemini, and installs the
 Claude command where needed. Repeating it is idempotent; unmanaged paths are
