@@ -33,12 +33,13 @@ function makeStubContext(): Context {
       listPanes: vi.fn(() => []),
       getCurrentPaneId: vi.fn(() => null),
       resolvePaneTarget: vi.fn((target: string) => target),
+      setPaneTitle: vi.fn(),
       getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
       setAgentRegistration: vi.fn(),
       clearAgentRegistration: vi.fn(() => false),
-      listTeams: vi.fn(() => ({})),
-      listTeamPanes: vi.fn(() => []),
-      removeTeam: vi.fn(() => ({ removed: 0, agents: [] })),
+      listGlobalIdentities: vi.fn(() => []),
+      setGlobalIdentity: vi.fn(),
+      clearGlobalIdentity: vi.fn(() => false),
     },
     paths: {
       globalDir: '/g',
@@ -64,6 +65,40 @@ describe('cli', () => {
   afterEach(() => {
     process.argv = originalArgv;
     vi.restoreAllMocks();
+  });
+
+  it.each([
+    ['team', ['node', 'cli', 'team']],
+    ['--team value', ['node', 'cli', 'list', '--team', 'legacy']],
+    ['--team=value', ['node', 'cli', 'list', '--team=legacy']],
+  ])('rejects %s before creating command context', async (_label, argv) => {
+    vi.resetModules();
+    process.argv = argv;
+    const ctx = makeStubContext();
+    const createContext = vi.fn(() => ctx);
+    const jsonSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit(${code})`);
+    }) as any);
+    vi.doMock('./context.js', () => ({
+      createContext,
+      ExitCodes: { SUCCESS: 0, ERROR: 1, UNSUPPORTED_TEAM: 1 },
+    }));
+    vi.doMock('./ui.js', () => ({
+      createUI: () => ({
+        info: vi.fn(),
+        success: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+        table: vi.fn(),
+        json: vi.fn(),
+      }),
+    }));
+
+    await expect(import('./cli.js')).rejects.toThrow('exit(1)');
+    expect(createContext).not.toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    jsonSpy.mockRestore();
   });
 
   it('prints completion for bash', async () => {
@@ -218,7 +253,7 @@ describe('cli', () => {
 
   it('routes this command', async () => {
     vi.resetModules();
-    process.argv = ['node', 'cli', 'this', 'myagent', 'remark'];
+    process.argv = ['node', 'cli', 'this', 'myagent'];
 
     const ctx = makeStubContext();
     const thisSpy = vi.fn();
@@ -232,8 +267,64 @@ describe('cli', () => {
     await import('./cli.js');
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(thisSpy).toHaveBeenCalledWith(ctx, 'myagent', 'remark');
+    expect(thisSpy).toHaveBeenCalledWith(ctx, 'myagent');
     expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it('routes name command as a current-pane identity binding', async () => {
+    vi.resetModules();
+    process.argv = ['node', 'cli', 'name', 'backend'];
+
+    const ctx = makeStubContext();
+    const nameSpy = vi.fn();
+    vi.doMock('./context.js', () => ({
+      createContext: () => ctx,
+      ExitCodes: { SUCCESS: 0, ERROR: 1 },
+    }));
+    vi.doMock('./commands/name.js', () => ({ cmdName: nameSpy }));
+    vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
+
+    await import('./cli.js');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(nameSpy).toHaveBeenCalledWith(ctx, 'backend');
+  });
+
+  it('errors when name command has missing or extra arguments', async () => {
+    vi.resetModules();
+    process.argv = ['node', 'cli', 'name', 'backend', 'main:1.2', 'extra'];
+
+    const ctx = makeStubContext();
+    const exitSpy = vi.fn();
+    ctx.exit = exitSpy as any;
+    vi.doMock('./context.js', () => ({
+      createContext: () => ctx,
+      ExitCodes: { SUCCESS: 0, ERROR: 1 },
+    }));
+    vi.doMock('./commands/name.js', () => ({ cmdName: vi.fn() }));
+
+    await import('./cli.js');
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(ctx.ui.error).toHaveBeenCalledWith('Usage: tmux-team name <global-name>');
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('errors when name command has no name', async () => {
+    vi.resetModules();
+    process.argv = ['node', 'cli', 'name'];
+    const ctx = makeStubContext();
+    const exitSpy = vi.fn();
+    ctx.exit = exitSpy as any;
+    vi.doMock('./context.js', () => ({
+      createContext: () => ctx,
+      ExitCodes: { SUCCESS: 0, ERROR: 1 },
+    }));
+    vi.doMock('./commands/name.js', () => ({ cmdName: vi.fn() }));
+    await import('./cli.js');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(ctx.ui.error).toHaveBeenCalledWith('Usage: tmux-team name <global-name>');
+    expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
   it('errors when this command is missing name', async () => {
@@ -252,7 +343,73 @@ describe('cli', () => {
     await import('./cli.js');
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(ctx.ui.error).toHaveBeenCalledWith('Usage: tmux-team this <name> [remark]');
+    expect(ctx.ui.error).toHaveBeenCalledWith('Usage: tmux-team this <global-name>');
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('errors when this command has an extra argument', async () => {
+    vi.resetModules();
+    process.argv = ['node', 'cli', 'this', 'backend', 'extra'];
+    const ctx = makeStubContext();
+    const exitSpy = vi.fn();
+    ctx.exit = exitSpy as any;
+    vi.doMock('./context.js', () => ({
+      createContext: () => ctx,
+      ExitCodes: { SUCCESS: 0, ERROR: 1 },
+    }));
+    vi.doMock('./commands/this.js', () => ({ cmdThis: vi.fn() }));
+    await import('./cli.js');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(ctx.ui.error).toHaveBeenCalledWith('Usage: tmux-team this <global-name>');
+    expect(exitSpy).toHaveBeenCalledWith(1);
+  });
+
+  it('routes whoami without arguments', async () => {
+    vi.resetModules();
+    process.argv = ['node', 'cli', 'whoami'];
+    const ctx = makeStubContext();
+    const whoamiSpy = vi.fn();
+    vi.doMock('./context.js', () => ({
+      createContext: () => ctx,
+      ExitCodes: { SUCCESS: 0, ERROR: 1 },
+    }));
+    vi.doMock('./commands/whoami.js', () => ({ cmdWhoami: whoamiSpy }));
+    await import('./cli.js');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(whoamiSpy).toHaveBeenCalledWith(ctx);
+  });
+
+  it('routes unbind without arguments', async () => {
+    vi.resetModules();
+    process.argv = ['node', 'cli', 'unbind'];
+    const ctx = makeStubContext();
+    const unbindSpy = vi.fn();
+    vi.doMock('./context.js', () => ({
+      createContext: () => ctx,
+      ExitCodes: { SUCCESS: 0, ERROR: 1 },
+    }));
+    vi.doMock('./commands/unbind.js', () => ({ cmdUnbind: unbindSpy }));
+    await import('./cli.js');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(unbindSpy).toHaveBeenCalledWith(ctx);
+  });
+
+  it.each(['whoami', 'unbind'])('rejects arguments for %s', async (command) => {
+    vi.resetModules();
+    process.argv = ['node', 'cli', command, 'extra'];
+    const ctx = makeStubContext();
+    const exitSpy = vi.fn();
+    ctx.exit = exitSpy as any;
+    vi.doMock('./context.js', () => ({
+      createContext: () => ctx,
+      ExitCodes: { SUCCESS: 0, ERROR: 1 },
+    }));
+    vi.doMock(`./commands/${command}.js`, () => ({
+      [command === 'whoami' ? 'cmdWhoami' : 'cmdUnbind']: vi.fn(),
+    }));
+    await import('./cli.js');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(ctx.ui.error).toHaveBeenCalledWith(`Usage: tmux-team ${command}`);
     expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
@@ -330,7 +487,7 @@ describe('cli', () => {
 
   it('routes add command', async () => {
     vi.resetModules();
-    process.argv = ['node', 'cli', 'add', 'myagent', '1.0', 'remark'];
+    process.argv = ['node', 'cli', 'add', '1.0', 'myagent'];
 
     const ctx = makeStubContext();
     const addSpy = vi.fn();
@@ -343,7 +500,27 @@ describe('cli', () => {
     await import('./cli.js');
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(addSpy).toHaveBeenCalledWith(ctx, 'myagent', '1.0', 'remark');
+    expect(addSpy).toHaveBeenCalledWith(ctx, '1.0', 'myagent');
+  });
+
+  it.each([
+    ['missing', ['node', 'cli', 'add', '1.0']],
+    ['extra', ['node', 'cli', 'add', '1.0', 'backend', 'remark']],
+  ])('rejects add command with %s arguments', async (_case, argv) => {
+    vi.resetModules();
+    process.argv = argv;
+    const ctx = makeStubContext();
+    const exitSpy = vi.fn();
+    ctx.exit = exitSpy as any;
+    vi.doMock('./context.js', () => ({
+      createContext: () => ctx,
+      ExitCodes: { SUCCESS: 0, ERROR: 1 },
+    }));
+    vi.doMock('./commands/add.js', () => ({ cmdAdd: vi.fn() }));
+    await import('./cli.js');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(ctx.ui.error).toHaveBeenCalledWith('Usage: tmux-team add <pane-target> <global-name>');
+    expect(exitSpy).toHaveBeenCalledWith(1);
   });
 
   it('routes config command', async () => {

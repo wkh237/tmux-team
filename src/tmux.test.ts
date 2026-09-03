@@ -30,16 +30,19 @@ describe('createTmux', () => {
 
       tmux.send('1.0', 'Hello world', { enterDelayMs: 0 });
 
-      expect(mockedExecSync).toHaveBeenCalledWith(
-        expect.stringContaining('tmux set-buffer -b "tmt-'),
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        ['set-buffer', '-b', expect.stringMatching(/^tmt-/), '--', 'Hello world\n'],
         expect.any(Object)
       );
-      expect(mockedExecSync).toHaveBeenCalledWith(
-        expect.stringContaining('tmux paste-buffer -b "tmt-'),
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        ['paste-buffer', '-b', expect.stringMatching(/^tmt-/), '-d', '-t', '1.0', '-p'],
         expect.any(Object)
       );
-      expect(mockedExecSync).toHaveBeenCalledWith(
-        'tmux send-keys -t "1.0" Enter',
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        ['send-keys', '-t', '1.0', 'Enter'],
         expect.any(Object)
       );
     });
@@ -49,8 +52,9 @@ describe('createTmux', () => {
 
       tmux.send('1.0', 'Line 1\nLine 2', { enterDelayMs: 0 });
 
-      expect(mockedExecSync).toHaveBeenCalledWith(
-        expect.stringContaining('"Line 1\\nLine 2\\n"'),
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        ['set-buffer', '-b', expect.stringMatching(/^tmt-/), '--', 'Line 1\nLine 2\n'],
         expect.any(Object)
       );
     });
@@ -60,27 +64,36 @@ describe('createTmux', () => {
 
       tmux.send('1.0', 'Hello "world" with \'quotes\'', { enterDelayMs: 0 });
 
-      expect(mockedExecSync).toHaveBeenCalledWith(
-        expect.stringContaining('"Hello \\"world\\" with \'quotes\'\\n"'),
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        [
+          'set-buffer',
+          '-b',
+          expect.stringMatching(/^tmt-/),
+          '--',
+          'Hello "world" with \'quotes\'\n',
+        ],
         expect.any(Object)
       );
     });
 
     it('falls back to send-keys when buffer paste fails', () => {
       const error = new Error('set-buffer failed');
-      mockedExecSync.mockImplementationOnce(() => {
+      mockedExecFileSync.mockImplementationOnce(() => {
         throw error;
       });
       const tmux = createTmux();
 
       tmux.send('1.0', 'Hello', { enterDelayMs: 0 });
 
-      expect(mockedExecSync).toHaveBeenCalledWith(
-        'tmux send-keys -t "1.0" "Hello"',
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        ['send-keys', '-t', '1.0', 'Hello'],
         expect.any(Object)
       );
-      expect(mockedExecSync).toHaveBeenCalledWith(
-        'tmux send-keys -t "1.0" Enter',
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        ['send-keys', '-t', '1.0', 'Enter'],
         expect.any(Object)
       );
     });
@@ -90,7 +103,7 @@ describe('createTmux', () => {
 
       tmux.send('1.0', 'Hello', { enterDelayMs: 0 });
 
-      expect(mockedExecSync).toHaveBeenCalledWith(expect.any(String), { stdio: 'pipe' });
+      expect(mockedExecFileSync).toHaveBeenCalledWith('tmux', expect.any(Array), { stdio: 'pipe' });
     });
   });
 
@@ -220,7 +233,9 @@ describe('createTmux', () => {
     });
 
     it('parses pane target and cwd from modern list-panes output', () => {
-      mockedExecSync.mockReturnValue('%1\tmain:2.0\t/repo\tcodex\t{"version":1}\n');
+      mockedExecSync.mockReturnValue(
+        '%1__TMT_FIELD_4f1c__main:2.0__TMT_FIELD_4f1c__/repo__TMT_FIELD_4f1c__codex__TMT_FIELD_4f1c__{"version":1}\n'
+      );
       const tmux = createTmux();
       expect(tmux.listPanes()).toEqual([
         {
@@ -234,15 +249,95 @@ describe('createTmux', () => {
       ]);
     });
 
-    it('builds team registries and agent config from metadata', () => {
+    it('falls back to pane options when list-panes omits user metadata', () => {
+      mockedExecSync.mockReturnValue('%1\tmain:2.0\t/repo\tnode\t\n');
+      mockedExecFileSync.mockReturnValue(
+        '{"version":1,"globalIdentity":{"name":"Alice","canonicalName":"alice"}}\n'
+      );
+
+      expect(createTmux().listGlobalIdentities()).toEqual([
+        { name: 'Alice', canonicalName: 'alice', paneId: '%1' },
+      ]);
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        ['show-options', '-p', '-t', '%1', '-v', '@tmux-team.agent'],
+        expect.any(Object)
+      );
+    });
+
+    it('lists global identities independently of workspace metadata', () => {
       mockedExecSync.mockReturnValue(
-        '%1\tcodex\t{"version":1,"teams":{"egp":{"name":"codex","preamble":"Be strict","deny":["x"]}}}\n'
+        '%1\tmain:1.0\t/repo-a\tcodex\t{"version":1,"globalIdentity":{"name":"Alice","canonicalName":"alice"}}\n%2\tmain:2.0\t/repo-b\tzsh\t{"version":1}\n'
       );
       const tmux = createTmux();
-      expect(tmux.getAgentRegistry({ type: 'team', teamName: 'egp' })).toEqual({
-        paneRegistry: { codex: { pane: '%1', preamble: 'Be strict', deny: ['x'] } },
-        agents: { codex: { preamble: 'Be strict', deny: ['x'] } },
-      });
+      expect(tmux.listGlobalIdentities()).toEqual([
+        { name: 'Alice', canonicalName: 'alice', paneId: '%1' },
+      ]);
+    });
+
+    it('ignores malformed global identity metadata', () => {
+      mockedExecSync.mockReturnValue(
+        '%1\tmain:1.0\t/repo\tzsh\t{"version":1,"globalIdentity":{"name":42}}\n'
+      );
+      expect(createTmux().listGlobalIdentities()).toEqual([]);
+    });
+
+    it('writes and clears global identity metadata without touching workspace entries', () => {
+      mockedExecFileSync.mockReturnValueOnce(
+        '{"version":1,"workspaces":{"/repo":{"name":"legacy"}},"teams":{"egp":{"name":"codex"}},"globalIdentity":{"name":"Old","canonicalName":"old"}}'
+      );
+      const tmux = createTmux();
+      tmux.setGlobalIdentity('%9', 'Alice');
+      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
+        'tmux',
+        [
+          'set-option',
+          '-p',
+          '-t',
+          '%9',
+          '@tmux-team.agent',
+          JSON.stringify({
+            version: 1,
+            workspaces: { '/repo': { name: 'legacy' } },
+            teams: { egp: { name: 'codex' } },
+            globalIdentity: { name: 'Alice', canonicalName: 'alice' },
+          }),
+        ],
+        expect.any(Object)
+      );
+
+      mockedExecFileSync.mockReset();
+      mockedExecFileSync.mockReturnValueOnce(
+        '{"version":1,"workspaces":{"/repo":{"name":"legacy"}},"teams":{"egp":{"name":"codex"}},"globalIdentity":{"name":"Alice","canonicalName":"alice"}}'
+      );
+      expect(tmux.clearGlobalIdentity('%9')).toBe(true);
+      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
+        'tmux',
+        [
+          'set-option',
+          '-p',
+          '-t',
+          '%9',
+          '@tmux-team.agent',
+          JSON.stringify({
+            version: 1,
+            workspaces: { '/repo': { name: 'legacy' } },
+            teams: { egp: { name: 'codex' } },
+          }),
+        ],
+        expect.any(Object)
+      );
+
+      mockedExecFileSync.mockReset();
+      mockedExecFileSync.mockReturnValueOnce(
+        '{"version":1,"globalIdentity":{"name":"Alice","canonicalName":"alice"}}'
+      );
+      expect(tmux.clearGlobalIdentity('%9')).toBe(true);
+      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
+        'tmux',
+        ['set-option', '-p', '-u', '-t', '%9', '@tmux-team.agent'],
+        expect.any(Object)
+      );
     });
   });
 
@@ -298,7 +393,7 @@ describe('createTmux', () => {
     });
 
     it('sets workspace registration on pane metadata', () => {
-      mockedExecFileSync.mockReturnValueOnce('');
+      mockedExecFileSync.mockReturnValueOnce('{"version":1,"teams":{"egp":{"name":"legacy"}}}\n');
       const tmux = createTmux();
       tmux.setAgentRegistration(
         '%9',
@@ -313,35 +408,15 @@ describe('createTmux', () => {
           '-t',
           '%9',
           '@tmux-team.agent',
-          '{"version":1,"workspaces":{"/repo":{"name":"codex","preamble":"Be strict"}}}',
+          '{"version":1,"teams":{"egp":{"name":"legacy"}},"workspaces":{"/repo":{"name":"codex","preamble":"Be strict"}}}',
         ],
         expect.any(Object)
       );
     });
 
-    it('sets team registration while preserving existing metadata', () => {
-      mockedExecFileSync.mockReturnValueOnce(
-        '{"version":1,"workspaces":{"/repo":{"name":"codex"}}}\n'
-      );
-      const tmux = createTmux();
-      tmux.setAgentRegistration('%9', { type: 'team', teamName: 'egp' }, { name: 'reviewer' });
-      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
-        'tmux',
-        [
-          'set-option',
-          '-p',
-          '-t',
-          '%9',
-          '@tmux-team.agent',
-          '{"version":1,"workspaces":{"/repo":{"name":"codex"}},"teams":{"egp":{"name":"reviewer"}}}',
-        ],
-        expect.any(Object)
-      );
-    });
-
-    it('clears scoped registration and unsets empty metadata', () => {
+    it('clears workspace registration while preserving legacy team metadata', () => {
       mockedExecSync.mockReturnValue(
-        '%1\tcodex\t{"version":1,"workspaces":{"/repo":{"name":"codex"}}}\n'
+        '%1\tcodex\t{"version":1,"workspaces":{"/repo":{"name":"codex"}},"teams":{"egp":{"name":"legacy"}}}\n'
       );
       const tmux = createTmux();
       expect(
@@ -349,7 +424,14 @@ describe('createTmux', () => {
       ).toBe(true);
       expect(mockedExecFileSync).toHaveBeenCalledWith(
         'tmux',
-        ['set-option', '-p', '-u', '-t', '%1', '@tmux-team.agent'],
+        [
+          'set-option',
+          '-p',
+          '-t',
+          '%1',
+          '@tmux-team.agent',
+          '{"version":1,"teams":{"egp":{"name":"legacy"}}}',
+        ],
         expect.any(Object)
       );
     });
@@ -364,62 +446,6 @@ describe('createTmux', () => {
       ).toBe(false);
       expect(mockedExecFileSync).not.toHaveBeenCalled();
     });
-
-    it('lists teams from pane metadata', () => {
-      mockedExecSync.mockReturnValue(
-        '%1\tcodex\t{"version":1,"teams":{"egp":{"name":"codex"},"checkout":{"name":"claude"}}}\n'
-      );
-      const tmux = createTmux();
-      expect(tmux.listTeams()).toEqual({ checkout: ['claude'], egp: ['codex'] });
-    });
-
-    it('lists pane team and workspace details', () => {
-      mockedExecSync.mockReturnValue(
-        '%1\tmain:1.0\t/repo\tclaude\t{"version":1,"workspaces":{"/repo":{"name":"claude","remark":"lead"}},"teams":{"egp":{"name":"reviewer"}}}\n%2\tmain:1.1\t/tmp\tzsh\t\n'
-      );
-      const tmux = createTmux();
-      expect(tmux.listTeamPanes()).toEqual([
-        {
-          pane: '%1',
-          target: 'main:1.0',
-          cwd: '/repo',
-          command: 'claude',
-          suggestedName: 'claude',
-          registrations: [
-            { scopeType: 'team', scope: 'egp', agent: 'reviewer' },
-            { scopeType: 'workspace', scope: '/repo', agent: 'claude', remark: 'lead' },
-          ],
-        },
-        {
-          pane: '%2',
-          target: 'main:1.1',
-          cwd: '/tmp',
-          command: 'zsh',
-          suggestedName: null,
-          registrations: [],
-        },
-      ]);
-    });
-
-    it('removes one team while preserving other registrations', () => {
-      mockedExecSync.mockReturnValue(
-        '%1\tcodex\t{"version":1,"teams":{"egp":{"name":"codex"},"checkout":{"name":"claude"}}}\n'
-      );
-      const tmux = createTmux();
-      expect(tmux.removeTeam('egp')).toEqual({ removed: 1, agents: ['codex'] });
-      expect(mockedExecFileSync).toHaveBeenCalledWith(
-        'tmux',
-        [
-          'set-option',
-          '-p',
-          '-t',
-          '%1',
-          '@tmux-team.agent',
-          '{"version":1,"teams":{"checkout":{"name":"claude"}}}',
-        ],
-        expect.any(Object)
-      );
-    });
   });
 
   describe('pane ID handling', () => {
@@ -430,12 +456,9 @@ describe('createTmux', () => {
       tmux.send('1.2', 'Hello', { enterDelayMs: 0 });
       tmux.capture('1.2', 100);
 
-      expect(mockedExecSync).toHaveBeenCalledWith(
-        expect.stringContaining('tmux paste-buffer -b "tmt-'),
-        expect.any(Object)
-      );
-      expect(mockedExecSync).toHaveBeenCalledWith(
-        expect.stringContaining('-t "1.2"'),
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        ['paste-buffer', '-b', expect.stringMatching(/^tmt-/), '-d', '-t', '1.2', '-p'],
         expect.any(Object)
       );
     });
@@ -447,12 +470,9 @@ describe('createTmux', () => {
       tmux.send('main:1.2', 'Hello', { enterDelayMs: 0 });
       tmux.capture('main:1.2', 100);
 
-      expect(mockedExecSync).toHaveBeenCalledWith(
-        expect.stringContaining('tmux paste-buffer -b "tmt-'),
-        expect.any(Object)
-      );
-      expect(mockedExecSync).toHaveBeenCalledWith(
-        expect.stringContaining('-t "main:1.2"'),
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        ['paste-buffer', '-b', expect.stringMatching(/^tmt-/), '-d', '-t', 'main:1.2', '-p'],
         expect.any(Object)
       );
     });
@@ -465,10 +485,39 @@ describe('createTmux', () => {
       tmux.send('1.0; rm -rf /', 'Hello', { enterDelayMs: 0 });
 
       // Should be quoted and treated as literal string
-      expect(mockedExecSync).toHaveBeenCalledWith(
-        expect.stringContaining('-t "1.0; rm -rf /"'),
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        ['paste-buffer', '-b', expect.stringMatching(/^tmt-/), '-d', '-t', '1.0; rm -rf /', '-p'],
         expect.any(Object)
       );
+    });
+  });
+
+  describe('pane titles', () => {
+    it('sets the title and displays it right-aligned in the themed pane border', () => {
+      const tmux = createTmux();
+
+      tmux.setPaneTitle('%9', 'backend');
+
+      expect(mockedExecFileSync).toHaveBeenNthCalledWith(
+        1,
+        'tmux',
+        ['select-pane', '-t', '%9', '-T', 'backend'],
+        expect.any(Object)
+      );
+      expect(mockedExecFileSync).toHaveBeenNthCalledWith(
+        2,
+        'tmux',
+        ['set-window-option', '-t', '%9', 'pane-border-status', 'top'],
+        expect.any(Object)
+      );
+      expect(mockedExecFileSync).toHaveBeenNthCalledWith(
+        3,
+        'tmux',
+        ['set-window-option', '-t', '%9', 'pane-border-format', '#[align=right]#{pane_title}'],
+        expect.any(Object)
+      );
+      expect(mockedExecFileSync.mock.calls[2]?.[1]).not.toContain('#[fg=');
     });
   });
 });

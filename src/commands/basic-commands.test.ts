@@ -18,7 +18,6 @@ import { cmdCompletion } from './completion.js';
 import { cmdHelp } from './help.js';
 import { cmdLearn } from './learn.js';
 import { cmdMigrate } from './migrate.js';
-import { cmdTeam } from './team.js';
 
 function createMockUI(): UI & { jsonCalls: unknown[] } {
   return {
@@ -41,12 +40,13 @@ function createMockTmux(): Tmux {
     listPanes: vi.fn(() => []),
     getCurrentPaneId: vi.fn(() => null),
     resolvePaneTarget: vi.fn((target: string) => target),
+    setPaneTitle: vi.fn(),
     getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
     setAgentRegistration: vi.fn(),
     clearAgentRegistration: vi.fn(() => false),
-    listTeams: vi.fn(() => ({})),
-    listTeamPanes: vi.fn(() => []),
-    removeTeam: vi.fn(() => ({ removed: 0, agents: [] })),
+    listGlobalIdentities: vi.fn(() => []),
+    setGlobalIdentity: vi.fn(),
+    clearGlobalIdentity: vi.fn(() => false),
   };
 }
 
@@ -75,9 +75,16 @@ function createCtx(
     paneRegistry: {},
     ...overrides?.config,
   };
-  const flags: Flags = { json: false, verbose: false, ...(overrides?.flags ?? {}) } as Flags;
+  const flags: Flags = { json: false, verbose: false, ...overrides?.flags } as Flags;
   const ui = createMockUI();
   const tmux = createMockTmux();
+  tmux.listGlobalIdentities = vi.fn(() =>
+    Object.entries(baseConfig.paneRegistry).map(([name, entry]) => ({
+      name,
+      canonicalName: name.toLowerCase(),
+      paneId: entry.pane,
+    }))
+  );
   return {
     argv: [],
     flags,
@@ -123,38 +130,50 @@ describe('basic commands', () => {
     expect((ctx.ui as any).jsonCalls[0]).toMatchObject({ created: ctx.paths.localConfig });
   });
 
-  it('cmdAdd writes new agent to tmux metadata', () => {
+  it('cmdAdd writes global identity metadata', () => {
     const ctx = createCtx(testDir);
-    cmdAdd(ctx, 'codex', '1.1', 'review');
-    expect(ctx.tmux.setAgentRegistration).toHaveBeenCalledWith(
-      '1.1',
-      expect.objectContaining({ type: 'workspace' }),
-      { name: 'codex', remark: 'review' }
-    );
+    cmdAdd(ctx, '1.1', 'codex');
+    expect(ctx.tmux.setGlobalIdentity).toHaveBeenCalledWith('1.1', 'codex');
   });
 
   it('cmdAdd errors if agent exists', () => {
     const ctx = createCtx(testDir, { config: { paneRegistry: { codex: { pane: '1.1' } } } });
     fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({ codex: { pane: '1.1' } }, null, 2));
-    expect(() => cmdAdd(ctx, 'codex', '1.1')).toThrow(`exit(${ExitCodes.ERROR})`);
+    (ctx.tmux.listGlobalIdentities as ReturnType<typeof vi.fn>).mockReturnValue([
+      { name: 'codex', canonicalName: 'codex', paneId: '1.1' },
+    ]);
+    expect(() => cmdAdd(ctx, '1.1', 'other')).toThrow(`exit(${ExitCodes.CONFLICT})`);
+  });
+
+  it('cmdAdd rejects the v4 name-then-pane order without side effects', () => {
+    const ctx = createCtx(testDir, { flags: { json: true } });
+
+    expect(() => cmdAdd(ctx, 'codex', '1.2')).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect((ctx.ui as any).jsonCalls).toEqual([
+      {
+        error: {
+          code: 'LEGACY_ADD_ORDER',
+          message: 'The v4 add argument order is no longer supported.',
+          suggestion: 'Use: tmt add 1.2 codex',
+        },
+      },
+    ]);
+    expect(ctx.tmux.resolvePaneTarget).not.toHaveBeenCalled();
+    expect(ctx.tmux.setGlobalIdentity).not.toHaveBeenCalled();
   });
 
   it('cmdThis registers current pane with given name', () => {
     const ctx = createCtx(testDir);
     (ctx.tmux.getCurrentPaneId as ReturnType<typeof vi.fn>).mockReturnValue('%5');
-    cmdThis(ctx, 'myagent', 'test remark');
-    expect(ctx.tmux.setAgentRegistration).toHaveBeenCalledWith(
-      '%5',
-      expect.objectContaining({ type: 'workspace' }),
-      { name: 'myagent', remark: 'test remark' }
-    );
+    cmdThis(ctx, 'myagent');
+    expect(ctx.tmux.setGlobalIdentity).toHaveBeenCalledWith('%5', 'myagent');
   });
 
   it('cmdThis errors when not in tmux', () => {
     const ctx = createCtx(testDir);
     (ctx.tmux.getCurrentPaneId as ReturnType<typeof vi.fn>).mockReturnValue(null);
-    expect(() => cmdThis(ctx, 'myagent')).toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(ctx.ui.error).toHaveBeenCalledWith('Not running inside tmux.');
+    expect(() => cmdThis(ctx, 'myagent')).toThrow(`exit(${ExitCodes.PANE_NOT_FOUND})`);
+    expect(ctx.ui.error).toHaveBeenCalledWith('Not running inside a resolvable tmux pane.');
   });
 
   it('cmdThis outputs JSON when --json flag set', () => {
@@ -162,7 +181,11 @@ describe('basic commands', () => {
     (ctx.tmux.getCurrentPaneId as ReturnType<typeof vi.fn>).mockReturnValue('%3');
     cmdThis(ctx, 'jsonagent');
     expect((ctx.ui as any).jsonCalls.length).toBe(1);
-    expect((ctx.ui as any).jsonCalls[0]).toMatchObject({ added: 'jsonagent', pane: '%3' });
+    expect((ctx.ui as any).jsonCalls[0]).toMatchObject({
+      bound: true,
+      name: 'jsonagent',
+      pane: '%3',
+    });
   });
 
   it('cmdRemove deletes agent', () => {
@@ -241,18 +264,67 @@ describe('basic commands', () => {
     expect((ctx.ui as any).jsonCalls.length).toBe(1);
   });
 
+  it('cmdList joins one pane snapshot into the v5 identity schema', () => {
+    const ctx = createCtx(testDir, { flags: { json: true } });
+    ctx.tmux.listGlobalIdentities = vi.fn(() => [
+      { name: 'Zed', canonicalName: 'zed', paneId: '%2' },
+      { name: 'Alice', canonicalName: 'alice', paneId: '%1' },
+    ]);
+    ctx.tmux.listPanes = vi.fn(() => [
+      { id: '%1', target: 'main:1.0', cwd: '/repo', command: 'claude', suggestedName: 'claude' },
+      { id: '%2', target: 'main:1.1', cwd: '/tmp', command: 'zsh', suggestedName: null },
+    ]);
+
+    cmdList(ctx);
+
+    expect(ctx.tmux.listPanes).toHaveBeenCalledTimes(1);
+    expect((ctx.ui as any).jsonCalls).toEqual([
+      {
+        identities: [
+          {
+            name: 'Alice',
+            canonicalName: 'alice',
+            pane: '%1',
+            target: 'main:1.0',
+            cwd: '/repo',
+            command: 'claude',
+          },
+          {
+            name: 'Zed',
+            canonicalName: 'zed',
+            pane: '%2',
+            target: 'main:1.1',
+            cwd: '/tmp',
+            command: 'zsh',
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('cmdList resolves an unnamed direct pane without legacy fallback', () => {
+    const ctx = createCtx(testDir, { flags: { json: true } });
+    ctx.tmux.resolvePaneTarget = vi.fn(() => '%9');
+    ctx.tmux.listGlobalIdentities = vi.fn(() => []);
+    ctx.tmux.listPanes = vi.fn(() => [
+      { id: '%9', target: 'main:9.0', cwd: '/tmp', command: 'zsh', suggestedName: null },
+    ]);
+
+    cmdList(ctx, '9.0');
+
+    expect((ctx.ui as any).jsonCalls).toEqual([
+      {
+        target: '9.0',
+        identity: null,
+        pane: { id: '%9', target: 'main:9.0', cwd: '/tmp', command: 'zsh' },
+      },
+    ]);
+  });
+
   it('cmdList prints hint when no agents', () => {
     const ctx = createCtx(testDir);
     cmdList(ctx);
     expect(ctx.ui.info).toHaveBeenCalled();
-  });
-
-  it('cmdList prints team hint when no shared team agents exist', () => {
-    const ctx = createCtx(testDir, { flags: { team: 'egp' } });
-    cmdList(ctx);
-    expect(ctx.ui.info).toHaveBeenCalledWith(
-      'No agents in team "egp". Use \'tmt this <name> --team egp\' to add one.'
-    );
   });
 
   it('cmdList prints table when agents exist', () => {
@@ -261,16 +333,6 @@ describe('basic commands', () => {
     });
     cmdList(ctx);
     expect(ctx.ui.table).toHaveBeenCalled();
-  });
-
-  it('cmdList warns when using legacy registry', () => {
-    const ctx = createCtx(testDir, {
-      config: { paneRegistry: { claude: { pane: '1.0' } }, registrySource: 'legacy' },
-    });
-    cmdList(ctx);
-    expect(ctx.ui.warn).toHaveBeenCalledWith(
-      'Using legacy tmux-team.json registry. Run `tmt migrate` to store registrations in tmux.'
-    );
   });
 
   it('cmdList shows dash for missing remark', () => {
@@ -284,96 +346,12 @@ describe('basic commands', () => {
     expect(tableCall[1][0][2]).toBe('-');
   });
 
-  it('cmdList can list a shared team by positional name', () => {
-    const ctx = createCtx(testDir);
-    (ctx.tmux.listTeams as ReturnType<typeof vi.fn>).mockReturnValue({ egp: ['claude'] });
-    (ctx.tmux.listTeamPanes as ReturnType<typeof vi.fn>).mockReturnValue([
-      {
-        pane: '%1',
-        target: 'main:1.0',
-        cwd: '/repo',
-        command: 'claude',
-        suggestedName: 'claude',
-        registrations: [{ scopeType: 'team', scope: 'egp', agent: 'claude' }],
-      },
-    ]);
-
-    cmdList(ctx, 'egp');
-
-    expect(ctx.ui.table).toHaveBeenCalledWith(
-      ['NAME', 'PANE', 'TARGET', 'CWD', 'CMD', 'REMARK'],
-      [['claude', '%1', 'main:1.0', '/repo', 'claude', '-']]
-    );
-  });
-
-  it('cmdList can show pane status by pane target', () => {
-    const ctx = createCtx(testDir);
-    (ctx.tmux.resolvePaneTarget as ReturnType<typeof vi.fn>).mockImplementation((target: string) =>
-      target === 'main:1.0' ? '%1' : null
-    );
-    (ctx.tmux.listTeamPanes as ReturnType<typeof vi.fn>).mockReturnValue([
-      {
-        pane: '%1',
-        target: 'main:1.0',
-        cwd: '/repo',
-        command: 'claude',
-        suggestedName: 'claude',
-        registrations: [
-          { scopeType: 'workspace', scope: '/repo', agent: 'claude' },
-          { scopeType: 'team', scope: 'egp', agent: 'reviewer', remark: 'strict' },
-        ],
-      },
-    ]);
-
-    cmdList(ctx, 'main.1.0');
-
-    expect(ctx.tmux.resolvePaneTarget).toHaveBeenCalledWith('main.1.0');
-    expect(ctx.tmux.resolvePaneTarget).toHaveBeenCalledWith('main:1.0');
-    expect(ctx.ui.table).toHaveBeenCalledWith(
-      ['SCOPE', 'NAME', 'REMARK'],
-      [
-        ['workspace:/repo', 'claude', '-'],
-        ['team:egp', 'reviewer', 'strict'],
-      ]
-    );
-  });
-
-  it('cmdList outputs pane status JSON and handles unregistered panes', () => {
-    const ctx = createCtx(testDir, { flags: { json: true } });
-    (ctx.tmux.resolvePaneTarget as ReturnType<typeof vi.fn>).mockReturnValue('%9');
-    (ctx.tmux.listTeamPanes as ReturnType<typeof vi.fn>).mockReturnValue([
-      {
-        pane: '%9',
-        target: 'main:9.0',
-        cwd: '/tmp',
-        command: 'zsh',
-        suggestedName: null,
-        registrations: [],
-      },
-    ]);
-
-    cmdList(ctx, '9.0');
-
-    expect((ctx.ui as any).jsonCalls).toEqual([
-      {
-        pane: {
-          pane: '%9',
-          target: 'main:9.0',
-          cwd: '/tmp',
-          command: 'zsh',
-          suggestedName: null,
-          registrations: [],
-        },
-      },
-    ]);
-  });
-
-  it('cmdList errors when positional target is neither team nor pane', () => {
+  it('cmdList errors when positional target is neither identity nor pane', () => {
     const ctx = createCtx(testDir);
     (ctx.tmux.resolvePaneTarget as ReturnType<typeof vi.fn>).mockReturnValue(null);
 
     expect(() => cmdList(ctx, 'missing')).toThrow(`exit(${ExitCodes.PANE_NOT_FOUND})`);
-    expect(ctx.ui.error).toHaveBeenCalledWith("Pane or team 'missing' not found.");
+    expect(ctx.ui.error).toHaveBeenCalledWith("Identity 'missing' is not active.");
   });
 
   it('cmdCheck captures pane output', () => {
@@ -389,31 +367,6 @@ describe('basic commands', () => {
   it('cmdCheck errors when agent missing', () => {
     const ctx = createCtx(testDir);
     expect(() => cmdCheck(ctx, 'nope')).toThrow(`exit(${ExitCodes.PANE_NOT_FOUND})`);
-  });
-
-  it('cmdCheck points at shared teams when a missing agent is only registered there', () => {
-    const ctx = createCtx(testDir);
-    (ctx.tmux.listTeams as ReturnType<typeof vi.fn>).mockReturnValue({
-      alpha: ['codex'],
-      beta: ['codex'],
-    });
-
-    expect(() => cmdCheck(ctx, 'codex')).toThrow(`exit(${ExitCodes.PANE_NOT_FOUND})`);
-    expect(ctx.ui.error).toHaveBeenCalledWith(
-      "Agent 'codex' is in multiple shared teams: alpha, beta. Specify one with --team <team>."
-    );
-  });
-
-  it('cmdCheck points at the single shared team when there is no ambiguity', () => {
-    const ctx = createCtx(testDir);
-    (ctx.tmux.listTeams as ReturnType<typeof vi.fn>).mockReturnValue({
-      alpha: ['codex'],
-    });
-
-    expect(() => cmdCheck(ctx, 'codex')).toThrow(`exit(${ExitCodes.PANE_NOT_FOUND})`);
-    expect(ctx.ui.error).toHaveBeenCalledWith(
-      "Agent 'codex' is in shared team 'alpha'. Specify it: tmt check codex --team alpha"
-    );
   });
 
   it('cmdCheck errors when tmux capture fails', () => {
@@ -434,6 +387,29 @@ describe('basic commands', () => {
     });
     cmdCheck(ctx, 'claude', 5);
     expect((ctx.ui as any).jsonCalls.length).toBe(1);
+  });
+
+  it('cmdCheck JSON includes the stable identity fields', () => {
+    const ctx = createCtx(testDir, {
+      flags: { json: true },
+      config: { paneRegistry: { claude: { pane: '%1' } } },
+    });
+    ctx.tmux.listGlobalIdentities = vi.fn(() => [
+      { name: 'Claude', canonicalName: 'claude', paneId: '%1' },
+    ]);
+    ctx.tmux.capture = vi.fn(() => 'response');
+
+    cmdCheck(ctx, 'claude', 5);
+
+    expect((ctx.ui as any).jsonCalls).toEqual([
+      {
+        target: 'claude',
+        pane: '%1',
+        identity: { name: 'Claude', canonicalName: 'claude' },
+        lines: 5,
+        output: 'response',
+      },
+    ]);
   });
 
   it('cmdPreamble set/show/clear updates local config', () => {
@@ -585,306 +561,21 @@ describe('basic commands', () => {
     expect(ctx.ui.info).toHaveBeenCalledWith(`No legacy agents found in ${ctx.paths.localConfig}`);
   });
 
-  it('cmdTeam lists team names by default', () => {
-    const ctx = createCtx(testDir, { flags: { json: true } });
-    (ctx.tmux.listTeams as ReturnType<typeof vi.fn>).mockReturnValue({
-      egp: ['claude', 'codex'],
-    });
-
-    cmdTeam(ctx, []);
-
-    expect((ctx.ui as any).jsonCalls).toEqual([{ teams: { egp: ['claude', 'codex'] } }]);
-  });
-
-  it('cmdTeam panes lists all pane team/workspace scopes', () => {
-    const ctx = createCtx(testDir, { flags: { json: true } });
-    (ctx.tmux.listTeams as ReturnType<typeof vi.fn>).mockReturnValue({
-      egp: ['claude', 'codex'],
-    });
-    (ctx.tmux.listTeamPanes as ReturnType<typeof vi.fn>).mockReturnValue([
-      {
-        pane: '%1',
-        target: 'main:1.0',
-        cwd: '/repo',
-        command: 'claude',
-        suggestedName: 'claude',
-        registrations: [
-          { scopeType: 'workspace', scope: '/repo', agent: 'claude', remark: 'lead' },
-          { scopeType: 'team', scope: 'egp', agent: 'claude' },
-        ],
-      },
-    ]);
-
-    cmdTeam(ctx, ['panes']);
-
-    expect((ctx.ui as any).jsonCalls).toEqual([
-      {
-        teams: { egp: ['claude', 'codex'] },
-        panes: [
-          {
-            pane: '%1',
-            target: 'main:1.0',
-            cwd: '/repo',
-            command: 'claude',
-            suggestedName: 'claude',
-            registrations: [
-              { scopeType: 'workspace', scope: '/repo', agent: 'claude', remark: 'lead' },
-              { scopeType: 'team', scope: 'egp', agent: 'claude' },
-            ],
-          },
-        ],
-      },
-    ]);
-  });
-
-  it('cmdTeam shows empty state and errors on unknown subcommands', () => {
-    const ctx = createCtx(testDir);
-
-    cmdTeam(ctx, []);
-    expect(ctx.ui.info).toHaveBeenCalledWith('No shared teams found.');
-
-    expect(() => cmdTeam(ctx, ['wat'])).toThrow(`exit(${ExitCodes.ERROR})`);
-  });
-
-  it('cmdTeam summary keeps shared-team aggregate view', () => {
-    const ctx = createCtx(testDir);
-    (ctx.tmux.listTeams as ReturnType<typeof vi.fn>).mockReturnValue({ egp: ['claude'] });
-
-    cmdTeam(ctx, ['ls', '--summary']);
-
-    expect(ctx.ui.table).toHaveBeenCalledWith(['TEAM', 'AGENTS'], [['egp', 'claude']]);
-  });
-
-  it('cmdTeam ls lists members for one team', () => {
-    const ctx = createCtx(testDir);
-    (ctx.tmux.listTeamPanes as ReturnType<typeof vi.fn>).mockReturnValue([
-      {
-        pane: '%2',
-        target: 'main:2.0',
-        cwd: '/repo',
-        command: 'codex',
-        suggestedName: 'codex',
-        registrations: [{ scopeType: 'team', scope: 'egp', agent: 'codex', remark: 'review' }],
-      },
-      {
-        pane: '%1',
-        target: 'main:1.0',
-        cwd: '/repo',
-        command: 'claude',
-        suggestedName: 'claude',
-        registrations: [{ scopeType: 'team', scope: 'egp', agent: 'claude' }],
-      },
-    ]);
-
-    cmdTeam(ctx, ['ls', 'egp']);
-
-    expect(ctx.ui.table).toHaveBeenCalledWith(
-      ['NAME', 'PANE', 'TARGET', 'CWD', 'CMD', 'REMARK'],
-      [
-        ['claude', '%1', 'main:1.0', '/repo', 'claude', '-'],
-        ['codex', '%2', 'main:2.0', '/repo', 'codex', 'review'],
-      ]
-    );
-  });
-
-  it('cmdTeam ls outputs JSON and reports empty teams', () => {
-    const ctx = createCtx(testDir, { flags: { json: true } });
-    (ctx.tmux.listTeamPanes as ReturnType<typeof vi.fn>).mockReturnValue([]);
-
-    cmdTeam(ctx, ['ls', 'missing']);
-
-    expect((ctx.ui as any).jsonCalls).toEqual([{ team: 'missing', members: [] }]);
-
-    const humanCtx = createCtx(testDir);
-    cmdTeam(humanCtx, ['ls', 'missing']);
-    expect(humanCtx.ui.info).toHaveBeenCalledWith(
-      'No agents in team "missing". Use \'tmt team add missing <name>\' to add one.'
-    );
-  });
-
-  it('cmdTeam add registers current pane in a team', () => {
-    const ctx = createCtx(testDir);
-    (ctx.tmux.getCurrentPaneId as ReturnType<typeof vi.fn>).mockReturnValue('%5');
-    (ctx.tmux.resolvePaneTarget as ReturnType<typeof vi.fn>).mockReturnValue('%5');
-
-    cmdTeam(ctx, ['add', 'egp', 'claude']);
-
-    expect(ctx.tmux.setAgentRegistration).toHaveBeenCalledWith(
-      '%5',
-      { type: 'team', teamName: 'egp' },
-      { name: 'claude' }
-    );
-  });
-
-  it('cmdTeam add supports explicit panes, remarks, JSON, and duplicate errors', () => {
-    const ctx = createCtx(testDir, { flags: { json: true } });
-    (ctx.tmux.resolvePaneTarget as ReturnType<typeof vi.fn>).mockReturnValue('%6');
-
-    cmdTeam(ctx, ['add', 'egp', 'codex', '1.2', 'reviewer']);
-
-    expect(ctx.tmux.setAgentRegistration).toHaveBeenCalledWith(
-      '%6',
-      { type: 'team', teamName: 'egp' },
-      { name: 'codex', remark: 'reviewer' }
-    );
-    expect((ctx.ui as any).jsonCalls).toEqual([
-      { added: 'codex', team: 'egp', pane: '%6', remark: 'reviewer' },
-    ]);
-
-    const duplicateCtx = createCtx(testDir);
-    (duplicateCtx.tmux.getAgentRegistry as ReturnType<typeof vi.fn>).mockReturnValue({
-      paneRegistry: { codex: { pane: '%6' } },
-      agents: {},
-    });
-    expect(() => cmdTeam(duplicateCtx, ['add', 'egp', 'codex', '1.2'])).toThrow(
-      `exit(${ExitCodes.ERROR})`
-    );
-  });
-
-  it('cmdTeam add requires a pane when outside tmux', () => {
-    const ctx = createCtx(testDir);
-
-    expect(() => cmdTeam(ctx, ['add', 'egp', 'codex'])).toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(ctx.ui.error).toHaveBeenCalledWith(
-      'Not running inside tmux. Provide a pane target: tmt team add <team> <name> <pane>'
-    );
-  });
-
-  it('cmdTeam add validates arguments and pane targets', () => {
-    const ctx = createCtx(testDir);
-    expect(() => cmdTeam(ctx, ['add', 'egp'])).toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(ctx.ui.error).toHaveBeenCalledWith(
-      'Usage: tmux-team team add <team> <name> [pane] [remark]'
-    );
-
-    const paneCtx = createCtx(testDir);
-    (paneCtx.tmux.resolvePaneTarget as ReturnType<typeof vi.fn>).mockReturnValue(null);
-    expect(() => cmdTeam(paneCtx, ['add', 'egp', 'codex', 'missing'])).toThrow(
-      `exit(${ExitCodes.PANE_NOT_FOUND})`
-    );
-    expect(paneCtx.ui.error).toHaveBeenCalledWith("Pane 'missing' not found. Is tmux running?");
-  });
-
-  it('cmdTeam panes table groups by team/workspace scope before pane order', () => {
-    const ctx = createCtx(testDir);
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    (ctx.tmux.listTeamPanes as ReturnType<typeof vi.fn>).mockReturnValue([
-      {
-        pane: '%3',
-        target: 'main:3.0',
-        cwd: '/tmp',
-        command: 'zsh',
-        suggestedName: null,
-        registrations: [],
-      },
-      {
-        pane: '%1',
-        target: 'main:1.0',
-        cwd: '/repo',
-        command: 'claude',
-        suggestedName: 'claude',
-        registrations: [{ scopeType: 'workspace', scope: '/repo', agent: 'claude' }],
-      },
-      {
-        pane: '%2',
-        target: 'main:2.0',
-        cwd: '/repo',
-        command: 'codex',
-        suggestedName: 'codex',
-        registrations: [{ scopeType: 'team', scope: 'beta', agent: 'codex' }],
-      },
-      {
-        pane: '%4',
-        target: 'main:4.0',
-        cwd: '/repo',
-        command: 'gemini',
-        suggestedName: 'gemini',
-        registrations: [{ scopeType: 'team', scope: 'alpha', agent: 'gemini' }],
-      },
-    ]);
-
-    cmdTeam(ctx, ['panes']);
-
-    expect(logSpy.mock.calls.map((call) => call[0])).toEqual([
-      'Team: alpha (gemini)',
-      '',
-      'Team: beta (codex)',
-      '',
-      'Workspace: /repo (claude)',
-      '',
-      'Unregistered panes',
-    ]);
-    expect((ctx.ui.table as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0])).toEqual([
-      ['PANE', 'TARGET', 'CWD', 'CMD'],
-      ['PANE', 'TARGET', 'CWD', 'CMD'],
-      ['PANE', 'TARGET', 'CWD', 'CMD'],
-      ['PANE', 'TARGET', 'CWD', 'CMD'],
-    ]);
-    expect((ctx.ui.table as ReturnType<typeof vi.fn>).mock.calls[0][1]).toEqual([
-      ['%4', 'main:4.0', '/repo', 'gemini'],
-    ]);
-    logSpy.mockRestore();
-  });
-
-  it('cmdTeam rm supports dry-run and force removal', () => {
-    const ctx = createCtx(testDir);
-    (ctx.tmux.listTeams as ReturnType<typeof vi.fn>).mockReturnValue({
-      egp: ['claude'],
-    });
-    (ctx.tmux.removeTeam as ReturnType<typeof vi.fn>).mockReturnValue({
-      removed: 1,
-      agents: ['claude'],
-    });
-
-    cmdTeam(ctx, ['rm', 'egp', '--dry-run']);
-    expect(ctx.tmux.removeTeam).not.toHaveBeenCalled();
-
-    ctx.flags.force = true;
-    cmdTeam(ctx, ['rm', 'egp']);
-    expect(ctx.tmux.removeTeam).toHaveBeenCalledWith('egp');
-  });
-
-  it('cmdTeam rm requires --force and errors for missing teams', () => {
-    const ctx = createCtx(testDir);
-    (ctx.tmux.listTeams as ReturnType<typeof vi.fn>).mockReturnValue({ egp: ['claude'] });
-
-    expect(() => cmdTeam(ctx, ['rm'])).toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(ctx.ui.error).toHaveBeenCalledWith('Usage: tmux-team team rm <team> --force');
-
-    expect(() => cmdTeam(ctx, ['rm', 'egp'])).toThrow(`exit(${ExitCodes.ERROR})`);
-
-    (ctx.tmux.listTeams as ReturnType<typeof vi.fn>).mockReturnValue({});
-    expect(() => cmdTeam(ctx, ['rm', 'missing', '--force'])).toThrow(
-      `exit(${ExitCodes.PANE_NOT_FOUND})`
-    );
-  });
-
-  it('cmdTeam rm outputs JSON in dry-run and force modes', () => {
-    const ctx = createCtx(testDir, { flags: { json: true } });
-    (ctx.tmux.listTeams as ReturnType<typeof vi.fn>).mockReturnValue({ egp: ['claude'] });
-    (ctx.tmux.removeTeam as ReturnType<typeof vi.fn>).mockReturnValue({
-      removed: 1,
-      agents: ['claude'],
-    });
-
-    cmdTeam(ctx, ['rm', 'egp', '--dry-run']);
-    ctx.flags.force = true;
-    cmdTeam(ctx, ['rm', 'egp']);
-
-    expect((ctx.ui as any).jsonCalls).toEqual([
-      { team: 'egp', dryRun: true, agents: ['claude'], removed: 0 },
-      { team: 'egp', removed: 1, agents: ['claude'] },
-    ]);
-  });
-
   it('cmdCompletion prints scripts', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     cmdCompletion('bash');
-    expect(logSpy.mock.calls.join('\n')).toContain('complete -F _tmux_team');
+    const bashOutput = logSpy.mock.calls.join('\n');
+    expect(bashOutput).toContain('complete -F _tmux_team');
+    expect(bashOutput).toContain('name this whoami unbind');
 
     logSpy.mockClear();
     cmdCompletion('zsh');
-    expect(logSpy.mock.calls.join('\n')).toContain('#compdef tmux-team');
+    const zshOutput = logSpy.mock.calls.join('\n');
+    expect(zshOutput).toContain('#compdef tmux-team');
+    expect(zshOutput).toContain('name:Bind the current pane identity');
+    expect(zshOutput).toContain('this:Bind the current pane identity');
+    expect(zshOutput).toContain('whoami:Show the current pane identity');
+    expect(zshOutput).toContain('unbind:Remove the current pane identity');
 
     logSpy.mockClear();
     cmdCompletion();
@@ -896,6 +587,11 @@ describe('basic commands', () => {
     cmdHelp({ mode: 'polling', showIntro: true });
     cmdHelp({ mode: 'wait', timeout: 10 });
     cmdLearn();
-    expect(logSpy).toHaveBeenCalled();
+    const output = logSpy.mock.calls.join('\n');
+    expect(output).toContain('add <pane-target> <global-name>');
+    expect(output).toContain('this <global-name>');
+    expect(output).toContain('name <global-name>');
+    expect(output).toContain('whoami');
+    expect(output).toContain('unbind');
   });
 });

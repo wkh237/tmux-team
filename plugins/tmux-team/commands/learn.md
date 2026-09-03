@@ -1,5 +1,5 @@
 ---
-allowed-tools: Read(*), Bash(tmux-team:*)
+allowed-tools: Read(*), Bash(tmt:*), Bash(tmux-team:*)
 description: Learn how to use tmux-team for multi-agent coordination
 ---
 
@@ -16,51 +16,51 @@ Each agent runs in its own tmux pane. When you want to talk to another agent:
 2. tmux-team waits briefly, then sends Enter to submit
 3. You read their response by capturing their pane output
 
-## Essential Commands (use --wait for better token utilization)
+## Essential Commands
 
 ```bash
-# List available agents in this project
-tmux-team list
+# List active global identities
+tmt list
 
-# Send and wait for response (recommended)
-tmux-team talk <agent> "<message>" --wait
+# Send and wait for response (recommended); use a name or pane target
+tmt talk <target> "<message>" --wait
 
-# Broadcast to all agents
-tmux-team talk all "<message>" --wait
+# Inspect output by name or pane target
+tmt check <target> 100
 ```
 
 ## Practical Examples
 
 ### Quick question to another agent
 ```bash
-tmux-team talk codex "What's the status of the authentication refactor?" --wait
+tmt talk codex "What's the status of the authentication refactor?" --wait
 # Response is returned directly
 ```
 
 ### Delegate a task with longer timeout and more output
 ```bash
-tmux-team talk codex "Please implement the login form. Reply when done." --wait --timeout 300 --lines 200
+tmt talk codex "Please implement the login form. Reply when done." --wait --timeout 300 --lines 200
 ```
 
-### Broadcast to all agents
+### Address a named identity
 ```bash
-tmux-team talk all "Sync: PR #123 was merged, please pull latest" --wait
+tmt talk codex "Sync: PR #123 was merged, please pull latest" --wait
 ```
+
+The name `all` is an ordinary identity, not a special destination. To address
+another pane directly, use `%pane_id`, `window.pane`, or `session:window.pane`.
 
 ## Configuration
 
-tmux-team is configured via tmux-team.json in your project root:
+Global identity registrations are stored in tmux pane metadata and are
+independent of the current working directory. Legacy projects may still have
+`tmux-team.json`; use `tmt migrate` to import it into tmux metadata. tmux-team
+is CLI-only and has no daemon or background service.
 
-```json
-{
-  "$config": {
-    "mode": "polling",
-    "pasteEnterDelayMs": 500
-  },
-  "codex": { "pane": "%1", "remark": "OpenAI Codex agent" },
-  "gemini": { "pane": "%2", "remark": "Google Gemini agent" },
-  "claude": { "pane": "%3", "remark": "Anthropic Claude agent" }
-}
+```bash
+tmt name codex
+tmt add %2 gemini
+tmt config set pasteEnterDelayMs 500
 ```
 
 To find your pane ID, run: tmux display-message -p '#{pane_id}'
@@ -71,21 +71,27 @@ If the agent takes longer than expected, --wait will timeout. Use the check comm
 
 ```bash
 # Check for response after timeout (default 100 lines)
-tmux-team check <agent>
+tmt check <target>
 
 # Check with more lines for long responses
-tmux-team check <agent> 200
+tmt check <target> 200
 ```
 
 ## Best Practices
 
-1. **Always use --wait** - More token-efficient than polling with check command
+1. Use `--wait` for synchronous request/response; use `check` after timeout
 2. **Be explicit** - Tell the other agent exactly what you need and how to respond
 3. **Set timeout appropriately** - Use --timeout 300 for complex tasks
 4. **Use --lines for long responses** - Default is 100 lines, increase for verbose output
-5. **If timeout occurs** - Use "tmux-team check <agent> [lines]" to retrieve the response
-6. **Broadcast sparingly** - Only use "talk all" for announcements everyone needs
+5. **If timeout occurs** - Use "tmux-team check <target> [lines]" to retrieve the response
+6. **Use stable pane IDs in scripts** - `tmt add` resolves window-style targets to `%pane_id`
 
 ## Your Next Step
 
-Run tmux-team list to see which agents are available in your current project.
+Run `tmt list` to see all active global identities. Use `tmt list <target>` to
+inspect one identity or pane.
+
+Install integrations with `tmt install`. `tmt upgrade` updates the package, and
+managed skill links then use the new bundled files automatically. Sending pane
+input is an external action and must be authorized by the user; preserve
+multiline text.

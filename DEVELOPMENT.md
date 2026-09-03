@@ -6,13 +6,13 @@
 - Install dependencies:
 
 ```bash
-npm install
+pnpm install
 ```
 
 - Run the CLI locally:
 
 ```bash
-npm run dev -- --help
+pnpm dev -- --help
 ```
 
 ## Running Tests
@@ -20,19 +20,36 @@ npm run dev -- --help
 - Watch mode:
 
 ```bash
-npm test
+pnpm test:watch
 ```
 
 - Single run:
 
 ```bash
-npm run test:run
+pnpm test:run
 ```
+
+- Docker-backed end-to-end smoke tests:
+
+```bash
+pnpm test:e2e
+```
+
+The E2E command requires Docker, builds the pinned Node, pnpm, and tmux versions
+in `test/e2e/Dockerfile` from the current checkout, runs Vitest inside it with
+`--network none`, and removes the tagged image afterward. Each test starts its
+own tmux server on a private socket and
+launches the deterministic mock agent from `test/e2e/mock-agent.mjs`; no real
+agent, credentials, or host tmux session is used. The tests invoke
+`bin/tmux-team` as a subprocess and exercise CLI process propagation, tmux
+transport, pane movement, and fixture cleanup. Failures include the
+container/Vitest output, and each fixture kills its private server and removes
+its temporary state.
 
 - Full checks:
 
 ```bash
-npm run check
+pnpm check
 ```
 
 ## Testing Strategy

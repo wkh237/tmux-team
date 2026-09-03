@@ -66,7 +66,7 @@ function setPreamble(ctx: Context, agentName: string, preamble: string): void {
   // Check if agent exists in pane registry
   if (!config.paneRegistry[agentName]) {
     ui.error(`Agent '${agentName}' not found in local config`);
-    ui.error('Add the agent with: tmux-team add <agent> <pane>');
+    ui.error('Add the identity with: tmt add <pane-target> <global-name>');
     ctx.exit(ExitCodes.ERROR);
   }
 

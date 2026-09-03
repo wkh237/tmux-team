@@ -9,6 +9,7 @@ import type { Flags } from './types.js';
 // Commands
 import { cmdHelp, HelpConfig } from './commands/help.js';
 import { loadConfig, resolvePaths } from './config.js';
+import { createUI } from './ui.js';
 import { cmdInit } from './commands/init.js';
 import { cmdList } from './commands/list.js';
 import { cmdAdd } from './commands/add.js';
@@ -23,19 +24,30 @@ import { cmdInstall } from './commands/install.js';
 import { cmdLearn } from './commands/learn.js';
 import { cmdThis } from './commands/this.js';
 import { cmdMigrate } from './commands/migrate.js';
-import { cmdTeam } from './commands/team.js';
+import { cmdName } from './commands/name.js';
+import { cmdUpgrade } from './commands/upgrade.js';
+import { cmdWhoami } from './commands/whoami.js';
+import { cmdUnbind } from './commands/unbind.js';
+import { UNSUPPORTED_TEAM_MESSAGE } from './commands/unsupported-team.js';
+import { runStartupChecks } from './update-check.js';
 
 // ─────────────────────────────────────────────────────────────
 // Argument parsing
 // ─────────────────────────────────────────────────────────────
 
-function parseArgs(argv: string[]): { command: string; args: string[]; flags: Flags } {
+function parseArgs(argv: string[]): {
+  command: string;
+  args: string[];
+  flags: Flags;
+  unsupportedTeam: boolean;
+} {
   const flags: Flags = {
     json: false,
     verbose: false,
   };
 
   const positional: string[] = [];
+  let unsupportedTeam = false;
   let i = 0;
 
   while (i < argv.length) {
@@ -62,9 +74,10 @@ function parseArgs(argv: string[]): { command: string; args: string[]; flags: Fl
     } else if (arg === '--no-preamble') {
       flags.noPreamble = true;
     } else if (arg === '--team') {
-      flags.team = argv[++i];
+      unsupportedTeam = true;
+      i++;
     } else if (arg.startsWith('--team=')) {
-      flags.team = arg.slice(7);
+      unsupportedTeam = true;
     } else if (arg.startsWith('--pane=')) {
       // Handled in update command
       positional.push(arg);
@@ -81,7 +94,7 @@ function parseArgs(argv: string[]): { command: string; args: string[]; flags: Fl
   }
 
   const [command = 'help', ...args] = positional;
-  return { command, args, flags };
+  return { command, args, flags, unsupportedTeam };
 }
 
 /**
@@ -114,7 +127,21 @@ function parseTime(value: string): number {
 
 function main(): void {
   const argv = process.argv.slice(2);
-  const { command, args, flags } = parseArgs(argv);
+  const { command, args, flags, unsupportedTeam } = parseArgs(argv);
+
+  // Reject both `team` and either spelling of `--team` before command routing
+  // or configuration loading can interpret them as a scope.
+  if (command === 'team' || unsupportedTeam) {
+    const ui = createUI(flags.json);
+    const error = {
+      code: 'UNSUPPORTED_TEAM',
+      message: UNSUPPORTED_TEAM_MESSAGE,
+    };
+    if (flags.json) ui.json({ error });
+    else ui.error(error.message);
+    process.exit(ExitCodes.UNSUPPORTED_TEAM);
+    return;
+  }
 
   // Help - load config to show current mode/timeout
   if (!command || command === 'help' || command === '--help' || command === '-h') {
@@ -153,12 +180,23 @@ function main(): void {
   const ctx = createContext({ argv, flags });
 
   // Warn if not in tmux for commands that require it
-  const TMUX_REQUIRED_COMMANDS = ['talk', 'send', 'check', 'read', 'this'];
+  const TMUX_REQUIRED_COMMANDS = [
+    'talk',
+    'send',
+    'check',
+    'read',
+    'this',
+    'name',
+    'add',
+    'whoami',
+    'unbind',
+  ];
   if (!process.env.TMUX && TMUX_REQUIRED_COMMANDS.includes(command)) {
     ctx.ui.warn('Not running inside tmux. Some features may not work.');
   }
 
   const run = async (): Promise<void> => {
+    await runStartupChecks(ctx, command);
     switch (command) {
       case 'init':
         cmdInit(ctx);
@@ -174,11 +212,11 @@ function main(): void {
         break;
 
       case 'add':
-        if (args.length < 2) {
-          ctx.ui.error('Usage: tmux-team add <name> <pane> [remark]');
+        if (args.length !== 2) {
+          ctx.ui.error('Usage: tmux-team add <pane-target> <global-name>');
           ctx.exit(ExitCodes.ERROR);
         }
-        cmdAdd(ctx, args[0], args[1], args[2]);
+        cmdAdd(ctx, args[0], args[1]);
         break;
 
       case 'update':
@@ -216,16 +254,36 @@ function main(): void {
         cmdMigrate(ctx, args);
         break;
 
-      case 'team':
-        cmdTeam(ctx, args);
-        break;
-
       case 'this':
-        if (args.length < 1) {
-          ctx.ui.error('Usage: tmux-team this <name> [remark]');
+        if (args.length !== 1) {
+          ctx.ui.error('Usage: tmux-team this <global-name>');
           ctx.exit(ExitCodes.ERROR);
         }
-        cmdThis(ctx, args[0], args[1]);
+        cmdThis(ctx, args[0]);
+        break;
+
+      case 'name':
+        if (args.length !== 1) {
+          ctx.ui.error('Usage: tmux-team name <global-name>');
+          ctx.exit(ExitCodes.ERROR);
+        }
+        cmdName(ctx, args[0]);
+        break;
+
+      case 'whoami':
+        if (args.length !== 0) {
+          ctx.ui.error('Usage: tmux-team whoami');
+          ctx.exit(ExitCodes.ERROR);
+        }
+        cmdWhoami(ctx);
+        break;
+
+      case 'unbind':
+        if (args.length !== 0) {
+          ctx.ui.error('Usage: tmux-team unbind');
+          ctx.exit(ExitCodes.ERROR);
+        }
+        cmdUnbind(ctx);
         break;
 
       case 'talk':
@@ -256,6 +314,10 @@ function main(): void {
 
       case 'install':
         await cmdInstall(ctx, args[0]);
+        break;
+
+      case 'upgrade':
+        cmdUpgrade(ctx);
         break;
 
       case 'learn':

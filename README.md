@@ -1,190 +1,179 @@
 # tmux-team
 
-Coordinate AI agents (Claude, Codex, Gemini) running in tmux panes. Send messages, wait for responses, broadcast to all.
+Coordinate AI agents (Claude, Codex, Gemini, and other terminal agents) in
+tmux panes. Send direct messages, wait for responses, and inspect pane output
+through the `tmt` CLI.
 
 ## Install
 
 ```bash
 npm install -g tmux-team
+tmt install
 ```
+
+The npm `latest` channel remains the stable v4 release. This source tree is the
+v5 alpha line (`5.0.0-alpha.1`); the `@alpha` channel is not claimed to be
+published. Tags, GitHub Releases, npm publishing, and npm dist-tags are
+separate release operations.
+
+`tmt install` auto-detects Claude Code, Codex, and Gemini. Codex and Gemini
+share a managed skill link at `~/.agents/skills/tmux-team`; Claude gets its own
+integration. Repeating the command is idempotent, and unmanaged files are
+backed up only with `--force`. Use `tmt upgrade` to update the package; managed
+skill links immediately use the new bundled files. Interactive commands make a
+once-daily cached update check, while local drift checks work without network.
 
 **Requirements:** Node.js >= 18, tmux
 
 **Alias:** `tmt` (shorthand for `tmux-team`)
 
+## What's new in 5.0
+
+- `tmt name <global-name>` assigns a global identity to the current pane.
+- `tmt this <global-name>` remains a supported, exact alias for `tmt name`.
+- `tmt add <pane-target> <global-name>` assigns an identity to an explicit pane
+  after resolving the target to tmux's stable `%pane_id`.
+- `tmt talk` and `tmt check` accept either a global name or a direct pane
+  target.
+- `tmt list [target]` lists active identities or the runtime status of one
+  pane.
+- `tmt whoami` and `tmt unbind` inspect and remove the current pane's identity.
+- Multiline messages preserve real line breaks when delivered.
+- Skills can be installed and refreshed with `tmt install` and `tmt upgrade`.
+
 ## Quick Start
 
 ```bash
-# 1. Go to working folder and register agents (run inside each agent's pane)
-tmt this claude      # registers current pane as "claude"
-tmt this codex       # registers current pane as "codex"
-# Alternatively, register a specific panel to the session
-tmt add gemini 10.1  # register a panel 10.1 as "gemini"
+# 1. Assign global identities (run inside each agent's pane)
+tmt name claude      # bind the current pane as "claude"
+tmt this codex       # exact alias for `tmt name codex`
+# Or bind an explicit pane target; it is stored by stable `%pane_id`
+tmt add 10.1 gemini
 
-# 2. Talk to agents
-tmt talk codex "Review this code"    # waits for response by default
+# 2. List active identities, or inspect one pane directly
+tmt list
+tmt list %12
+tmt list 10.1
 
-# 4. Update or remove an agent
-tmt update codex --pane 2.3
-tmt rm codex
+# 3. Talk to an identity or directly to a pane
+tmt talk codex "Review this code"
+tmt talk %12 "Please run the smoke tests"
 
-# List panels in the session
-tmt ls 
+# 4. Inspect output and manage the current pane's identity
+tmt check codex
+tmt check %12 100
+tmt whoami
+tmt unbind
 ```
 
-> **Tip:** Most AI agents support `!` to run bash commands. From inside Claude Code, Codex, or Gemini CLI, you can run `!tmt this myname` to quickly register that pane.
+The `add` argument order is pane target first, global name second:
+`tmt add <pane-target> <global-name>`. If an older example uses
+`tmt add <global-name> <pane-target>`, it is rejected with a usage error; swap
+the two arguments to use the current form.
 
-### How scopes work
+Global identities are active across folders and do not depend on the current
+working directory. Names may be undeclared—they do not need to match a
+configured agent role. Each pane has at most one active global identity, and a
+global name identifies at most one pane. The name `all` is an ordinary global
+identity, not a special destination. A message addressed to that name goes to
+the single pane currently bound to it.
 
-Registrations live in tmux pane metadata, not in a JSON file you have to track.
-By default they are scoped to the current **workspace** — the nearest Git root,
-or the current folder when you are not inside a Git repo. So `tmt this`,
-`tmt add`, `tmt rm`, `tmt update`, `tmt preamble`, and `tmt list` all act on
-the workspace you are currently in.
+### Pane targets
 
-Reach for `--team <name>` only when you want an explicit shared team that spans
-folders (see [Shared Teams](#shared-teams)).
+Commands that accept a target recognize a global name or a tmux pane target:
 
-## Cross-Folder Collaboration
+- `%pane_id`, such as `%12`
+- `window.pane`, such as `1.0`
+- `session:window.pane`, such as `main:1.0`
 
-Agents don't need to be in the same folder to collaborate. From your current
-workspace you can add an agent whose pane lives in another project:
+`tmt add` resolves a window-style target to the pane's stable `%pane_id`
+before storing it. Use `%pane_id` when a script needs an unambiguous target.
+Find the current pane ID with:
 
 ```bash
-# In project-a folder, add an agent that's running in project-b
-tmt add codex-reviewer 5.1    # Use the pane ID from the other project
+tmux display-message -p '#{pane_id}'
 ```
-
-Find pane IDs with: `tmux display-message -p "#{pane_id}"`
-
-This still uses the default workspace scope: the registration is visible from
-project-a, not from project-b. For long-running collaboration that should be
-visible on both sides, use a [shared team](#shared-teams).
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `install [claude\|codex]` | Install tmux-team for an AI agent |
-| `this <name> [remark]` | Register current pane as an agent |
-| `talk <agent> "msg"` | Send message and wait for response |
-| `talk all "msg"` | Broadcast to all agents |
-| `check <agent> [lines]` | Read agent's pane output |
-| `list [team\|pane]` | Show current workspace agents, one shared team, or one pane's registrations |
-| `migrate [--dry-run] [--cleanup]` | Move legacy `tmux-team.json` entries into tmux pane metadata |
-| `team` | List shared team names |
-| `team ls <team>` | List members of a shared team |
-| `team add <team> <name> [pane]` | Add current or specified pane to a shared team |
-| `team panes [--json]` | Inspect tmux panes grouped by scope |
-| `team rm <team> --force` | Remove a shared team registration from every pane |
-| `learn` | Show educational guide |
+| `install [claude\|codex\|gemini\|all]` | Install or repair agent integrations |
+| `upgrade` | Upgrade tmux-team; managed skill links update automatically |
+| `name <global-name>` | Bind the current pane to a global identity |
+| `this <global-name>` | Exact supported alias for `name` |
+| `add <pane-target> <global-name>` | Bind an explicit pane to a global identity |
+| `whoami` | Show the current pane's global identity, if any |
+| `unbind` | Remove the current pane's global identity |
+| `talk <target> "msg"` | Send a message to a global name or pane target |
+| `check <target> [lines]` | Read output from a global name or pane target |
+| `list [target]` | List active identities, or one target's pane status |
+| `migrate [--dry-run] [--cleanup]` | Move legacy `tmux-team.json` entries into tmux metadata |
+| `learn` | Show the educational guide |
+
+`list` also has the `ls` alias. With no target it shows all active global
+identities. With a target it resolves a global name or direct pane target and
+shows that pane's status. `talk` and `check` use the same target resolution.
 
 **Options for `talk`:**
+
 - `--timeout <seconds>` - Max wait time (default: 180s)
-- `--lines <number>` - Lines to capture from response (default: 100)
+- `--lines <number>` - Lines to capture from a response (default: 100)
+- `--wait` - Wait for a response before returning
+- `--delay <seconds>` - Delay before sending
 
 Run `tmt help` for all commands and options.
 
-## Message Delivery
+## Runtime and lifecycle
 
-tmux-team uses tmux buffers + paste, then waits briefly before sending Enter. This avoids shell history expansion and handles paste-safety windows in CLIs like Gemini.
+tmux-team is CLI-only. Each `tmt` invocation reads or updates tmux pane
+metadata, sends any requested message, and exits; there is no daemon or
+background service to start, stop, or keep healthy. tmux must be running when a
+command needs pane state.
 
-**Config:** `pasteEnterDelayMs` (default: 500)
+Identity metadata is authoritative. A pane title may be updated as a
+best-effort presentation side effect, but titles are not the identity API.
+Pane targets are resolved to stable `%pane_id` values so pane movement and
+window renumbering do not silently change a stored binding while the pane
+exists.
+
+Messages use tmux buffer paste and then submit with Enter. This preserves
+multiline text and handles paste-safety windows in CLIs such as Gemini. The
+delay is configurable:
 
 ```bash
 tmt config set pasteEnterDelayMs 500
 ```
 
-## Managing Your Team
+## Managing global identities
 
-Agent registrations live in tmux pane metadata, scoped per workspace by
-default. The same-folder workflow never needs `--team`.
-
-**List agents and status:**
-```bash
-tmt ls              # agents in this workspace
-tmt ls myproject    # members of a shared team
-tmt ls 10.1         # registrations on a pane
-tmt ls main.10.1    # shorthand for main:10.1
-```
-
-**Manage shared teams** with the `team` namespace:
+Bind the current pane, or bind another pane by an explicit target:
 
 ```bash
-tmt team                         # list shared team names
-tmt team ls myproject            # list team members
-tmt team add myproject claude    # add current pane to a team
-tmt team add myproject codex 1.1 # add a specific pane to a team
-tmt team rm myproject --force    # remove a team from every pane
+tmt name reviewer
+tmt add %12 gemini
 ```
 
-A single pane can belong to multiple teams. Commands never guess across teams:
-`tmt talk codex` uses the current workspace, while `tmt talk codex --team
-myproject` uses only that shared team. If an agent name appears in multiple
-shared teams and is not in the current workspace, tmux-team asks you to specify
-the team.
-
-**Inspect every tmux pane** with `tmt team panes`. Output is grouped by scope —
-shared teams first, then workspaces, then unregistered panes — and each
-section's title lists the agents living there:
-
-```
-Team: acme-app (codex, gemini)
-PANE   TARGET             CWD              CMD
-%12    main:1.0           ~/acme/frontend  node
-%17    main:2.0           ~/acme/backend   python
-
-Workspace: ~/dev/tmux-team (claude)
-PANE   TARGET             CWD              CMD
-%3     work:0.1           ~/dev/tmux-team  node
-
-Unregistered panes
-PANE   TARGET             CWD              CMD
-%9     misc:0.0           ~/scratch        zsh
-```
+Inspect active identities and pane status:
 
 ```bash
-tmt team panes        # grouped pane inventory
-tmt team panes --json # { teams, panes } incl. each pane's registrations
+tmt list
+tmt list gemini
+tmt list %12
+tmt whoami
 ```
 
-**Add an agent from any pane.** Targets can be `%pane_id`, `window.pane`, or
-`session:window.pane`; tmux-team stores the canonical `%pane_id`.
+Remove the current pane's binding with `tmt unbind`. If a pane is moved or
+renumbered, use its stable `%pane_id` in subsequent commands.
 
-```bash
-tmt add codex 1.1 "Code reviewer"
-```
+## Legacy preambles
 
-**Remove an agent** from the current scope:
-```bash
-tmt rm codex
-```
-
-**Migrate from legacy `tmux-team.json`.** Versions before v4 stored agents in
-a JSON file. `tmt migrate` copies those entries into tmux pane metadata so the
-new commands can see them. Run it once per project that still has the file:
-
-```bash
-tmt migrate --dry-run     # preview what would move
-tmt migrate               # move entries into tmux metadata
-tmt migrate --cleanup     # also delete the migrated entries from the JSON file
-```
-
-`tmux-team.json` is still loaded as a fallback when no tmux metadata exists,
-and it remains the home for local `$config` overrides. If you don't use it,
-you can ignore it.
-
----
-
-## Agent Preambles
-
-Set a per-agent preamble to steer behavior (stored with the pane registration):
+Workspace-scoped preambles remain available for migrated or legacy
+registrations:
 
 ```bash
 tmt preamble set codex "You are the code quality guard. Be strict."
 ```
-
-### What Happens When a Preamble Is Set
 
 When you send a message, tmux-team injects the preamble like this:
 
@@ -194,128 +183,57 @@ When you send a message, tmux-team injects the preamble like this:
 Review the login flow changes.
 ```
 
-Control how often it’s injected with `preambleEvery`:
+This compatibility setting is separate from the global identity binding.
+Control how often it is injected with `preambleEvery`:
 
 ```bash
 tmt config set preambleEvery 3
 ```
 
-## Shared Teams
+## Legacy migration
 
-> *Work on different folders but talk to the same team of agents.*
-
-By default, registrations are scoped to the current workspace. The `--team` flag
-creates an explicit shared team that works across folders:
+Versions before v4 stored registrations in a project-local
+`tmux-team.json`. `tmt migrate` can copy those legacy entries into tmux pane
+metadata:
 
 ```bash
-# Register agents from ANY folder
-cd ~/code/frontend && tmt this claude --team myproject
-cd ~/code/backend && tmt this codex --team myproject
-cd ~/code/infra && tmt this gemini --team myproject
-
-# Now talk to them from anywhere
-tmt talk codex "What's the user API schema?" --team myproject
-tmt talk all "Starting deploy - heads up" --team myproject
+tmt migrate --dry-run     # preview what would move
+tmt migrate               # move entries into tmux metadata
+tmt migrate --cleanup     # also remove migrated entries from the JSON file
 ```
 
-> **Tip:** Most AI coding agents (Claude Code, Codex, Gemini CLI) support `!` to run shell commands. Agents can register themselves without leaving the session:
-> ```
-> !tmt this claude --team myproject
-> ```
-
-### When to use shared teams
-
-**Single project** (default) — agents work in the same folder:
-```bash
-tmt this claude
-tmt add codex 1.1
-```
-
-**Shared team** — agents work across folders but collaborate:
-```bash
-tmt this frontend-claude --team acme-app   # from ~/acme/frontend
-tmt this backend-codex --team acme-app     # from ~/acme/backend
-tmt team                                   # list shared teams
-tmt team ls acme-app                       # list members
-tmt team rm acme-app --force               # remove the team from every pane
-```
-
-### Multi-team coordination
-
-For large systems, create team hierarchies where leaders coordinate sub-teams:
-
-```mermaid
-flowchart
-
-A["you (claude)"]
-A2["codex"]
-A3["gemini"]
-B["backend-lead"]
-B2["codex"]
-C["infra-lead"]
-C2["codex"]
-
-subgraph your-team
-  A <--> A2
-  A <--> A3
-end
-
-A e1@<--> B
-A e2@<--> C
-
-e1@{ animate: true }
-e2@{ animate: true }
-
-subgraph backend-team
-  B <--> B2
-end
-
-subgraph infra-team
-  C <--> C2
-end
-```
-
----
+The JSON file is retained only as a compatibility path for older projects and
+settings. New identity bindings use tmux pane metadata and are global across
+folders.
 
 ## Using /team in Claude Code
 
-The `/team` command lets Claude talk to other AI agents directly. Install the plugin:
+The `/team` command lets Claude invoke `tmt` to communicate with other agents.
+Install the plugin:
 
 ```
 /plugin marketplace add wkh237/tmux-team
-/plugin install tmux-team
+/plugin install tmux-team@tmux-team
 ```
 
 ### /team Commands
 
 | Command | What it does |
 |---------|--------------|
-| `/team list` | Show all registered agents |
-| `/team talk <agent> "msg"` | Send a message and wait for response |
-| `/team talk all "msg"` | Broadcast to all agents |
+| `/team list [target]` | List active identities or one pane's status |
+| `/team talk <target> "msg"` | Send a message to a global name or pane target |
+| `/team check <target> [lines]` | Read output from a global name or pane target |
 
-### Real-World Examples
+Examples:
 
-**Code review delegation:**
-```
+```text
 /team talk codex "Review my changes in src/auth/ for security issues"
+/team check %12 100
+/team list
 ```
 
-**Cross-agent coordination:**
-```
-/team talk all "Starting database migration - hold off on API changes"
-```
-
-**Ask a specialist:**
-```
-/team talk gemini "What's the best practice for rate limiting in GCP?"
-```
-
-### Tips
-
-- `/team talk` waits for the agent to respond before continuing
-- Use `/team list` to see who's available
-- Run `/learn` once per session to teach Claude the full tmux-team workflow
+`/team talk` follows the same wait and timeout options as `tmt talk`. Run
+`/learn` once per session to teach Claude the full workflow.
 
 ## Learn More
 

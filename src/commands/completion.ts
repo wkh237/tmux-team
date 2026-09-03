@@ -12,19 +12,27 @@ _tmux-team() {
   commands=(
     'talk:Send message to an agent'
     'check:Capture output from agent pane'
-    'list:List all configured agents'
+    'list:List active identities or pane status'
     'add:Add a new agent'
     'update:Update agent config'
     'remove:Remove an agent'
     'migrate:Copy legacy tmux-team.json registry into tmux metadata'
-    'team:Manage shared teams'
+    'name:Bind the current pane identity'
+    'this:Bind the current pane identity'
+    'whoami:Show the current pane identity'
+    'unbind:Remove the current pane identity'
+    'install:Install agent skills'
+    'upgrade:Upgrade tmux-team and refresh skills'
     'init:Create empty legacy tmux-team.json'
     'completion:Output shell completion script'
+    'config:View or modify settings'
+    'preamble:Manage identity preambles'
+    'learn:Show the learning guide'
     'help:Show help message'
   )
 
   _get_agents() {
-    agents=(\${(f)"$(tmux-team list --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{try{const j=JSON.parse(s); console.log(Object.keys(j.agents||{}).join("\\n"))}catch{}})')"})
+    agents=(\${(f)"$(tmux-team list --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{try{const j=JSON.parse(s); console.log((j.identities||[]).map(a=>a.name).join("\\n"))}catch{}})')"})
   }
 
   if (( CURRENT == 2 )); then
@@ -36,12 +44,12 @@ _tmux-team() {
         if [[ -n "$agents" ]]; then
           _describe -t agents 'agents' agents
         fi
-        if [[ "\${words[2]}" == "talk" ]]; then
-          compadd "all"
-        fi
         ;;
       completion)
         compadd "zsh" "bash"
+        ;;
+      install)
+        compadd "claude" "codex" "gemini" "all"
         ;;
     esac
   elif (( CURRENT == 4 )); then
@@ -64,21 +72,21 @@ const bashCompletion = `_tmux_team() {
   cur="\${COMP_WORDS[COMP_CWORD]}"
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
-  commands="talk check list add update remove migrate team init completion help"
+  commands="talk check list add update remove migrate init completion help name this whoami unbind install upgrade config preamble learn"
 
   if [[ \${COMP_CWORD} -eq 1 ]]; then
     COMPREPLY=( $(compgen -W "\${commands}" -- \${cur}) )
   elif [[ \${COMP_CWORD} -eq 2 ]]; then
     case "\${prev}" in
       talk|check|update|remove|rm)
-        agents=$(tmux-team list --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{try{const j=JSON.parse(s); console.log(Object.keys(j.agents||{}).join(" "))}catch{}})')
-        if [[ "\${prev}" == "talk" ]]; then
-          agents="\${agents} all"
-        fi
+        agents=$(tmux-team list --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{try{const j=JSON.parse(s); console.log((j.identities||[]).map(a=>a.name).join(" "))}catch{}})')
         COMPREPLY=( $(compgen -W "\${agents}" -- \${cur}) )
         ;;
       completion)
         COMPREPLY=( $(compgen -W "zsh bash" -- \${cur}) )
+        ;;
+      install)
+        COMPREPLY=( $(compgen -W "claude codex gemini all" -- \${cur}) )
         ;;
     esac
   elif [[ \${COMP_CWORD} -eq 3 ]]; then
