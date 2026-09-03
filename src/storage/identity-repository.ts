@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
-import type { DurableIdentity, TmuxBinding } from '../domain/identity.js';
-import { openStorage } from './sqlite-adapter.js';
+import type { DurableIdentity, RoleProfile, TmuxBinding } from '../domain/identity.js';
+import { openStorageWithDatabase } from './sqlite-adapter.js';
 import { StorageError } from './errors.js';
 import type { StorageLocation } from './ports.js';
 
@@ -15,6 +15,9 @@ export interface IdentityRepository {
   touchBinding(id: string, lastVerifiedAt: string): void;
   removeBinding(id: string): void;
   removeIdentityIfUnbound(id: string): void;
+  findRole(identityId: string): RoleProfile | undefined;
+  setRole(identityId: string, content: string): RoleProfile;
+  clearRole(identityId: string): null;
   close(): void;
 }
 
@@ -39,6 +42,8 @@ type BindingRow = {
   bound_at: string;
   last_verified_at: string;
 };
+
+type RoleRow = { content: string; updated_at: string };
 
 function identity(row: IdentityRow): DurableIdentity {
   return {
@@ -71,17 +76,14 @@ export function openIdentityRepository(location: StorageLocation): IdentityRepos
   let lifecycle;
   for (let attempt = 0; ; attempt += 1) {
     try {
-      lifecycle = openStorage(location);
+      lifecycle = openStorageWithDatabase(location);
       break;
     } catch (error) {
       if (!(error instanceof StorageError) || error.code !== 'busy' || attempt >= 20) throw error;
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
     }
   }
-  const database = new Database(lifecycle.path);
-  database.pragma('foreign_keys = ON');
-  database.pragma('busy_timeout = 5000');
-  database.pragma('synchronous = NORMAL');
+  const database = lifecycle.database;
   let closed = false;
 
   const requireOpen = (): Database.Database => {
@@ -170,18 +172,40 @@ export function openIdentityRepository(location: StorageLocation): IdentityRepos
     removeIdentityIfUnbound(id) {
       requireOpen()
         .prepare(
-          'DELETE FROM identities WHERE id = ? AND NOT EXISTS (SELECT 1 FROM bindings WHERE identity_id = ?)'
+          'DELETE FROM identities WHERE id = ? AND NOT EXISTS (SELECT 1 FROM bindings WHERE identity_id = ?) AND NOT EXISTS (SELECT 1 FROM role_profiles WHERE identity_id = ?)'
         )
-        .run(id, id);
+        .run(id, id, id);
+    },
+    findRole(identityId) {
+      const row = requireOpen()
+        .prepare('SELECT content, updated_at FROM role_profiles WHERE identity_id = ?')
+        .get(identityId) as RoleRow | undefined;
+      return row ? { content: row.content, updatedAt: row.updated_at } : undefined;
+    },
+    setRole(identityId, content) {
+      const write = requireOpen().transaction(() => {
+        const now = new Date().toISOString();
+        requireOpen()
+          .prepare(
+            'INSERT INTO role_profiles (identity_id, content, updated_at) VALUES (?, ?, ?) ' +
+              'ON CONFLICT(identity_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at'
+          )
+          .run(identityId, content, now);
+        return { content, updatedAt: now };
+      });
+      return write.immediate();
+    },
+    clearRole(identityId) {
+      const clear = requireOpen().transaction(() => {
+        requireOpen().prepare('DELETE FROM role_profiles WHERE identity_id = ?').run(identityId);
+        return null;
+      });
+      return clear.immediate();
     },
     close() {
       if (closed) return;
       closed = true;
-      try {
-        database.close();
-      } finally {
-        lifecycle.close();
-      }
+      lifecycle.close();
     },
   };
 }

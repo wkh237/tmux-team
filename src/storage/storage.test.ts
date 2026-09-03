@@ -3,9 +3,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { StorageError } from './errors.js';
-import type { MigrationDefinition } from './migrations.js';
+import { applyMigrations, CURRENT_MIGRATIONS, type MigrationDefinition } from './migrations.js';
 import { openStorage, openStorageWithMigrations } from './sqlite-adapter.js';
 
 const temporaryDirectories: string[] = [];
@@ -30,10 +30,11 @@ describe('SQLite storage adapter', () => {
   it('opens a private database with required pragmas and the durable identity schema', () => {
     const directory = temporaryDirectory();
     const storage = openStorage(location(directory));
+    expect(storage).not.toHaveProperty('database');
 
     expect(storage.health()).toMatchObject({
       open: true,
-      schemaVersion: 1,
+      schemaVersion: 2,
       journalMode: 'wal',
       foreignKeys: true,
       busyTimeoutMs: 5000,
@@ -56,6 +57,7 @@ describe('SQLite storage adapter', () => {
       '_migrations',
       'bindings',
       'identities',
+      'role_profiles',
     ]);
     database.close();
     if (process.platform !== 'win32') {
@@ -169,6 +171,43 @@ describe('SQLite storage adapter', () => {
     const recovered = openStorageWithMigrations(location(directory), migrations);
     expect(recovered.health().schemaVersion).toBe(2);
     recovered.close();
+  });
+
+  it('rechecks schema history under the write lock when another connection upgrades first', () => {
+    const file = location(temporaryDirectory()).databaseFile;
+    const first = new Database(file);
+    const second = new Database(file);
+    try {
+      applyMigrations(first, CURRENT_MIGRATIONS.slice(0, 1));
+      const prepare = first.prepare.bind(first);
+      let interleave = true;
+      const spy = vi.spyOn(first, 'prepare').mockImplementation((sql: string) => {
+        const statement = prepare(sql);
+        if (sql === 'SELECT version, name FROM _migrations ORDER BY version' && interleave) {
+          const all = statement.all.bind(statement);
+          vi.spyOn(statement, 'all').mockImplementation(() => {
+            const staleHistory = all();
+            interleave = false;
+            applyMigrations(second);
+            return staleHistory;
+          });
+        }
+        return statement;
+      });
+      expect(applyMigrations(first)).toBe(2);
+      spy.mockRestore();
+      expect(interleave).toBe(false);
+      expect(first.prepare('SELECT version FROM _migrations ORDER BY version').all()).toEqual([
+        { version: 1 },
+        { version: 2 },
+      ]);
+      expect(
+        first.prepare("SELECT name FROM sqlite_master WHERE name = 'role_profiles'").all()
+      ).toEqual([{ name: 'role_profiles' }]);
+    } finally {
+      first.close();
+      second.close();
+    }
   });
 
   it('maps corrupt databases while retaining the native cause', () => {

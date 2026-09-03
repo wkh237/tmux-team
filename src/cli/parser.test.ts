@@ -12,6 +12,29 @@ describe('declarative CLI parser', () => {
     });
   });
 
+  it('keeps role selectors explicit and preserves dash-prefixed profile literals', () => {
+    const parsed = parseArgs(['role', '--identity=show', 'set', '--', '--json profile']);
+    expect(parsed.invocation).toEqual({
+      kind: 'role',
+      operation: 'set',
+      content: '--json profile',
+      selector: { value: 'show', kind: 'identity', explicit: true },
+    });
+    expect(parsed.flags.json).toBe(false);
+    expect(parsed.metadata.capability).toBe('storage');
+    expect(parseArgs(['role', 'show']).metadata.capability).toBe('storage');
+    for (const args of [
+      ['role'],
+      ['role', 'Alice', 'show'],
+      ['role', 'show', 'Alice'],
+      ['role', 'show', '--file', 'profile.md'],
+      ['role', 'clear', '--file', 'profile.md'],
+      ['role', 'list'],
+      ['role', 'show', '--identity'],
+    ])
+      expect(() => parseArgs(args)).toThrow(CliParseError);
+  });
+
   it('preserves dash-prefixed literals after the terminator', () => {
     const parsed = parseArgs(['talk', 'claude', '--', '--json is part of the message']);
     expect(parsed.flags.json).toBe(false);
@@ -171,5 +194,30 @@ describe('declarative CLI parser', () => {
       lines: 12,
     });
     expect(parsed.metadata).toMatchObject({ unsupportedTeam: true, commandPath: ['list'] });
+  });
+
+  it('parses action-first role commands and enforces one set input source', () => {
+    expect(parseArgs(['role', 'show', '--identity', 'Alice']).invocation).toMatchObject({
+      kind: 'role',
+      operation: 'show',
+      selector: { value: 'Alice', kind: 'identity', explicit: true },
+    });
+    expect(parseArgs(['role', 'set', 'text', '--identity', 'Alice']).invocation).toMatchObject({
+      kind: 'role',
+      operation: 'set',
+      content: 'text',
+      selector: { value: 'Alice', kind: 'identity', explicit: true },
+    });
+    expect(parseArgs(['role', 'set', '--file', '/tmp/role.txt']).invocation).toMatchObject({
+      kind: 'role',
+      operation: 'set',
+      file: '/tmp/role.txt',
+    });
+    expect(parseArgs(['role', 'clear']).invocation).toEqual({ kind: 'role', operation: 'clear' });
+    expect(() => parseArgs(['role', 'set'])).toThrow(CliParseError);
+    expect(() => parseArgs(['role', 'set', 'text', '--file', '/tmp/role.txt'])).toThrow(
+      CliParseError
+    );
+    expect(() => parseArgs(['role', 'set', 'a', 'b'])).toThrow(CliParseError);
   });
 });

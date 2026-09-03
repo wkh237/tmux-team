@@ -16,6 +16,7 @@ import { cmdName } from '../commands/name.js';
 import { cmdUpgrade } from '../commands/upgrade.js';
 import { cmdWhoami } from '../commands/whoami.js';
 import { cmdUnbind } from '../commands/unbind.js';
+import { cmdRole } from '../commands/role.js';
 import type { ParsedArgs, ParsedInvocation } from './parser.js';
 
 function assertNever(value: never): never {
@@ -57,6 +58,8 @@ export async function dispatchCommand(ctx: Context, parsed: ParsedArgs): Promise
       return cmdConfig(ctx, request);
     case 'preamble':
       return cmdPreamble(ctx, request);
+    case 'role':
+      return cmdRole(ctx, request);
     case 'install':
       return cmdInstall(ctx, request.target);
     case 'completion':

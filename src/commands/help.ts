@@ -61,6 +61,7 @@ ${colors.yellow('COMMANDS')}
   ${colors.green('init')}                        Create empty tmux-team.json
   ${colors.green('config')} [show|set|clear]     View/modify settings
   ${colors.green('preamble')} [show|set|clear]   Manage legacy workspace preambles
+  ${colors.green('role')} <show|set|clear>      Manage durable identity role profiles
   ${colors.green('completion')}                  Output shell completion script
   ${colors.green('learn')}                       Show educational guide
   ${colors.green('help')}                        Show this help message
@@ -69,6 +70,13 @@ ${colors.yellow('OPTIONS')}
   ${colors.green('--json')}                      Output in JSON format
   ${colors.green('--verbose')}                   Show detailed output
   ${colors.green('--force')}                     Skip warnings
+
+${colors.yellow('ROLE USAGE')}
+  tmt role show [--identity <name>]
+  tmt role set <profile> [--identity <name>]
+  tmt role set --file <path> [--identity <name>]
+  tmt role clear [--identity <name>]
+  Omit --identity only in a verified bound pane; explicit offline identities are supported.
 
 ${colors.yellow('TALK OPTIONS')}
   ${colors.green('--delay')} <seconds>           Wait before sending

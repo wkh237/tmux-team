@@ -21,3 +21,9 @@ export interface TmuxBinding {
   readonly boundAt: string;
   readonly lastVerifiedAt: string;
 }
+
+/** Optional durable role profile attached to one identity. */
+export interface RoleProfile {
+  readonly content: string;
+  readonly updatedAt: string;
+}

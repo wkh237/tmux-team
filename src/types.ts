@@ -1,5 +1,5 @@
 import type { ActiveRegistration } from './domain/types.js';
-import type { DurableIdentity, TmuxBinding } from './domain/identity.js';
+import type { DurableIdentity, RoleProfile, TmuxBinding } from './domain/identity.js';
 
 // ─────────────────────────────────────────────────────────────
 // Shared TypeScript interfaces for tmux-team
@@ -172,6 +172,20 @@ export interface IdentityService {
   close(): void;
 }
 
+export interface RoleService {
+  show(selector?: import('./identity-context.js').IdentitySelector): RoleResult;
+  set(
+    selector: import('./identity-context.js').IdentitySelector | undefined,
+    content: string
+  ): RoleResult;
+  clear(selector?: import('./identity-context.js').IdentitySelector): RoleResult;
+}
+
+export interface RoleResult {
+  readonly identity: Pick<DurableIdentity, 'id' | 'name' | 'canonicalName'>;
+  readonly role: RoleProfile | null;
+}
+
 export interface RegistryScope {
   type: 'workspace';
   workspaceRoot: string;
@@ -194,5 +208,6 @@ export interface Context {
   registryScope?: RegistryScope;
   exit: (code: number) => never;
   identityService?: IdentityService;
+  roleService?: RoleService;
   dispose?: () => void;
 }

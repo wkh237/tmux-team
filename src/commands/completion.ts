@@ -27,6 +27,7 @@ _tmux-team() {
     'completion:Output shell completion script'
     'config:View or modify settings'
     'preamble:Manage identity preambles'
+    'role:Manage durable identity role profiles'
     'learn:Show the learning guide'
     'help:Show help message'
   )
@@ -51,6 +52,9 @@ _tmux-team() {
       install)
         compadd "claude" "codex" "gemini" "all"
         ;;
+      role)
+        compadd "show" "set" "clear"
+        ;;
     esac
   elif (( CURRENT == 4 )); then
     case \${words[2]} in
@@ -59,6 +63,10 @@ _tmux-team() {
         ;;
       talk)
         compadd -- "--delay" "--wait" "--timeout"
+        ;;
+      role)
+        compadd -- "--identity"
+        if [[ "\${words[3]}" == "set" ]]; then compadd -- "--file"; fi
         ;;
     esac
   fi
@@ -72,7 +80,7 @@ const bashCompletion = `_tmux_team() {
   cur="\${COMP_WORDS[COMP_CWORD]}"
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
-  commands="talk check list add update remove migrate init completion help name this whoami unbind install upgrade config preamble learn"
+  commands="talk check list add update remove migrate init completion help name this whoami unbind install upgrade config preamble role learn"
 
   if [[ \${COMP_CWORD} -eq 1 ]]; then
     COMPREPLY=( $(compgen -W "\${commands}" -- \${cur}) )
@@ -88,6 +96,9 @@ const bashCompletion = `_tmux_team() {
       install)
         COMPREPLY=( $(compgen -W "claude codex gemini all" -- \${cur}) )
         ;;
+      role)
+        COMPREPLY=( $(compgen -W "show set clear" -- \${cur}) )
+        ;;
     esac
   elif [[ \${COMP_CWORD} -eq 3 ]]; then
     case "\${COMP_WORDS[1]}" in
@@ -96,6 +107,13 @@ const bashCompletion = `_tmux_team() {
         ;;
       talk)
         COMPREPLY=( $(compgen -W "--delay --wait --timeout" -- \${cur}) )
+        ;;
+      role)
+        if [[ "\${COMP_WORDS[2]}" == "set" ]]; then
+          COMPREPLY=( $(compgen -W "--identity --file" -- \${cur}) )
+        else
+          COMPREPLY=( $(compgen -W "--identity" -- \${cur}) )
+        fi
         ;;
     esac
   fi

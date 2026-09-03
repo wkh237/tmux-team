@@ -9,6 +9,11 @@ export interface StorageOptions {
   readonly migrations?: readonly MigrationDefinition[];
 }
 
+/** Internal repository seam; the public storage lifecycle port remains narrow. */
+export interface InternalStorageHandle extends StorageHandle {
+  readonly database: Database.Database;
+}
+
 function resolveDatabasePath(location: StorageLocation): { directory: string; file: string } {
   if (typeof location === 'string') return { directory: path.dirname(location), file: location };
   return { directory: location.globalDir, file: location.databaseFile };
@@ -61,7 +66,7 @@ function verifyFts5(database: Database.Database): void {
 function openStorageInternal(
   location: StorageLocation,
   options: StorageOptions = {}
-): StorageHandle {
+): InternalStorageHandle {
   const resolved = resolveDatabasePath(location);
   ensurePrivateDirectory(resolved.directory);
 
@@ -105,6 +110,7 @@ function openStorageInternal(
 
   return {
     path: resolved.file,
+    database: openedDatabase,
     health(): StorageHealth {
       const current = requireOpen();
       try {
@@ -157,6 +163,12 @@ function openStorageInternal(
 
 /** Open the user-scoped database with the repository's current migrations. */
 export function openStorage(location: StorageLocation): StorageHandle {
+  const { database: _database, ...lifecycle } = openStorageInternal(location);
+  return lifecycle;
+}
+
+/** Internal-only entry point for repositories sharing the lifecycle connection. */
+export function openStorageWithDatabase(location: StorageLocation): InternalStorageHandle {
   return openStorageInternal(location);
 }
 
@@ -165,5 +177,6 @@ export function openStorageWithMigrations(
   location: StorageLocation,
   migrations: readonly MigrationDefinition[]
 ): StorageHandle {
-  return openStorageInternal(location, { migrations });
+  const { database: _database, ...lifecycle } = openStorageInternal(location, { migrations });
+  return lifecycle;
 }

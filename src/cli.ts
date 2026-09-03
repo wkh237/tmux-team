@@ -119,6 +119,9 @@ function main(): void {
       } else {
         console.error(JSON.stringify({ error: String(err?.message ?? err) }));
       }
+      // Dispose before process.exit; Node does not guarantee finally blocks
+      // will run after an explicit exit in embedding and test environments.
+      ctx.dispose?.();
       process.exit(ExitCodes.ERROR);
     })
     .finally(() => ctx.dispose?.());

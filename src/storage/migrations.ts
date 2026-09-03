@@ -41,6 +41,18 @@ export const CURRENT_MIGRATIONS: readonly MigrationDefinition[] = [
         CREATE INDEX bindings_endpoint ON bindings(transport, server_id, pane_id);
       `),
   },
+  {
+    version: 2,
+    name: 'create optional identity role profiles',
+    up: (database) =>
+      database.exec(`
+        CREATE TABLE role_profiles (
+          identity_id TEXT NOT NULL PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
+          content TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `),
+  },
 ];
 
 const CREATE_MIGRATIONS = `
@@ -138,6 +150,12 @@ export function applyMigrations(
       const migration = migrations[index];
       const applyOne = database.transaction(() => {
         try {
+          // Recheck while holding the write transaction. Another process may
+          // have applied this migration after the initial history read.
+          const latest = database
+            .prepare('SELECT version, name FROM _migrations ORDER BY version')
+            .all() as Array<{ version: number; name: string }>;
+          if (validateHistory(latest, migrations) >= migration.version) return;
           migration.up(database);
           insert.run(migration.version, migration.name, new Date().toISOString());
         } catch (error) {

@@ -38,6 +38,8 @@ once-daily cached update check, while local drift checks work without network.
 - `tmt list [target]` lists active identities or the runtime status of one
   pane.
 - `tmt whoami` and `tmt unbind` inspect and remove the current pane's identity.
+- `tmt role show|set|clear` manages an optional durable profile for an identity,
+  including identities that are currently offline.
 - Multiline messages preserve real line breaks when delivered.
 - Skills can be installed and refreshed with `tmt install` and `tmt upgrade`.
 
@@ -105,6 +107,10 @@ tmux display-message -p '#{pane_id}'
 | `add <pane-target> <global-name>` | Bind an explicit pane to a global identity |
 | `whoami` | Show the current pane's global identity, if any |
 | `unbind` | Remove the current pane's global identity |
+| `role show [--identity <name>]` | Read an identity's optional role profile |
+| `role set <profile> [--identity <name>]` | Replace an identity's role profile |
+| `role set --file <path> [--identity <name>]` | Replace a profile from a UTF-8 file |
+| `role clear [--identity <name>]` | Remove only the role profile |
 | `talk <target> "msg"` | Send a message to a global name or pane target |
 | `check <target> [lines]` | Read output from a global name or pane target |
 | `list [target]` | List active identities, or one target's pane status |
@@ -169,9 +175,10 @@ after write work. Normal command shutdown uses a passive checkpoint; backup or
 export first obtains a consistent SQLite backup and may use a truncate
 checkpoint only after no active reader remains.
 
-Durable identity records and transient tmux bindings use this storage boundary.
-Role, memory, and inbox schemas are intentionally deferred to their respective
-tickets; this release does not expose aliases or those later domain models.
+Durable identity records, optional role profiles, and transient tmux bindings
+use this storage boundary. Memory and inbox schemas are intentionally deferred
+to their respective tickets; this release does not expose aliases or those
+later domain models.
 
 ## Managing global identities
 
@@ -195,6 +202,40 @@ Remove the current pane's binding with `tmt unbind`. This preserves the durable
 identity record so its name and ID can be rebound later. Repeating `tmt unbind`
 on an already-unbound pane returns `UNBOUND_PANE`. Pane movement and window
 renumbering preserve the binding's stable `%pane_id` while the pane lives.
+
+## Optional role profiles
+
+Each identity can carry one optional role/profile document. A role is not a
+reusable catalog entry or an assignment to another identity. An identity with
+no role remains valid.
+
+```bash
+tmt role set "Review changes and preserve verification evidence."
+tmt role set --file reviewer.md --identity reviewer
+tmt role show --identity reviewer
+tmt role clear --identity reviewer
+```
+
+Omit `--identity` only when the current pane has a verified identity binding.
+Otherwise specify an existing identity explicitly. Explicit access works
+outside tmux and while an identity is offline; it does not create a missing
+identity. Profiles survive unbind, pane death, tmux server restart, and later
+rebind. `clear` removes only the profile and succeeds even when no profile was
+set. `show --json` returns `role: null` for an identity without a profile.
+
+Both inline and file input use the same validation. Each raw input and its
+normalized content must be at most 65,536 UTF-8 bytes. Files must be regular
+files containing valid UTF-8; symlinks to regular files are accepted. TMT
+removes one initial byte-order mark and normalizes CRLF/CR to LF, preserving
+other whitespace, tabs, indentation, and trailing newlines. Empty or
+whitespace-only content, malformed encoding, and binary control characters
+are rejected without changing the stored profile. Use `clear`, not an empty
+`set`, to remove a profile.
+
+Writes replace the whole profile atomically. Concurrent writes use
+last-committed-write-wins; there is no content merge or version-conflict check.
+The role document is stored data only: it is not automatically injected into
+`talk` messages and does not change legacy preambles.
 
 ## Legacy preambles
 
