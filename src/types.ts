@@ -96,6 +96,8 @@ export interface Paths {
   globalConfig: string;
   localConfig: string;
   stateFile: string;
+  /** User-scoped SQLite database used by durable v5 features. */
+  databaseFile: string;
   workspaceRoot?: string;
 }
 

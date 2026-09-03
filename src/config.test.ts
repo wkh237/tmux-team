@@ -188,6 +188,7 @@ describe('loadConfig', () => {
     globalConfig: '/home/test/.config/tmux-team/config.json',
     localConfig: '/projects/myapp/tmux-team.json',
     stateFile: '/home/test/.config/tmux-team/state.json',
+    databaseFile: '/home/test/.config/tmux-team/tmux-team.db',
   };
 
   beforeEach(() => {

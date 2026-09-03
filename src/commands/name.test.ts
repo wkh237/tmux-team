@@ -46,7 +46,13 @@ function context(registrations: ActiveRegistration[] = [], json = false): Contex
       paneRegistry: {},
     },
     tmux,
-    paths: { globalDir: '', globalConfig: '', localConfig: '', stateFile: '' },
+    paths: {
+      globalDir: '',
+      globalConfig: '',
+      localConfig: '',
+      stateFile: '',
+      databaseFile: '',
+    },
     exit: ((code: number) => {
       throw Object.assign(new Error(`exit(${code})`), { exitCode: code });
     }) as Context['exit'],

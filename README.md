@@ -23,7 +23,7 @@ backed up only with `--force`. Use `tmt upgrade` to update the package; managed
 skill links immediately use the new bundled files. Interactive commands make a
 once-daily cached update check, while local drift checks work without network.
 
-**Requirements:** Node.js >= 18, tmux
+**Requirements:** Node.js >= 22.12, tmux
 
 **Alias:** `tmt` (shorthand for `tmux-team`)
 
@@ -144,6 +144,29 @@ delay is configurable:
 ```bash
 tmt config set pasteEnterDelayMs 500
 ```
+
+## Local SQLite storage
+
+TMT owns its local SQLite database. The database is deliberately local-file
+only: it is not a shared service, does not listen on a network socket, and is
+not accessed by a daemon. The default path is the global TMT directory
+selected by the XDG config resolution rules: `$XDG_CONFIG_HOME/tmux-team/tmux-team.db`,
+or `~/.config/tmux-team/tmux-team.db` when `XDG_CONFIG_HOME` is unset. The
+configuration file and legacy JSON state remain separate compatibility
+surfaces in that directory.
+
+The storage directory is created with mode `0700` and database files with mode
+`0600`; operators should not place the database on a shared or untrusted
+filesystem. SQLite WAL sidecar files must remain beside the database and must
+not be deleted manually. Writers use a bounded busy timeout and checkpoint
+after write work. Normal command shutdown uses a passive checkpoint; backup or
+export first obtains a consistent SQLite backup and may use a truncate
+checkpoint only after no active reader remains.
+
+Identity and memory tables are intentionally not specified by this section.
+They are delivered by their respective tickets behind the shared storage
+boundary. Until those tickets land, this is a storage ownership and recovery
+contract rather than a claim that those tables already exist.
 
 ## Managing global identities
 

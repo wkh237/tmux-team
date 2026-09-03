@@ -46,6 +46,7 @@ function makeStubContext(): Context {
       globalConfig: '/g/c.json',
       localConfig: '/p/t.json',
       stateFile: '/g/s.json',
+      databaseFile: '/g/tmux-team.db',
     },
     exit: ((code: number) => {
       const err = new Error(`exit(${code})`);

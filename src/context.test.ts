@@ -14,6 +14,7 @@ describe('createContext', () => {
       globalConfig: '/g/config.json',
       localConfig: '/p/tmux-team.json',
       stateFile: '/g/state.json',
+      databaseFile: '/g/tmux-team.db',
     };
     const config: ResolvedConfig = {
       mode: 'polling',
@@ -77,6 +78,7 @@ describe('createContext', () => {
       globalConfig: '/g/config.json',
       localConfig: '/repo/tmux-team.json',
       stateFile: '/g/state.json',
+      databaseFile: '/g/tmux-team.db',
       workspaceRoot: '/repo',
     };
     const config: ResolvedConfig = {
