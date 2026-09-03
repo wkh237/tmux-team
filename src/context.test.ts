@@ -163,4 +163,49 @@ describe('createContext', () => {
     expect(createTmux).not.toHaveBeenCalled();
     expect(ctx.paths.globalConfig).toBeTypeOf('string');
   });
+
+  it('disposes an opened identity service without eagerly opening it', async () => {
+    vi.resetModules();
+    const close = vi.fn();
+    const createTmux = vi.fn(() => ({}));
+    vi.doMock('./tmux.js', () => ({ createTmux }));
+    vi.doMock('./identity-service.js', () => ({
+      createIdentityService: vi.fn(() => ({ close })),
+    }));
+    const { createContext } = await import('./context.js');
+    const ctx = createContext({
+      argv: [],
+      flags: { json: false, verbose: false },
+      capability: 'none',
+    });
+    expect(createTmux).not.toHaveBeenCalled();
+    const service = ctx.identityService;
+    expect(createTmux).toHaveBeenCalledOnce();
+    ctx.dispose?.();
+    expect(close).toHaveBeenCalledOnce();
+    expect(service).toBeDefined();
+  });
+
+  it('disposes an opened identity service before an explicit process exit', async () => {
+    vi.resetModules();
+    const close = vi.fn();
+    vi.doMock('./tmux.js', () => ({ createTmux: () => ({}) }));
+    vi.doMock('./identity-service.js', () => ({
+      createIdentityService: vi.fn(() => ({ close })),
+    }));
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      throw new Error(`exit(${code})`);
+    }) as never);
+    const { createContext } = await import('./context.js');
+    const ctx = createContext({
+      argv: [],
+      flags: { json: false, verbose: false },
+      capability: 'none',
+    });
+
+    expect(ctx.identityService).toBeDefined();
+    expect(() => ctx.exit(5)).toThrow('exit(5)');
+    expect(close).toHaveBeenCalledOnce();
+    expect(exitSpy).toHaveBeenCalledWith(5);
+  });
 });

@@ -6,6 +6,7 @@ import type { Context, PaneInfo } from '../types.js';
 import { ExitCodes } from '../exits.js';
 import { resolveTarget, sortedGlobalIdentities } from '../target-resolver.js';
 import { normalizeName } from '../domain/names.js';
+import { identityAwareTmux } from '../identity-service.js';
 
 type PublicIdentity = { name: string; canonicalName: string };
 
@@ -29,9 +30,10 @@ function paneDetails(ctx: Context, paneId: string, panes?: Map<string, PaneInfo>
 
 export function cmdList(ctx: Context, target?: string): void {
   const { ui, tmux, flags, exit } = ctx;
+  const runtimeTmux = identityAwareTmux(tmux, ctx.identityService);
 
   if (target !== undefined) {
-    const resolution = resolveTarget(tmux, target);
+    const resolution = resolveTarget(runtimeTmux, target);
     if (!resolution.ok) {
       if (flags.json) ui.json({ error: resolution.error });
       else ui.error(resolution.error.message);
@@ -60,7 +62,7 @@ export function cmdList(ctx: Context, target?: string): void {
     return;
   }
 
-  const identities = sortedGlobalIdentities(tmux);
+  const identities = sortedGlobalIdentities(runtimeTmux);
   const panes = new Map(tmux.listPanes().map((pane) => [pane.id, pane]));
 
   if (flags.json) {

@@ -2,6 +2,7 @@ import { bindGlobalName, unbindGlobalPane } from '../domain/service.js';
 import type { BindingErrorCode } from '../domain/types.js';
 import type { Context } from '../types.js';
 import { ExitCodes } from '../exits.js';
+import { IdentityServiceError } from '../identity-service.js';
 
 export function resolveCurrentPane(ctx: Context): string | null {
   const current = ctx.tmux.getCurrentPaneId();
@@ -14,7 +15,7 @@ export function resolvePane(ctx: Context, target: string): string | null {
 
 export function failIdentity(
   ctx: Context,
-  code: BindingErrorCode | 'PANE_NOT_FOUND',
+  code: BindingErrorCode | 'PANE_NOT_FOUND' | 'NAME_NOT_FOUND' | 'RECONCILIATION_FAILED',
   message: string
 ): never {
   if (ctx.flags.json) {
@@ -33,6 +34,22 @@ export function failIdentity(
 }
 
 export function bindIdentity(ctx: Context, paneId: string, name: string): void {
+  if (ctx.identityService) {
+    try {
+      const identity = ctx.identityService.bindPane(paneId, name);
+      try {
+        ctx.tmux.setPaneTitle(paneId, identity.name);
+      } catch {
+        // Identity metadata is authoritative; title synchronization is presentation only.
+      }
+      if (ctx.flags.json) ctx.ui.json({ bound: true, name: identity.name, pane: paneId });
+      else ctx.ui.success(`Bound '${identity.name}' to pane ${paneId}`);
+      return;
+    } catch (error) {
+      if (error instanceof IdentityServiceError) failIdentity(ctx, error.code, error.message);
+      throw error;
+    }
+  }
   const registrations = ctx.tmux.listGlobalIdentities();
   const result = bindGlobalName(registrations, name, paneId);
   if (!result.ok) failIdentity(ctx, result.error.code, result.error.message);
@@ -58,6 +75,21 @@ export function bindIdentity(ctx: Context, paneId: string, name: string): void {
 }
 
 export function unbindIdentity(ctx: Context, paneId: string): void {
+  if (ctx.identityService) {
+    try {
+      const identity = ctx.identityService.unbindCurrent();
+      if (!identity) {
+        failIdentity(ctx, 'UNBOUND_PANE', 'Pane has no active global name.');
+      }
+      if (ctx.flags.json) {
+        ctx.ui.json({ unbound: true, name: identity.name, pane: paneId });
+      } else ctx.ui.success(`Unbound pane ${paneId}`);
+      return;
+    } catch (error) {
+      if (error instanceof IdentityServiceError) failIdentity(ctx, error.code, error.message);
+      throw error;
+    }
+  }
   const registrations = ctx.tmux.listGlobalIdentities();
   const current = registrations.find((entry) => entry.paneId === paneId);
   const result = unbindGlobalPane(registrations, paneId);

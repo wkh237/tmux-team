@@ -69,8 +69,8 @@ function openStorageInternal(
   try {
     database = new Database(resolved.file);
     database.pragma('foreign_keys = ON');
-    database.pragma('journal_mode = WAL');
     database.pragma('busy_timeout = 5000');
+    database.pragma('journal_mode = WAL');
     database.pragma('synchronous = NORMAL');
     verifyFts5(database);
     applyMigrations(database, options.migrations ?? CURRENT_MIGRATIONS);

@@ -27,13 +27,13 @@ afterEach(() => {
 });
 
 describe('SQLite storage adapter', () => {
-  it('opens a private database with required pragmas and only migration metadata', () => {
+  it('opens a private database with required pragmas and the durable identity schema', () => {
     const directory = temporaryDirectory();
     const storage = openStorage(location(directory));
 
     expect(storage.health()).toMatchObject({
       open: true,
-      schemaVersion: 0,
+      schemaVersion: 1,
       journalMode: 'wal',
       foreignKeys: true,
       busyTimeoutMs: 5000,
@@ -52,7 +52,11 @@ describe('SQLite storage adapter', () => {
     const tables = database
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
       .all() as Array<{ name: string }>;
-    expect(tables.map((table) => table.name)).toEqual(['_migrations']);
+    expect(tables.map((table) => table.name).sort()).toEqual([
+      '_migrations',
+      'bindings',
+      'identities',
+    ]);
     database.close();
     if (process.platform !== 'win32') {
       expect(fs.statSync(directory).mode & 0o777).toBe(0o700);

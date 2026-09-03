@@ -107,6 +107,26 @@ describe('whoami and unbind', () => {
     });
   });
 
+  it('preserves UNBOUND_PANE when the durable identity service finds no active binding', () => {
+    const ctx = context([], true);
+    ctx.identityService = {
+      bindCurrent: vi.fn(),
+      bindPane: vi.fn(),
+      unbindCurrent: vi.fn(() => undefined),
+      currentIdentity: vi.fn(),
+      activeIdentities: vi.fn(() => []),
+      resolveActive: vi.fn(),
+      reconcile: vi.fn(),
+      close: vi.fn(),
+    };
+
+    expect(() => cmdUnbind(ctx)).toThrow('exit(1)');
+    expect(ctx.identityService.unbindCurrent).toHaveBeenCalledOnce();
+    expect(ctx.ui.json).toHaveBeenCalledWith({
+      error: { code: 'UNBOUND_PANE', message: 'Pane has no active global name.' },
+    });
+  });
+
   it('returns a pane-not-found error when outside tmux', () => {
     const ctx = context([], true);
     (ctx.tmux.getCurrentPaneId as ReturnType<typeof vi.fn>).mockReturnValue(null);
