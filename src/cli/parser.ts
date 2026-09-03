@@ -2,6 +2,7 @@ import { Command, CommanderError } from 'commander';
 import { isPaneTarget } from '../domain/names.js';
 import type { Flags } from '../types.js';
 import type { IdentitySelector } from '../identity-context.js';
+import type { RoleRequest } from '../commands/role.js';
 export type { IdentitySelector } from '../identity-context.js';
 
 export type ParsedInvocation =
@@ -34,7 +35,8 @@ export type ParsedInvocation =
       readonly operation: 'show' | 'set' | 'clear';
       readonly agent?: string;
       readonly preamble?: string;
-    };
+    }
+  | RoleRequest;
 
 export interface ParsedMetadata {
   readonly argv: readonly string[];
@@ -80,6 +82,8 @@ interface CommandOptions extends CommonOptions {
   dryRun?: boolean;
   cleanup?: boolean;
   global?: boolean;
+  identity?: string;
+  file?: string;
 }
 
 interface Capture {
@@ -147,6 +151,7 @@ function compatibilityUsage(argv: readonly string[], message: string): string | 
     send: 'Usage: tmux-team send <target> <message>',
     whoami: 'Usage: tmux-team whoami',
     unbind: 'Usage: tmux-team unbind',
+    role: 'Usage: tmux-team role show|set|clear [options]',
   };
   const command = argv.find((token) => Object.prototype.hasOwnProperty.call(usage, token));
   return command ? usage[command] : undefined;
@@ -168,6 +173,10 @@ function capabilityFor(invocation: ParsedInvocation): ParsedMetadata['capability
       return 'storage';
     case 'preamble':
       return invocation.operation === 'show' ? 'storage' : 'tmux';
+    case 'role':
+      // Keep context creation storage-only. Implicit current-pane resolution
+      // obtains tmux lazily, preserving offline explicit identity behavior.
+      return 'storage';
     case 'migrate':
       return 'tmux';
     default:
@@ -372,6 +381,45 @@ function setupProgram(capture: Capture): Command {
   commonOptions(preambleClear);
   preambleClear.action(function (agent: string) {
     action(this, { kind: 'preamble', operation: 'clear', agent });
+  });
+  const role = leaf(program.command('role')).option('--identity <name>');
+  const roleShow = role.command('show');
+  commonOptions(roleShow).option('--identity <name>');
+  roleShow.action(function () {
+    const options = commandOptions(this);
+    action(this, {
+      kind: 'role',
+      operation: 'show',
+      ...(options.identity !== undefined && { selector: selector(options.identity, true) }),
+    });
+  });
+  const roleSet = role.command('set').argument('[content]');
+  commonOptions(roleSet).option('--identity <name>').option('--file <path>');
+  roleSet.action(function (content?: string) {
+    const options = commandOptions(this);
+    const hasContent = content !== undefined;
+    const hasFile = options.file !== undefined;
+    if (hasContent === hasFile) {
+      throw new CliParseError(
+        'Usage: tmux-team role set [content] [--file <path>] [--identity <name>]'
+      );
+    }
+    action(this, {
+      kind: 'role',
+      operation: 'set',
+      ...(content !== undefined ? { content } : { file: options.file! }),
+      ...(options.identity !== undefined && { selector: selector(options.identity, true) }),
+    });
+  });
+  const roleClear = role.command('clear');
+  commonOptions(roleClear).option('--identity <name>');
+  roleClear.action(function () {
+    const options = commandOptions(this);
+    action(this, {
+      kind: 'role',
+      operation: 'clear',
+      ...(options.identity !== undefined && { selector: selector(options.identity, true) }),
+    });
   });
   const install = leaf(program.command('install').argument('[agent]'));
   install.action(function (agent?: string) {

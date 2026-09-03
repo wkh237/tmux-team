@@ -74,4 +74,44 @@ describe('identity repository contract', () => {
     expect(() => repository.listIdentities()).toThrow('Identity repository is closed.');
     repository.close();
   });
+
+  it('stores, replaces, clears, and protects an unbound identity with a role', () => {
+    const repository = openIdentityRepository(databasePath());
+    const identity = repository.createIdentity('RoleOwner', 'roleowner');
+    expect(repository.findRole(identity.id)).toBeUndefined();
+    const first = repository.setRole(identity.id, 'first');
+    expect(first).toMatchObject({ content: 'first', updatedAt: expect.any(String) });
+    expect(repository.findRole(identity.id)).toEqual(first);
+    const second = repository.setRole(identity.id, 'second');
+    expect(second.content).toBe('second');
+    expect(repository.findRole(identity.id)).toEqual(second);
+    repository.removeIdentityIfUnbound(identity.id);
+    expect(repository.findByCanonicalName('roleowner')).toEqual(identity);
+    expect(repository.clearRole(identity.id)).toBeNull();
+    expect(repository.findRole(identity.id)).toBeUndefined();
+    repository.removeIdentityIfUnbound(identity.id);
+    expect(repository.findByCanonicalName('roleowner')).toBeUndefined();
+    repository.close();
+  });
+
+  it('persists profiles across reopen and rejects orphan writes without affecting another identity', () => {
+    const file = databasePath();
+    const repository = openIdentityRepository(file);
+    const identity = repository.createIdentity('Owner', 'owner');
+    const profile = repository.setRole(identity.id, 'durable profile');
+    expect(() => repository.setRole('missing-id', 'orphan')).toThrow();
+    expect(repository.findRole(identity.id)).toEqual(profile);
+    expect(repository.findRole('missing-id')).toBeUndefined();
+    repository.close();
+    const reopened = openIdentityRepository(file);
+    try {
+      expect(reopened.findRole(identity.id)).toEqual(profile);
+      reopened.clearRole(identity.id);
+      reopened.clearRole(identity.id);
+      expect(reopened.findRole(identity.id)).toBeUndefined();
+      expect(reopened.findByCanonicalName('owner')).toEqual(identity);
+    } finally {
+      reopened.close();
+    }
+  });
 });

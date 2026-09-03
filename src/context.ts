@@ -8,6 +8,8 @@ import { createUI } from './ui.js';
 import { createTmux } from './tmux.js';
 import { ExitCodes } from './exits.js';
 import { createIdentityService } from './identity-service.js';
+import { openIdentityRepository, type IdentityRepository } from './storage/identity-repository.js';
+import { createRoleService } from './role-service.js';
 
 export interface CreateContextOptions {
   argv: string[];
@@ -29,6 +31,8 @@ export function createContext(options: CreateContextOptions): Context {
   let tmux: Context['tmux'] | undefined;
   let config: Context['config'] | undefined;
   let identityService: Context['identityService'] | undefined;
+  let identityRepository: IdentityRepository | undefined;
+  let roleService: Context['roleService'] | undefined;
   const getTmux = (): Context['tmux'] => {
     tmux ??= createTmux();
     return tmux;
@@ -45,8 +49,38 @@ export function createContext(options: CreateContextOptions): Context {
     return config;
   };
   const getIdentityService = (): NonNullable<Context['identityService']> => {
-    identityService ??= createIdentityService({ tmux: getTmux(), paths });
+    identityService ??= createIdentityService({
+      tmux: getTmux(),
+      paths,
+      repository: getIdentityRepository(),
+    });
     return identityService;
+  };
+  const getIdentityRepository = (): IdentityRepository => {
+    identityRepository ??= openIdentityRepository(paths.databaseFile);
+    return identityRepository;
+  };
+  const getRoleService = (): NonNullable<Context['roleService']> => {
+    roleService ??= createRoleService({
+      repository: getIdentityRepository(),
+      // Role's implicit selector requires caller binding evidence. Do not let
+      // the tmux adapter's outside-shell fallback select an arbitrary pane.
+      currentIdentity: () =>
+        process.env.TMUX_PANE ? getIdentityService().currentIdentity() : undefined,
+    });
+    return roleService;
+  };
+  const dispose = (): void => {
+    const service = identityService;
+    const repository = identityRepository;
+    identityService = undefined;
+    identityRepository = undefined;
+    roleService = undefined;
+    try {
+      service?.close();
+    } finally {
+      repository?.close();
+    }
   };
 
   const context = {
@@ -55,9 +89,9 @@ export function createContext(options: CreateContextOptions): Context {
     ui,
     paths,
     registryScope,
+    dispose,
     exit(code: number): never {
-      identityService?.close();
-      identityService = undefined;
+      dispose();
       process.exit(code);
     },
   } as Context;
@@ -65,11 +99,8 @@ export function createContext(options: CreateContextOptions): Context {
     config: { enumerable: true, get: getConfig },
     tmux: { enumerable: true, get: getTmux },
     identityService: { enumerable: true, get: getIdentityService },
+    roleService: { enumerable: true, get: getRoleService },
   });
-  (context as Context).dispose = (): void => {
-    identityService?.close();
-    identityService = undefined;
-  };
   // Preserve the established full-context behavior. Lightweight capabilities
   // intentionally defer both resources until a command asks for them.
   if (capability === 'tmux') getConfig();

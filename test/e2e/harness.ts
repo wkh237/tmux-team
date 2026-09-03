@@ -32,6 +32,8 @@ export interface MockPane {
 export interface CliRunOptions {
   cwd?: string;
   pane?: string;
+  /** Remove pane context and fail visibly if the CLI attempts to invoke tmux. */
+  withoutTmux?: boolean;
 }
 
 function shellQuote(value: string): string {
@@ -46,6 +48,7 @@ export class E2EFixture {
   readonly workspace = path.join(this.root, 'workspace');
   readonly globalDir = path.join(this.root, 'global');
   readonly logPath = path.join(this.root, 'mock-agent.jsonl');
+  readonly forbiddenTmuxLogPath = path.join(this.root, 'forbidden-tmux.log');
   readonly socket = `tmt-e2e-${process.pid}-${Math.random().toString(16).slice(2)}`;
   readonly wrapperDir = path.join(this.root, 'bin');
   readonly tmuxPath: string;
@@ -83,7 +86,7 @@ export class E2EFixture {
       fs.mkdirSync(this.wrapperDir, { recursive: true });
       fs.writeFileSync(
         path.join(this.wrapperDir, 'tmux'),
-        `#!/bin/sh\nexec ${shellQuote(this.tmuxPath)} -f /dev/null -L "$TMT_E2E_SOCKET" "$@"\n`
+        `#!/bin/sh\nif [ "${'$'}{TMT_E2E_FORBID_TMUX:-}" = "1" ]; then\n  echo "unexpected tmux invocation" >> "$TMT_E2E_FORBIDDEN_TMUX_LOG"\n  exit 97\nfi\nexec ${shellQuote(this.tmuxPath)} -f /dev/null -L "$TMT_E2E_SOCKET" "$@"\n`
       );
       fs.chmodSync(path.join(this.wrapperDir, 'tmux'), 0o755);
 
@@ -117,9 +120,16 @@ export class E2EFixture {
     options: CliRunOptions = {}
   ): Promise<CliResult<T>> {
     if (!this.started) throw new Error('E2E fixture must be started before invoking the CLI.');
+    const env: NodeJS.ProcessEnv = { ...this.env, TMUX_PANE: options.pane ?? this.pane };
+    if (options.withoutTmux) {
+      delete env.TMUX;
+      delete env.TMUX_PANE;
+      env.TMT_E2E_FORBID_TMUX = '1';
+      env.TMT_E2E_FORBIDDEN_TMUX_LOG = this.forbiddenTmuxLogPath;
+    }
     const child = spawn(binPath, args, {
       cwd: options.cwd ?? this.workspace,
-      env: { ...this.env, TMUX_PANE: options.pane ?? this.pane },
+      env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';

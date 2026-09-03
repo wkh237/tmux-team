@@ -19,6 +19,7 @@ const handlers = {
   cmdUpgrade: vi.fn(),
   cmdWhoami: vi.fn(),
   cmdUnbind: vi.fn(),
+  cmdRole: vi.fn(),
 };
 
 vi.mock('../commands/init.js', () => ({ cmdInit: handlers.cmdInit }));
@@ -38,6 +39,7 @@ vi.mock('../commands/name.js', () => ({ cmdName: handlers.cmdName }));
 vi.mock('../commands/upgrade.js', () => ({ cmdUpgrade: handlers.cmdUpgrade }));
 vi.mock('../commands/whoami.js', () => ({ cmdWhoami: handlers.cmdWhoami }));
 vi.mock('../commands/unbind.js', () => ({ cmdUnbind: handlers.cmdUnbind }));
+vi.mock('../commands/role.js', () => ({ cmdRole: handlers.cmdRole }));
 
 const { dispatchCommand } = await import('./application.js');
 const parsed = (invocation: any) => ({
@@ -69,6 +71,7 @@ describe('application dispatcher', () => {
       ['check', { target, lines: 20 }],
       ['config', { operation: 'show', global: false }],
       ['preamble', { operation: 'show' }],
+      ['role', { operation: 'show' }],
       ['install', { target: 'codex' }],
       ['upgrade', {}],
       ['learn', {}],
@@ -83,6 +86,10 @@ describe('application dispatcher', () => {
       expect.objectContaining({ operation: 'show' })
     );
     expect(handlers.cmdPreamble).toHaveBeenCalledWith(
+      ctx,
+      expect.objectContaining({ operation: 'show' })
+    );
+    expect(handlers.cmdRole).toHaveBeenCalledWith(
       ctx,
       expect.objectContaining({ operation: 'show' })
     );

@@ -1,7 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Paths, ResolvedConfig, UI, Tmux } from './types.js';
 
 describe('createContext', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
   beforeEach(() => {
     vi.restoreAllMocks();
   });
@@ -172,6 +175,9 @@ describe('createContext', () => {
     vi.doMock('./identity-service.js', () => ({
       createIdentityService: vi.fn(() => ({ close })),
     }));
+    vi.doMock('./storage/identity-repository.js', () => ({
+      openIdentityRepository: vi.fn(() => ({ close: vi.fn() })),
+    }));
     const { createContext } = await import('./context.js');
     const ctx = createContext({
       argv: [],
@@ -193,6 +199,9 @@ describe('createContext', () => {
     vi.doMock('./identity-service.js', () => ({
       createIdentityService: vi.fn(() => ({ close })),
     }));
+    vi.doMock('./storage/identity-repository.js', () => ({
+      openIdentityRepository: vi.fn(() => ({ close: vi.fn() })),
+    }));
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       throw new Error(`exit(${code})`);
     }) as never);
@@ -207,5 +216,71 @@ describe('createContext', () => {
     expect(() => ctx.exit(5)).toThrow('exit(5)');
     expect(close).toHaveBeenCalledOnce();
     expect(exitSpy).toHaveBeenCalledWith(5);
+  });
+
+  it('serves explicit offline roles and rejects missing caller context without constructing tmux', async () => {
+    vi.resetModules();
+    vi.stubEnv('TMUX_PANE', '');
+    const createTmux = vi.fn(() => {
+      throw new Error('unexpected tmux construction');
+    });
+    vi.doMock('./tmux.js', () => ({ createTmux }));
+    const identity = { id: 'id', name: 'Alice', canonicalName: 'alice' };
+    const repository = {
+      findByCanonicalName: vi.fn(() => identity),
+      findRole: vi.fn(() => undefined),
+      close: vi.fn(),
+    };
+    const openIdentityRepository = vi.fn(() => repository);
+    vi.doMock('./storage/identity-repository.js', () => ({ openIdentityRepository }));
+    const { createContext } = await import('./context.js');
+    const ctx = createContext({
+      argv: [],
+      flags: { json: true, verbose: false },
+      capability: 'storage',
+    });
+    expect(ctx.roleService!.show({ value: 'Alice', kind: 'identity', explicit: true })).toEqual({
+      identity,
+      role: null,
+    });
+    expect(() => ctx.roleService!.show()).toThrowError(
+      expect.objectContaining({ code: 'IDENTITY_REQUIRED' })
+    );
+    expect(createTmux).not.toHaveBeenCalled();
+    expect(openIdentityRepository).toHaveBeenCalledOnce();
+    ctx.dispose!();
+    ctx.dispose!();
+    expect(repository.close).toHaveBeenCalledOnce();
+  });
+
+  it('shares one repository between services and closes it even if service cleanup fails', async () => {
+    vi.resetModules();
+    vi.stubEnv('TMUX_PANE', '%1');
+    const repository = { findRole: vi.fn(() => undefined), close: vi.fn() };
+    const openIdentityRepository = vi.fn(() => repository);
+    vi.doMock('./storage/identity-repository.js', () => ({ openIdentityRepository }));
+    const identity = { id: 'id', name: 'Alice', canonicalName: 'alice' };
+    const service = {
+      currentIdentity: vi.fn(() => ({ identity })),
+      close: vi.fn(() => {
+        throw new Error('service cleanup failed');
+      }),
+    };
+    const createIdentityService = vi.fn(() => service);
+    vi.doMock('./identity-service.js', () => ({ createIdentityService }));
+    vi.doMock('./tmux.js', () => ({ createTmux: vi.fn(() => ({})) }));
+    const { createContext } = await import('./context.js');
+    const ctx = createContext({
+      argv: [],
+      flags: { json: true, verbose: false },
+      capability: 'storage',
+    });
+    expect(ctx.roleService!.show()).toEqual({ identity, role: null });
+    expect(ctx.identityService).toBe(service);
+    expect(createIdentityService).toHaveBeenCalledWith(expect.objectContaining({ repository }));
+    expect(openIdentityRepository).toHaveBeenCalledOnce();
+    expect(() => ctx.dispose!()).toThrow('service cleanup failed');
+    expect(repository.close).toHaveBeenCalledOnce();
+    expect(() => ctx.dispose!()).not.toThrow();
   });
 });
