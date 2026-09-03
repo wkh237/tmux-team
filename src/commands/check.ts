@@ -7,10 +7,12 @@ import { ExitCodes } from '../exits.js';
 import { colors } from '../ui.js';
 import { resolveTarget } from '../target-resolver.js';
 import { normalizeName } from '../domain/names.js';
+import { identityAwareTmux } from '../identity-service.js';
 
 export function cmdCheck(ctx: Context, target: string, lines?: number): void {
   const { ui, config, tmux, flags, exit } = ctx;
-  const resolution = resolveTarget(tmux, target);
+  const runtimeTmux = identityAwareTmux(tmux, ctx.identityService);
+  const resolution = resolveTarget(runtimeTmux, target);
   if (!resolution.ok) {
     if (flags.json) ui.json({ error: resolution.error });
     else ui.error(resolution.error.message);

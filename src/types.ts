@@ -1,4 +1,5 @@
 import type { ActiveRegistration } from './domain/types.js';
+import type { DurableIdentity, TmuxBinding } from './domain/identity.js';
 
 // ─────────────────────────────────────────────────────────────
 // Shared TypeScript interfaces for tmux-team
@@ -28,6 +29,10 @@ export interface PaneAgentMetadata {
   globalIdentity?: {
     name: string;
     canonicalName: string;
+    identityId?: string;
+    bindingId?: string;
+    serverId?: string;
+    panePid?: number;
   };
   workspaces?: Record<string, AgentRegistration>;
   teams?: Record<string, AgentRegistration>;
@@ -115,6 +120,7 @@ export interface PaneInfo {
   target?: string; // e.g., "main:1.0"
   cwd?: string; // pane_current_path
   command: string; // e.g., "node", "python", "zsh"
+  panePid?: number;
   suggestedName: string | null; // e.g., "codex" if detected from command
   metadata?: PaneAgentMetadata;
 }
@@ -136,6 +142,34 @@ export interface Tmux {
   listGlobalIdentities: () => ActiveRegistration[];
   setGlobalIdentity: (paneId: string, name: string) => void;
   clearGlobalIdentity: (paneId: string) => boolean;
+  getEndpointSnapshot?: () => TmuxEndpointSnapshot;
+  setDurableIdentity?: (paneId: string, identity: DurableIdentity, binding: TmuxBinding) => void;
+  clearDurableIdentity?: (paneId: string, bindingId?: string) => boolean;
+}
+
+export interface TmuxServerEvidence {
+  readonly serverId: string;
+  readonly socketPath: string;
+  readonly serverPid: number;
+  readonly serverStartTime: string;
+}
+
+export interface TmuxEndpointSnapshot {
+  readonly server: TmuxServerEvidence;
+  readonly panes: readonly PaneInfo[];
+}
+
+export interface IdentityService {
+  bindCurrent(name: string): DurableIdentity;
+  bindPane(pane: string, name: string): DurableIdentity;
+  unbindCurrent(): DurableIdentity | undefined;
+  currentIdentity(): { identity: DurableIdentity; binding: TmuxBinding } | undefined;
+  activeIdentities(): Array<{ identity: DurableIdentity; binding: TmuxBinding; pane: PaneInfo }>;
+  resolveActive(
+    target: string
+  ): { identity: DurableIdentity; binding: TmuxBinding; pane: PaneInfo } | undefined;
+  reconcile(): void;
+  close(): void;
 }
 
 export interface RegistryScope {
@@ -159,4 +193,6 @@ export interface Context {
   paths: Paths;
   registryScope?: RegistryScope;
   exit: (code: number) => never;
+  identityService?: IdentityService;
+  dispose?: () => void;
 }

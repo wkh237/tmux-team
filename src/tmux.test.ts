@@ -249,6 +249,15 @@ describe('createTmux', () => {
       ]);
     });
 
+    it('captures pane process evidence from modern list-panes output', () => {
+      mockedExecSync.mockReturnValue(
+        '%1__TMT_FIELD_4f1c__main:2.0__TMT_FIELD_4f1c__/repo__TMT_FIELD_4f1c__codex__TMT_FIELD_4f1c__4242__TMT_FIELD_4f1c__{"version":1}\n'
+      );
+      expect(createTmux().listPanes()).toMatchObject([
+        { id: '%1', panePid: 4242, metadata: { version: 1 } },
+      ]);
+    });
+
     it('falls back to pane options when list-panes omits user metadata', () => {
       mockedExecSync.mockReturnValue('%1\tmain:2.0\t/repo\tnode\t\n');
       mockedExecFileSync.mockReturnValue(
@@ -377,6 +386,77 @@ describe('createTmux', () => {
       const tmux = createTmux();
       expect(tmux.getCurrentPaneId()).toBeNull();
       process.env.TMUX_PANE = old;
+    });
+  });
+
+  describe('durable endpoint snapshots', () => {
+    it('reads server and pane evidence from one list-panes snapshot', () => {
+      const serverId = '123e4567-e89b-42d3-a456-426614174000';
+      mockedExecFileSync
+        .mockReturnValueOnce(`${serverId}\n`)
+        .mockReturnValueOnce(
+          [
+            serverId,
+            '/tmp/tmux.sock',
+            '321',
+            '1700000000',
+            '%9',
+            'main:1.0',
+            '/repo',
+            'codex',
+            '654',
+            '{"version":1}',
+          ].join('__TMT_FIELD_4f1c__') + '\n'
+        );
+
+      expect(createTmux().getEndpointSnapshot?.()).toEqual({
+        server: {
+          serverId,
+          socketPath: '/tmp/tmux.sock',
+          serverPid: 321,
+          serverStartTime: '1700000000',
+        },
+        panes: [
+          {
+            id: '%9',
+            target: 'main:1.0',
+            cwd: '/repo',
+            command: 'codex',
+            panePid: 654,
+            suggestedName: 'codex',
+            metadata: { version: 1 },
+          },
+        ],
+      });
+      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
+        'tmux',
+        ['list-panes', '-a', '-F', expect.stringContaining('#{socket_path}')],
+        expect.any(Object)
+      );
+    });
+
+    it('rejects mixed server evidence instead of constructing a torn snapshot', () => {
+      const serverId = '123e4567-e89b-42d3-a456-426614174000';
+      const row = (pid: string, pane: string) =>
+        [
+          serverId,
+          '/tmp/tmux.sock',
+          pid,
+          '1700000000',
+          pane,
+          `main:1.${pane.slice(1)}`,
+          '/repo',
+          'node',
+          '654',
+          '{"version":1}',
+        ].join('__TMT_FIELD_4f1c__');
+      mockedExecFileSync
+        .mockReturnValueOnce(`${serverId}\n`)
+        .mockReturnValueOnce(`${row('321', '%1')}\n${row('999', '%2')}\n`);
+
+      expect(() => createTmux().getEndpointSnapshot?.()).toThrow(
+        'tmux endpoint snapshot contains inconsistent server evidence'
+      );
     });
   });
 

@@ -15,6 +15,7 @@ import type {
 import { normalizeName } from './domain/service.js';
 
 const AGENT_METADATA_OPTION = '@tmux-team.agent';
+const SERVER_ID_OPTION = '@tmux-team.server-id';
 const PANE_FIELD_SEPARATOR = '__TMT_FIELD_4f1c__';
 
 // Known agent patterns for auto-detection
@@ -129,6 +130,51 @@ function registryFromPanes(panes: PaneInfo[], scope: RegistryScope): TmuxRegistr
   return { paneRegistry, agents };
 }
 
+function parsePaneOutput(output: string): PaneInfo[] {
+  const seen = new Set<string>();
+  return output
+    .split('\n')
+    .filter((line) => line.trim())
+    .map((line) => {
+      const fields = line.includes(PANE_FIELD_SEPARATOR)
+        ? line.split(PANE_FIELD_SEPARATOR)
+        : line.split('\t');
+      const [id, target, cwd, command, panePidText, metadataText] =
+        fields.length >= 6
+          ? [
+              fields[0],
+              fields[1],
+              fields[2],
+              fields[3],
+              fields[4],
+              line.includes(PANE_FIELD_SEPARATOR)
+                ? fields.slice(5).join(PANE_FIELD_SEPARATOR)
+                : fields[5],
+            ]
+          : fields.length >= 5
+            ? [fields[0], fields[1], fields[2], fields[3], undefined, fields[4]]
+            : [fields[0], undefined, undefined, fields[1] ?? '', undefined, fields[2] ?? ''];
+      // tmux 3.3 may omit pane user options in list formats. The fallback is
+      // conservative because all independent evidence must still agree.
+      const metadata = safeParseMetadata(metadataText) ?? tryReadPaneMetadata(id || '');
+      return {
+        id: id || '',
+        ...(target && { target }),
+        ...(cwd && { cwd }),
+        command: command || '',
+        ...(panePidText &&
+          Number.isInteger(Number(panePidText)) && { panePid: Number(panePidText) }),
+        suggestedName: detectAgentName(command || ''),
+        ...(metadata && { metadata }),
+      };
+    })
+    .filter((pane) => {
+      if (!pane.id || seen.has(pane.id)) return false;
+      seen.add(pane.id);
+      return true;
+    });
+}
+
 export function createTmux(): Tmux {
   function sleepMs(ms: number): void {
     if (ms <= 0) return;
@@ -192,51 +238,14 @@ export function createTmux(): Tmux {
       try {
         // Get all panes with stable IDs, human tmux targets, cwd, commands, and tmux-team metadata.
         const output = execSync(
-          `tmux list-panes -a -F "#{pane_id}${PANE_FIELD_SEPARATOR}#{session_name}:#{window_index}.#{pane_index}${PANE_FIELD_SEPARATOR}#{pane_current_path}${PANE_FIELD_SEPARATOR}#{pane_current_command}${PANE_FIELD_SEPARATOR}#{${AGENT_METADATA_OPTION}}"`,
+          `tmux list-panes -a -F "#{pane_id}${PANE_FIELD_SEPARATOR}#{session_name}:#{window_index}.#{pane_index}${PANE_FIELD_SEPARATOR}#{pane_current_path}${PANE_FIELD_SEPARATOR}#{pane_current_command}${PANE_FIELD_SEPARATOR}#{pane_pid}${PANE_FIELD_SEPARATOR}#{${AGENT_METADATA_OPTION}}"`,
           {
             encoding: 'utf-8',
             stdio: ['pipe', 'pipe', 'pipe'],
           }
         );
 
-        const seen = new Set<string>();
-        return output
-          .split('\n')
-          .filter((line) => line.trim())
-          .map((line) => {
-            const fields = line.includes(PANE_FIELD_SEPARATOR)
-              ? line.split(PANE_FIELD_SEPARATOR)
-              : line.split('\t');
-            const [id, target, cwd, command, metadataText] = line.includes(PANE_FIELD_SEPARATOR)
-              ? [
-                  fields[0],
-                  fields[1],
-                  fields[2],
-                  fields[3],
-                  fields.slice(4).join(PANE_FIELD_SEPARATOR),
-                ]
-              : fields.length >= 5
-                ? fields
-                : [fields[0], undefined, undefined, fields[1] ?? '', fields[2] ?? ''];
-            // tmux 3.3 does not reliably expand pane user options inside
-            // list-panes formats. Prefer the inline value on newer versions,
-            // then fall back to the pane-scoped option without consulting any
-            // legacy registry.
-            const metadata = safeParseMetadata(metadataText) ?? tryReadPaneMetadata(id || '');
-            return {
-              id: id || '',
-              ...(target && { target }),
-              ...(cwd && { cwd }),
-              command: command || '',
-              suggestedName: detectAgentName(command || ''),
-              ...(metadata && { metadata }),
-            };
-          })
-          .filter((pane) => {
-            if (!pane.id || seen.has(pane.id)) return false;
-            seen.add(pane.id);
-            return true;
-          });
+        return parsePaneOutput(output);
       } catch {
         return [];
       }
@@ -344,6 +353,105 @@ export function createTmux(): Tmux {
       writePaneMetadata(paneId, metadata);
       return true;
     },
+
+    getEndpointSnapshot() {
+      return readEndpointSnapshot();
+    },
+
+    setDurableIdentity(paneId, identity, binding) {
+      const metadata = readPaneMetadata(paneId);
+      metadata.globalIdentity = {
+        name: identity.name,
+        canonicalName: identity.canonicalName,
+        identityId: identity.id,
+        bindingId: binding.id,
+        serverId: binding.serverId,
+        panePid: binding.panePid,
+      };
+      writePaneMetadata(paneId, metadata);
+    },
+
+    clearDurableIdentity(paneId, bindingId) {
+      const metadata = readPaneMetadata(paneId);
+      if (!metadata.globalIdentity) return false;
+      if (bindingId && metadata.globalIdentity.bindingId !== bindingId) return false;
+      delete metadata.globalIdentity;
+      writePaneMetadata(paneId, metadata);
+      return true;
+    },
+  };
+}
+
+function ensureServerId(): string {
+  let serverId = '';
+  try {
+    serverId = execFileSync('tmux', ['show-options', '-s', '-v', SERVER_ID_OPTION], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+  } catch {
+    serverId = crypto.randomUUID();
+    execFileSync('tmux', ['set-option', '-s', '-o', SERVER_ID_OPTION, serverId], {
+      stdio: 'pipe',
+    });
+    serverId = execFileSync('tmux', ['show-options', '-s', '-v', SERVER_ID_OPTION], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+  }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(serverId)) {
+    throw new Error('tmux server identity is unavailable');
+  }
+  return serverId;
+}
+
+function readEndpointSnapshot() {
+  const expectedServerId = ensureServerId();
+  const format = [
+    `#{${SERVER_ID_OPTION}}`,
+    '#{socket_path}',
+    '#{pid}',
+    '#{start_time}',
+    '#{pane_id}',
+    '#{session_name}:#{window_index}.#{pane_index}',
+    '#{pane_current_path}',
+    '#{pane_current_command}',
+    '#{pane_pid}',
+    `#{${AGENT_METADATA_OPTION}}`,
+  ].join(PANE_FIELD_SEPARATOR);
+  const output = execFileSync('tmux', ['list-panes', '-a', '-F', format], {
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  const rows = output.split('\n').filter((line) => line.trim());
+  if (rows.length === 0) throw new Error('tmux endpoint snapshot is empty');
+
+  const evidence = rows.map((line) => line.split(PANE_FIELD_SEPARATOR).slice(0, 4));
+  const [serverId, socketPath, serverPidText, serverStartTime] = evidence[0] ?? [];
+  const serverPid = Number(serverPidText);
+  if (
+    serverId !== expectedServerId ||
+    !socketPath ||
+    !serverStartTime ||
+    !Number.isInteger(serverPid) ||
+    serverPid <= 0 ||
+    evidence.some(
+      ([id, socket, pid, started]) =>
+        id !== serverId ||
+        socket !== socketPath ||
+        pid !== serverPidText ||
+        started !== serverStartTime
+    )
+  ) {
+    throw new Error('tmux endpoint snapshot contains inconsistent server evidence');
+  }
+
+  const paneOutput = rows
+    .map((line) => line.split(PANE_FIELD_SEPARATOR).slice(4).join(PANE_FIELD_SEPARATOR))
+    .join('\n');
+  return {
+    server: { serverId, socketPath, serverPid, serverStartTime },
+    panes: parsePaneOutput(paneOutput),
   };
 }
 

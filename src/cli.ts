@@ -112,14 +112,16 @@ function main(): void {
     await dispatchCommand(ctx, parsed);
   };
 
-  run().catch((err) => {
-    if (!flags.json) {
-      console.error(err);
-    } else {
-      console.error(JSON.stringify({ error: String(err?.message ?? err) }));
-    }
-    process.exit(ExitCodes.ERROR);
-  });
+  run()
+    .catch((err) => {
+      if (!flags.json) {
+        console.error(err);
+      } else {
+        console.error(JSON.stringify({ error: String(err?.message ?? err) }));
+      }
+      process.exit(ExitCodes.ERROR);
+    })
+    .finally(() => ctx.dispose?.());
 }
 
 main();

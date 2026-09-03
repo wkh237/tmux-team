@@ -1,0 +1,317 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { createIdentityService, identityAwareTmux } from './identity-service.js';
+import { IdentityServiceError } from './identity-service.js';
+import { openIdentityRepository } from './storage/identity-repository.js';
+import type { PaneInfo, Paths, Tmux, TmuxEndpointSnapshot } from './types.js';
+
+const directories: string[] = [];
+
+function fixture() {
+  const globalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-identity-'));
+  directories.push(globalDir);
+  const pane: PaneInfo = {
+    id: '%1',
+    command: 'mock-agent',
+    panePid: 1234,
+    suggestedName: null,
+  };
+  let snapshot: TmuxEndpointSnapshot = {
+    server: {
+      serverId: 'server-a',
+      socketPath: '/tmp/tmt-a',
+      serverPid: 10,
+      serverStartTime: 'one',
+    },
+    panes: [pane],
+  };
+  const tmux = {
+    getCurrentPaneId: () => '%1',
+    resolvePaneTarget: (target: string) => (target === '%1' ? '%1' : null),
+    getEndpointSnapshot: () => snapshot,
+    setDurableIdentity: (_paneId: string, identity: any, binding: any) => {
+      pane.metadata = {
+        version: 1,
+        globalIdentity: {
+          name: identity.name,
+          canonicalName: identity.canonicalName,
+          identityId: identity.id,
+          bindingId: binding.id,
+          serverId: binding.serverId,
+          panePid: binding.panePid,
+        },
+      };
+    },
+    clearDurableIdentity: () => {
+      pane.metadata = undefined;
+      return true;
+    },
+    listGlobalIdentities: () => [],
+  } as unknown as Tmux;
+  const paths = {
+    globalDir,
+    databaseFile: path.join(globalDir, 'tmux-team.db'),
+  } as Paths;
+  return { tmux, paths, pane, setSnapshot: (next: TmuxEndpointSnapshot) => (snapshot = next) };
+}
+
+afterEach(() => {
+  for (const directory of directories.splice(0))
+    fs.rmSync(directory, { recursive: true, force: true });
+});
+
+describe('durable identity service', () => {
+  it('rejects invalid names before creating durable state', () => {
+    const test = fixture();
+    const service = createIdentityService(test);
+
+    expect(() => service.bindCurrent('%12')).toThrowError(
+      new IdentityServiceError('INVALID_NAME', 'Identity name must not look like a pane target.')
+    );
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    expect(repository.listIdentities()).toEqual([]);
+    expect(repository.findBindings()).toEqual([]);
+    repository.close();
+    service.close();
+  });
+
+  it('requires pane process evidence before creating durable state', () => {
+    const test = fixture();
+    test.setSnapshot({
+      ...test.tmux.getEndpointSnapshot!(),
+      panes: [{ ...test.pane, panePid: undefined }],
+    });
+    const service = createIdentityService(test);
+
+    expect(() => service.bindCurrent('missing-evidence')).toThrow("Pane '%1' was not found.");
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    expect(repository.listIdentities()).toEqual([]);
+    repository.close();
+    service.close();
+  });
+
+  it('creates one durable identity and a verified transient binding', () => {
+    const test = fixture();
+    const service = createIdentityService(test);
+    const first = service.bindCurrent('  Ｇｅｍｉｎｉ  ');
+    const second = service.bindCurrent('gemini');
+    expect(second.id).toBe(first.id);
+    expect(service.currentIdentity()).toMatchObject({
+      identity: { id: first.id, name: 'Ｇｅｍｉｎｉ' },
+    });
+    expect(identityAwareTmux(test.tmux, service).listGlobalIdentities()).toEqual([
+      { name: 'Ｇｅｍｉｎｉ', canonicalName: 'gemini', paneId: '%1' },
+    ]);
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    expect(repository.listIdentities()).toHaveLength(1);
+    expect(repository.findBindings()).toHaveLength(1);
+    repository.close();
+    service.close();
+  });
+
+  it('fails closed when the tmux adapter cannot provide endpoint evidence', () => {
+    const test = fixture();
+    const service = createIdentityService({
+      ...test,
+      tmux: { ...test.tmux, getEndpointSnapshot: undefined },
+    });
+    expect(() => service.reconcile()).toThrow('coherent endpoint snapshot');
+    expect(identityAwareTmux(test.tmux)).toBe(test.tmux);
+    service.close();
+  });
+
+  it('converts endpoint inspection failures into a structured service error', () => {
+    const test = fixture();
+    test.tmux.getEndpointSnapshot = () => {
+      throw new Error('tmux unavailable');
+    };
+    const service = createIdentityService(test);
+    expect(() => service.activeIdentities()).toThrow('Could not inspect the tmux endpoint.');
+    service.close();
+  });
+
+  it('prunes a changed pane process while preserving the durable identity', () => {
+    const test = fixture();
+    const service = createIdentityService(test);
+    const identity = service.bindCurrent('worker');
+    test.setSnapshot({
+      server: {
+        serverId: 'server-a',
+        socketPath: '/tmp/tmt-a',
+        serverPid: 10,
+        serverStartTime: 'one',
+      },
+      panes: [{ ...test.pane, panePid: 9876 }],
+    });
+    expect(service.activeIdentities()).toEqual([]);
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    expect(repository.listIdentities()).toMatchObject([
+      { id: identity.id, canonicalName: 'worker' },
+    ]);
+    expect(repository.findBindings()).toEqual([]);
+    repository.close();
+    service.close();
+  });
+
+  it('does not accept a binding from a different server instance with the same pane ID', () => {
+    const test = fixture();
+    const service = createIdentityService(test);
+    const identity = service.bindCurrent('server-bound');
+    test.setSnapshot({
+      server: {
+        serverId: 'server-b',
+        socketPath: '/tmp/tmt-b',
+        serverPid: 11,
+        serverStartTime: 'two',
+      },
+      panes: [
+        {
+          ...test.pane,
+          metadata: {
+            version: 1,
+            globalIdentity: {
+              ...(test.pane.metadata as NonNullable<PaneInfo['metadata']>).globalIdentity!,
+            },
+          },
+        },
+      ],
+    });
+    expect(service.activeIdentities()).toEqual([]);
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    expect(repository.listIdentities()).toMatchObject([{ id: identity.id }]);
+    expect(repository.findBindings()).toEqual([]);
+    repository.close();
+    service.close();
+  });
+
+  it('does not accept a binding when the tmux socket changes', () => {
+    const test = fixture();
+    const service = createIdentityService(test);
+    service.bindCurrent('socket-bound');
+    test.setSnapshot({
+      server: {
+        serverId: 'server-a',
+        socketPath: '/tmp/tmt-other-socket',
+        serverPid: 10,
+        serverStartTime: 'one',
+      },
+      panes: [{ ...test.pane }],
+    });
+    expect(service.activeIdentities()).toEqual([]);
+    service.close();
+  });
+
+  it('backfills name-only v5 metadata without changing the display name', () => {
+    const test = fixture();
+    test.pane.metadata = {
+      version: 1,
+      globalIdentity: { name: 'Legacy Agent', canonicalName: 'legacy agent' },
+    };
+    const service = createIdentityService(test);
+    const active = service.activeIdentities();
+    expect(active).toMatchObject([
+      { identity: { name: 'Legacy Agent', canonicalName: 'legacy agent' } },
+    ]);
+    expect(test.pane.metadata?.globalIdentity).toMatchObject({
+      name: 'Legacy Agent',
+      identityId: expect.any(String),
+      bindingId: expect.any(String),
+      serverId: 'server-a',
+      panePid: 1234,
+    });
+    service.close();
+  });
+
+  it('removes a database binding when the tmux metadata write fails', () => {
+    const test = fixture();
+    test.tmux.setDurableIdentity = () => {
+      throw new Error('simulated tmux write failure');
+    };
+    const service = createIdentityService(test);
+    expect(() => service.bindCurrent('partial')).toThrow('Could not write pane metadata.');
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    expect(repository.listIdentities()).toMatchObject([{ canonicalName: 'partial' }]);
+    expect(repository.findBindings()).toEqual([]);
+    repository.close();
+    service.close();
+  });
+
+  it('heals a metadata-only unbind interruption on the next reconciliation', () => {
+    const test = fixture();
+    const base = openIdentityRepository(test.paths.databaseFile);
+    let failRemoval = true;
+    const repository = {
+      ...base,
+      removeBinding(id: string): void {
+        if (failRemoval) {
+          failRemoval = false;
+          throw new Error('simulated SQLite interruption');
+        }
+        base.removeBinding(id);
+      },
+    };
+    const service = createIdentityService({ ...test, repository });
+    service.bindCurrent('interrupted');
+    expect(() => service.unbindCurrent()).toThrow('Could not remove tmux binding.');
+    expect(service.activeIdentities()).toEqual([]);
+    expect(base.findBindings()).toEqual([]);
+    service.close();
+    base.close();
+  });
+
+  it('rejects a second identity on one live pane and preserves the first binding', () => {
+    const test = fixture();
+    const service = createIdentityService(test);
+    service.bindCurrent('first');
+    expect(() => service.bindCurrent('second')).toThrowError(
+      new IdentityServiceError('PANE_ALREADY_BOUND', 'Pane is already bound to another name.')
+    );
+    expect(service.currentIdentity()?.identity.name).toBe('first');
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    expect(repository.listIdentities()).toMatchObject([{ canonicalName: 'first' }]);
+    repository.close();
+    service.close();
+  });
+
+  it('rejects a live identity on another pane', () => {
+    const test = fixture();
+    const secondPane = { ...test.pane, id: '%2', panePid: 5678 };
+    test.setSnapshot({ ...test.tmux.getEndpointSnapshot!(), panes: [test.pane, secondPane] });
+    (test.tmux.resolvePaneTarget as any) = (target: string) =>
+      target === '%1' || target === '%2' ? target : null;
+    const service = createIdentityService(test);
+    service.bindPane('%1', 'shared');
+    expect(() => service.bindPane('%2', 'shared')).toThrow(
+      'Name is already active on another pane.'
+    );
+    service.close();
+  });
+
+  it('makes explicit unbind idempotent while preserving the durable row', () => {
+    const test = fixture();
+    const service = createIdentityService(test);
+    const identity = service.bindCurrent('keep-me');
+    expect(service.unbindCurrent()).toMatchObject({ id: identity.id });
+    expect(service.unbindCurrent()).toBeUndefined();
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    expect(repository.listIdentities()).toMatchObject([{ id: identity.id }]);
+    expect(repository.findBindings()).toEqual([]);
+    repository.close();
+    service.close();
+  });
+
+  it('resolves only currently active names and direct pane targets', () => {
+    const test = fixture();
+    const service = createIdentityService(test);
+    service.bindCurrent('resolvable');
+    expect(service.resolveActive('resolvable')).toMatchObject({ identity: { name: 'resolvable' } });
+    expect(service.resolveActive('%1')).toMatchObject({ binding: { paneId: '%1' } });
+    expect(service.resolveActive('missing')).toBeUndefined();
+    expect(() => service.bindPane('%99', 'missing-pane')).toThrow(
+      "Pane target '%99' was not found."
+    );
+    service.close();
+  });
+});

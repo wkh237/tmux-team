@@ -7,6 +7,7 @@ import { resolvePaths, loadConfig } from './config.js';
 import { createUI } from './ui.js';
 import { createTmux } from './tmux.js';
 import { ExitCodes } from './exits.js';
+import { createIdentityService } from './identity-service.js';
 
 export interface CreateContextOptions {
   argv: string[];
@@ -27,6 +28,7 @@ export function createContext(options: CreateContextOptions): Context {
   const capability = options.capability ?? 'tmux';
   let tmux: Context['tmux'] | undefined;
   let config: Context['config'] | undefined;
+  let identityService: Context['identityService'] | undefined;
   const getTmux = (): Context['tmux'] => {
     tmux ??= createTmux();
     return tmux;
@@ -42,6 +44,10 @@ export function createContext(options: CreateContextOptions): Context {
     );
     return config;
   };
+  const getIdentityService = (): NonNullable<Context['identityService']> => {
+    identityService ??= createIdentityService({ tmux: getTmux(), paths });
+    return identityService;
+  };
 
   const context = {
     argv,
@@ -50,13 +56,20 @@ export function createContext(options: CreateContextOptions): Context {
     paths,
     registryScope,
     exit(code: number): never {
+      identityService?.close();
+      identityService = undefined;
       process.exit(code);
     },
   } as Context;
   Object.defineProperties(context, {
     config: { enumerable: true, get: getConfig },
     tmux: { enumerable: true, get: getTmux },
+    identityService: { enumerable: true, get: getIdentityService },
   });
+  (context as Context).dispose = (): void => {
+    identityService?.close();
+    identityService = undefined;
+  };
   // Preserve the established full-context behavior. Lightweight capabilities
   // intentionally defer both resources until a command asks for them.
   if (capability === 'tmux') getConfig();

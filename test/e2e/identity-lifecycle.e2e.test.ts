@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import Database from 'better-sqlite3';
+import path from 'node:path';
 import { E2EFixture, withE2EFixture, type CliResult, type MockPane } from './harness.js';
 
 interface Identity {
@@ -216,15 +218,15 @@ describe.sequential('global identity lifecycle', () => {
       expect(gammaAdd.code).toBe(0);
       expect(json(gammaAdd)).toEqual({ bound: true, name: 'Gamma', pane: gamma.pane });
 
-      expect(metadata(fixture, alpha)).toEqual({
+      expect(metadata(fixture, alpha)).toMatchObject({
         version: 1,
         globalIdentity: { name: 'Alpha', canonicalName: 'alpha' },
       });
-      expect(metadata(fixture, beta)).toEqual({
+      expect(metadata(fixture, beta)).toMatchObject({
         version: 1,
         globalIdentity: { name: 'Beta', canonicalName: 'beta' },
       });
-      expect(metadata(fixture, gamma)).toEqual({
+      expect(metadata(fixture, gamma)).toMatchObject({
         version: 1,
         globalIdentity: { name: 'Gamma', canonicalName: 'gamma' },
       });
@@ -448,6 +450,58 @@ describe.sequential('global identity lifecycle', () => {
           command: 'node',
         },
       ]);
+    });
+  }, 30_000);
+
+  it('preserves a durable identity across pane death and a later rebind', async () => {
+    await withE2EFixture(async (fixture) => {
+      const gone = await fixture.createMockPane('durable');
+      const original = await fixture.runJsonCli(['add', gone.pane, 'Durable']);
+      expect(original.code).toBe(0);
+      const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+        readonly: true,
+      });
+      const identity = database
+        .prepare('SELECT id FROM identities WHERE canonical_name = ?')
+        .get('durable') as { id: string };
+      database.close();
+      expect(identity.id).toMatch(/^[0-9a-f-]{36}$/);
+
+      fixture.tmux(['kill-pane', '-t', gone.pane]);
+      await fixture.waitFor(
+        () => {
+          try {
+            return !fixture.tmux(['list-panes', '-a', '-F', '#{pane_id}']).includes(gone.pane);
+          } catch {
+            return true;
+          }
+        },
+        2_000,
+        'durable pane to disappear'
+      );
+      expect((await fixture.runJsonCli(['list'])).json).toEqual({ identities: [] });
+
+      const afterDeath = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+        readonly: true,
+      });
+      expect(
+        afterDeath.prepare('SELECT id FROM identities WHERE canonical_name = ?').get('durable')
+      ).toEqual(identity);
+      expect(afterDeath.prepare('SELECT COUNT(*) AS count FROM bindings').get()).toEqual({
+        count: 0,
+      });
+      afterDeath.close();
+
+      const replacement = await fixture.createMockPane('replacement');
+      const rebound = await fixture.runJsonCli(['add', replacement.pane, 'durable']);
+      expect(rebound.code).toBe(0);
+      const afterRebind = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+        readonly: true,
+      });
+      expect(
+        afterRebind.prepare('SELECT id FROM identities WHERE canonical_name = ?').get('durable')
+      ).toEqual(identity);
+      afterRebind.close();
     });
   }, 30_000);
 });

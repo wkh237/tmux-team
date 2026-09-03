@@ -131,11 +131,17 @@ metadata, sends any requested message, and exits; there is no daemon or
 background service to start, stop, or keep healthy. tmux must be running when a
 command needs pane state.
 
-Identity metadata is authoritative. A pane title may be updated as a
+An identity record is durable, while its tmux binding and active presence are
+transient. TMT treats an identity as active only when SQLite, the live tmux
+server and pane, and the pane's identity metadata all agree. Pane targets are
+resolved to stable `%pane_id` values, so pane movement and window renumbering
+preserve the binding while the pane exists. Killing a pane or restarting its
+tmux server removes the stale binding on reconciliation without deleting the
+identity record; the same name can be bound again later with its original
+identity ID.
+
+Pane metadata is part of that presence check. A pane title may be updated as a
 best-effort presentation side effect, but titles are not the identity API.
-Pane targets are resolved to stable `%pane_id` values so pane movement and
-window renumbering do not silently change a stored binding while the pane
-exists.
 
 Messages use tmux buffer paste and then submit with Enter. This preserves
 multiline text and handles paste-safety windows in CLIs such as Gemini. The
@@ -163,10 +169,9 @@ after write work. Normal command shutdown uses a passive checkpoint; backup or
 export first obtains a consistent SQLite backup and may use a truncate
 checkpoint only after no active reader remains.
 
-Identity and memory tables are intentionally not specified by this section.
-They are delivered by their respective tickets behind the shared storage
-boundary. Until those tickets land, this is a storage ownership and recovery
-contract rather than a claim that those tables already exist.
+Durable identity records and transient tmux bindings use this storage boundary.
+Role, memory, and inbox schemas are intentionally deferred to their respective
+tickets; this release does not expose aliases or those later domain models.
 
 ## Managing global identities
 
@@ -186,8 +191,10 @@ tmt list %12
 tmt whoami
 ```
 
-Remove the current pane's binding with `tmt unbind`. If a pane is moved or
-renumbered, use its stable `%pane_id` in subsequent commands.
+Remove the current pane's binding with `tmt unbind`. This preserves the durable
+identity record so its name and ID can be rebound later. Repeating `tmt unbind`
+on an already-unbound pane returns `UNBOUND_PANE`. Pane movement and window
+renumbering preserve the binding's stable `%pane_id` while the pane lives.
 
 ## Legacy preambles
 

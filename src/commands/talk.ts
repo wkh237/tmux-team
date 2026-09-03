@@ -15,6 +15,7 @@ import {
 } from '../state.js';
 import { resolveTarget } from '../target-resolver.js';
 import { normalizeName } from '../domain/names.js';
+import { identityAwareTmux } from '../identity-service.js';
 
 function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -275,7 +276,8 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
   const waitEnabled = Boolean(flags.wait) || config.mode === 'wait';
   const enterDelayMs = config.defaults.pasteEnterDelayMs;
 
-  const resolution = resolveTarget(tmux, target);
+  const runtimeTmux = identityAwareTmux(tmux, ctx.identityService);
+  const resolution = resolveTarget(runtimeTmux, target);
   if (!resolution.ok) {
     if (flags.json) ui.json({ error: resolution.error });
     else ui.error(resolution.error.message);
