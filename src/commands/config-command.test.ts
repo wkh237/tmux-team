@@ -4,7 +4,12 @@ import os from 'os';
 import path from 'path';
 import type { Context, Flags, Paths, ResolvedConfig, Tmux, UI } from '../types.js';
 import { ExitCodes } from '../exits.js';
-import { cmdConfig } from './config.js';
+import { cmdConfig, type ConfigRequest } from './config.js';
+
+const configRequest = (
+  operation: ConfigRequest['operation'],
+  values: Omit<ConfigRequest, 'kind' | 'operation'> = { global: false }
+): ConfigRequest => ({ kind: 'config', operation, ...values });
 
 function createMockUI(): UI & { jsonCalls: unknown[] } {
   return {
@@ -88,7 +93,7 @@ describe('cmdConfig', () => {
 
   it('shows config as JSON when --json', () => {
     const ctx = createCtx(testDir, { json: true });
-    cmdConfig(ctx, ['show']);
+    cmdConfig(ctx, configRequest('show'));
     expect((ctx.ui as any).jsonCalls.length).toBe(1);
     const out = (ctx.ui as any).jsonCalls[0] as any;
     expect(out.resolved).toBeTruthy();
@@ -98,33 +103,37 @@ describe('cmdConfig', () => {
 
   it('shows config as table in human mode', () => {
     const ctx = createCtx(testDir);
-    cmdConfig(ctx, ['show']);
+    cmdConfig(ctx, configRequest('show'));
     expect(ctx.ui.table).toHaveBeenCalled();
   });
 
   it('rejects invalid keys and values', () => {
     const ctx = createCtx(testDir);
-    expect(() => cmdConfig(ctx, ['set', 'nope', 'x'])).toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(() => cmdConfig(ctx, ['set', 'mode', 'nope'])).toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(() => cmdConfig(ctx, ['set', 'preambleEvery', '-1'])).toThrow(
-      `exit(${ExitCodes.ERROR})`
-    );
+    expect(() =>
+      cmdConfig(ctx, configRequest('set', { key: 'nope', value: 'x', global: false }))
+    ).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(() =>
+      cmdConfig(ctx, configRequest('set', { key: 'mode', value: 'nope', global: false }))
+    ).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(() =>
+      cmdConfig(ctx, configRequest('set', { key: 'preambleEvery', value: '-1', global: false }))
+    ).toThrow(`exit(${ExitCodes.ERROR})`);
   });
 
   it('sets and clears local settings', () => {
     const ctx = createCtx(testDir);
-    cmdConfig(ctx, ['set', 'preambleMode', 'disabled']);
+    cmdConfig(ctx, configRequest('set', { key: 'preambleMode', value: 'disabled', global: false }));
     const saved = JSON.parse(fs.readFileSync(ctx.paths.localConfig, 'utf-8'));
     expect(saved.$config.preambleMode).toBe('disabled');
 
-    cmdConfig(ctx, ['clear']);
+    cmdConfig(ctx, configRequest('clear'));
     const saved2 = JSON.parse(fs.readFileSync(ctx.paths.localConfig, 'utf-8'));
     expect(saved2.$config).toBeUndefined();
   });
 
   it('sets global settings with -g', () => {
     const ctx = createCtx(testDir);
-    cmdConfig(ctx, ['set', 'preambleEvery', '5', '-g']);
+    cmdConfig(ctx, configRequest('set', { key: 'preambleEvery', value: '5', global: true }));
     const saved = JSON.parse(fs.readFileSync(ctx.paths.globalConfig, 'utf-8'));
     expect(saved.defaults.preambleEvery).toBe(5);
   });
@@ -138,7 +147,7 @@ describe('cmdConfig', () => {
         $config: { mode: 'wait', preambleMode: 'disabled', preambleEvery: 5 },
       })
     );
-    cmdConfig(ctx, ['show']);
+    cmdConfig(ctx, configRequest('show'));
     const out = (ctx.ui as any).jsonCalls[0] as any;
     expect(out.sources.mode).toBe('local');
     expect(out.sources.preambleMode).toBe('local');
@@ -157,7 +166,7 @@ describe('cmdConfig', () => {
         defaults: { preambleEvery: 7 },
       })
     );
-    cmdConfig(ctx, ['show']);
+    cmdConfig(ctx, configRequest('show'));
     const out = (ctx.ui as any).jsonCalls[0] as any;
     expect(out.sources.mode).toBe('global');
     expect(out.sources.preambleMode).toBe('global');
@@ -166,7 +175,7 @@ describe('cmdConfig', () => {
 
   it('shows default source when no config has settings', () => {
     const ctx = createCtx(testDir, { json: true });
-    cmdConfig(ctx, ['show']);
+    cmdConfig(ctx, configRequest('show'));
     const out = (ctx.ui as any).jsonCalls[0] as any;
     expect(out.sources.mode).toBe('default');
     expect(out.sources.preambleMode).toBe('default');
@@ -176,7 +185,7 @@ describe('cmdConfig', () => {
   it('shows sources in table mode with local settings', () => {
     const ctx = createCtx(testDir);
     fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({ $config: { mode: 'wait' } }));
-    cmdConfig(ctx, ['show']);
+    cmdConfig(ctx, configRequest('show'));
     expect(ctx.ui.table).toHaveBeenCalled();
     // The table call should include (local) source
     const tableCall = (ctx.ui.table as ReturnType<typeof vi.fn>).mock.calls[0];
@@ -187,7 +196,7 @@ describe('cmdConfig', () => {
     const ctx = createCtx(testDir);
     fs.mkdirSync(ctx.paths.globalDir, { recursive: true });
     fs.writeFileSync(ctx.paths.globalConfig, JSON.stringify({ mode: 'wait' }));
-    cmdConfig(ctx, ['show']);
+    cmdConfig(ctx, configRequest('show'));
     expect(ctx.ui.table).toHaveBeenCalled();
     const tableCall = (ctx.ui.table as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(tableCall[1].some((row: string[]) => row[2]?.includes('global'))).toBe(true);
@@ -195,8 +204,8 @@ describe('cmdConfig', () => {
 
   it('sets global mode and preambleMode', () => {
     const ctx = createCtx(testDir);
-    cmdConfig(ctx, ['set', 'mode', 'wait', '--global']);
-    cmdConfig(ctx, ['set', 'preambleMode', 'disabled', '--global']);
+    cmdConfig(ctx, configRequest('set', { key: 'mode', value: 'wait', global: true }));
+    cmdConfig(ctx, configRequest('set', { key: 'preambleMode', value: 'disabled', global: true }));
     const saved = JSON.parse(fs.readFileSync(ctx.paths.globalConfig, 'utf-8'));
     expect(saved.mode).toBe('wait');
     expect(saved.preambleMode).toBe('disabled');

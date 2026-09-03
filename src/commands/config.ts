@@ -17,6 +17,14 @@ type EnumConfigKey = 'mode' | 'preambleMode';
 type NumericConfigKey = 'preambleEvery' | 'pasteEnterDelayMs';
 type ConfigKey = EnumConfigKey | NumericConfigKey;
 
+export interface ConfigRequest {
+  readonly kind: 'config';
+  readonly operation: 'show' | 'set' | 'clear';
+  readonly key?: string;
+  readonly value?: string;
+  readonly global: boolean;
+}
+
 const ENUM_KEYS: EnumConfigKey[] = ['mode', 'preambleMode'];
 const NUMERIC_KEYS: NumericConfigKey[] = ['preambleEvery', 'pasteEnterDelayMs'];
 const VALID_KEYS: ConfigKey[] = [...ENUM_KEYS, ...NUMERIC_KEYS];
@@ -238,33 +246,20 @@ function clearConfig(ctx: Context, key?: string): void {
 /**
  * Config command entry point.
  */
-export function cmdConfig(ctx: Context, args: string[]): void {
-  // Parse --global flag first, then determine subcommand
-  const globalFlag = args.includes('--global') || args.includes('-g');
-  const filteredArgs = args.filter((a) => a !== '--global' && a !== '-g');
-  const subcommand = filteredArgs[0];
-
-  switch (subcommand) {
-    case undefined:
+export function cmdConfig(ctx: Context, request: ConfigRequest): void {
+  switch (request.operation) {
     case 'show':
       showConfig(ctx);
-      break;
-
+      return;
     case 'set':
-      if (filteredArgs.length < 3) {
+      if (request.key === undefined || request.value === undefined) {
         ctx.ui.error('Usage: tmux-team config set <key> <value> [--global]');
         ctx.exit(ExitCodes.ERROR);
       }
-      setConfig(ctx, filteredArgs[1], filteredArgs[2], globalFlag);
-      break;
-
+      setConfig(ctx, request.key, request.value, request.global);
+      return;
     case 'clear':
-      clearConfig(ctx, filteredArgs[1]);
-      break;
-
-    default:
-      ctx.ui.error(`Unknown config subcommand: ${subcommand}`);
-      ctx.ui.error('Usage: tmux-team config [show|set|clear]');
-      ctx.exit(ExitCodes.ERROR);
+      clearConfig(ctx, request.key);
+      return;
   }
 }

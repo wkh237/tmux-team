@@ -15,9 +15,14 @@ interface MigrationItem {
   status: 'ready' | 'migrated';
 }
 
-export function cmdMigrate(ctx: Context, args: string[]): void {
-  const dryRun = args.includes('--dry-run');
-  const cleanup = args.includes('--cleanup');
+export interface MigrateRequest {
+  readonly kind: 'migrate';
+  readonly dryRun: boolean;
+  readonly cleanup: boolean;
+}
+
+export function cmdMigrate(ctx: Context, request: MigrateRequest): void {
+  const { dryRun, cleanup } = request;
   const { ui, paths, flags, tmux, exit } = ctx;
   const localConfig = loadLocalConfigFile(paths);
   const scope = getRegistryScope(ctx);

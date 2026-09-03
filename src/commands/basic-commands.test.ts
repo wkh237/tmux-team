@@ -12,12 +12,21 @@ import { cmdRemove } from './remove.js';
 import { cmdUpdate } from './update.js';
 import { cmdList } from './list.js';
 import { cmdCheck } from './check.js';
-import { cmdPreamble } from './preamble.js';
-import { cmdConfig } from './config.js';
+import { cmdPreamble, type PreambleRequest } from './preamble.js';
+import { cmdConfig, type ConfigRequest } from './config.js';
 import { cmdCompletion } from './completion.js';
 import { cmdHelp } from './help.js';
 import { cmdLearn } from './learn.js';
-import { cmdMigrate } from './migrate.js';
+import { cmdMigrate, type MigrateRequest } from './migrate.js';
+
+const preambleRequest = (
+  operation: PreambleRequest['operation'],
+  values: Omit<PreambleRequest, 'kind' | 'operation'> = {}
+): PreambleRequest => ({ kind: 'preamble', operation, ...values });
+const configRequest = (
+  operation: ConfigRequest['operation'],
+  values: Omit<ConfigRequest, 'kind' | 'operation'> = { global: false }
+): ConfigRequest => ({ kind: 'config', operation, ...values });
 
 function createMockUI(): UI & { jsonCalls: unknown[] } {
   return {
@@ -418,17 +427,17 @@ describe('basic commands', () => {
     });
     fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({ claude: { pane: '1.0' } }, null, 2));
 
-    cmdPreamble(ctx, ['set', 'claude', 'Be', 'concise']);
+    cmdPreamble(ctx, preambleRequest('set', { agent: 'claude', preamble: 'Be concise' }));
     let saved = JSON.parse(fs.readFileSync(ctx.paths.localConfig, 'utf-8'));
     expect(saved.claude.preamble).toBe('Be concise');
 
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     // show will read from ctx.config.agents; update it to reflect loadConfig behavior
     ctx.config.agents.claude = { preamble: 'Be concise' };
-    cmdPreamble(ctx, ['show', 'claude']);
+    cmdPreamble(ctx, preambleRequest('show', { agent: 'claude' }));
     expect(logSpy).toHaveBeenCalled();
 
-    cmdPreamble(ctx, ['clear', 'claude']);
+    cmdPreamble(ctx, preambleRequest('clear', { agent: 'claude' }));
     saved = JSON.parse(fs.readFileSync(ctx.paths.localConfig, 'utf-8'));
     expect(saved.claude.preamble).toBeUndefined();
   });
@@ -436,13 +445,15 @@ describe('basic commands', () => {
   it('cmdPreamble set errors when agent missing', () => {
     const ctx = createCtx(testDir);
     fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({}, null, 2));
-    expect(() => cmdPreamble(ctx, ['set', 'nope', 'x'])).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(() =>
+      cmdPreamble(ctx, preambleRequest('set', { agent: 'nope', preamble: 'x' }))
+    ).toThrow(`exit(${ExitCodes.ERROR})`);
   });
 
   it('cmdPreamble clear returns not_set when missing', () => {
     const ctx = createCtx(testDir, { flags: { json: true } });
     fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({ claude: { pane: '1.0' } }, null, 2));
-    cmdPreamble(ctx, ['clear', 'claude']);
+    cmdPreamble(ctx, preambleRequest('clear', { agent: 'claude' }));
     const out = (ctx.ui as any).jsonCalls[0] as any;
     expect(out.status).toBe('not_set');
   });
@@ -451,40 +462,46 @@ describe('basic commands', () => {
     const ctx = createCtx(testDir);
     fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({}, null, 2));
 
-    cmdConfig(ctx, ['set', 'mode', 'wait']);
+    cmdConfig(ctx, configRequest('set', { key: 'mode', value: 'wait', global: false }));
     const saved = JSON.parse(fs.readFileSync(ctx.paths.localConfig, 'utf-8'));
     expect(saved.$config.mode).toBe('wait');
 
-    cmdConfig(ctx, ['clear', 'mode']);
+    cmdConfig(ctx, configRequest('clear', { key: 'mode', global: false }));
     const saved2 = JSON.parse(fs.readFileSync(ctx.paths.localConfig, 'utf-8'));
     expect(saved2.$config?.mode).toBeUndefined();
   });
 
   it('cmdConfig set supports --global', () => {
     const ctx = createCtx(testDir);
-    cmdConfig(ctx, ['set', 'mode', 'wait', '--global']);
+    cmdConfig(ctx, configRequest('set', { key: 'mode', value: 'wait', global: true }));
     const saved = JSON.parse(fs.readFileSync(ctx.paths.globalConfig, 'utf-8'));
     expect(saved.mode).toBe('wait');
   });
 
   it('cmdConfig set errors when not enough args', () => {
     const ctx = createCtx(testDir);
-    expect(() => cmdConfig(ctx, ['set', 'mode'])).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(() => cmdConfig(ctx, configRequest('set', { key: 'mode', global: false }))).toThrow(
+      `exit(${ExitCodes.ERROR})`
+    );
     expect(ctx.ui.error).toHaveBeenCalledWith(
       'Usage: tmux-team config set <key> <value> [--global]'
     );
   });
 
-  it('cmdConfig errors on unknown subcommand', () => {
+  it('cmdConfig rejects a set request with a missing value', () => {
     const ctx = createCtx(testDir);
-    expect(() => cmdConfig(ctx, ['unknown'])).toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(ctx.ui.error).toHaveBeenCalledWith('Unknown config subcommand: unknown');
+    expect(() => cmdConfig(ctx, configRequest('set', { key: 'mode', global: false }))).toThrow(
+      `exit(${ExitCodes.ERROR})`
+    );
+    expect(ctx.ui.error).toHaveBeenCalledWith(
+      'Usage: tmux-team config set <key> <value> [--global]'
+    );
   });
 
   it('cmdConfig set preambleMode locally', () => {
     const ctx = createCtx(testDir);
     fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({}, null, 2));
-    cmdConfig(ctx, ['set', 'preambleMode', 'disabled']);
+    cmdConfig(ctx, configRequest('set', { key: 'preambleMode', value: 'disabled', global: false }));
     const saved = JSON.parse(fs.readFileSync(ctx.paths.localConfig, 'utf-8'));
     expect(saved.$config.preambleMode).toBe('disabled');
   });
@@ -492,14 +509,16 @@ describe('basic commands', () => {
   it('cmdConfig set preambleEvery locally', () => {
     const ctx = createCtx(testDir);
     fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({}, null, 2));
-    cmdConfig(ctx, ['set', 'preambleEvery', '5']);
+    cmdConfig(ctx, configRequest('set', { key: 'preambleEvery', value: '5', global: false }));
     const saved = JSON.parse(fs.readFileSync(ctx.paths.localConfig, 'utf-8'));
     expect(saved.$config.preambleEvery).toBe(5);
   });
 
   it('cmdConfig clear errors on invalid key', () => {
     const ctx = createCtx(testDir);
-    expect(() => cmdConfig(ctx, ['clear', 'invalidkey'])).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(() =>
+      cmdConfig(ctx, configRequest('clear', { key: 'invalidkey', global: false }))
+    ).toThrow(`exit(${ExitCodes.ERROR})`);
     expect(ctx.ui.error).toHaveBeenCalledWith(
       'Invalid key: invalidkey. Valid keys: mode, preambleMode, preambleEvery, pasteEnterDelayMs'
     );
@@ -512,7 +531,7 @@ describe('basic commands', () => {
       JSON.stringify({ claude: { pane: '1.1', remark: 'review' } }, null, 2)
     );
 
-    cmdMigrate(ctx, ['--dry-run']);
+    cmdMigrate(ctx, { kind: 'migrate', dryRun: true, cleanup: false } satisfies MigrateRequest);
 
     expect(ctx.tmux.setAgentRegistration).not.toHaveBeenCalled();
     expect((ctx.ui as any).jsonCalls[0]).toMatchObject({
@@ -532,7 +551,7 @@ describe('basic commands', () => {
       })
     );
 
-    cmdMigrate(ctx, ['--cleanup']);
+    cmdMigrate(ctx, { kind: 'migrate', dryRun: false, cleanup: true } satisfies MigrateRequest);
 
     expect(ctx.tmux.setAgentRegistration).toHaveBeenCalledWith(
       '1.1',
@@ -549,14 +568,16 @@ describe('basic commands', () => {
     (ctx.tmux.resolvePaneTarget as ReturnType<typeof vi.fn>).mockReturnValue(null);
     fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({ claude: { pane: 'missing' } }));
 
-    expect(() => cmdMigrate(ctx, [])).toThrow(`exit(${ExitCodes.PANE_NOT_FOUND})`);
+    expect(() => cmdMigrate(ctx, { kind: 'migrate', dryRun: false, cleanup: false })).toThrow(
+      `exit(${ExitCodes.PANE_NOT_FOUND})`
+    );
   });
 
   it('cmdMigrate reports when no legacy agents exist', () => {
     const ctx = createCtx(testDir);
     fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({ $config: { mode: 'wait' } }));
 
-    cmdMigrate(ctx, []);
+    cmdMigrate(ctx, { kind: 'migrate', dryRun: false, cleanup: false });
 
     expect(ctx.ui.info).toHaveBeenCalledWith(`No legacy agents found in ${ctx.paths.localConfig}`);
   });

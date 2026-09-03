@@ -4,122 +4,16 @@
 // ─────────────────────────────────────────────────────────────
 
 import { createContext, ExitCodes } from './context.js';
-import type { Flags } from './types.js';
 
 // Commands
 import { cmdHelp, HelpConfig } from './commands/help.js';
 import { loadConfig, resolvePaths } from './config.js';
 import { createUI } from './ui.js';
-import { cmdInit } from './commands/init.js';
-import { cmdList } from './commands/list.js';
-import { cmdAdd } from './commands/add.js';
-import { cmdUpdate } from './commands/update.js';
-import { cmdRemove } from './commands/remove.js';
-import { cmdTalk } from './commands/talk.js';
-import { cmdCheck } from './commands/check.js';
 import { cmdCompletion } from './commands/completion.js';
-import { cmdConfig } from './commands/config.js';
-import { cmdPreamble } from './commands/preamble.js';
-import { cmdInstall } from './commands/install.js';
-import { cmdLearn } from './commands/learn.js';
-import { cmdThis } from './commands/this.js';
-import { cmdMigrate } from './commands/migrate.js';
-import { cmdName } from './commands/name.js';
-import { cmdUpgrade } from './commands/upgrade.js';
-import { cmdWhoami } from './commands/whoami.js';
-import { cmdUnbind } from './commands/unbind.js';
 import { UNSUPPORTED_TEAM_MESSAGE } from './commands/unsupported-team.js';
 import { runStartupChecks } from './update-check.js';
-
-// ─────────────────────────────────────────────────────────────
-// Argument parsing
-// ─────────────────────────────────────────────────────────────
-
-function parseArgs(argv: string[]): {
-  command: string;
-  args: string[];
-  flags: Flags;
-  unsupportedTeam: boolean;
-} {
-  const flags: Flags = {
-    json: false,
-    verbose: false,
-  };
-
-  const positional: string[] = [];
-  let unsupportedTeam = false;
-  let i = 0;
-
-  while (i < argv.length) {
-    const arg = argv[i];
-
-    if (arg === '--json') {
-      flags.json = true;
-    } else if (arg === '--verbose' || arg === '-v') {
-      flags.verbose = true;
-    } else if (arg === '--debug') {
-      flags.debug = true;
-    } else if (arg === '--force' || arg === '-f') {
-      flags.force = true;
-    } else if (arg === '--config') {
-      flags.config = argv[++i];
-    } else if (arg === '--delay') {
-      flags.delay = parseTime(argv[++i]);
-    } else if (arg === '--wait') {
-      flags.wait = true;
-    } else if (arg === '--timeout') {
-      flags.timeout = parseTime(argv[++i]);
-    } else if (arg === '--lines') {
-      flags.lines = parseInt(argv[++i], 10) || 100;
-    } else if (arg === '--no-preamble') {
-      flags.noPreamble = true;
-    } else if (arg === '--team') {
-      unsupportedTeam = true;
-      i++;
-    } else if (arg.startsWith('--team=')) {
-      unsupportedTeam = true;
-    } else if (arg.startsWith('--pane=')) {
-      // Handled in update command
-      positional.push(arg);
-    } else if (arg.startsWith('--remark=')) {
-      // Handled in update command
-      positional.push(arg);
-    } else if (arg.startsWith('-')) {
-      // Unknown flag, pass through
-      positional.push(arg);
-    } else {
-      positional.push(arg);
-    }
-    i++;
-  }
-
-  const [command = 'help', ...args] = positional;
-  return { command, args, flags, unsupportedTeam };
-}
-
-/**
- * Parse time string to seconds.
- * Default unit is seconds (no suffix needed).
- */
-function parseTime(value: string): number {
-  if (!value) return 0;
-
-  const match = value.match(/^(\d+(?:\.\d+)?)(ms|s)?$/i);
-  if (!match) {
-    console.error(
-      `Invalid time format: ${value}. Use number (seconds) or number with ms/s suffix.`
-    );
-    process.exit(ExitCodes.ERROR);
-  }
-
-  const num = parseFloat(match[1]);
-  const unit = (match[2] || 's').toLowerCase();
-
-  if (unit === 'ms') {
-    return num / 1000;
-  }
-  return num; // seconds
-}
+import { CliParseError, parseArgs } from './cli/parser.js';
+import { dispatchCommand } from './cli/application.js';
 
 // ─────────────────────────────────────────────────────────────
 // Main
@@ -127,11 +21,29 @@ function parseTime(value: string): number {
 
 function main(): void {
   const argv = process.argv.slice(2);
-  const { command, args, flags, unsupportedTeam } = parseArgs(argv);
+  let parsed;
+  try {
+    parsed = parseArgs(argv);
+  } catch (error) {
+    const parseError = error instanceof CliParseError ? error : new Error(String(error));
+    const flags = error instanceof CliParseError ? error.flags : { json: false, verbose: false };
+    // Parse failures use the normal UI contract without loading config or tmux.
+    const parseContext = createContext({ argv, flags, capability: 'none' });
+    parseContext.ui.error(parseError.message);
+    try {
+      parseContext.exit(ExitCodes.ERROR);
+    } catch {
+      // A test double or embedder may model the non-returning exit by throwing.
+      process.exit(ExitCodes.ERROR);
+    }
+    return;
+  }
+  const { invocation, flags, metadata } = parsed;
+  const command = metadata.commandPath[0] ?? invocation.kind;
 
   // Reject both `team` and either spelling of `--team` before command routing
   // or configuration loading can interpret them as a scope.
-  if (command === 'team' || unsupportedTeam) {
+  if (command === 'team' || metadata.unsupportedTeam) {
     const ui = createUI(flags.json);
     const error = {
       code: 'UNSUPPORTED_TEAM',
@@ -144,9 +56,9 @@ function main(): void {
   }
 
   // Help - load config to show current mode/timeout
-  if (!command || command === 'help' || command === '--help' || command === '-h') {
+  if (invocation.kind === 'help') {
     // Show intro highlight when running just `tmux-team` with no args
-    const showIntro = !command || argv.length === 0;
+    const showIntro = invocation.showIntro;
     try {
       const paths = resolvePaths();
       const config = loadConfig(paths);
@@ -164,20 +76,20 @@ function main(): void {
     return;
   }
 
-  if (command === '--version' || command === '-V') {
+  if (invocation.kind === 'version') {
     import('./version.js').then((m) => console.log(m.VERSION));
     return;
   }
 
   // Completion doesn't need context
-  if (command === 'completion') {
-    cmdCompletion(args[0]);
+  if (invocation.kind === 'completion') {
+    cmdCompletion(invocation.shell);
     process.exit(ExitCodes.SUCCESS);
     return;
   }
 
   // Create context for all other commands
-  const ctx = createContext({ argv, flags });
+  const ctx = createContext({ argv, flags, capability: metadata.capability });
 
   // Warn if not in tmux for commands that require it
   const TMUX_REQUIRED_COMMANDS = [
@@ -196,138 +108,8 @@ function main(): void {
   }
 
   const run = async (): Promise<void> => {
-    await runStartupChecks(ctx, command);
-    switch (command) {
-      case 'init':
-        cmdInit(ctx);
-        break;
-
-      case 'list':
-      case 'ls':
-        if (args[0] === undefined) {
-          cmdList(ctx);
-        } else {
-          cmdList(ctx, args[0]);
-        }
-        break;
-
-      case 'add':
-        if (args.length !== 2) {
-          ctx.ui.error('Usage: tmux-team add <pane-target> <global-name>');
-          ctx.exit(ExitCodes.ERROR);
-        }
-        cmdAdd(ctx, args[0], args[1]);
-        break;
-
-      case 'update':
-        if (args.length < 1) {
-          ctx.ui.error('Usage: tmux-team update <name> --pane <pane> | --remark <remark>');
-          ctx.exit(ExitCodes.ERROR);
-        }
-        {
-          const options: { pane?: string; remark?: string } = {};
-          for (let i = 1; i < args.length; i++) {
-            if (args[i] === '--pane' && args[i + 1]) {
-              options.pane = args[++i];
-            } else if (args[i] === '--remark' && args[i + 1]) {
-              options.remark = args[++i];
-            } else if (args[i].startsWith('--pane=')) {
-              options.pane = args[i].slice(7);
-            } else if (args[i].startsWith('--remark=')) {
-              options.remark = args[i].slice(9);
-            }
-          }
-          cmdUpdate(ctx, args[0], options);
-        }
-        break;
-
-      case 'remove':
-      case 'rm':
-        if (args.length < 1) {
-          ctx.ui.error('Usage: tmux-team remove <name>');
-          ctx.exit(ExitCodes.ERROR);
-        }
-        cmdRemove(ctx, args[0]);
-        break;
-
-      case 'migrate':
-        cmdMigrate(ctx, args);
-        break;
-
-      case 'this':
-        if (args.length !== 1) {
-          ctx.ui.error('Usage: tmux-team this <global-name>');
-          ctx.exit(ExitCodes.ERROR);
-        }
-        cmdThis(ctx, args[0]);
-        break;
-
-      case 'name':
-        if (args.length !== 1) {
-          ctx.ui.error('Usage: tmux-team name <global-name>');
-          ctx.exit(ExitCodes.ERROR);
-        }
-        cmdName(ctx, args[0]);
-        break;
-
-      case 'whoami':
-        if (args.length !== 0) {
-          ctx.ui.error('Usage: tmux-team whoami');
-          ctx.exit(ExitCodes.ERROR);
-        }
-        cmdWhoami(ctx);
-        break;
-
-      case 'unbind':
-        if (args.length !== 0) {
-          ctx.ui.error('Usage: tmux-team unbind');
-          ctx.exit(ExitCodes.ERROR);
-        }
-        cmdUnbind(ctx);
-        break;
-
-      case 'talk':
-      case 'send':
-        if (args.length < 2) {
-          ctx.ui.error('Usage: tmux-team talk <target> <message>');
-          ctx.exit(ExitCodes.ERROR);
-        }
-        await cmdTalk(ctx, args[0], args[1]);
-        break;
-
-      case 'check':
-      case 'read':
-        if (args.length < 1) {
-          ctx.ui.error('Usage: tmux-team check <target> [lines]');
-          ctx.exit(ExitCodes.ERROR);
-        }
-        cmdCheck(ctx, args[0], args[1] ? parseInt(args[1], 10) : undefined);
-        break;
-
-      case 'config':
-        cmdConfig(ctx, args);
-        break;
-
-      case 'preamble':
-        cmdPreamble(ctx, args);
-        break;
-
-      case 'install':
-        await cmdInstall(ctx, args[0]);
-        break;
-
-      case 'upgrade':
-        cmdUpgrade(ctx);
-        break;
-
-      case 'learn':
-        cmdLearn();
-        break;
-
-      default:
-        ctx.ui.error(`Unknown command: ${command}. Run 'tmux-team help' for usage.`);
-        ctx.exit(ExitCodes.ERROR);
-    }
+    await runStartupChecks(ctx, command ?? 'help');
+    await dispatchCommand(ctx, parsed);
   };
 
   run().catch((err) => {
