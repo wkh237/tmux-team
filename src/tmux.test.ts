@@ -15,6 +15,32 @@ vi.mock('child_process', () => ({
 const mockedExecSync = vi.mocked(execSync);
 const mockedExecFileSync = vi.mocked(execFileSync);
 
+const ENDPOINT_SEPARATOR = '__TMT_FIELD_4f1c__';
+const VALID_SERVER_ID = '123e4567-e89b-42d3-a456-426614174000';
+
+function endpointRow(
+  overrides: {
+    serverId?: string;
+    socketPath?: string;
+    serverPid?: string;
+    paneId?: string;
+    panePid?: string;
+  } = {}
+): string {
+  return [
+    overrides.serverId ?? VALID_SERVER_ID,
+    overrides.socketPath ?? '/tmp/foreign.sock',
+    overrides.serverPid ?? '321',
+    '1700000000',
+    overrides.paneId ?? '%9',
+    'main:1.0',
+    '/foreign',
+    'node',
+    overrides.panePid ?? '654',
+    '',
+  ].join(ENDPOINT_SEPARATOR);
+}
+
 describe('createTmux', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -457,6 +483,110 @@ describe('createTmux', () => {
       expect(() => createTmux().getEndpointSnapshot?.()).toThrow(
         'tmux endpoint snapshot contains inconsistent server evidence'
       );
+    });
+
+    it('probes a known socket with bounded read-only evidence and no current-server metadata fallback', () => {
+      mockedExecFileSync.mockReturnValueOnce(`${endpointRow()}\n`);
+
+      const result = createTmux().probeEndpoint?.('/tmp/foreign.sock', 321);
+
+      expect(result).toMatchObject({
+        status: 'live',
+        snapshot: { server: { socketPath: '/tmp/foreign.sock' } },
+      });
+      expect(result?.status === 'live' && result.snapshot.panes[0]?.metadata).toBeUndefined();
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        ['-S', '/tmp/foreign.sock', 'list-panes', '-a', '-F', expect.any(String)],
+        expect.objectContaining({
+          timeout: 1000,
+          maxBuffer: 1024 * 1024,
+          killSignal: 'SIGKILL',
+        })
+      );
+      expect(mockedExecFileSync).toHaveBeenCalledTimes(1);
+      expect(mockedExecSync).not.toHaveBeenCalled();
+      expect(
+        mockedExecFileSync.mock.calls.some(
+          ([, args]) => Array.isArray(args) && args.includes('show-options')
+        )
+      ).toBe(false);
+    });
+
+    it('classifies a failed probe as dead only when the recorded PID is gone', () => {
+      mockedExecFileSync.mockImplementationOnce(() => {
+        throw new Error('tmux probe timed out');
+      });
+      const kill = vi.spyOn(process, 'kill').mockImplementationOnce(() => {
+        throw Object.assign(new Error('no such process'), { code: 'ESRCH' });
+      });
+
+      expect(createTmux().probeEndpoint?.('/tmp/dead.sock', 321)).toEqual({ status: 'dead' });
+      kill.mockRestore();
+    });
+
+    it('preserves uncertainty when a failed probe cannot validate process death', () => {
+      mockedExecFileSync.mockImplementationOnce(() => {
+        throw new Error('tmux probe timed out');
+      });
+      const kill = vi.spyOn(process, 'kill').mockImplementationOnce(() => true);
+
+      expect(createTmux().probeEndpoint?.('/tmp/unknown.sock', 321)).toEqual({
+        status: 'unknown',
+      });
+      kill.mockRestore();
+    });
+
+    it.each([
+      ['invalid pane ID', endpointRow({ paneId: 'not-a-pane-id' })],
+      ['mismatched returned socket', endpointRow({ socketPath: '/tmp/different.sock' })],
+      ['invalid UUID', endpointRow({ serverId: 'not-a-uuid' })],
+      ['empty UUID', endpointRow({ serverId: '' })],
+      [
+        'truncated row',
+        endpointRow().split(ENDPOINT_SEPARATOR).slice(0, 9).join(ENDPOINT_SEPARATOR),
+      ],
+      ['fractional pane PID', endpointRow({ panePid: '654.5' })],
+      ['unsafe pane PID', endpointRow({ panePid: '9007199254740992' })],
+    ] as const)('returns unknown for %s endpoint evidence', (_label, row) => {
+      mockedExecFileSync.mockReturnValueOnce(`${row}\n`);
+
+      expect(createTmux().probeEndpoint?.('/tmp/foreign.sock', 321)).toEqual({
+        status: 'unknown',
+      });
+    });
+
+    it('returns unknown for duplicate pane evidence instead of treating a partial parse as live', () => {
+      mockedExecFileSync.mockReturnValueOnce(`${endpointRow()}\n${endpointRow()}\n`);
+
+      expect(createTmux().probeEndpoint?.('/tmp/foreign.sock', 321)).toEqual({
+        status: 'unknown',
+      });
+    });
+
+    it('rejects an invalid recorded PID before invoking tmux or signal zero', () => {
+      const kill = vi.spyOn(process, 'kill');
+
+      expect(createTmux().probeEndpoint?.('/tmp/foreign.sock', 321.5)).toEqual({
+        status: 'unknown',
+      });
+      expect(mockedExecFileSync).not.toHaveBeenCalled();
+      expect(kill).not.toHaveBeenCalled();
+      kill.mockRestore();
+    });
+
+    it('preserves unknown when signal zero is denied after a failed probe', () => {
+      mockedExecFileSync.mockImplementationOnce(() => {
+        throw new Error('tmux probe failed');
+      });
+      const kill = vi.spyOn(process, 'kill').mockImplementationOnce(() => {
+        throw Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
+      });
+
+      expect(createTmux().probeEndpoint?.('/tmp/foreign.sock', 321)).toEqual({
+        status: 'unknown',
+      });
+      kill.mockRestore();
     });
   });
 

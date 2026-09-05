@@ -145,6 +145,8 @@ export interface Tmux {
   getEndpointSnapshot?: () => TmuxEndpointSnapshot;
   setDurableIdentity?: (paneId: string, identity: DurableIdentity, binding: TmuxBinding) => void;
   clearDurableIdentity?: (paneId: string, bindingId?: string) => boolean;
+  /** Probe a previously recorded socket without changing its server state. */
+  probeEndpoint?: (socketPath: string, serverPid: number) => TmuxEndpointProbe;
 }
 
 export interface TmuxServerEvidence {
@@ -158,6 +160,11 @@ export interface TmuxEndpointSnapshot {
   readonly server: TmuxServerEvidence;
   readonly panes: readonly PaneInfo[];
 }
+
+export type TmuxEndpointProbe =
+  | { readonly status: 'live'; readonly snapshot: TmuxEndpointSnapshot }
+  | { readonly status: 'dead' }
+  | { readonly status: 'unknown' };
 
 export interface IdentityService {
   bindCurrent(name: string): DurableIdentity;

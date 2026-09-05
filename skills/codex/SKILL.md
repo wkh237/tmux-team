@@ -49,6 +49,15 @@ The `add` argument order is `tmt add <pane-target> <global-name>`. The legacy
 name-first order is rejected with a usage error. The name `all` is an ordinary
 identity, not a special destination.
 
+Names are unique across servers sharing the same local TMT database, but
+`list`, `talk`, and `check` discover and address only the current tmux server.
+A `%pane_id` is stable within a server, not unique across servers. Routine
+reads preserve bindings on other sockets. Binding a foreign live name fails
+with `NAME_ALREADY_ACTIVE` (exit 5); an unverifiable foreign endpoint fails
+with `RECONCILIATION_FAILED` (exit 1). Do not delete the binding to bypass an
+uncertain check. Rebinding a proven stale endpoint retains its identity and
+profile; no cross-server routing or daemon is provided.
+
 ## Workflow
 
 1. Send and wait: `tmt talk codex "Review this code" --wait`
