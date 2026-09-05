@@ -9,7 +9,7 @@ import { createTmux } from './tmux.js';
 import { ExitCodes } from './exits.js';
 import { createIdentityService } from './identity-service.js';
 import { openIdentityRepository, type IdentityRepository } from './storage/identity-repository.js';
-import { createRoleService } from './role-service.js';
+import { createRoleService, type RoleRepository } from './role-service.js';
 
 export interface CreateContextOptions {
   argv: string[];
@@ -60,13 +60,25 @@ export function createContext(options: CreateContextOptions): Context {
     identityRepository ??= openIdentityRepository(paths.databaseFile);
     return identityRepository;
   };
+  const roleRepository: RoleRepository = {
+    findByCanonicalName(canonicalName) {
+      return getIdentityRepository().findByCanonicalName(canonicalName);
+    },
+    findRole(identityId) {
+      return getIdentityRepository().findRole(identityId);
+    },
+    setRole(identityId, content) {
+      return getIdentityRepository().setRole(identityId, content);
+    },
+    clearRole(identityId) {
+      return getIdentityRepository().clearRole(identityId);
+    },
+  };
   const getRoleService = (): NonNullable<Context['roleService']> => {
     roleService ??= createRoleService({
-      repository: getIdentityRepository(),
-      // Role's implicit selector requires caller binding evidence. Do not let
-      // the tmux adapter's outside-shell fallback select an arbitrary pane.
+      repository: roleRepository,
       currentIdentity: () =>
-        process.env.TMUX_PANE ? getIdentityService().currentIdentity() : undefined,
+        getTmux().getCurrentPaneId() ? getIdentityService().currentIdentity() : undefined,
     });
     return roleService;
   };

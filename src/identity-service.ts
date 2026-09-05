@@ -434,13 +434,7 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
           'PANE_NOT_FOUND',
           'Not running inside a resolvable tmux pane.'
         );
-      const paneId = tmux.resolvePaneTarget(current);
-      if (!paneId)
-        throw new IdentityServiceError(
-          'PANE_NOT_FOUND',
-          'Not running inside a resolvable tmux pane.'
-        );
-      return bind(paneId, name);
+      return bind(current, name);
     },
     bindPane(pane, name) {
       const resolved = tmux.resolvePaneTarget(pane);
@@ -451,8 +445,7 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
     unbindCurrent() {
       const current = tmux.getCurrentPaneId();
       if (!current) return undefined;
-      const paneId = tmux.resolvePaneTarget(current);
-      if (!paneId) return undefined;
+      const paneId = current;
       return coordinated((options) => {
         const snapshot = reconcileWithinTransaction(options);
         const item = mapActive(repository, snapshot, repository.findBindings()).find(
@@ -485,8 +478,7 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
     currentIdentity() {
       const current = tmux.getCurrentPaneId();
       if (!current) return undefined;
-      const paneId = tmux.resolvePaneTarget(current);
-      return paneId ? active().find((entry) => entry.binding.paneId === paneId) : undefined;
+      return active().find((entry) => entry.binding.paneId === current);
     },
     activeIdentities: active,
     resolveActive(target) {

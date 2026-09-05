@@ -9,6 +9,14 @@ Use `tmt` (the short alias for `tmux-team`) when the user asks you to communicat
 
 ## Commands
 
+`name`, `this`, `whoami` and `unbind` require matching live `TMUX` and
+`TMUX_PANE` caller context. Missing, malformed or stale context returns
+`PANE_NOT_FOUND` (exit 3), not the default pane's identity. Implicit `role`
+access returns `IDENTITY_REQUIRED` (exit 1). Do not fabricate caller variables:
+outside tmux, use explicit `add <pane-target> <global-name>`, `talk <target>`,
+`check <target>`, or `role show|set|clear --identity <name>`. Explicit selection
+does not bind or authenticate the caller.
+
 ```bash
 tmt list
 tmt name <global-name>               # bind the current pane globally

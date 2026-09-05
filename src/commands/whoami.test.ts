@@ -135,4 +135,16 @@ describe('whoami and unbind', () => {
       error: { code: 'PANE_NOT_FOUND', message: 'Not running inside a resolvable tmux pane.' },
     });
   });
+
+  it('rejects the caller before constructing the durable identity service', () => {
+    const ctx = context([], true);
+    (ctx.tmux.getCurrentPaneId as ReturnType<typeof vi.fn>).mockReturnValue(null);
+    const identityService = vi.fn(() => {
+      throw new Error('identity service must remain unopened');
+    });
+    Object.defineProperty(ctx, 'identityService', { configurable: true, get: identityService });
+
+    expect(() => cmdWhoami(ctx)).toThrow('exit(3)');
+    expect(identityService).not.toHaveBeenCalled();
+  });
 });

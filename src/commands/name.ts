@@ -8,5 +8,5 @@ export function cmdName(ctx: Context, name: string): void {
   if (!paneId) {
     failIdentity(ctx, 'PANE_NOT_FOUND', 'Not running inside a resolvable tmux pane.');
   }
-  bindIdentity(ctx, paneId, name);
+  bindIdentity(ctx, paneId, name, { current: true });
 }

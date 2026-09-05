@@ -129,6 +129,7 @@ export interface Tmux {
   send: (paneId: string, message: string, options?: { enterDelayMs?: number }) => void;
   capture: (paneId: string, lines: number) => string;
   listPanes: () => PaneInfo[];
+  /** Return only the caller's verified pane; never an ambient/default pane. */
   getCurrentPaneId: () => string | null;
   resolvePaneTarget: (target: string) => string | null;
   setPaneTitle: (paneId: string, title: string) => void;

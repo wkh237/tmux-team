@@ -24,7 +24,11 @@ const PANE_FIELD_SEPARATOR = '__TMT_FIELD_4f1c__';
 const ENDPOINT_PROBE_TIMEOUT_MS = 1_000;
 const ENDPOINT_PROBE_MAX_BUFFER = 1024 * 1024;
 const TMUX_OPERATION_TIMEOUT_MS = 1_000;
+const CALLER_PANE_TIMEOUT_MS = 1_000;
+const CALLER_PANE_MAX_BUFFER = 4096;
+const CALLER_PANE_SEPARATOR = '__TMT_CALLER_PANE_4f1c__';
 const SERVER_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const PANE_ID_PATTERN = /^%\d+$/;
 
 // Known agent patterns for auto-detection
 const KNOWN_AGENTS: Record<string, string[]> = {
@@ -267,6 +271,70 @@ function isMissingProcess(error: unknown): boolean {
   );
 }
 
+function callerTmuxContext(
+  value: string | undefined
+):
+  | { readonly socketPath: string; readonly serverPid: number; readonly sessionId: string }
+  | undefined {
+  if (!value) return undefined;
+  const lastComma = value.lastIndexOf(',');
+  const previousComma = value.lastIndexOf(',', lastComma - 1);
+  if (previousComma <= 0 || lastComma <= previousComma + 1 || lastComma === value.length - 1) {
+    return undefined;
+  }
+  const socketPath = value.slice(0, previousComma);
+  const serverPidText = value.slice(previousComma + 1, lastComma);
+  const sessionId = value.slice(lastComma + 1);
+  if (!socketPath || !/^\d+$/.test(serverPidText) || !/^\d+$/.test(sessionId)) {
+    return undefined;
+  }
+  const serverPid = Number(serverPidText);
+  if (!Number.isSafeInteger(serverPid) || serverPid <= 0) return undefined;
+  return { socketPath, serverPid, sessionId };
+}
+
+function callerPaneId(): string | null {
+  const paneId = process.env.TMUX_PANE;
+  if (!paneId || !PANE_ID_PATTERN.test(paneId)) return null;
+  const context = callerTmuxContext(process.env.TMUX);
+  if (!context) return null;
+
+  try {
+    const output = execFileSync(
+      'tmux',
+      [
+        'display-message',
+        '-p',
+        '-t',
+        paneId,
+        `#{pane_id}${CALLER_PANE_SEPARATOR}#{socket_path}${CALLER_PANE_SEPARATOR}#{pid}`,
+      ],
+      {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: CALLER_PANE_TIMEOUT_MS,
+        maxBuffer: CALLER_PANE_MAX_BUFFER,
+        killSignal: 'SIGKILL',
+      }
+    );
+    const text = output.trim();
+    if (!text || text.includes('\n')) return null;
+    const fields = text.split(CALLER_PANE_SEPARATOR);
+    if (fields.length !== 3) return null;
+    const [returnedPaneId, returnedSocketPath, returnedServerPid] = fields;
+    if (
+      returnedPaneId !== paneId ||
+      returnedSocketPath !== context.socketPath ||
+      returnedServerPid !== String(context.serverPid)
+    ) {
+      return null;
+    }
+    return paneId;
+  } catch {
+    return null;
+  }
+}
+
 function remainingTimeout(options: TmuxOperationOptions = {}): number {
   const remaining =
     options.deadlineMs === undefined
@@ -433,21 +501,9 @@ export function createTmux(): Tmux {
     },
 
     getCurrentPaneId(): string | null {
-      // First check environment variable
-      if (process.env.TMUX_PANE) {
-        return process.env.TMUX_PANE;
-      }
-
-      // Fall back to tmux command
-      try {
-        const output = execSync('tmux display-message -p "#{pane_id}"', {
-          encoding: 'utf-8',
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
-        return output.trim() || null;
-      } catch {
-        return null;
-      }
+      // Implicit commands may select only a pane proven by the caller's tmux
+      // environment. Never fall back to the ambient/default server.
+      return callerPaneId();
     },
 
     getAgentRegistry(scope: RegistryScope): TmuxRegistry {

@@ -90,6 +90,14 @@ failed publication; do not delete their data to repair a binding.
 
 ### Pane targets
 
+`name`, `this`, `whoami` and `unbind` require a live caller pane whose
+`TMUX_PANE` and `TMUX` server context agree. Missing or stale caller context
+returns `PANE_NOT_FOUND` (exit 3), without selecting the default pane or
+changing identity data. Implicit `role` access returns `IDENTITY_REQUIRED`
+(exit 1) in that situation. Do not manufacture caller environment variables
+as a workaround: outside tmux, use explicit `add`, `talk`, `check`, or
+`role show|set|clear --identity <name>` as appropriate.
+
 Commands that accept a target recognize a global name or a tmux pane target:
 
 - `%pane_id`, such as `%12`
