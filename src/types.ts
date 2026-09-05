@@ -142,11 +142,29 @@ export interface Tmux {
   listGlobalIdentities: () => ActiveRegistration[];
   setGlobalIdentity: (paneId: string, name: string) => void;
   clearGlobalIdentity: (paneId: string) => boolean;
-  getEndpointSnapshot?: () => TmuxEndpointSnapshot;
-  setDurableIdentity?: (paneId: string, identity: DurableIdentity, binding: TmuxBinding) => void;
-  clearDurableIdentity?: (paneId: string, bindingId?: string) => boolean;
+  getEndpointSnapshot?: (options?: TmuxOperationOptions) => TmuxEndpointSnapshot;
+  setDurableIdentity?: (
+    paneId: string,
+    identity: DurableIdentity,
+    binding: TmuxBinding,
+    options?: TmuxOperationOptions
+  ) => void;
+  clearDurableIdentity?: (
+    paneId: string,
+    bindingId?: string,
+    options?: TmuxOperationOptions
+  ) => boolean;
   /** Probe a previously recorded socket without changing its server state. */
-  probeEndpoint?: (socketPath: string, serverPid: number) => TmuxEndpointProbe;
+  probeEndpoint?: (
+    socketPath: string,
+    serverPid: number,
+    options?: TmuxOperationOptions
+  ) => TmuxEndpointProbe;
+}
+
+export interface TmuxOperationOptions {
+  /** Monotonic deadline shared by every subprocess in one operation. */
+  readonly deadlineMs?: number;
 }
 
 export interface TmuxServerEvidence {

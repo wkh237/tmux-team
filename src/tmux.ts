@@ -4,6 +4,7 @@
 
 import { execFileSync, execSync } from 'child_process';
 import crypto from 'crypto';
+import { performance } from 'node:perf_hooks';
 import type {
   AgentRegistration,
   PaneAgentMetadata,
@@ -13,6 +14,7 @@ import type {
   TmuxRegistry,
   TmuxEndpointProbe,
   TmuxEndpointSnapshot,
+  TmuxOperationOptions,
 } from './types.js';
 import { normalizeName } from './domain/service.js';
 
@@ -21,6 +23,7 @@ const SERVER_ID_OPTION = '@tmux-team.server-id';
 const PANE_FIELD_SEPARATOR = '__TMT_FIELD_4f1c__';
 const ENDPOINT_PROBE_TIMEOUT_MS = 1_000;
 const ENDPOINT_PROBE_MAX_BUFFER = 1024 * 1024;
+const TMUX_OPERATION_TIMEOUT_MS = 1_000;
 const SERVER_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // Known agent patterns for auto-detection
@@ -135,7 +138,11 @@ function registryFromPanes(panes: PaneInfo[], scope: RegistryScope): TmuxRegistr
   return { paneRegistry, agents };
 }
 
-function parsePaneOutput(output: string, allowMetadataFallback = true): PaneInfo[] {
+function parsePaneOutput(
+  output: string,
+  allowMetadataFallback = true,
+  metadataOptions: TmuxOperationOptions & { readonly strictFallback?: boolean } = {}
+): PaneInfo[] {
   const seen = new Set<string>();
   return output
     .split('\n')
@@ -163,7 +170,7 @@ function parsePaneOutput(output: string, allowMetadataFallback = true): PaneInfo
       // conservative because all independent evidence must still agree.
       const metadata =
         safeParseMetadata(metadataText) ??
-        (allowMetadataFallback ? tryReadPaneMetadata(id || '') : undefined);
+        (allowMetadataFallback ? tryReadPaneMetadata(id || '', metadataOptions) : undefined);
       return {
         id: id || '',
         ...(target && { target }),
@@ -202,6 +209,7 @@ function parseEndpointSnapshot(
   options: {
     readonly expectedServerId?: string;
     readonly allowMetadataFallback: boolean;
+    readonly metadataOptions?: TmuxOperationOptions & { readonly strictFallback?: boolean };
     readonly requireCompleteEvidence?: boolean;
   }
 ): TmuxEndpointSnapshot {
@@ -233,7 +241,7 @@ function parseEndpointSnapshot(
   const paneOutput = rows
     .map((line) => line.split(PANE_FIELD_SEPARATOR).slice(4).join(PANE_FIELD_SEPARATOR))
     .join('\n');
-  const panes = parsePaneOutput(paneOutput, options.allowMetadataFallback);
+  const panes = parsePaneOutput(paneOutput, options.allowMetadataFallback, options.metadataOptions);
   if (
     options.requireCompleteEvidence &&
     (panes.length !== rows.length ||
@@ -259,7 +267,34 @@ function isMissingProcess(error: unknown): boolean {
   );
 }
 
-function probeEndpoint(socketPath: string, serverPid: number): TmuxEndpointProbe {
+function remainingTimeout(options: TmuxOperationOptions = {}): number {
+  const remaining =
+    options.deadlineMs === undefined
+      ? TMUX_OPERATION_TIMEOUT_MS
+      : options.deadlineMs - performance.now();
+  if (!Number.isFinite(remaining) || remaining <= 0) {
+    throw new Error('tmux operation deadline exceeded');
+  }
+  return Math.max(1, Math.min(TMUX_OPERATION_TIMEOUT_MS, Math.floor(remaining)));
+}
+
+function commandOptions(options: TmuxOperationOptions = {}): {
+  timeout: number;
+  maxBuffer: number;
+  killSignal: 'SIGKILL';
+} {
+  return {
+    timeout: remainingTimeout(options),
+    maxBuffer: ENDPOINT_PROBE_MAX_BUFFER,
+    killSignal: 'SIGKILL',
+  };
+}
+
+function probeEndpoint(
+  socketPath: string,
+  serverPid: number,
+  options: TmuxOperationOptions = {}
+): TmuxEndpointProbe {
   if (!socketPath || !Number.isSafeInteger(serverPid) || serverPid <= 0) {
     return { status: 'unknown' };
   }
@@ -269,7 +304,7 @@ function probeEndpoint(socketPath: string, serverPid: number): TmuxEndpointProbe
     output = execFileSync('tmux', ['-S', socketPath, 'list-panes', '-a', '-F', endpointFormat()], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: ENDPOINT_PROBE_TIMEOUT_MS,
+      timeout: Math.min(ENDPOINT_PROBE_TIMEOUT_MS, remainingTimeout(options)),
       maxBuffer: ENDPOINT_PROBE_MAX_BUFFER,
       killSignal: 'SIGKILL',
     });
@@ -474,14 +509,14 @@ export function createTmux(): Tmux {
       return true;
     },
 
-    getEndpointSnapshot() {
-      return readEndpointSnapshot();
+    getEndpointSnapshot(options) {
+      return readEndpointSnapshot(options);
     },
 
     probeEndpoint,
 
-    setDurableIdentity(paneId, identity, binding) {
-      const metadata = readPaneMetadata(paneId);
+    setDurableIdentity(paneId, identity, binding, options) {
+      const metadata = readPaneMetadataStrict(paneId, options);
       metadata.globalIdentity = {
         name: identity.name,
         canonicalName: identity.canonicalName,
@@ -490,35 +525,38 @@ export function createTmux(): Tmux {
         serverId: binding.serverId,
         panePid: binding.panePid,
       };
-      writePaneMetadata(paneId, metadata);
+      writePaneMetadata(paneId, metadata, options);
     },
 
-    clearDurableIdentity(paneId, bindingId) {
-      const metadata = readPaneMetadata(paneId);
+    clearDurableIdentity(paneId, bindingId, options) {
+      const metadata = readPaneMetadataStrict(paneId, options);
       if (!metadata.globalIdentity) return false;
       if (bindingId && metadata.globalIdentity.bindingId !== bindingId) return false;
       delete metadata.globalIdentity;
-      writePaneMetadata(paneId, metadata);
+      writePaneMetadata(paneId, metadata, options);
       return true;
     },
   };
 }
 
-function ensureServerId(): string {
+function ensureServerId(options: TmuxOperationOptions = {}): string {
   let serverId = '';
   try {
     serverId = execFileSync('tmux', ['show-options', '-s', '-v', SERVER_ID_OPTION], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      ...commandOptions(options),
     }).trim();
   } catch {
     serverId = crypto.randomUUID();
     execFileSync('tmux', ['set-option', '-s', '-o', SERVER_ID_OPTION, serverId], {
       stdio: 'pipe',
+      ...commandOptions(options),
     });
     serverId = execFileSync('tmux', ['show-options', '-s', '-v', SERVER_ID_OPTION], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      ...commandOptions(options),
     }).trim();
   }
   if (!SERVER_ID_PATTERN.test(serverId)) {
@@ -527,20 +565,28 @@ function ensureServerId(): string {
   return serverId;
 }
 
-function readEndpointSnapshot() {
-  const expectedServerId = ensureServerId();
+function readEndpointSnapshot(options: TmuxOperationOptions = {}) {
+  const expectedServerId = ensureServerId(options);
   const output = execFileSync('tmux', ['list-panes', '-a', '-F', endpointFormat()], {
     encoding: 'utf-8',
     stdio: ['pipe', 'pipe', 'pipe'],
+    ...commandOptions(options),
   });
   return parseEndpointSnapshot(output, {
     expectedServerId,
     allowMetadataFallback: true,
+    metadataOptions: { ...options, strictFallback: true },
   });
 }
 
-function tryReadPaneMetadata(paneId: string): PaneAgentMetadata | undefined {
+function tryReadPaneMetadata(
+  paneId: string,
+  options: TmuxOperationOptions & { readonly strictFallback?: boolean } = {}
+): PaneAgentMetadata | undefined {
   if (!paneId) return undefined;
+  if (options.strictFallback) {
+    return readPaneMetadataStrict(paneId, options);
+  }
   try {
     const output = execFileSync(
       'tmux',
@@ -556,14 +602,35 @@ function tryReadPaneMetadata(paneId: string): PaneAgentMetadata | undefined {
   }
 }
 
+function readPaneMetadataStrict(
+  paneId: string,
+  options: TmuxOperationOptions = {}
+): PaneAgentMetadata {
+  const output = execFileSync(
+    'tmux',
+    ['show-options', '-q', '-p', '-t', paneId, '-v', AGENT_METADATA_OPTION],
+    {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      ...commandOptions(options),
+    }
+  );
+  return safeParseMetadata(output) ?? emptyMetadata();
+}
+
 function readPaneMetadata(paneId: string): PaneAgentMetadata {
   return tryReadPaneMetadata(paneId) ?? emptyMetadata();
 }
 
-function writePaneMetadata(paneId: string, metadata: PaneAgentMetadata): void {
+function writePaneMetadata(
+  paneId: string,
+  metadata: PaneAgentMetadata,
+  options: TmuxOperationOptions = {}
+): void {
   if (!hasRegistrations(metadata)) {
     execFileSync('tmux', ['set-option', '-p', '-u', '-t', paneId, AGENT_METADATA_OPTION], {
       stdio: 'pipe',
+      ...commandOptions(options),
     });
     return;
   }
@@ -573,6 +640,7 @@ function writePaneMetadata(paneId: string, metadata: PaneAgentMetadata): void {
     ['set-option', '-p', '-t', paneId, AGENT_METADATA_OPTION, JSON.stringify(metadata)],
     {
       stdio: 'pipe',
+      ...commandOptions(options),
     }
   );
 }

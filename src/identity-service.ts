@@ -1,3 +1,4 @@
+import { performance } from 'node:perf_hooks';
 import { validateName } from './domain/names.js';
 import type { DurableIdentity, TmuxBinding } from './domain/identity.js';
 import { resolveTarget } from './target-resolver.js';
@@ -7,10 +8,13 @@ import type {
   Tmux,
   TmuxEndpointProbe,
   TmuxEndpointSnapshot,
+  TmuxOperationOptions,
   TmuxServerEvidence,
 } from './types.js';
 import { openIdentityRepository, type IdentityRepository } from './storage/identity-repository.js';
 import type { Paths } from './types.js';
+
+const PUBLICATION_TIMEOUT_MS = 3_000;
 
 export interface IdentityServiceOptions {
   readonly tmux: Tmux;
@@ -86,10 +90,10 @@ function metadataMatches(pane: PaneInfo, identity: DurableIdentity, binding: Tmu
   );
 }
 
-function endpointSnapshot(tmux: Tmux): TmuxEndpointSnapshot {
+function endpointSnapshot(tmux: Tmux, options: TmuxOperationOptions = {}): TmuxEndpointSnapshot {
   if (tmux.getEndpointSnapshot) {
     try {
-      return tmux.getEndpointSnapshot();
+      return tmux.getEndpointSnapshot(options);
     } catch (error) {
       throw new IdentityServiceError(
         'RECONCILIATION_FAILED',
@@ -176,10 +180,44 @@ function paneEvidence(snapshot: TmuxEndpointSnapshot, paneId: string): PaneInfo 
   return pane;
 }
 
-function probeForeignEndpoint(tmux: Tmux, binding: TmuxBinding): TmuxEndpointProbe {
+function assertDeadline(options: TmuxOperationOptions): void {
+  if (options.deadlineMs !== undefined && performance.now() >= options.deadlineMs) {
+    throw new Error('identity operation deadline exceeded');
+  }
+}
+
+function verifyPublished(
+  repository: IdentityRepository,
+  tmux: Tmux,
+  identity: DurableIdentity,
+  binding: TmuxBinding,
+  paneId: string,
+  options: TmuxOperationOptions
+): void {
+  const snapshot = endpointSnapshot(tmux, options);
+  const pane = findPane(snapshot, paneId);
+  if (
+    !pane ||
+    !serverMatches(binding, snapshot.server) ||
+    !paneMatches(binding, pane) ||
+    !metadataMatches(pane, identity, binding)
+  ) {
+    throw new Error('Durable pane metadata could not be verified.');
+  }
+  const persisted = repository.findBindingByPane(paneId, binding.serverId);
+  if (!persisted || persisted.id !== binding.id || persisted.identityId !== identity.id) {
+    throw new Error('Durable binding could not be verified.');
+  }
+}
+
+function probeForeignEndpoint(
+  tmux: Tmux,
+  binding: TmuxBinding,
+  options: TmuxOperationOptions = {}
+): TmuxEndpointProbe {
   if (!tmux.probeEndpoint) return { status: 'unknown' };
   try {
-    return tmux.probeEndpoint(binding.socketPath, binding.serverPid);
+    return tmux.probeEndpoint(binding.socketPath, binding.serverPid, options);
   } catch {
     return { status: 'unknown' };
   }
@@ -207,8 +245,29 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
   const repository = options.repository ?? openIdentityRepository(paths.databaseFile);
   const ownsRepository = !options.repository;
 
-  const reconcile = (): void => {
-    const snapshot = endpointSnapshot(tmux);
+  const guarded = <T>(operation: () => T, message: string): T => {
+    try {
+      return operation();
+    } catch (error) {
+      if (error instanceof IdentityServiceError) throw error;
+      throw new IdentityServiceError('RECONCILIATION_FAILED', message, { cause: error });
+    }
+  };
+
+  const coordinated = <T>(operation: (options: TmuxOperationOptions) => T, message: string): T =>
+    guarded(
+      () =>
+        repository.withImmediateTransaction(() => {
+          const options = { deadlineMs: performance.now() + PUBLICATION_TIMEOUT_MS };
+          const result = operation(options);
+          assertDeadline(options);
+          return result;
+        }),
+      message
+    );
+
+  const reconcileWithinTransaction = (options: TmuxOperationOptions): TmuxEndpointSnapshot => {
+    const snapshot = endpointSnapshot(tmux, options);
     const allBindings = repository.findBindings();
     const identities = new Map(repository.listIdentities().map((item) => [item.id, item]));
 
@@ -231,169 +290,140 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
         repository.touchBinding(binding.id, new Date().toISOString());
       }
     }
+    return snapshot;
   };
 
-  const safeReconcile = (): void => {
-    try {
-      reconcile();
-    } catch (error) {
-      if (error instanceof IdentityServiceError) throw error;
-      throw new IdentityServiceError(
-        'RECONCILIATION_FAILED',
-        'Could not reconcile identity state.',
-        {
-          cause: error,
-        }
-      );
-    }
+  const reconcile = (): void => {
+    coordinated((options) => {
+      reconcileWithinTransaction(options);
+    }, 'Could not reconcile identity state.');
   };
 
   const active = () => {
-    safeReconcile();
-    const snapshot = endpointSnapshot(tmux);
-    return mapActive(repository, snapshot, repository.findBindings());
+    return coordinated((options) => {
+      const snapshot = reconcileWithinTransaction(options);
+      return mapActive(repository, snapshot, repository.findBindings());
+    }, 'Could not reconcile identity state.');
   };
 
   const bind = (paneId: string, name: string): DurableIdentity => {
-    const snapshot = endpointSnapshot(tmux);
-    const pane = paneEvidence(snapshot, paneId);
+    // Validate the user-selected pane before creating the durable identity.
+    // The authoritative snapshot is repeated only after the writer lock is
+    // acquired below; this preflight prevents a missing pane from leaving a
+    // newly-created identity behind.
+    paneEvidence(endpointSnapshot(tmux), paneId);
     const resolved = createOrResolve(repository, name);
     const identity = resolved.identity;
-    const endpointBinding = repository
-      .findBindings()
-      .filter((item) => item.paneId === paneId && item.serverId === snapshot.server.serverId)[0];
-    let current: TmuxBinding | undefined = endpointBinding;
-    if (current && (!serverMatches(current, snapshot.server) || !paneMatches(current, pane))) {
-      repository.removeBinding(current.id);
-      current = undefined;
-    }
-    if (current && current.identityId !== identity.id) {
-      cleanupUnboundIdentity(repository, resolved.created, identity.id);
-      throw new IdentityServiceError(
-        'PANE_ALREADY_BOUND',
-        'Pane is already bound to another name.'
-      );
-    }
-    const existingIdentityBinding = repository
-      .findBindings()
-      .find((item) => item.identityId === identity.id);
-    if (existingIdentityBinding && existingIdentityBinding.id !== current?.id) {
-      const existingPane = findPane(snapshot, existingIdentityBinding.paneId);
-      if (
-        existingPane &&
-        serverMatches(existingIdentityBinding, snapshot.server) &&
-        paneMatches(existingIdentityBinding, existingPane)
-      ) {
-        throw new IdentityServiceError(
-          'NAME_ALREADY_ACTIVE',
-          'Name is already active on another pane.'
-        );
-      }
-      if (existingIdentityBinding.socketPath === snapshot.server.socketPath) {
-        repository.removeBinding(existingIdentityBinding.id);
-      } else {
-        const probe = probeForeignEndpoint(tmux, existingIdentityBinding);
-        if (probe.status === 'live') {
-          const foreignPane = findPane(probe.snapshot, existingIdentityBinding.paneId);
+    try {
+      return coordinated((options) => {
+        const snapshot = endpointSnapshot(tmux, options);
+        const pane = paneEvidence(snapshot, paneId);
+        const endpointBinding = repository
+          .findBindings()
+          .filter(
+            (item) => item.paneId === paneId && item.serverId === snapshot.server.serverId
+          )[0];
+        let current: TmuxBinding | undefined = endpointBinding;
+        if (current && (!serverMatches(current, snapshot.server) || !paneMatches(current, pane))) {
+          repository.removeBinding(current.id);
+          current = undefined;
+        }
+        if (current && current.identityId !== identity.id) {
+          throw new IdentityServiceError(
+            'PANE_ALREADY_BOUND',
+            'Pane is already bound to another name.'
+          );
+        }
+        const existingIdentityBinding = repository
+          .findBindings()
+          .find((item) => item.identityId === identity.id);
+        if (existingIdentityBinding && existingIdentityBinding.id !== current?.id) {
+          const existingPane = findPane(snapshot, existingIdentityBinding.paneId);
           if (
-            serverMatches(existingIdentityBinding, probe.snapshot.server) &&
-            foreignPane &&
-            paneMatches(existingIdentityBinding, foreignPane)
+            existingPane &&
+            serverMatches(existingIdentityBinding, snapshot.server) &&
+            paneMatches(existingIdentityBinding, existingPane)
           ) {
-            cleanupUnboundIdentity(repository, resolved.created, identity.id);
             throw new IdentityServiceError(
               'NAME_ALREADY_ACTIVE',
               'Name is already active on another pane.'
             );
           }
-          repository.removeBinding(existingIdentityBinding.id);
-        } else if (probe.status === 'unknown') {
-          cleanupUnboundIdentity(repository, resolved.created, identity.id);
-          throw new IdentityServiceError(
-            'RECONCILIATION_FAILED',
-            'Could not verify the existing tmux binding.'
-          );
-        } else {
-          repository.removeBinding(existingIdentityBinding.id);
+          if (existingIdentityBinding.socketPath === snapshot.server.socketPath) {
+            repository.removeBinding(existingIdentityBinding.id);
+          } else {
+            const probe = probeForeignEndpoint(tmux, existingIdentityBinding, options);
+            if (probe.status === 'live') {
+              const foreignPane = findPane(probe.snapshot, existingIdentityBinding.paneId);
+              if (
+                serverMatches(existingIdentityBinding, probe.snapshot.server) &&
+                foreignPane &&
+                paneMatches(existingIdentityBinding, foreignPane)
+              ) {
+                throw new IdentityServiceError(
+                  'NAME_ALREADY_ACTIVE',
+                  'Name is already active on another pane.'
+                );
+              }
+              repository.removeBinding(existingIdentityBinding.id);
+            } else if (probe.status === 'unknown') {
+              throw new IdentityServiceError(
+                'RECONCILIATION_FAILED',
+                'Could not verify the existing tmux binding.'
+              );
+            } else {
+              repository.removeBinding(existingIdentityBinding.id);
+            }
+          }
         }
-      }
-    }
-    if (current) {
-      if (tmux.setDurableIdentity && !metadataMatches(pane, identity, current)) {
-        tmux.setDurableIdentity(paneId, identity, current);
-      }
-      repository.touchBinding(current.id, new Date().toISOString());
-      return identity;
-    }
-    const now = new Date().toISOString();
-    let binding: TmuxBinding;
-    try {
-      binding = repository.createBinding({
-        identityId: identity.id,
-        transport: 'tmux',
-        paneId,
-        serverId: snapshot.server.serverId,
-        socketPath: snapshot.server.socketPath,
-        serverPid: snapshot.server.serverPid,
-        serverStartTime: snapshot.server.serverStartTime,
-        panePid: pane.panePid as number,
-        boundAt: now,
-        lastVerifiedAt: now,
-      });
-    } catch (error) {
-      // SQLite uniqueness is the final arbiter for cross-process races. Turn
-      // the native constraint into the same deterministic domain result.
-      const endpoint = repository.findBindingByPane(paneId, snapshot.server.serverId);
-      if (endpoint && endpoint.identityId === identity.id) {
+        if (current) {
+          if (tmux.setDurableIdentity && !metadataMatches(pane, identity, current)) {
+            tmux.setDurableIdentity(paneId, identity, current, options);
+          }
+          verifyPublished(repository, tmux, identity, current, paneId, options);
+          repository.touchBinding(current.id, new Date().toISOString());
+          return identity;
+        }
+        const now = new Date().toISOString();
+        const binding = repository.createBinding({
+          identityId: identity.id,
+          transport: 'tmux',
+          paneId,
+          serverId: snapshot.server.serverId,
+          socketPath: snapshot.server.socketPath,
+          serverPid: snapshot.server.serverPid,
+          serverStartTime: snapshot.server.serverStartTime,
+          panePid: pane.panePid as number,
+          boundAt: now,
+          lastVerifiedAt: now,
+        });
         try {
           if (!tmux.setDurableIdentity) throw new Error('Durable tmux metadata is unavailable.');
-          tmux.setDurableIdentity(paneId, identity, endpoint);
-        } catch (metadataError) {
+          tmux.setDurableIdentity(paneId, identity, binding, options);
+          verifyPublished(repository, tmux, identity, binding, paneId, options);
+        } catch (error) {
           throw new IdentityServiceError(
             'RECONCILIATION_FAILED',
             'Could not write pane metadata.',
-            { cause: metadataError }
+            {
+              cause: error,
+            }
           );
         }
         return identity;
-      }
-      if (endpoint) {
-        cleanupUnboundIdentity(repository, resolved.created, identity.id);
-        throw new IdentityServiceError(
-          'PANE_ALREADY_BOUND',
-          'Pane is already bound to another name.'
-        );
-      }
-      const racedIdentityBinding = repository
-        .findBindings()
-        .find((item) => item.identityId === identity.id);
-      if (racedIdentityBinding) {
-        cleanupUnboundIdentity(repository, false, identity.id);
-        throw new IdentityServiceError(
-          'NAME_ALREADY_ACTIVE',
-          'Name is already active on another pane.'
-        );
-      }
-      cleanupUnboundIdentity(repository, resolved.created, identity.id);
-      throw new IdentityServiceError('RECONCILIATION_FAILED', 'Could not create tmux binding.', {
-        cause: error,
-      });
-    }
-    try {
-      if (!tmux.setDurableIdentity) throw new Error('Durable tmux metadata is unavailable.');
-      tmux.setDurableIdentity(paneId, identity, binding);
+      }, 'Could not publish identity state.');
     } catch (error) {
-      try {
-        repository.removeBinding(binding.id);
-      } catch {
-        // The missing durable metadata still makes this row ineligible for
-        // routing; reconciliation will retry cleanup on the next read.
+      if (
+        resolved.created &&
+        error instanceof IdentityServiceError &&
+        (error.code === 'PANE_NOT_FOUND' ||
+          error.code === 'PANE_ALREADY_BOUND' ||
+          error.code === 'NAME_ALREADY_ACTIVE')
+      ) {
+        cleanupUnboundIdentity(repository, true, identity.id);
       }
-      throw new IdentityServiceError('RECONCILIATION_FAILED', 'Could not write pane metadata.', {
-        cause: error,
-      });
+      throw error;
     }
-    return identity;
   };
 
   return {
@@ -423,25 +453,34 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
       if (!current) return undefined;
       const paneId = tmux.resolvePaneTarget(current);
       if (!paneId) return undefined;
-      const item = active().find((entry) => entry.binding.paneId === paneId);
-      if (!item) return undefined;
-      try {
-        if (tmux.clearDurableIdentity) tmux.clearDurableIdentity(paneId, item.binding.id);
-      } catch (error) {
-        throw new IdentityServiceError('RECONCILIATION_FAILED', 'Could not clear pane metadata.', {
-          cause: error,
-        });
-      }
-      try {
-        repository.removeBinding(item.binding.id);
-      } catch (error) {
-        // Metadata was cleared first. A subsequent reconciliation will remove
-        // the stale row, so this partial operation can never route a phantom.
-        throw new IdentityServiceError('RECONCILIATION_FAILED', 'Could not remove tmux binding.', {
-          cause: error,
-        });
-      }
-      return item.identity;
+      return coordinated((options) => {
+        const snapshot = reconcileWithinTransaction(options);
+        const item = mapActive(repository, snapshot, repository.findBindings()).find(
+          (entry) => entry.binding.paneId === paneId
+        );
+        if (!item) return undefined;
+        try {
+          if (tmux.clearDurableIdentity) {
+            tmux.clearDurableIdentity(paneId, item.binding.id, options);
+          }
+        } catch (error) {
+          throw new IdentityServiceError(
+            'RECONCILIATION_FAILED',
+            'Could not clear pane metadata.',
+            { cause: error }
+          );
+        }
+        try {
+          repository.removeBinding(item.binding.id);
+        } catch (error) {
+          throw new IdentityServiceError(
+            'RECONCILIATION_FAILED',
+            'Could not remove tmux binding.',
+            { cause: error }
+          );
+        }
+        return item.identity;
+      }, 'Could not unbind identity state.');
     },
     currentIdentity() {
       const current = tmux.getCurrentPaneId();
@@ -467,7 +506,7 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
       if (!result.ok) return undefined;
       return items.find((item) => item.binding.paneId === result.value.paneId);
     },
-    reconcile: safeReconcile,
+    reconcile,
     close() {
       if (ownsRepository) repository.close();
     },

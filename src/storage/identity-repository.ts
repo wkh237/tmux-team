@@ -6,6 +6,8 @@ import { StorageError } from './errors.js';
 import type { StorageLocation } from './ports.js';
 
 export interface IdentityRepository {
+  /** Run a bounded identity mutation while holding SQLite's immediate writer lock. */
+  withImmediateTransaction<T>(operation: () => T): T;
   findByCanonicalName(canonicalName: string): DurableIdentity | undefined;
   createIdentity(name: string, canonicalName: string): DurableIdentity;
   listIdentities(): DurableIdentity[];
@@ -92,6 +94,9 @@ export function openIdentityRepository(location: StorageLocation): IdentityRepos
   };
 
   return {
+    withImmediateTransaction<T>(operation: () => T): T {
+      return requireOpen().transaction(operation).immediate();
+    },
     findByCanonicalName(canonicalName) {
       const row = requireOpen()
         .prepare(

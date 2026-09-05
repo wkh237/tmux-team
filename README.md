@@ -80,6 +80,14 @@ global name identifies at most one pane. The name `all` is an ordinary global
 identity, not a special destination. A message addressed to that name goes to
 the single pane currently bound to it.
 
+Binding and discovery coordinate through SQLite and verify live pane metadata
+before a bind reports success. If tmux cannot be verified or coordination times
+out, the operation reports an error instead of claiming a successful binding.
+An interrupted operation can leave an inactive pane marker; it does not become
+an identity through discovery. Use `name`/`this` or `add` explicitly to bind
+again. Existing durable identities and role profiles survive pane loss and
+failed publication; do not delete their data to repair a binding.
+
 ### Pane targets
 
 Commands that accept a target recognize a global name or a tmux pane target:

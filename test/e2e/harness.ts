@@ -34,6 +34,22 @@ export interface CliRunOptions {
   pane?: string;
   /** Remove pane context and fail visibly if the CLI attempts to invoke tmux. */
   withoutTmux?: boolean;
+  /** Touch this file when the child has made its first tmux invocation. */
+  progressFile?: string;
+}
+
+export interface CliProcess<T = unknown> {
+  readonly pid: number;
+  readonly result: Promise<CliResult<T>>;
+  /** Kill the CLI and descendants, including a paused tmux wrapper. */
+  kill(signal?: NodeJS.Signals): void;
+}
+
+export interface MetadataBarrierOptions {
+  /** Pause before or after the real durable metadata set-option. */
+  readonly phase: 'before' | 'after';
+  /** Publication is the default; clear pauses durable metadata removal. */
+  readonly operation?: 'publish' | 'clear';
 }
 
 function shellQuote(value: string): string {
@@ -49,6 +65,7 @@ export class E2EFixture {
   readonly globalDir: string;
   readonly logPath = path.join(this.root, 'mock-agent.jsonl');
   readonly forbiddenTmuxLogPath = path.join(this.root, 'forbidden-tmux.log');
+  readonly metadataBarrierDirectory = path.join(this.root, 'metadata-barrier');
   readonly socket = `tmt-e2e-${process.pid}-${Math.random().toString(16).slice(2)}`;
   readonly wrapperDir = path.join(this.root, 'bin');
   readonly tmuxPath: string;
@@ -60,6 +77,8 @@ export class E2EFixture {
   private serverStarted = false;
   private env: NodeJS.ProcessEnv = {};
   private panePids: number[] = [];
+  private cliProcessPids = new Set<number>();
+  private cliProcessResults = new Map<number, Promise<CliResult<unknown>>>();
 
   constructor(options: { globalDir?: string } = {}) {
     this.globalDir = options.globalDir ?? path.join(this.root, 'global');
@@ -79,15 +98,77 @@ export class E2EFixture {
   }
 
   async start(
-    options: { mode?: 'respond' | 'silent' | 'malformed'; delayMs?: number } = {}
+    options: {
+      mode?: 'respond' | 'silent' | 'malformed';
+      delayMs?: number;
+      metadataBarrier?: MetadataBarrierOptions;
+    } = {}
   ): Promise<void> {
     try {
       fs.mkdirSync(this.workspace, { recursive: true });
       fs.mkdirSync(this.globalDir, { recursive: true });
       fs.mkdirSync(this.wrapperDir, { recursive: true });
+      if (options.metadataBarrier) fs.mkdirSync(this.metadataBarrierDirectory);
       fs.writeFileSync(
         path.join(this.wrapperDir, 'tmux'),
-        `#!/bin/sh\nif [ "${'$'}{TMT_E2E_FORBID_TMUX:-}" = "1" ]; then\n  echo "unexpected tmux invocation" >> "$TMT_E2E_FORBIDDEN_TMUX_LOG"\n  exit 97\nfi\nexec ${shellQuote(this.tmuxPath)} -f /dev/null -L "$TMT_E2E_SOCKET" "$@"\n`
+        `#!/bin/sh
+if [ "${'$'}{TMT_E2E_FORBID_TMUX:-}" = "1" ]; then
+  echo "unexpected tmux invocation" >> "${'$'}TMT_E2E_FORBIDDEN_TMUX_LOG"
+  exit 97
+fi
+if [ -n "${'$'}{TMT_E2E_PROGRESS_FILE:-}" ]; then
+  : > "${'$'}TMT_E2E_PROGRESS_FILE"
+fi
+metadata_write=0
+metadata_clear=0
+if [ "${'$'}1" = "set-option" ]; then
+  unset_metadata=0
+  pane_metadata=0
+  for arg in "${'$'}@"; do
+    if [ "${'$'}arg" = "-u" ]; then unset_metadata=1; fi
+    if [ "${'$'}arg" = "-p" ]; then pane_metadata=1; fi
+    if [ "${'$'}arg" = "@tmux-team.agent" ]; then metadata_write=1; fi
+  done
+  if [ "${'$'}unset_metadata" = "1" ] && [ "${'$'}pane_metadata" = "1" ] && [ "${'$'}metadata_write" = "1" ]; then
+    metadata_clear=1
+  fi
+  if [ "${'$'}unset_metadata" = "1" ] || [ "${'$'}pane_metadata" = "0" ]; then
+    metadata_write=0
+  fi
+fi
+if [ -z "${'$'}{TMT_E2E_PROGRESS_FILE:-}" ] && [ -z "${'$'}{TMT_E2E_METADATA_BARRIER_DIR:-}" ]; then
+  exec ${shellQuote(this.tmuxPath)} -f /dev/null -L "${'$'}TMT_E2E_SOCKET" "${'$'}@"
+fi
+metadata_target=0
+if [ "${'$'}{TMT_E2E_METADATA_BARRIER_OPERATION:-publish}" = "clear" ]; then
+  metadata_target=${'$'}metadata_clear
+else
+  metadata_target=${'$'}metadata_write
+fi
+if [ "${'$'}metadata_target" = "1" ] && [ -n "${'$'}{TMT_E2E_METADATA_BARRIER_DIR:-}" ]; then
+  : > "${'$'}TMT_E2E_METADATA_BARRIER_DIR/entered"
+  if [ "${'$'}{TMT_E2E_METADATA_BARRIER_PHASE:-}" = "before" ]; then
+    barrier_wait=0
+    while [ ! -e "${'$'}TMT_E2E_METADATA_BARRIER_DIR/release" ] && [ "${'$'}barrier_wait" -lt 200 ]; do
+      sleep 0.01
+      barrier_wait=${'$'}((barrier_wait + 1))
+    done
+    [ -e "${'$'}TMT_E2E_METADATA_BARRIER_DIR/release" ] || exit 124
+  fi
+fi
+${shellQuote(this.tmuxPath)} -f /dev/null -L "${'$'}TMT_E2E_SOCKET" "${'$'}@"
+status=${'$'}?
+if [ "${'$'}metadata_target" = "1" ] && [ -n "${'$'}{TMT_E2E_METADATA_BARRIER_DIR:-}" ] && [ "${'$'}{TMT_E2E_METADATA_BARRIER_PHASE:-}" = "after" ]; then
+  : > "${'$'}TMT_E2E_METADATA_BARRIER_DIR/applied"
+  barrier_wait=0
+  while [ ! -e "${'$'}TMT_E2E_METADATA_BARRIER_DIR/release" ] && [ "${'$'}barrier_wait" -lt 200 ]; do
+    sleep 0.01
+    barrier_wait=${'$'}((barrier_wait + 1))
+  done
+  [ -e "${'$'}TMT_E2E_METADATA_BARRIER_DIR/release" ] || exit 124
+fi
+exit ${'$'}status
+`
       );
       fs.chmodSync(path.join(this.wrapperDir, 'tmux'), 0o755);
 
@@ -101,6 +182,9 @@ export class E2EFixture {
         TMT_MOCK_DELAY_MS: String(options.delayMs ?? 0),
         TMT_MOCK_LOG: this.logPath,
       };
+      if (options.metadataBarrier) {
+        this.enableMetadataBarrier(options.metadataBarrier);
+      }
       delete this.env.TMUX;
       delete this.env.TMUX_PANE;
 
@@ -120,6 +204,13 @@ export class E2EFixture {
     args: string[],
     options: CliRunOptions = {}
   ): Promise<CliResult<T>> {
+    return this.runCliProcess<T>(args, options).result;
+  }
+
+  runCliProcess<T = Record<string, unknown>>(
+    args: string[],
+    options: CliRunOptions = {}
+  ): CliProcess<T> {
     if (!this.started) throw new Error('E2E fixture must be started before invoking the CLI.');
     const env: NodeJS.ProcessEnv = { ...this.env, TMUX_PANE: options.pane ?? this.pane };
     if (options.withoutTmux) {
@@ -128,16 +219,19 @@ export class E2EFixture {
       env.TMT_E2E_FORBID_TMUX = '1';
       env.TMT_E2E_FORBIDDEN_TMUX_LOG = this.forbiddenTmuxLogPath;
     }
+    if (options.progressFile) env.TMT_E2E_PROGRESS_FILE = options.progressFile;
     const child = spawn(binPath, args, {
       cwd: options.cwd ?? this.workspace,
       env,
+      detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    if (child.pid) this.cliProcessPids.add(child.pid);
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
     child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
-    return new Promise<CliResult<T>>((resolve) => {
+    const result = new Promise<CliResult<T>>((resolve) => {
       let settled = false;
       child.once('error', (error) => {
         if (settled) return;
@@ -157,6 +251,43 @@ export class E2EFixture {
         resolve({ code: code ?? 1, stdout, stderr, json });
       });
     });
+    if (child.pid) this.cliProcessResults.set(child.pid, result as Promise<CliResult<unknown>>);
+    void result.then(
+      () => {
+        if (child.pid) {
+          try {
+            if (!this.processGroupIsRunning(child.pid)) this.cliProcessPids.delete(child.pid);
+          } catch {
+            // Leave the group tracked so fixture cleanup reports the failure.
+          }
+          this.cliProcessResults.delete(child.pid);
+        }
+      },
+      () => {
+        if (child.pid) {
+          try {
+            if (!this.processGroupIsRunning(child.pid)) this.cliProcessPids.delete(child.pid);
+          } catch {
+            // Leave the group tracked so fixture cleanup reports the failure.
+          }
+          this.cliProcessResults.delete(child.pid);
+        }
+      }
+    );
+    return {
+      pid: child.pid ?? 0,
+      result,
+      kill(signal = 'SIGTERM') {
+        if (!child.pid) return;
+        try {
+          process.kill(-child.pid, signal);
+        } catch (error) {
+          if (!(error instanceof Error) || !('code' in error) || error.code !== 'ESRCH') {
+            throw error;
+          }
+        }
+      },
+    };
   }
 
   runJsonCli<T = Record<string, unknown>>(
@@ -323,7 +454,78 @@ export class E2EFixture {
     throw new Error(`Timed out waiting for ${description}.`);
   }
 
+  async waitForMetadataBarrier(
+    signal: 'entered' | 'applied' = 'entered',
+    timeoutMs = 900
+  ): Promise<void> {
+    await this.waitFor(
+      () => fs.existsSync(path.join(this.metadataBarrierDirectory, signal)),
+      timeoutMs,
+      `metadata barrier '${signal}'`
+    );
+  }
+
+  releaseMetadataBarrier(): void {
+    if (!fs.existsSync(this.metadataBarrierDirectory)) {
+      throw new Error('Metadata barrier is not enabled for this fixture.');
+    }
+    fs.writeFileSync(path.join(this.metadataBarrierDirectory, 'release'), 'release');
+  }
+
+  enableMetadataBarrier(options: MetadataBarrierOptions): void {
+    fs.mkdirSync(this.metadataBarrierDirectory, { recursive: true });
+    for (const signal of ['entered', 'applied', 'release']) {
+      fs.rmSync(path.join(this.metadataBarrierDirectory, signal), { force: true });
+    }
+    this.env.TMT_E2E_METADATA_BARRIER_DIR = this.metadataBarrierDirectory;
+    this.env.TMT_E2E_METADATA_BARRIER_PHASE = options.phase;
+    this.env.TMT_E2E_METADATA_BARRIER_OPERATION = options.operation ?? 'publish';
+  }
+
   async stop(): Promise<void> {
+    const cliPids = [...this.cliProcessPids];
+    let cleanupError: Error | undefined;
+    for (const pid of cliPids) {
+      try {
+        process.kill(-pid, 'SIGKILL');
+      } catch (error) {
+        if (!(error instanceof Error) || !('code' in error) || error.code !== 'ESRCH') {
+          cleanupError = new Error(`Could not kill E2E CLI process group ${pid}.`, {
+            cause: error,
+          });
+        }
+      }
+    }
+    const groupsRunning = (): number[] =>
+      cliPids.filter((pid) => {
+        try {
+          return this.processGroupIsRunning(pid);
+        } catch (error) {
+          cleanupError ??= new Error(`Could not inspect E2E CLI process group ${pid}.`, {
+            cause: error,
+          });
+          return false;
+        }
+      });
+    const deadline = Date.now() + 1_000;
+    while (Date.now() < deadline && groupsRunning().length > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    const survivors = groupsRunning();
+    if (survivors.length > 0) {
+      cleanupError = new Error(`E2E CLI process groups survived cleanup: ${survivors.join(', ')}`);
+    }
+    this.cliProcessPids.clear();
+    await Promise.race([
+      Promise.allSettled(this.cliProcessResults.values()),
+      new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
+    ]);
+    if (this.cliProcessResults.size > 0) {
+      cleanupError = new Error(
+        `E2E CLI processes did not report termination: ${[...this.cliProcessResults.keys()].join(', ')}`
+      );
+    }
+    this.cliProcessResults.clear();
     if (this.serverStarted) {
       try {
         this.tmux(['kill-server']);
@@ -336,6 +538,7 @@ export class E2EFixture {
     await this.waitForProcessExit();
     fs.rmSync(this.root, { recursive: true, force: true });
     fs.rmSync(this.socketRoot, { recursive: true, force: true });
+    if (cleanupError) throw cleanupError;
   }
 
   serverIsRunning(): boolean {
@@ -361,6 +564,17 @@ export class E2EFixture {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  private processGroupIsRunning(pid: number): boolean {
+    if (!Number.isInteger(pid) || pid <= 0) return false;
+    try {
+      process.kill(-pid, 0);
+      return true;
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ESRCH') return false;
+      throw error;
     }
   }
 
@@ -415,7 +629,12 @@ export class E2EFixture {
 
 export async function withE2EFixture<T>(
   callback: (fixture: E2EFixture) => Promise<T> | T,
-  options: { mode?: 'respond' | 'silent' | 'malformed'; delayMs?: number; globalDir?: string } = {}
+  options: {
+    mode?: 'respond' | 'silent' | 'malformed';
+    delayMs?: number;
+    globalDir?: string;
+    metadataBarrier?: MetadataBarrierOptions;
+  } = {}
 ): Promise<T> {
   const fixture = new E2EFixture(options);
   try {
