@@ -30,8 +30,32 @@ identity memory, or durable inbox. Adding a command does not imply those feature
   injected preambles. Explicit durable role access works without tmux; implicit
   access requires verified caller identity.
 
-These are invariants to protect. Known publication, caller-context and delivery
+These are invariants to protect. Known caller-context and delivery
 gaps below remain limitations, not guarantees supplied by this document.
+
+## Binding publication and recovery
+
+Binding publication, active reconciliation and unbind share the repository's
+SQLite immediate-transaction boundary. Authoritative endpoint snapshots are
+taken after acquiring the write lock, so a reconciler cannot prune a new
+binding using evidence captured before publication. Bind verifies the written
+metadata against fresh server/pane evidence before committing its success.
+
+The lock acquisition uses the existing five-second SQLite busy timeout. Tmux
+work inside the boundary shares a three-second monotonic deadline after lock
+acquisition, including metadata fallbacks and bounded foreign probes. Exhausted
+budgets or failed observations abort the operation; a failed metadata read is
+not treated as permission to overwrite unrelated pane fields. This intentionally
+trades bounded writer contention for a small coordination protocol, without a
+new lease table or a grace-period heuristic.
+
+SQLite and tmux are not a distributed atomic transaction. A crash after metadata
+publication but before commit can leave an orphan marker; it is inactive because
+no committed binding agrees with it. Reads never backfill it. Explicit binding
+can replace it. An interrupted unbind may leave a row with missing metadata;
+subsequent reconciliation removes that inactive binding, not the durable identity
+or role profile. Success describes verified presence at the commit point, not a
+promise that the pane cannot exit or another operation cannot unbind it later.
 
 ## V5 compatibility policy
 
@@ -127,7 +151,6 @@ a gap is resolved; do not leave a permanent exception or label a proposal as shi
 
 | Gap                                                                                                                                                      | Owning issue                                                                                                                                                           |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Binding insert/metadata publication/reconciliation are not yet a coordinated crash-safe protocol. SQLite uniqueness alone does not supply it.            | [TMT-20](https://linear.app/tigerpig-dev/issue/TMT-20)                                                                                                                 |
 | Some current-pane commands can fall back to an ambient pane outside a caller session; role selection guards this separately.                             | [TMT-21](https://linear.app/tigerpig-dev/issue/TMT-21)                                                                                                                 |
 | Numeric/flag validation needs hardening.                                                                                                                 | [TMT-22](https://linear.app/tigerpig-dev/issue/TMT-22)                                                                                                                 |
 | Message adaptation/fallback and JSON wait/counter updates have safety/concurrency gaps.                                                                  | [TMT-24](https://linear.app/tigerpig-dev/issue/TMT-24), [TMT-25](https://linear.app/tigerpig-dev/issue/TMT-25)                                                         |

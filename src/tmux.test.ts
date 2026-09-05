@@ -4,6 +4,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { execFileSync, execSync } from 'child_process';
+import { performance } from 'node:perf_hooks';
 import { createTmux } from './tmux.js';
 import type { DurableIdentity, TmuxBinding } from './domain/identity.js';
 
@@ -437,6 +438,68 @@ describe('createTmux', () => {
         );
       }
     );
+
+    it('fails closed when durable metadata cannot be read', () => {
+      mockedExecFileSync.mockImplementationOnce(() => {
+        throw new Error('tmux read failed');
+      });
+      const identity: DurableIdentity = {
+        id: 'identity-1',
+        name: 'Alice',
+        canonicalName: 'alice',
+        createdAt: 'created',
+        updatedAt: 'updated',
+      };
+      const binding: TmuxBinding = {
+        id: 'binding-1',
+        identityId: identity.id,
+        transport: 'tmux',
+        paneId: '%9',
+        serverId: 'server-1',
+        socketPath: '/tmp/tmux.sock',
+        serverPid: 321,
+        serverStartTime: 'started',
+        panePid: 654,
+        boundAt: 'bound',
+        lastVerifiedAt: 'verified',
+      };
+
+      expect(() => createTmux().setDurableIdentity!('%9', identity, binding)).toThrow(
+        'tmux read failed'
+      );
+      expect(mockedExecFileSync).toHaveBeenCalledTimes(1);
+    });
+
+    it('treats a quiet absent metadata option as an empty metadata object', () => {
+      mockedExecFileSync.mockReturnValueOnce('');
+      const identity: DurableIdentity = {
+        id: 'identity-1',
+        name: 'Alice',
+        canonicalName: 'alice',
+        createdAt: 'created',
+        updatedAt: 'updated',
+      };
+      const binding: TmuxBinding = {
+        id: 'binding-1',
+        identityId: identity.id,
+        transport: 'tmux',
+        paneId: '%9',
+        serverId: 'server-1',
+        socketPath: '/tmp/tmux.sock',
+        serverPid: 321,
+        serverStartTime: 'started',
+        panePid: 654,
+        boundAt: 'bound',
+        lastVerifiedAt: 'verified',
+      };
+
+      createTmux().setDurableIdentity!('%9', identity, binding);
+      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
+        'tmux',
+        ['set-option', '-p', '-t', '%9', '@tmux-team.agent', expect.any(String)],
+        expect.any(Object)
+      );
+    });
   });
 
   describe('getCurrentPaneId', () => {
@@ -479,6 +542,57 @@ describe('createTmux', () => {
   });
 
   describe('durable endpoint snapshots', () => {
+    it('does not invoke tmux after a shared deadline expires', () => {
+      expect(() =>
+        createTmux().getEndpointSnapshot?.({ deadlineMs: performance.now() - 1 })
+      ).toThrow('tmux operation deadline exceeded');
+      expect(mockedExecFileSync).not.toHaveBeenCalled();
+    });
+
+    it('propagates strict fallback metadata read failures', () => {
+      mockedExecFileSync
+        .mockReturnValueOnce(`${VALID_SERVER_ID}\n`)
+        .mockReturnValueOnce(`${endpointRow()}\n`)
+        .mockImplementationOnce(() => {
+          throw new Error('metadata fallback failed');
+        });
+
+      expect(() => createTmux().getEndpointSnapshot?.()).toThrow('metadata fallback failed');
+    });
+
+    it('uses integer per-command timeouts bounded by a decreasing shared deadline', () => {
+      const clock = vi
+        .spyOn(performance, 'now')
+        .mockImplementationOnce(() => 100)
+        .mockImplementationOnce(() => 250)
+        .mockImplementationOnce(() => 400);
+      mockedExecFileSync
+        .mockReturnValueOnce(`${VALID_SERVER_ID}\n`)
+        .mockReturnValueOnce(`${endpointRow()}\n`)
+        .mockReturnValueOnce(`${JSON.stringify({ version: 1 })}\n`);
+
+      try {
+        createTmux().getEndpointSnapshot?.({ deadlineMs: 1_000 });
+        const timeouts = mockedExecFileSync.mock.calls.map(([, , options]) => {
+          expect(options).toEqual(
+            expect.objectContaining({
+              timeout: expect.any(Number),
+              maxBuffer: 1024 * 1024,
+              killSignal: 'SIGKILL',
+            })
+          );
+          const timeout = (options as { timeout: number }).timeout;
+          expect(Number.isInteger(timeout)).toBe(true);
+          expect(timeout).toBeGreaterThan(0);
+          expect(timeout).toBeLessThanOrEqual(1_000);
+          return timeout;
+        });
+        expect(timeouts).toEqual([900, 750, 600]);
+      } finally {
+        clock.mockRestore();
+      }
+    });
+
     it('reads server and pane evidence from one list-panes snapshot', () => {
       const serverId = '123e4567-e89b-42d3-a456-426614174000';
       mockedExecFileSync

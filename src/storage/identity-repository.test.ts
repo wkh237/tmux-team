@@ -68,6 +68,38 @@ describe('identity repository contract', () => {
     repository.close();
   });
 
+  it('rolls back a grouped binding publication when metadata work fails', () => {
+    const file = databasePath();
+    const repository = openIdentityRepository(file);
+    const observer = openIdentityRepository(file);
+    const identity = repository.createIdentity('Rollback', 'rollback');
+    const now = new Date().toISOString();
+
+    expect(() =>
+      repository.withImmediateTransaction(() => {
+        repository.createBinding({
+          identityId: identity.id,
+          transport: 'tmux',
+          paneId: '%3',
+          serverId: 'server',
+          socketPath: '/tmp/server',
+          serverPid: 42,
+          serverStartTime: now,
+          panePid: 99,
+          boundAt: now,
+          lastVerifiedAt: now,
+        });
+        expect(observer.findBindings()).toEqual([]);
+        throw new Error('metadata publication failed');
+      })
+    ).toThrow('metadata publication failed');
+    expect(repository.findBindings()).toEqual([]);
+    expect(observer.findBindings()).toEqual([]);
+    expect(repository.findByCanonicalName('rollback')).toEqual(identity);
+    repository.close();
+    observer.close();
+  });
+
   it('rejects use after close', () => {
     const repository = openIdentityRepository(databasePath());
     repository.close();

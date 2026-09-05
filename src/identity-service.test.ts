@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createIdentityService, identityAwareTmux } from './identity-service.js';
 import { IdentityServiceError } from './identity-service.js';
@@ -152,6 +153,70 @@ describe('durable identity service', () => {
     expect(repository.findBindings()).toHaveLength(1);
     repository.close();
     service.close();
+  });
+
+  it('does not let reconciliation delete a binding while metadata is publishing', () => {
+    const test = fixture();
+    const base = openIdentityRepository(test.paths.databaseFile);
+    const observerBase = openIdentityRepository(test.paths.databaseFile);
+    let reconciler: ReturnType<typeof createIdentityService> | undefined;
+    const repository = {
+      ...base,
+      createBinding(value: Parameters<typeof base.createBinding>[0]) {
+        const binding = base.createBinding(value);
+        reconciler?.activeIdentities();
+        return binding;
+      },
+    };
+    // Use a second SQLite connection. Its callback deliberately bypasses the
+    // observer's coordination boundary to isolate committed/uncommitted
+    // visibility; the production observer uses its own immediate lock.
+    reconciler = createIdentityService({
+      ...test,
+      repository: {
+        ...observerBase,
+        withImmediateTransaction: <T>(operation: () => T) => operation(),
+      },
+    });
+    const binder = createIdentityService({ ...test, repository });
+
+    expect(binder.bindCurrent('publication-race')).toMatchObject({
+      canonicalName: 'publication-race',
+    });
+    expect(base.findBindings()).toHaveLength(1);
+    expect(binder.activeIdentities()).toHaveLength(1);
+    expect(test.pane.metadata?.globalIdentity?.bindingId).toBe(base.findBindings()[0]?.id);
+
+    binder.close();
+    reconciler.close();
+    base.close();
+    observerBase.close();
+  });
+
+  it('acquires repository coordination before taking a discovery snapshot', () => {
+    const test = fixture();
+    const base = openIdentityRepository(test.paths.databaseFile);
+    const events: string[] = [];
+    const snapshot = test.tmux.getEndpointSnapshot;
+    if (!snapshot) throw new Error('Snapshot seam is missing.');
+    test.tmux.getEndpointSnapshot = () => {
+      events.push('snapshot');
+      return snapshot();
+    };
+    const repository = {
+      ...base,
+      withImmediateTransaction<T>(operation: () => T): T {
+        events.push('lock');
+        return operation();
+      },
+    };
+    const service = createIdentityService({ ...test, repository });
+
+    expect(service.activeIdentities()).toEqual([]);
+    expect(events.slice(0, 2)).toEqual(['lock', 'snapshot']);
+
+    service.close();
+    base.close();
   });
 
   it('fails closed when the tmux adapter cannot provide endpoint evidence', () => {
@@ -587,6 +652,113 @@ describe('durable identity service', () => {
     expect(repository.findBindings()).toEqual([]);
     repository.close();
     service.close();
+  });
+
+  it('rolls back when metadata publication verifies a missing marker while retaining identity data', () => {
+    const test = fixture();
+    const seed = openIdentityRepository(test.paths.databaseFile);
+    const identity = seed.createIdentity('Verify failure', 'verify failure');
+    seed.setRole(identity.id, 'Keep this profile.');
+    seed.close();
+    test.tmux.setDurableIdentity = () => {};
+    const service = createIdentityService(test);
+
+    expect(() => service.bindCurrent(identity.name)).toThrow('Could not write pane metadata.');
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    expect(repository.findBindings()).toEqual([]);
+    expect(repository.findByCanonicalName(identity.canonicalName)).toEqual(identity);
+    expect(repository.findRole(identity.id)).toMatchObject({ content: 'Keep this profile.' });
+    repository.close();
+    service.close();
+  });
+
+  it('rejects successful metadata when the binding row is missing at verification', () => {
+    const test = fixture();
+    const base = openIdentityRepository(test.paths.databaseFile);
+    const identity = base.createIdentity('Missing row', 'missing row');
+    base.setRole(identity.id, 'Keep this profile.');
+    const repository = {
+      ...base,
+      findBindingByPane: () => undefined,
+    };
+    const service = createIdentityService({ ...test, repository });
+
+    expect(() => service.bindCurrent(identity.name)).toThrowError(
+      expect.objectContaining({ code: 'RECONCILIATION_FAILED' })
+    );
+    expect(test.pane.metadata?.globalIdentity?.identityId).toBe(identity.id);
+    expect(base.findBindings()).toEqual([]);
+    expect(base.findByCanonicalName(identity.canonicalName)).toEqual(identity);
+    expect(base.findRole(identity.id)).toMatchObject({ content: 'Keep this profile.' });
+
+    service.close();
+    base.close();
+  });
+
+  it('rolls back when the publication deadline expires after the final tmux call', () => {
+    const test = fixture();
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(1_000);
+    const setDurableIdentity = test.tmux.setDurableIdentity!;
+    test.tmux.setDurableIdentity = (...args) => {
+      setDurableIdentity(...args);
+      // The final verification still observes the just-written metadata, but
+      // the shared boundary must reject success before committing the row.
+      clock.mockReturnValue(4_001);
+    };
+    const service = createIdentityService(test);
+
+    try {
+      expect(() => service.bindCurrent('deadline-race')).toThrowError(
+        expect.objectContaining({ code: 'RECONCILIATION_FAILED' })
+      );
+      const repository = openIdentityRepository(test.paths.databaseFile);
+      expect(repository.findBindings()).toEqual([]);
+      expect(repository.findByCanonicalName('deadline-race')).toBeDefined();
+      repository.close();
+    } finally {
+      clock.mockRestore();
+      service.close();
+    }
+  });
+
+  it('keeps a valid binding when a later strict snapshot read fails', () => {
+    const test = fixture();
+    const service = createIdentityService(test);
+    const identity = service.bindCurrent('Persisted');
+    const before = openIdentityRepository(test.paths.databaseFile);
+    before.setRole(identity.id, 'Keep this profile.');
+    const binding = before.findBindings()[0];
+    before.close();
+    test.tmux.getEndpointSnapshot = () => {
+      throw new Error('metadata fallback failed');
+    };
+
+    expect(() => service.activeIdentities()).toThrowError(
+      expect.objectContaining({ code: 'RECONCILIATION_FAILED' })
+    );
+    const after = openIdentityRepository(test.paths.databaseFile);
+    expect(after.findBindingByPane('%1', 'server-a')).toMatchObject({ id: binding?.id });
+    expect(after.findRole(identity.id)).toMatchObject({ content: 'Keep this profile.' });
+    after.close();
+    service.close();
+  });
+
+  it('maps writer contention to a reconciliation failure', () => {
+    const test = fixture();
+    const base = openIdentityRepository(test.paths.databaseFile);
+    const repository = {
+      ...base,
+      withImmediateTransaction<T>(): T {
+        throw new Error('database is locked');
+      },
+    };
+    const service = createIdentityService({ ...test, repository });
+
+    expect(() => service.activeIdentities()).toThrowError(
+      expect.objectContaining({ code: 'RECONCILIATION_FAILED' })
+    );
+    service.close();
+    base.close();
   });
 
   it('heals a metadata-only unbind interruption on the next reconciliation', () => {
