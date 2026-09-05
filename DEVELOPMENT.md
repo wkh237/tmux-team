@@ -1,12 +1,24 @@
 # Development
 
+Repository policy and ownership live in [AGENTS.md](AGENTS.md). The maintained
+module map and architecture change triggers live in
+[ARCHITECTURE.md](ARCHITECTURE.md). Code and test style lives in
+[CONVENTIONS.md](CONVENTIONS.md). Use this file for commands, test selection,
+and verification evidence; do not copy architecture policy here.
+
+## Change workflow
+
+Follow the [development skill](.agents/skills/tmt-dev/SKILL.md) for the issue,
+audit, design, delegation, primary review and delivery workflow. This guide owns
+the verification commands, not a second copy of that procedure.
+
 ## Project Setup
 
 - Requirements: Node.js >= 22.12
 - Install dependencies:
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
 ```
 
 - Run the CLI locally:
@@ -29,7 +41,7 @@ pnpm test:watch
 pnpm test:run
 ```
 
-- Docker-backed end-to-end smoke tests:
+- Docker-backed CLI/tmux end-to-end tests:
 
 ```bash
 pnpm test:e2e
@@ -46,24 +58,56 @@ transport, pane movement, and fixture cleanup. Failures include the
 container/Vitest output, and each fixture kills its private server and removes
 its temporary state.
 
-- Full checks:
+- Static/code-quality checks (unit and Docker suites are separate):
 
 ```bash
 pnpm check
 ```
 
+## Focused verification
+
+Run the checks for every changed layer and report the exact command and result.
+Select behavioral checks by the affected contract, not only by file extension.
+Changed public CLI behavior needs representative real subprocess input/output
+coverage; tmux integration uses the existing Docker harness. A feature issue
+authorizes its matching tests, not unrelated expansion of the E2E foundation.
+
+| Changed area                            | Required checks                                                                     |
+| --------------------------------------- | ----------------------------------------------------------------------------------- |
+| Production TypeScript                   | `pnpm type:check`, `pnpm lint`, `pnpm format:check`                                 |
+| Unit behavior or shared contracts       | `pnpm test:run`                                                                     |
+| E2E scenarios, harness, or scripts      | `pnpm e2e:typecheck`, `pnpm e2e:lint`, `pnpm e2e:format:check`, and `pnpm test:e2e` |
+| Repository docs, skills, or PR guidance | `pnpm docs:format:check`                                                            |
+| Cross-layer or release-facing changes   | `pnpm check` plus the applicable behavioral and packed-install checks               |
+
+CI must be checked on the current commit before an authorized merge. The
+repository does not automate semantic architecture validation; reviewer
+ownership and the architecture-impact record are the enforcement mechanism.
+
+`docs:format:check` covers the architecture, policy, conventions, development
+guide, repository skills and PR template. It uses `.gitignore` as its ignore
+file because the legacy `.prettierignore` excludes Markdown. For other changed
+Markdown, run Prettier explicitly with `--ignore-path .gitignore` and the exact
+paths. Validate new/changed skill frontmatter and local links as well; formatting
+alone does not validate instructions. When available, use the skill-authoring
+validator and record its result; otherwise perform and report a manual check.
+
+Use the E2E skill for integration/lifecycle changes, including its twice-run
+cleanup gate. Keep the existing CI jobs required even when a local check is not
+applicable; do not use this matrix to bypass branch protection.
+
 ## Packed native-install verification
 
-TMT-12 includes a focused check for release artifacts. It installs the actual
+The packed native-install check verifies release artifacts. It installs the actual
 `.tgz` produced by `pnpm pack` into a clean temporary project, loads
-`better-sqlite3`'s native `.node` binding, creates an FTS5 virtual table, and
+`better-sqlite3`'s native `.node` binding, creates an FTS5 virtual table,
 executes a query, and invokes the packed `tmt` executable. Installation runs
 with lifecycle scripts disabled, and the verifier requires the exact bundled
 prebuild for the current platform, architecture, and libc. A successful run
 therefore proves that no source compilation is required. Temporary projects
 and caches are removed on every exit path.
 
-Example (after the storage dependency is present):
+Example:
 
 ```bash
 mkdir -p .tmp/tmt-pack
@@ -87,71 +131,29 @@ We prefer structured, deterministic assertions in tests. Human-facing formatting
 
 ### 1) Structured Output Verification
 
-- Always use JSON mode (`--json`) in tests when you need structured output.
-- Assert on `ui.json` or `ui.jsonData`, not `console.log`.
-- Example:
-
-```ts
-const ctx = createMockContext(globalDir, { json: true, cwd: projectDir });
-vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
-
-cmdConfig(ctx, ['show']);
-
-expect(ctx.ui.json).toHaveBeenCalledTimes(1);
-expect(ctx.ui.json).toHaveBeenCalledWith(
-  expect.objectContaining({ resolved: expect.any(Object) })
-);
-```
+- Use JSON mode (`--json`) when a test needs structured command output.
+- Assert on the context's structured UI call (`ui.json`) rather than terminal
+  formatting or `console.log`.
 
 ### 2) Mock Isolation
 
-- Clear mocks before the call being tested to avoid stale assertions.
-- Use `toHaveBeenCalledTimes(1)` to ensure a single output.
-- Example:
-
-```ts
-(ctx.ui.json as ReturnType<typeof vi.fn>).mockClear();
-cmdConfig(ctx, ['show']);
-expect(ctx.ui.json).toHaveBeenCalledTimes(1);
-```
+- Clear mocks before the call being tested and assert the expected call count
+  so stale output cannot satisfy the test.
 
 ### 3) File Content Verification
 
-- For config tests, read actual files from disk and assert on contents.
-- Use temp directories and clean up in `afterEach`.
-- Example:
-
-```ts
-testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-test-'));
-// ... run operation ...
-const configPath = path.join(testDir, 'config.json');
-const content = fs.readFileSync(configPath, 'utf-8');
-expect(content).toContain('polling');
-```
+- For config and persistence tests, read actual files from isolated temporary
+  directories and clean them up in `afterEach`.
 
 ### 4) Table Output
 
-- Verify table output via the `ui.table` mock (headers and rows).
-- Example:
-
-```ts
-cmdList(ctx, []);
-expect(ctx.ui.table).toHaveBeenCalledWith(
-  ['Name', 'Pane', 'Remark'],
-  expect.any(Array)
-);
-```
+- Verify table output through the `ui.table` mock when table structure is the
+  behavior under test.
 
 ### 5) Avoid console.log mocking
 
-- Don’t override `console.log` directly in tests (leak risk).
-- Use JSON mode for structured verification or assert on `ui.table`/`ui.json` mocks.
+- Do not override `console.log` directly in tests. Use structured UI calls or a
+  focused human-readable formatter test instead.
 
-## Rationale for Structured Testing
-
-- **Deterministic**: JSON output is stable; formatted strings are brittle.
-- **Clear intent**: Tests assert on the data, not presentation details.
-- **Lower maintenance**: Formatting changes don’t break unrelated tests.
-- **Faster debugging**: `ui.jsonData` and mock call assertions pinpoint mismatches.
-
-When a test must validate human-readable output, keep it focused and minimal (single formatter test) so the rest of the suite stays stable.
+When a test must validate human-readable output, keep it focused and minimal so
+formatting changes do not break unrelated behavior tests.
