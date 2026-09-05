@@ -1,4 +1,4 @@
-import { normalizeName, validateName } from './domain/names.js';
+import { validateName } from './domain/names.js';
 import type { DurableIdentity, TmuxBinding } from './domain/identity.js';
 import { resolveTarget } from './target-resolver.js';
 import type {
@@ -50,14 +50,39 @@ function paneMatches(expected: TmuxBinding, pane: PaneInfo): boolean {
   return expected.paneId === pane.id && expected.panePid === pane.panePid;
 }
 
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
 function metadataMatches(pane: PaneInfo, identity: DurableIdentity, binding: TmuxBinding): boolean {
+  const envelope = pane.metadata;
   const metadata = pane.metadata?.globalIdentity;
+  if (envelope?.version !== 1 || !metadata || typeof metadata !== 'object') return false;
+  if (
+    !nonEmptyString(metadata.name) ||
+    !nonEmptyString(metadata.canonicalName) ||
+    !nonEmptyString(metadata.identityId) ||
+    !nonEmptyString(metadata.bindingId) ||
+    !nonEmptyString(metadata.serverId) ||
+    typeof metadata.panePid !== 'number' ||
+    !Number.isSafeInteger(metadata.panePid) ||
+    metadata.panePid <= 0
+  ) {
+    return false;
+  }
+  const validatedName = validateName(metadata.name);
+  if (
+    !validatedName.ok ||
+    validatedName.value.canonicalName !== metadata.canonicalName ||
+    metadata.canonicalName !== identity.canonicalName
+  ) {
+    return false;
+  }
   return (
     metadata?.identityId === identity.id &&
     metadata.bindingId === binding.id &&
     metadata.serverId === binding.serverId &&
-    metadata.panePid === binding.panePid &&
-    normalizeName(metadata.name) === identity.canonicalName
+    metadata.panePid === binding.panePid
   );
 }
 
@@ -186,44 +211,6 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
     const snapshot = endpointSnapshot(tmux);
     const allBindings = repository.findBindings();
     const identities = new Map(repository.listIdentities().map((item) => [item.id, item]));
-
-    // Backfill old v5 pane metadata lazily. A database-only binding is never
-    // active until this metadata marker is successfully written.
-    for (const pane of snapshot.panes) {
-      const legacy = pane.metadata?.globalIdentity;
-      if (!legacy || legacy.identityId || !pane.panePid) continue;
-      const { identity } = createOrResolve(repository, legacy.name);
-      const binding = repository.createBinding({
-        identityId: identity.id,
-        transport: 'tmux',
-        paneId: pane.id,
-        serverId: snapshot.server.serverId,
-        socketPath: snapshot.server.socketPath,
-        serverPid: snapshot.server.serverPid,
-        serverStartTime: snapshot.server.serverStartTime,
-        panePid: pane.panePid,
-        boundAt: new Date().toISOString(),
-        lastVerifiedAt: new Date().toISOString(),
-      });
-      try {
-        if (!tmux.setDurableIdentity) throw new Error('Durable tmux metadata is unavailable.');
-        tmux.setDurableIdentity(pane.id, identity, binding);
-      } catch (error) {
-        try {
-          repository.removeBinding(binding.id);
-        } catch {
-          // The legacy marker was not upgraded, so this row remains ineligible
-          // for active routing and will be retried by reconciliation.
-        }
-        throw new IdentityServiceError(
-          'RECONCILIATION_FAILED',
-          'Could not backfill pane metadata.',
-          {
-            cause: error,
-          }
-        );
-      }
-    }
 
     for (const binding of allBindings) {
       // A command can observe only its current tmux server. Never prune a

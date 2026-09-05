@@ -98,24 +98,24 @@ tmux display-message -p '#{pane_id}'
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `install [claude\|codex\|gemini\|all]` | Install or repair agent integrations |
-| `upgrade` | Upgrade tmux-team; managed skill links update automatically |
-| `name <global-name>` | Bind the current pane to a global identity |
-| `this <global-name>` | Exact supported alias for `name` |
-| `add <pane-target> <global-name>` | Bind an explicit pane to a global identity |
-| `whoami` | Show the current pane's global identity, if any |
-| `unbind` | Remove the current pane's global identity |
-| `role show [--identity <name>]` | Read an identity's optional role profile |
-| `role set <profile> [--identity <name>]` | Replace an identity's role profile |
-| `role set --file <path> [--identity <name>]` | Replace a profile from a UTF-8 file |
-| `role clear [--identity <name>]` | Remove only the role profile |
-| `talk <target> "msg"` | Send a message to a global name or pane target |
-| `check <target> [lines]` | Read output from a global name or pane target |
-| `list [target]` | List active identities, or one target's pane status |
-| `migrate [--dry-run] [--cleanup]` | Move legacy `tmux-team.json` entries into tmux metadata |
-| `learn` | Show the educational guide |
+| Command                                      | Description                                                 |
+| -------------------------------------------- | ----------------------------------------------------------- |
+| `install [claude\|codex\|gemini\|all]`       | Install or repair agent integrations                        |
+| `upgrade`                                    | Upgrade tmux-team; managed skill links update automatically |
+| `name <global-name>`                         | Bind the current pane to a global identity                  |
+| `this <global-name>`                         | Exact supported alias for `name`                            |
+| `add <pane-target> <global-name>`            | Bind an explicit pane to a global identity                  |
+| `whoami`                                     | Show the current pane's global identity, if any             |
+| `unbind`                                     | Remove the current pane's global identity                   |
+| `role show [--identity <name>]`              | Read an identity's optional role profile                    |
+| `role set <profile> [--identity <name>]`     | Replace an identity's role profile                          |
+| `role set --file <path> [--identity <name>]` | Replace a profile from a UTF-8 file                         |
+| `role clear [--identity <name>]`             | Remove only the role profile                                |
+| `talk <target> "msg"`                        | Send a message to a global name or pane target              |
+| `check <target> [lines]`                     | Read output from a global name or pane target               |
+| `list [target]`                              | List active identities, or one target's pane status         |
+| `migrate [--dry-run] [--cleanup]`            | Move legacy `tmux-team.json` entries into tmux metadata     |
+| `learn`                                      | Show the educational guide                                  |
 
 `list` also has the `ls` alias. With no target it shows all active global
 identities. With a target it resolves a global name or direct pane target and
@@ -162,6 +162,13 @@ reconciler.
 
 Pane metadata is part of that presence check. A pane title may be updated as a
 best-effort presentation side effect, but titles are not the identity API.
+
+Earlier v5 name-only pane markers are not automatically imported into SQLite.
+They do not establish active identity routing. Use `tmt name <name>`, its
+`tmt this <name>` alias, or `tmt add <pane-target> <name>` to bind explicitly.
+Malformed or unsupported identity metadata cannot establish presence; unrelated
+valid identities remain discoverable. Reads do not rewrite old pane markers or
+delete legacy files, and invalid presence does not delete durable role profiles.
 
 Messages use tmux buffer paste and then submit with Enter. This preserves
 multiline text and handles paste-safety windows in CLIs such as Gemini. The
@@ -303,11 +310,11 @@ Install the plugin:
 
 ### /team Commands
 
-| Command | What it does |
-|---------|--------------|
-| `/team list [target]` | List active identities or one pane's status |
-| `/team talk <target> "msg"` | Send a message to a global name or pane target |
-| `/team check <target> [lines]` | Read output from a global name or pane target |
+| Command                        | What it does                                   |
+| ------------------------------ | ---------------------------------------------- |
+| `/team list [target]`          | List active identities or one pane's status    |
+| `/team talk <target> "msg"`    | Send a message to a global name or pane target |
+| `/team check <target> [lines]` | Read output from a global name or pane target  |
 
 Examples:
 

@@ -8,8 +8,8 @@ Execute this command: `tmt $ARGUMENTS` (`tmt` is the short alias for `tmux-team`
 You are working in a multi-agent tmux environment.
 Use the tmux-team CLI to communicate with other agents.
 
-Registrations use tmux pane metadata as global active identities, independent
-of the current working directory.
+Identities are durable SQLite records, independent of the working directory.
+Active presence also requires matching live tmux binding metadata.
 
 ## Commands
 
@@ -57,6 +57,11 @@ with `NAME_ALREADY_ACTIVE` (exit 5); an unverifiable foreign endpoint fails
 with `RECONCILIATION_FAILED` (exit 1). Do not delete the binding to bypass an
 uncertain check. Rebinding a proven stale endpoint retains its identity and
 profile; no cross-server routing or daemon is provided.
+
+Earlier name-only v5 pane markers are not automatically imported into durable
+identities. Use `name`, `this`, or `add` explicitly to bind such a pane. Invalid
+metadata is not active presence; do not delete durable data or old files to
+repair it. Direct pane targeting remains separate from identity discovery.
 
 ## Workflow
 

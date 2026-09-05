@@ -33,6 +33,21 @@ identity memory, or durable inbox. Adding a command does not imply those feature
 These are invariants to protect. Known publication, caller-context and delivery
 gaps below remain limitations, not guarantees supplied by this document.
 
+## V5 compatibility policy
+
+V4 compatibility belongs to the maintenance branch, not a parallel v5 runtime.
+V5 has one durable SQLite identity model. Earlier name-only v5 pane markers
+are not automatically imported: discovery accepts only validated durable
+metadata that agrees with the recorded binding. Explicit `name`, `this`, or
+`add` can establish a supported binding; reads do not upgrade old markers.
+
+Remove obsolete compatibility paths through bounded, tested changes rather
+than adding fallbacks. Do not delete existing user files as part of code
+removal. Preserve supported product behavior, including the `this` alias,
+coding-agent `!` shell-mode protection, and durable identities/profiles.
+Workspace registry consumers and optional service fallbacks still exist pending
+TMT-27/TMT-28; their presence is tracked debt, not a compatibility commitment.
+
 ## Current module map
 
 | Location                                                                                                                                 | Responsibility and integration points                                                                                                                                                  |
@@ -86,7 +101,7 @@ failure semantics; merely introducing an interface is not an architectural fix.
   change retrieval/ranking, not fork CRUD or create another source of truth.
 - Use narrow injectable dependencies. New production capabilities must not silently
   fall back to legacy behavior because a test omitted a service. Correct the
-  fixture or define an explicit compatibility adapter instead.
+  fixture instead of introducing a compatibility adapter.
 - Split modules when they own independent policies/effects or lack a coherent
   testable contract, not at an arbitrary line count. Prefer a bounded, verified
   refactor over another special-case branch when the existing abstraction is wrong.
@@ -110,7 +125,7 @@ a gap is resolved; do not leave a permanent exception or label a proposal as shi
 | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Binding insert/metadata publication/reconciliation are not yet a coordinated crash-safe protocol. SQLite uniqueness alone does not supply it.            | [TMT-20](https://linear.app/tigerpig-dev/issue/TMT-20)                                                                                                                 |
 | Some current-pane commands can fall back to an ambient pane outside a caller session; role selection guards this separately.                             | [TMT-21](https://linear.app/tigerpig-dev/issue/TMT-21)                                                                                                                 |
-| Numeric/flag validation and legacy metadata/backfill need hardening.                                                                                     | [TMT-22](https://linear.app/tigerpig-dev/issue/TMT-22), [TMT-23](https://linear.app/tigerpig-dev/issue/TMT-23)                                                         |
+| Numeric/flag validation needs hardening.                                                                                                                 | [TMT-22](https://linear.app/tigerpig-dev/issue/TMT-22)                                                                                                                 |
 | Message adaptation/fallback and JSON wait/counter updates have safety/concurrency gaps.                                                                  | [TMT-24](https://linear.app/tigerpig-dev/issue/TMT-24), [TMT-25](https://linear.app/tigerpig-dev/issue/TMT-25)                                                         |
 | JSON/process error boundaries are inconsistent; update/remove still act on legacy registries.                                                            | [TMT-26](https://linear.app/tigerpig-dev/issue/TMT-26), [TMT-27](https://linear.app/tigerpig-dev/issue/TMT-27)                                                         |
 | Optional identity-service fallbacks, broad contracts and concrete repository coupling remain. The parser also imports a command-owned role request type. | [TMT-28](https://linear.app/tigerpig-dev/issue/TMT-28)                                                                                                                 |
