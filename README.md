@@ -185,13 +185,29 @@ Malformed or unsupported identity metadata cannot establish presence; unrelated
 valid identities remain discoverable. Reads do not rewrite old pane markers or
 delete legacy files, and invalid presence does not delete durable role profiles.
 
-Messages use tmux buffer paste and then submit with Enter. This preserves
-multiline text and handles paste-safety windows in CLIs such as Gemini. The
-delay is configurable:
+Messages use tmux buffer paste and then submit with Enter. Line breaks are
+preserved, but ASCII `!` is deliberately converted to fullwidth `！` to protect
+coding-agent shell/bash-mode shortcuts, including on the literal-key fallback
+path. This means code such as `if (!ready)` is not delivered byte-for-byte.
+Bracketed paste is not assumed to disable every agent's shortcuts. The
+paste-to-Enter delay is configurable:
 
 ```bash
 tmt config set pasteEnterDelayMs 500
 ```
+
+Once paste or literal input may have reached a pane, TMT does not automatically
+replay it. A failed input/submission stage returns `DELIVERY_UNCERTAIN` (exit 1)
+in both wait and non-wait modes, with `error.stage` in JSON. Inspect the pane
+before deciding whether to retry; absent visible output does not prove that no
+work started. Successful submission does not promise exactly-once processing.
+Each transport/capture subprocess is bounded independently of the configured
+Enter delay and response wait timeout.
+
+Response waits still use best-effort terminal extraction: a completion marker
+does not guarantee a full body under virtual scrolling. `check` is a diagnostic
+snapshot, not durable response retrieval. See the
+[channel research and implementation plan](REQUEST-RESPONSE.md).
 
 ## Local SQLite storage
 

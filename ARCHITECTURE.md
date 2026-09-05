@@ -44,6 +44,30 @@ is not shipped: current marker behavior, JSON bookkeeping and CLI grammar remain
 unchanged until their bounded implementation issues land. Keep this distinction
 and the document's verification status current as those slices are delivered.
 
+## Message delivery and uncertainty
+
+The tmux message adapter prepares one payload with the existing ASCII `!` to
+fullwidth substitution and trailing-newline policy. This protects coding-agent
+shell-mode shortcuts; it is not literal code delivery or provider capability
+detection. Buffer paste is preferred. Only a set-buffer failure before paste
+has been invoked permits one literal-key fallback with that same payload.
+Normal and fallback paths share the configured delay and Enter submission.
+
+Once paste or literal input has been invoked, failures are uncertain and cannot
+trigger replay or another Enter. The narrow message-delivery error contract
+carries the failed stage without coupling commands to the concrete tmux adapter.
+Both wait and non-wait `talk` map it to `DELIVERY_UNCERTAIN` (exit 1), with
+inspection guidance; successful result shapes remain unchanged. Request-ID
+guarded JSON cleanup remains, but its concurrency limitations are not repaired
+by transport typing.
+
+Transport subprocesses have a one-second timeout, SIGKILL termination and a
+64 KiB output bound. Argv-based capture has a one-second timeout and 4 MiB output
+bound; overflow/failure does not return a successful partial capture. These
+bounds are separate from configured Enter delay and response timeout. Temporary
+buffer cleanup targets only the operation's unique buffer and cannot change
+the delivery outcome. There is no exactly-once agent-processing guarantee.
+
 ## Caller context
 
 The tmux adapter owns current-pane evidence: a strict `TMUX_PANE` ID and the
@@ -122,6 +146,7 @@ local `$config` settings remain supported in this staged removal.
 | [src/target-resolver.ts](src/target-resolver.ts)                                                                                         | Shared name/pane resolution; pane-shaped arguments are resolved before names.                                                                                                          |
 | [src/storage/](src/storage/)                                                                                                             | SQLite lifecycle, migrations, errors and repository SQL. Lifecycle ports exist; domain repository ports are not fully separated.                                                       |
 | [src/tmux.ts](src/tmux.ts)                                                                                                               | External tmux commands, snapshots, metadata, paste/capture, and compatibility registry adapter.                                                                                        |
+| [src/tmux-message.ts](src/tmux-message.ts), [src/message-delivery.ts](src/message-delivery.ts)                                           | Stageful protected input and shared submission policy; narrow delivery uncertainty contract consumed by commands without importing the tmux implementation.                            |
 | [src/role-content.ts](src/role-content.ts)                                                                                               | Bounded file reading/UTF-8 validation; pure normalization lives in `domain/role.ts`.                                                                                                   |
 | [src/config.ts](src/config.ts), [src/registry.ts](src/registry.ts), [src/state.ts](src/state.ts)                                         | Path/config resolution and legacy registry/request/counter state. JSON state is not transactional storage.                                                                             |
 | [src/ui.ts](src/ui.ts), [src/exits.ts](src/exits.ts)                                                                                     | Presentation helpers and exit-code registry; do not invent conflicting mappings.                                                                                                       |
@@ -181,14 +206,14 @@ These links identify owners of unresolved work, not permission to widen an
 unrelated PR. Update this section and the current map in the delivering PR when
 a gap is resolved; do not leave a permanent exception or label a proposal as shipped.
 
-| Gap                                                                                                                                                      | Owning issue                                                                                                                                                           |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Numeric/flag validation needs hardening.                                                                                                                 | [TMT-22](https://linear.app/tigerpig-dev/issue/TMT-22)                                                                                                                 |
-| Message adaptation/fallback and JSON wait/counter updates have safety/concurrency gaps.                                                                  | [TMT-24](https://linear.app/tigerpig-dev/issue/TMT-24), [TMT-25](https://linear.app/tigerpig-dev/issue/TMT-25)                                                         |
-| JSON/process error boundaries are inconsistent; preamble/config still consume workspace registries after command retirement.                             | [TMT-26](https://linear.app/tigerpig-dev/issue/TMT-26), [TMT-27](https://linear.app/tigerpig-dev/issue/TMT-27)                                                         |
-| Optional identity-service fallbacks, broad contracts and concrete repository coupling remain. The parser also imports a command-owned role request type. | [TMT-28](https://linear.app/tigerpig-dev/issue/TMT-28)                                                                                                                 |
-| Shipped skill/help inventories drift; packed verification does not yet prove application migrations.                                                     | [TMT-29](https://linear.app/tigerpig-dev/issue/TMT-29)                                                                                                                 |
-| Non-tmux identity management, memory and durable inbox are future capabilities, not installed APIs.                                                      | [TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30), [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16) |
+| Gap                                                                                                                                                      | Owning issue                                                                                                                                                                                                                   |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Numeric/flag validation needs hardening.                                                                                                                 | [TMT-22](https://linear.app/tigerpig-dev/issue/TMT-22)                                                                                                                                                                         |
+| JSON wait/counter updates still have concurrency gaps; terminal completion/extraction cannot guarantee a complete correlated body.                       | [TMT-25](https://linear.app/tigerpig-dev/issue/TMT-25), [TMT-35](https://linear.app/tigerpig-dev/issue/TMT-35), [TMT-36](https://linear.app/tigerpig-dev/issue/TMT-36), [TMT-37](https://linear.app/tigerpig-dev/issue/TMT-37) |
+| JSON/process error boundaries are inconsistent; preamble/config still consume workspace registries after command retirement.                             | [TMT-26](https://linear.app/tigerpig-dev/issue/TMT-26), [TMT-27](https://linear.app/tigerpig-dev/issue/TMT-27)                                                                                                                 |
+| Optional identity-service fallbacks, broad contracts and concrete repository coupling remain. The parser also imports a command-owned role request type. | [TMT-28](https://linear.app/tigerpig-dev/issue/TMT-28)                                                                                                                                                                         |
+| Shipped skill/help inventories drift; packed verification does not yet prove application migrations.                                                     | [TMT-29](https://linear.app/tigerpig-dev/issue/TMT-29)                                                                                                                                                                         |
+| Non-tmux identity management, memory and durable inbox are future capabilities, not installed APIs.                                                      | [TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30), [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16)                                                         |
 
 ## Maintenance contract
 

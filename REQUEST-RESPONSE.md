@@ -5,6 +5,14 @@ ship a provider integration, daemon, inbox, memory feature, or new CLI syntax.
 Exact schemas, limits, and compatibility decisions belong in implementation
 tickets after this boundary is accepted.
 
+TMT-24 implementation update: transport now prevents replay after an input
+stage may have acted, preserves the same `!` protection on fallback, reports
+`DELIVERY_UNCERTAIN`, and bounds argv-based capture. The current implementation
+map below describes the research baseline; its broad resend fallback is no
+longer present. Request/response storage, instruction-boundary extraction and
+structured final-body delivery remain unresolved. See ARCHITECTURE.md for the
+maintained shipped transport boundary.
+
 ## Current implementation map
 
 `cmdTalk` resolves one target, then either sends and returns (`talk` without

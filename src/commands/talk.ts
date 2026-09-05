@@ -16,9 +16,29 @@ import {
 import { resolveTarget } from '../target-resolver.js';
 import { normalizeName } from '../domain/names.js';
 import { identityAwareTmux } from '../identity-service.js';
+import { TmuxDeliveryError } from '../message-delivery.js';
 
 function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function failSend(ctx: Context, pane: string, error: unknown): never {
+  if (error instanceof TmuxDeliveryError) {
+    const detail = {
+      code: error.code,
+      message: error.message,
+      stage: error.stage,
+      suggestion: 'Inspect the target pane before retrying.',
+    };
+    if (ctx.flags.json) ctx.ui.json({ error: detail });
+    else ctx.ui.error(`${detail.message} ${detail.suggestion}`);
+    return ctx.exit(ExitCodes.ERROR);
+  }
+
+  const detail = { code: 'ERROR', message: `Failed to send to pane ${pane}. Is tmux running?` };
+  if (ctx.flags.json) ctx.ui.json({ error: detail });
+  else ctx.ui.error(detail.message);
+  return ctx.exit(ExitCodes.ERROR);
 }
 
 /**
@@ -317,11 +337,8 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
         console.log(`${colors.green('→')} Sent to ${colors.cyan(target)} (${pane})`);
       }
       return;
-    } catch {
-      const error = { code: 'ERROR', message: `Failed to send to pane ${pane}. Is tmux running?` };
-      if (flags.json) ui.json({ error });
-      else ui.error(error.message);
-      exit(ExitCodes.ERROR);
+    } catch (error) {
+      failSend(ctx, pane, error);
     }
   }
 
@@ -380,7 +397,15 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
       console.error(`[DEBUG] Message sent:\n${msg}`);
     }
 
-    tmux.send(pane, msg, { enterDelayMs });
+    try {
+      tmux.send(pane, msg, { enterDelayMs });
+    } catch (error) {
+      // process.exit() does not run the surrounding finally block. Clear only
+      // this request before reporting the send failure; the request ID guard
+      // preserves a newer request that may have replaced it concurrently.
+      clearActiveRequest(ctx.paths, pane, requestId);
+      failSend(ctx, pane, error);
+    }
 
     while (true) {
       const elapsedSeconds = (Date.now() - startedAt) / 1000;
