@@ -1,201 +1,86 @@
-# tmux-team Coding Conventions
+# Coding conventions
 
-Team consensus from Claude, Codex, and Gemini (2025-12-19).
+These are rules for new and touched code, not a claim that all legacy code
+already follows them. [ARCHITECTURE.md](ARCHITECTURE.md) owns module boundaries
+and known exceptions; [AGENTS.md](AGENTS.md) owns review and maintenance policy.
+Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
 
----
+## Style and readability
 
-## Architecture: The Context Pattern
+- Write repository content in English. Let the repository Prettier configuration
+  and [tsconfig.json](tsconfig.json) define formatting and strict TypeScript
+  settings; run checks rather than restyling unrelated files.
+- Use kebab-case files, `cmd`-prefixed handlers, colocated `<module>.test.ts`
+  unit tests and `.e2e.test.ts` integration scenarios.
+- Use ESM with explicit `.js` extensions for local TypeScript modules and
+  `import type` for type-only dependencies. Prefer `node:` for new built-in
+  imports without opportunistic whole-repo rewrites.
+- Prefer small function-based modules and typed inputs/results. Use discriminated
+  unions for alternative states, explicit return contracts on exported APIs,
+  and `unknown` plus validation at untrusted boundaries instead of `any`
+  or assertions that hide missing evidence.
+- Name units and ownership (`timeoutMs`, `identityId`, `socketPath`).
+  Extract helpers around shared behavior, not incidental line sequences.
+  Do not add wrappers, speculative frameworks or generic utilities without a
+  concrete consumer and demonstrated benefit.
+- Explain invariants and non-obvious decisions in comments; avoid narrating each
+  statement or requiring decorative banners. Favor early validation and cohesive
+  control flow over nested special cases.
 
-**Rule:** Commands must be pure functions that receive a `Context` object.
+## Commands, effects and contracts
 
-**Reason:** Enables dependency injection for testing (mock Tmux, FileSystem, etc.).
+- Commands are effectful adapters, not pure domain functions. Use injected
+  `Context` services, `ctx.ui` and `ctx.exit(ExitCodes.*)` for new handlers.
+  Pure domain code must not depend on Context, console, filesystem or process exit.
+  Existing direct-output/legacy paths are debt, not examples to copy.
+- Extend the typed parser and dispatcher together. Do not slice argv again in a
+  handler, guess an omitted identity, or add a parallel name/pane resolver.
+- Specify and test JSON shape, stdout/stderr, exit codes, human output, defaults
+  and units for changed commands. Prefer one structured result/error in JSON mode
+  without progress text mixed into it. Uniformity is a target with known gaps;
+  preserve public behavior unless the issue explicitly changes it.
+- Use [src/exits.ts](src/exits.ts) and parser definitions as authoritative
+  code/grammar registries. Do not copy stale numeric tables or claim unsupported
+  duration suffixes. Convert CLI time values and internal milliseconds explicitly.
+- Resolve paths through the existing config boundary; use `ctx.paths` in
+  handlers. Do not invent another global directory or reconstruct XDG rules.
+- Keep expected domain errors distinguishable from unexpected failures. Preserve
+  causes for diagnosis. Catch only to translate, recover, clean up or implement
+  documented best-effort effects; never silently discard a failed mutation.
+- Bound external process/file work and clean up resources on every exit path.
+  Direct file writes are not atomic or concurrency-safe. Follow the state owner's
+  transaction/recovery contract, not an "atomic-like" write.
+- Message framing and adaptation belong to shared delivery implementation.
+  Current waits use `RESPONSE-END-<nonce>`; do not invent a second marker.
+  The `!` policy protects coding-agent shell/bash mode, not TTY cosmetics.
+  Consult the delivery gap in ARCHITECTURE before changing payload/fallback behavior.
 
-**Constraint:**
-- Never use `process.exit()` inside a command → use `ctx.exit()`
-- Never use `console.log()` inside a command → use `ctx.ui.*`
+## Dependencies and refactoring
 
-```typescript
-// ✅ Good
-export async function cmdTalk(ctx: Context, target: string, message: string): Promise<void> {
-  const { ui, tmux, exit } = ctx;
-  // ...
-  ui.success('Message sent');
-}
+Before adding a dependency or abstraction, inspect existing helpers and compare
+the concrete benefit, compatibility/native-install impact, maintenance, license,
+security and operational cost. Record the decision in the issue. A built-in is
+not automatically preferable; a dependency is not a substitute for design.
 
-// ❌ Bad
-export async function cmdTalk(ctx: Context, target: string, message: string): Promise<void> {
-  console.log('Message sent');  // Don't use console directly
-  process.exit(0);              // Don't use process.exit
-}
-```
+Refactor within the issue when it makes implementation coherent and testable.
+Keep behavioral changes explicit. Do not mix unrelated renames, formatting or
+migrations into a correctness fix; split larger prerequisites into linked issues.
 
----
+## Tests and review
 
-## Naming & Structure
+Follow [DEVELOPMENT.md](DEVELOPMENT.md) and the
+[E2E skill](.agents/skills/tmt-e2e/SKILL.md) for commands and test boundaries.
+Name the invariant or realistic defect each test detects. Use real temporary
+storage for repository behavior and injected ports for focused service tests;
+mocking a storage operation is not proof of persistence or atomicity.
 
-### Command Functions
-- Prefix with `cmd` (e.g., `cmdTalk`, `cmdList`, `cmdConfig`)
+Use deterministic barriers for races, bounded polling for readiness, and
+observable failure/cleanup postconditions. Verify causal agent output rather
+than terminal echo. Cover compatibility, negative paths and partial failure,
+not only the new happy path. Demonstrate regression tests fail against the
+original defect when practical; explain when that evidence cannot be obtained.
 
-### File Names
-- Use kebab-case: `talk.ts`, `config.ts`, `fs.ts`
-- Test files: `<name>.test.ts` (colocated with source)
-
-### Directory Structure
-- Group related logic in subdirectories: `src/commands/`
-- Prefer function-based modules over classes
-
-### Imports
-- ESM-style with explicit `.js` extensions (tsx-compatible)
-```typescript
-import { loadConfig } from './config.js';
-import type { Context } from './types.js';
-```
-
----
-
-## Configuration & Paths
-
-### Priority (Lowest → Highest)
-```
-Defaults → Global Config → Local Config → CLI Flags
-```
-CLI flags always win.
-
-### Path Resolution
-- Always use `ctx.paths` object
-- Never hardcode `~/.tmux-team` or `./tmux-team.json`
-- XDG compliance via `config.ts` logic
-
-```typescript
-// ✅ Good
-const stateFile = ctx.paths.stateFile;
-
-// ❌ Bad
-const stateFile = path.join(os.homedir(), '.tmux-team', 'state.json');
-```
-
----
-
-## CLI & UX
-
-### JSON Contract
-Every command must support `--json` flag:
-- If `flags.json` is true, output single valid JSON object to stdout
-- Errors also go as JSON (with `error` field)
-- No mixing stdout/stderr in JSON mode
-
-```typescript
-if (flags.json) {
-  ui.json({ status: 'success', data: result });
-} else {
-  ui.success('Operation completed');
-}
-```
-
-### TTY Awareness
-- Use `isTTY` checks for spinners, progress indicators, colors
-- Ensure clean output when piped to other tools
-
-### Exit Codes
-Always use `ExitCodes` registry:
-| Code | Name | Meaning |
-|------|------|---------|
-| 0 | `SUCCESS` | Command completed |
-| 1 | `ERROR` | General error |
-| 2 | `CONFIG_MISSING` | Required config missing |
-| 3 | `PANE_NOT_FOUND` | Tmux pane not found |
-| 4 | `TIMEOUT` | Wait timed out |
-| 5 | `CONFLICT` | GitHub state differs |
-
----
-
-## Time Values
-
-Default to **seconds** (no suffix needed):
-- `--delay 5` → 5 seconds
-- `--timeout 60` → 60 seconds
-- `--delay 500ms` → 500 milliseconds (suffix supported)
-
-Normalize in CLI parsing; avoid internal ms unless explicitly noted.
-
----
-
-## Data Integrity
-
-### File Operations
-- Prefer synchronous FS operations in CLI paths for simplicity
-- Use `fs.writeFileSync` for atomic-like config/state updates
-
----
-
-## Talk: Message Building
-
-### Preamble Format
-```
-[SYSTEM: <preamble>]
-
-<message>
-```
-- Blank line separates preamble from message
-- Use `buildMessage()` helper for consistent formatting
-
-### Nonce Markers
-```
-{tmux-team-end:<nonce>}
-```
-- 4-character hex nonce
-- Appended in `[IMPORTANT: ...]` instruction block
-
-### Agent Filters
-- Gemini: Remove `!` from messages (TTY rendering issue)
-
----
-
-## Code Style
-
-### Header Comments
-Use consistent separator pattern:
-```typescript
-// ─────────────────────────────────────────────────────────────
-// Section Title
-// ─────────────────────────────────────────────────────────────
-```
-
-### Error Handling
-- Validate early, fail fast
-- Use `ctx.exit(ExitCodes.*)` for expected errors
-- Let unexpected errors bubble up to top-level handler
-
-### Type Annotations
-- Use `type` imports for types-only: `import type { Context } from './types.js'`
-- Explicit return types on exported functions
-
----
-
-## Testing
-
-### File Naming
-- Colocate tests: `foo.test.ts` next to `foo.ts`
-- Use vitest with `describe/it/expect`
-
-### Test Structure
-```typescript
-describe('functionName', () => {
-  it('does expected behavior', () => {
-    // Arrange
-    // Act
-    // Assert
-  });
-});
-```
-
-### Mocking
-- Mock `ctx` for command tests
-- Mock filesystem for storage tests
-- Use `vi.mock()` for module mocks
-
----
-
-## Changelog
-
-- **2025-12-19**: Initial conventions from Phase 1-4 implementation review
+Primary review examines test setup and assertions as code. Do not weaken an
+assertion, bypass a gate or count more tests as proof of correctness. Use fixture
+types compatible with the pinned runtime; an example from a newer framework
+version is not automatically a project convention.
