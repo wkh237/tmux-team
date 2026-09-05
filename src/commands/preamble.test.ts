@@ -45,13 +45,11 @@ function createContext(service: PreambleService, flags: Partial<Context['flags']
     flags: { json: false, verbose: false, ...flags },
     ui,
     config: {
-      mode: 'wait',
       preambleMode: 'always',
       defaults: {
         timeout: 180,
         pollInterval: 1,
         captureLines: 100,
-        maxCaptureLines: 2000,
         preambleEvery: 3,
         pasteEnterDelayMs: 500,
       },

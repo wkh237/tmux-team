@@ -7,7 +7,6 @@ import { requestAttempts as attempts, preambleCounters } from './request-state-o
 interface TalkOutput {
   status: string;
   requestId: string;
-  nonce: string;
   response?: string;
   error?: { code: string; stage?: string };
 }
@@ -31,7 +30,6 @@ describe.sequential('transactional live request bookkeeping', () => {
           'talk',
           'Receiver',
           'first independent wait',
-          '--wait',
           '--timeout',
           '8',
         ]);
@@ -44,7 +42,6 @@ describe.sequential('transactional live request bookkeeping', () => {
           'talk',
           fixture.pane,
           'second independent wait',
-          '--wait',
           '--timeout',
           '20',
         ]);
@@ -54,7 +51,7 @@ describe.sequential('transactional live request bookkeeping', () => {
         );
         expect(firstEvent.pid).toBe(fixture.panePid);
         expect(secondEvent.pid).toBe(fixture.panePid);
-        expect(firstEvent.nonce).not.toBe(secondEvent.nonce);
+        expect(firstEvent.requestId).not.toBe(secondEvent.requestId);
         await fixture.waitFor(
           () =>
             attempts(fixture).filter((row) => row.wait_active === 1 && row.status === 'sent')
@@ -62,8 +59,8 @@ describe.sequential('transactional live request bookkeeping', () => {
         );
         const before = attempts(fixture);
         expect(new Set(before.map((row) => row.request_id)).size).toBe(2);
-        expect(before.map((row) => row.nonce).sort()).toEqual(
-          [firstEvent.nonce, secondEvent.nonce].sort()
+        expect(before.map((row) => row.request_id).sort()).toEqual(
+          [firstEvent.requestId, secondEvent.requestId].sort()
         );
         for (const row of before) {
           expect(row).toMatchObject({
@@ -82,24 +79,23 @@ describe.sequential('transactional live request bookkeeping', () => {
           code: 4,
           json: {
             status: 'timeout',
-            nonce: firstEvent.nonce,
+            requestId: firstEvent.requestId,
             error: { code: 'TIMEOUT', message: expect.stringContaining('Timed out') },
           },
         });
         expect(timedOut.stderr).toBe('');
         const timeoutOutput = JSON.parse(timedOut.stdout);
         expect(timeoutOutput).toMatchObject({
-          requestId: before.find((row) => row.nonce === firstEvent.nonce)?.request_id,
+          requestId: firstEvent.requestId,
           pane: fixture.pane,
-          endMarker: `RESPONSE-END-${firstEvent.nonce}`,
         });
-        expect(timeoutOutput).toHaveProperty('partialResponse');
+        expect(timeoutOutput).not.toHaveProperty('partialResponse');
         const afterFirst = attempts(fixture);
-        expect(afterFirst.find((row) => row.nonce === firstEvent.nonce)).toMatchObject({
+        expect(afterFirst.find((row) => row.request_id === firstEvent.requestId)).toMatchObject({
           wait_active: 0,
           status: 'sent',
         });
-        expect(afterFirst.find((row) => row.nonce === secondEvent.nonce)).toMatchObject({
+        expect(afterFirst.find((row) => row.request_id === secondEvent.requestId)).toMatchObject({
           wait_active: 1,
           status: 'sent',
         });
@@ -129,7 +125,6 @@ describe.sequential('transactional live request bookkeeping', () => {
             'talk',
             'First',
             'server one wait',
-            '--wait',
             '--timeout',
             '20',
           ]);
@@ -142,7 +137,6 @@ describe.sequential('transactional live request bookkeeping', () => {
             'talk',
             'Second',
             'server two wait',
-            '--wait',
             '--timeout',
             '20',
           ]);
@@ -157,18 +151,19 @@ describe.sequential('transactional live request bookkeeping', () => {
           expect(rows).toHaveLength(2);
           expect(new Set(rows.map((row) => row.server_id)).size).toBe(2);
           expect(new Set(rows.map((row) => row.socket_path)).size).toBe(2);
-          expect(rows.find((row) => row.nonce === firstEvent.nonce)).toMatchObject({
+          expect(rows.find((row) => row.request_id === firstEvent.requestId)).toMatchObject({
             pane_pid: firstServer.panePid,
             socket_path: firstServer.socketPath,
           });
-          expect(rows.find((row) => row.nonce === secondEvent.nonce)).toMatchObject({
+          expect(rows.find((row) => row.request_id === secondEvent.requestId)).toMatchObject({
             pane_pid: secondServer.panePid,
             socket_path: secondServer.socketPath,
           });
           first.kill('SIGINT');
           expect((await first.result).code).toBe(1);
           expect(
-            attempts(firstServer).find((row) => row.nonce === secondEvent.nonce)?.wait_active
+            attempts(firstServer).find((row) => row.request_id === secondEvent.requestId)
+              ?.wait_active
           ).toBe(1);
           second.kill('SIGINT');
           expect((await second.result).code).toBe(1);
@@ -189,7 +184,7 @@ describe.sequential('transactional live request bookkeeping', () => {
       ).toBe(0);
       expect((await fixture.runJsonCli(['config', 'set', 'preambleEvery', '3'])).code).toBe(0);
       const uncertain = await fixture.runJsonCli<TalkOutput>(
-        ['talk', 'RECEIVER', 'uncertain first input', '--wait', '--timeout', '8'],
+        ['talk', 'RECEIVER', 'uncertain first input', '--timeout', '8'],
         { transportFault: { stage: 'submit' } }
       );
       expect(uncertain).toMatchObject({
@@ -198,7 +193,7 @@ describe.sequential('transactional live request bookkeeping', () => {
       });
       const firstEvent = await fixture.waitForEvent(
         (event) =>
-          event.event === 'response' &&
+          event.event === 'submitted' &&
           event.message === '[SYSTEM: Review carefully.]\nuncertain first input'
       );
       expect(firstEvent.pid).toBe(fixture.panePid);
@@ -207,31 +202,32 @@ describe.sequential('transactional live request bookkeeping', () => {
         status: 'uncertain',
         wait_active: 0,
         inject_preamble: 1,
-        nonce: firstEvent.nonce,
+        request_id: firstEvent.requestId,
       });
       expect(cadence(fixture)).toBe(1);
       const next = await fixture.runJsonCli<TalkOutput>([
         'talk',
         fixture.pane,
         'second actual input',
-        '--wait',
         '--timeout',
         '8',
       ]);
       expect(next).toMatchObject({ code: 0, json: { status: 'completed' } });
       const nextEvent = await fixture.waitForEvent(
         (event) =>
-          event.event === 'response' &&
-          event.nonce === next.json?.nonce &&
+          event.event === 'submitted' &&
+          event.requestId === next.json?.requestId &&
           event.pid === fixture.panePid
       );
       expect(nextEvent.message).toBe('second actual input');
       expect(cadence(fixture)).toBe(2);
-      expect(attempts(fixture).find((row) => row.nonce === nextEvent.nonce)).toMatchObject({
-        status: 'sent',
-        wait_active: 0,
-        inject_preamble: 0,
-      });
+      expect(attempts(fixture).find((row) => row.request_id === nextEvent.requestId)).toMatchObject(
+        {
+          status: 'sent',
+          wait_active: 0,
+          inject_preamble: 0,
+        }
+      );
       expect(fixture.events().filter((event) => event.event === 'request')).toHaveLength(2);
       expect(
         fixture.transportTrace().filter((line) => line.startsWith('submit.before'))

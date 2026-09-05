@@ -75,7 +75,7 @@ function withoutVerificationTimestamp(
 
 function eventCount(
   fixture: E2EFixture,
-  event: 'request' | 'response',
+  event: 'request' | 'submitted',
   pid: number,
   message: string
 ): number {
@@ -99,29 +99,29 @@ async function talkToIdentity(
     identity: Identity;
     status: string;
     response: string;
-  }>(['talk', name, message, '--wait', '--timeout', '10']);
+  }>(['talk', name, message, '--timeout', '10']);
   expect(result.code).toBe(0);
   const output = json(result);
   expect(output).toMatchObject({ target: name, identity: { name }, status: 'completed' });
   expect(output.response).toContain(`mock-agent response: ${message}`);
   await fixture.waitForEvent(
-    (entry) => entry.event === 'response' && entry.pid === pid && entry.message === message
+    (entry) => entry.event === 'submitted' && entry.pid === pid && entry.message === message
   );
 
   const after = fixture.events();
   const beforeRequest = before.filter(
     (entry) => entry.event === 'request' && entry.pid === pid && entry.message === message
   ).length;
-  const beforeResponse = before.filter(
-    (entry) => entry.event === 'response' && entry.pid === pid && entry.message === message
+  const beforeSubmitted = before.filter(
+    (entry) => entry.event === 'submitted' && entry.pid === pid && entry.message === message
   ).length;
   expect(eventCount(fixture, 'request', pid, message) - beforeRequest).toBe(1);
-  expect(eventCount(fixture, 'response', pid, message) - beforeResponse).toBe(1);
+  expect(eventCount(fixture, 'submitted', pid, message) - beforeSubmitted).toBe(1);
   for (const otherPid of otherPids) {
     expect(
       after.filter(
         (entry) =>
-          (entry.event === 'request' || entry.event === 'response') &&
+          (entry.event === 'request' || entry.event === 'submitted') &&
           entry.pid === otherPid &&
           entry.message === message
       )
@@ -631,7 +631,7 @@ describe.sequential('global identity lifecycle', () => {
             .events()
             .filter(
               (event) =>
-                (event.event === 'request' || event.event === 'response') &&
+                (event.event === 'request' || event.event === 'submitted') &&
                 event.pid === pid &&
                 event.message === message
             )

@@ -225,20 +225,21 @@ describe.sequential('strict caller context', () => {
 
       const message = 'explicit outside caller';
       const talk = await fixture.runJsonCli<{ response: string }>(
-        ['talk', 'Peer', message, '--wait', '--timeout', '5'],
+        ['talk', 'Peer', message, '--timeout', '5'],
         { outsideTmux: true }
       );
       expect(talk.code).toBe(0);
       expect(talk.json?.response).toContain(`mock-agent response: ${message}`);
       await fixture.waitForEvent(
-        (event) => event.event === 'response' && event.pid === peer.pid && event.message === message
+        (event) =>
+          event.event === 'submitted' && event.pid === peer.pid && event.message === message
       );
 
       const checked = await fixture.runJsonCli<{ output: string }>(['check', 'Peer', '20'], {
         outsideTmux: true,
       });
       expect(checked.code).toBe(0);
-      expect(checked.json?.output).toContain(`mock-agent response: ${message}`);
+      expect(checked.json?.output).toContain(`mock-agent summary: ${message}`);
 
       const offlineSet = await fixture.runJsonCli(
         ['role', 'set', 'offline explicit profile', '--identity', 'Peer'],

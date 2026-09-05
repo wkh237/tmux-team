@@ -8,6 +8,8 @@ export interface CliOutput {
   readonly hasDuplicateJson: () => boolean;
   readonly setJson: (data: unknown) => void;
   readonly replaceJson: (data: unknown) => void;
+  /** Replace a pending result without losing bounded request inspection fields. */
+  readonly replaceFailure: (error: { code: string; message: string }) => void;
   readonly flush: () => void;
 }
 
@@ -16,6 +18,23 @@ export class CliOutputSerializationError extends Error {
     super('Could not serialize JSON output.', { cause });
     this.name = 'CliOutputSerializationError';
   }
+}
+
+function requestCorrelation(document: unknown): Record<string, string> {
+  if (!document || typeof document !== 'object' || Array.isArray(document)) return {};
+  // Read data properties only: failure reporting must not evaluate arbitrary getters.
+  const field = (key: string): unknown => Object.getOwnPropertyDescriptor(document, key)?.value;
+  const requestId = field('requestId');
+  if (typeof requestId !== 'string' || requestId.length === 0 || Buffer.byteLength(requestId) > 256)
+    return {};
+  const correlation: Record<string, string> = { requestId };
+  const target = field('target');
+  const pane = field('pane');
+  if (typeof target === 'string' && target.length > 0 && Buffer.byteLength(target) <= 256)
+    correlation.target = target;
+  if (typeof pane === 'string' && pane.length <= 256 && /^%\d+$/.test(pane))
+    correlation.pane = pane;
+  return correlation;
 }
 
 /**
@@ -50,6 +69,10 @@ export function createCliOutput(jsonMode: boolean): CliOutput {
     setJson,
     replaceJson: (data: unknown) => {
       jsonDocument = data;
+      hasJson = true;
+    },
+    replaceFailure: (error) => {
+      jsonDocument = { ...requestCorrelation(jsonDocument), error };
       hasJson = true;
     },
     flush: () => {

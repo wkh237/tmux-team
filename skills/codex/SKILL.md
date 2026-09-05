@@ -24,10 +24,10 @@ with `tmt check <target>` and establish whether work started before deciding
 what to do next. Missing visible output is not proof that nothing executed.
 Successful submission also does not guarantee exactly-once agent processing.
 
-`--wait` still extracts a best-effort terminal response. A completion marker
-can coexist with cropped content; increasing `check` lines cannot recover text
-that the agent never rendered. No durable structured response channel is
-implied by this transport safety behavior.
+`talk` waits for the complete durable reply by default. It never treats terminal
+markers, idle output, a summary, or process exit as completion. A cooperating
+recipient must invoke `tmt reply`; otherwise there is no final result yet.
+`check` is only a diagnostic snapshot, not correlated result retrieval.
 
 ## JSON results and failures
 
@@ -36,18 +36,18 @@ With `--json`, parse the entire stdout as one JSON document. Errors contain
 Check the exit status too: missing targets use 3, timeout 4, and conflicts 5.
 Successful commands without a detailed result return `{ok:true}`.
 
-The v5 alpha timeout contract now uses
-`error: {code: "TIMEOUT", message: "..."}` instead of a string. It retains
-`status: "timeout"`, correlation fields and nullable `partialResponse`.
-Timeout and interruption do not cancel recipient work. A `CLEANUP_ERROR`
-after successful work does not mean its effects were undone; inspect before
-retrying. Existing delivery-uncertainty guidance still applies.
+Timeout returns `status: "timeout"`, `requestId`, target/pane correlation and
+`error: {code: "TIMEOUT", message: "..."}` (exit 4). There is no partial response,
+nonce, end marker or truncation flag. Use `tmt result <request-id> --json` later.
+Timeout and interruption end only the observer, never recipient work. A
+`CLEANUP_ERROR` does not undo effects; preserve the request ID and inspect before
+retrying. Missing visible output is not permission to resend.
 
 `help`, `version`, `completion` and `learn` are text-only and reject
 `--json` with `JSON_UNSUPPORTED`; run them without that flag. `upgrade`
 also rejects JSON mode because it streams installer output.
 
-## Durable replies and results (TMT-38)
+## Durable replies and results
 
 When TMT supplies an exact receipt, submit the complete result through the
 storage-only adapters:
@@ -58,10 +58,11 @@ tmt reply <request-id> --receipt <receipt> --stdin < response.md
 tmt result <request-id> --json
 ```
 
-Use exactly one input source. Never manufacture a receipt, select the latest
-request, or infer a current pane. `talk` remains marker-based terminal
-capture in this release and does not generate receipts; TMT-39 owns receipt
-generation and durable completion. There is no `--detach` behavior yet.
+Use exactly one input source and the exact request ID/receipt supplied in the
+received `talk` instruction, including detached requests. Never manufacture a
+receipt, select the latest request, or infer a current pane. Both `reply` and
+`result` are storage-only and work without a live pane on this same local
+TMT database; this is not an inbox, listener, remote transport or authentication.
 
 Reply input is one exact valid UTF-8 body up to 1 MiB, preserving empty,
 whitespace, BOM, NUL, CR/LF, Unicode, and marker-like text. Stdin is
@@ -88,6 +89,34 @@ Unavailable JSON is
 expired bodies. Input errors exit 1, input timeout is `RESPONSE_INPUT_TIMEOUT`
 (exit 4), and conflicts exit 5. Receipts, endpoints, and raw bodies are not
 echoed in acknowledgements.
+
+## Calling an agent
+
+`tmt talk <target> "message" [--timeout <time> | --detach] [--json]` waits for
+one durable final by default. The default is 180 seconds unless
+`defaults.timeout` is configured. Time accepts positive seconds or `ms`/`s`
+suffixes, at most 24 hours. Do not combine explicit timeout with detach.
+Pre-send delay accepts zero or a positive finite value, up to 2,147,483,647 ms.
+`--wait` is retired and rejected; `--lines` applies to check, not talk.
+Stored wait/polling mode settings are inert; `config clear mode` removes
+only the explicit local obsolete key, without migrating other settings.
+
+```bash
+tmt talk reviewer "Review this patch" --timeout 300 --json
+tmt talk reviewer "Run the agreed tests" --detach --json
+tmt result <request-id> --json
+tmt check reviewer 200  # diagnostics only
+```
+
+Detached success is `{status:"sent",requestId,target,pane,identity?}`, not task
+completion. Completed talk adds the exact `response`, `bodyBytes` and
+`submittedAtMs` to request/target/pane correlation. Preserve that request ID.
+
+The observer clock starts immediately before send, after pre-send delay and
+preparation. Transport/Enter time counts; synchronous transport cannot be
+cancelled mid-operation. A response read at or crossing the deadline is not
+accepted by that observer; it may still be retrieved with result afterward.
+Do not resend simply because a caller timed out or was interrupted.
 
 ## Identity preambles
 
@@ -120,7 +149,8 @@ Concurrent waits retain separate request records and remain advisory, not a
 single-flight lock. Timeout or interruption ends only that waiter; it does not
 cancel the recipient or undo sent cadence. `REQUEST_STATE_ERROR` (exit 1) can
 occur after possible delivery: follow its inspection guidance, never infer that
-retrying is safe. SQLite bookkeeping does not fix terminal response truncation.
+retrying is safe. Replies are correlated independently, but same-pane input
+serialization and exactly-once agent processing are not guaranteed.
 
 Old JSON/workspace-metadata preambles are ignored, not migrated or deleted.
 Reapply intended text explicitly with `preamble set`. Preamble changes persist
@@ -157,9 +187,9 @@ tmt talk %12 "your message"
 tmt talk codex "message" --delay 5
 
 # Send and wait for response (blocks until agent replies)
-tmt talk codex "message" --wait --timeout 120
+tmt talk codex "message" --timeout 120
 
-# Read response (default: 100 lines); names and pane targets are both valid
+# Inspect diagnostic output; this is not full result retrieval
 tmt check codex
 tmt check %12 200
 
@@ -203,9 +233,10 @@ identity/profile. Do not delete old user files as a migration workaround.
 
 ## Workflow
 
-1. Send and wait: `tmt talk codex "Review this code" --wait`
-2. If the request times out, read the pane later with `tmt check codex`.
-3. If the response is cut off, increase the capture with `tmt check codex 200`.
+1. Send and wait: `tmt talk codex "Review this code" --json`.
+2. Preserve the request ID, including on timeout, interruption or uncertainty.
+3. Retrieve the final later with `tmt result <request-id> --json`; use `check`
+   only for diagnostics, never to reconstruct the authoritative response.
 
 ## Notes
 
@@ -213,8 +244,7 @@ identity/profile. Do not delete old user files as a migration workaround.
   messages preserve their line breaks.
 - Control the delay with `pasteEnterDelayMs` in config (default: 500)
 - Use `--delay` instead of sleep (safer for tool whitelists)
-- Use `--wait` for synchronous request-response patterns; use `check` after a
-  timeout or when polling.
+- Wait by default or use `--detach`; use `result` after a timeout.
 - Sending text or commands to another pane is an external action. Do it only
   with user authorization; do not send secrets or unrelated commands.
 - Install integrations with `tmt install`. `tmt upgrade` updates the package;

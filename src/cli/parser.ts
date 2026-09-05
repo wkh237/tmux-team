@@ -65,6 +65,7 @@ interface CommonOptions {
   config?: string;
   delay?: string;
   wait?: boolean;
+  detach?: boolean;
   timeout?: string;
   lines?: string;
   noPreamble?: boolean;
@@ -91,7 +92,12 @@ function parseTime(value: string): number {
     throw new CliParseError(
       `Invalid time format: ${value}. Use number (seconds) or number with ms/s suffix.`
     );
-  return match[2]?.toLowerCase() === 'ms' ? parseFloat(match[1]) / 1000 : parseFloat(match[1]);
+  const seconds =
+    match[2]?.toLowerCase() === 'ms' ? parseFloat(match[1]) / 1000 : parseFloat(match[1]);
+  if (!Number.isFinite(seconds)) {
+    throw new CliParseError(`Invalid time format: ${value}. The value must be finite.`);
+  }
+  return seconds;
 }
 
 function parseLines(value: string): number {
@@ -109,7 +115,7 @@ function flagsFrom(options: CommonOptions, argv: readonly string[] = []): Flags 
   if (options.force) flags.force = true;
   if (options.config !== undefined) flags.config = options.config;
   if (options.delay !== undefined) flags.delay = parseTime(options.delay);
-  if (options.wait) flags.wait = true;
+  if (options.detach) flags.detach = true;
   if (options.timeout !== undefined) flags.timeout = parseTime(options.timeout);
   if (options.lines !== undefined) {
     if (!/^\d+$/.test(options.lines))
@@ -189,6 +195,7 @@ function commonOptions(command: Command): Command {
     .option('--config <path>')
     .option('--delay <time>')
     .option('--wait')
+    .option('--detach')
     .option('--timeout <time>')
     .option('--lines <count>')
     .option('--no-preamble')
@@ -217,6 +224,41 @@ function setupProgram(capture: Capture): Command {
   program.configureOutput({ writeOut: () => undefined, writeErr: () => undefined });
 
   const action = (command: Command, invocation: ParsedInvocation): void => {
+    const commandName = command.name();
+    if (optionWasProvided(command, 'wait')) {
+      throw new CliParseError(
+        'The --wait option is retired. talk waits for a durable reply by default; use --timeout or --detach.'
+      );
+    }
+    if ((commandName === 'talk' || commandName === 'send') && optionWasProvided(command, 'lines')) {
+      throw new CliParseError(
+        'The --lines option is only supported by check/read; talk retrieves the complete durable response.'
+      );
+    }
+    if (commandName === 'talk' || commandName === 'send') {
+      const options = commandOptions(command);
+      if (options.detach && optionWasProvided(command, 'timeout')) {
+        throw new CliParseError('Use either --timeout or --detach, not both.');
+      }
+      if (optionWasProvided(command, 'timeout') && options.timeout !== undefined) {
+        const timeoutSeconds = parseTime(options.timeout);
+        if (
+          !Number.isFinite(timeoutSeconds) ||
+          timeoutSeconds <= 0 ||
+          timeoutSeconds > 24 * 60 * 60
+        ) {
+          throw new CliParseError(
+            'Talk timeout must be finite, positive, and no greater than 24 hours.'
+          );
+        }
+      }
+      if (optionWasProvided(command, 'delay') && options.delay !== undefined) {
+        const delaySeconds = parseTime(options.delay);
+        if (delaySeconds * 1000 > 2_147_483_647) {
+          throw new CliParseError('Talk delay exceeds the supported timer limit.');
+        }
+      }
+    }
     capture.invocation = invocation;
     capture.command = command;
     const path: string[] = [];

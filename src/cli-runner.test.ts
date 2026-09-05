@@ -165,6 +165,120 @@ describe('CLI runner lifecycle', () => {
     }
   });
 
+  it.each(['sent', 'completed'])(
+    'preserves %s request correlation when disposal fails',
+    async (status) => {
+      const output = captureStdout();
+      try {
+        const { runCli } = await loadRunner({
+          dispatch: (ctx) =>
+            ctx.ui.json({
+              status,
+              requestId: 'req-inspect',
+              target: 'Alice',
+              pane: '%14',
+              response: 'complete private body',
+              receipt: 'private',
+              endpoint: { secret: true },
+            }),
+          dispose: () => {
+            throw new Error('close failed');
+          },
+        });
+        expect(await runCli(['talk', 'Alice', 'work', '--json'])).toBe(1);
+        expect(output.chunks).toHaveLength(1);
+        expect(document(output.chunks)).toEqual({
+          requestId: 'req-inspect',
+          target: 'Alice',
+          pane: '%14',
+          error: {
+            code: 'CLEANUP_ERROR',
+            message: 'Cleanup failed; command effects may already have occurred: close failed',
+          },
+        });
+      } finally {
+        output.restore();
+      }
+    }
+  );
+
+  it('keeps timeout correlation and its primary status when disposal also fails', async () => {
+    const output = captureStdout();
+    const timeout = {
+      status: 'timeout',
+      requestId: 'req-late',
+      target: 'Alice',
+      pane: '%14',
+      error: { code: 'TIMEOUT', message: 'Use tmt result req-late to inspect later.' },
+    };
+    try {
+      const { runCli } = await loadRunner({
+        dispatch: (ctx) => {
+          ctx.ui.json(timeout);
+          ctx.exit(4);
+        },
+        dispose: () => {
+          throw new Error('close failed');
+        },
+      });
+      expect(await runCli(['talk', 'Alice', 'work', '--json'])).toBe(4);
+      expect(output.chunks).toHaveLength(1);
+      expect(document(output.chunks)).toEqual(timeout);
+    } finally {
+      output.restore();
+    }
+  });
+
+  it('keeps request inspection fields when serializing a pending response fails', async () => {
+    const output = captureStdout();
+    try {
+      const { runCli } = await loadRunner({
+        dispatch: (ctx) =>
+          ctx.ui.json({
+            status: 'completed',
+            requestId: 'req-inspect',
+            target: 'Alice',
+            pane: '%14',
+            response: 1n,
+            receipt: 'do not expose',
+          }),
+      });
+      expect(await runCli(['talk', 'Alice', 'work', '--json'])).toBe(1);
+      expect(output.chunks).toHaveLength(1);
+      expect(document(output.chunks)).toEqual({
+        requestId: 'req-inspect',
+        target: 'Alice',
+        pane: '%14',
+        error: { code: 'INTERNAL_ERROR', message: 'Could not serialize JSON output.' },
+      });
+    } finally {
+      output.restore();
+    }
+  });
+
+  it('does not erase already-streamed human request guidance on cleanup failure', async () => {
+    const events: string[] = [];
+    const info = vi.spyOn(console, 'log').mockImplementation((value) => events.push(String(value)));
+    const error = vi
+      .spyOn(console, 'error')
+      .mockImplementation((value) => events.push(String(value)));
+    try {
+      const { runCli } = await loadRunner({
+        dispatch: (ctx) => ctx.ui.info('Request req-inspect. Use tmt result req-inspect.'),
+        dispose: () => {
+          throw new Error('close failed');
+        },
+      });
+      expect(await runCli(['role', 'show'])).toBe(1);
+      expect(events).toHaveLength(2);
+      expect(events[0]).toContain('tmt result req-inspect');
+      expect(events[1]).toContain('Cleanup failed; command effects may already have occurred');
+    } finally {
+      info.mockRestore();
+      error.mockRestore();
+    }
+  });
+
   it('does not promote an arbitrary native error code into the public contract', async () => {
     const output = captureStdout();
     try {

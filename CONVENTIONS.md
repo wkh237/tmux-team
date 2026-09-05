@@ -51,7 +51,9 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
   Direct file writes are not atomic or concurrency-safe. Follow the state owner's
   transaction/recovery contract, not an "atomic-like" write.
 - Message framing and adaptation belong to shared delivery implementation.
-  Current waits use `RESPONSE-END-<nonce>`; do not invent a second marker.
+  Talk completion comes only from the shared durable request service. Generated
+  request-instruction framing is not a terminal-output completion boundary.
+  Never add capture/idle/marker fallbacks or provider-specific result cleanup.
   The `!` policy protects coding-agent shell/bash mode, not TTY cosmetics.
   Consult ARCHITECTURE's message delivery and uncertainty contract before
   changing payload/fallback behavior.

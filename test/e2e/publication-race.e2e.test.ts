@@ -170,7 +170,6 @@ async function assertPublished(fixture: E2EFixture, name: string): Promise<void>
     'talk',
     name,
     message,
-    '--wait',
     '--timeout',
     '5',
   ]);
@@ -181,7 +180,7 @@ async function assertPublished(fixture: E2EFixture, name: string): Promise<void>
   });
   await fixture.waitForEvent(
     (event) =>
-      event.event === 'response' && event.pid === fixture.panePid && event.message === message
+      event.event === 'submitted' && event.pid === fixture.panePid && event.message === message
   );
 }
 

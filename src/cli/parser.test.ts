@@ -18,8 +18,8 @@ const receipt = encodeReplyReceipt({
 
 describe('declarative CLI parser', () => {
   it('parses global options independently of command position', () => {
-    const parsed = parseArgs(['talk', 'claude', 'hello', '--timeout', '500ms', '--wait']);
-    expect(parsed.flags).toMatchObject({ timeout: 0.5, wait: true });
+    const parsed = parseArgs(['talk', 'claude', 'hello', '--timeout', '500ms']);
+    expect(parsed.flags).toMatchObject({ timeout: 0.5 });
     expect(parsed.invocation).toMatchObject({
       kind: 'talk',
       target: { value: 'claude', kind: 'identity' },
@@ -70,6 +70,35 @@ describe('declarative CLI parser', () => {
     });
   });
 
+  it('parses detach and rejects retired wait/lines options before effects', () => {
+    expect(parseArgs(['talk', 'claude', 'hello', '--detach']).flags).toMatchObject({
+      detach: true,
+    });
+    expect(() => parseArgs(['talk', 'claude', 'hello', '--wait'])).toThrow(CliParseError);
+    expect(() => parseArgs(['talk', 'claude', 'hello', '--lines', '10'])).toThrow(CliParseError);
+    expect(() => parseArgs(['check', 'claude', '--lines', '10'])).not.toThrow();
+  });
+
+  it('applies no-preamble regardless of whether it appears before or after talk', () => {
+    expect(parseArgs(['--no-preamble', 'talk', 'claude', 'hello']).flags.noPreamble).toBe(true);
+    expect(parseArgs(['talk', 'claude', 'hello', '--no-preamble']).flags.noPreamble).toBe(true);
+  });
+
+  it.each([
+    ['0', 'zero'],
+    ['-1', 'negative'],
+    ['NaN', 'non-finite'],
+    ['86400.001s', 'over the 24-hour maximum'],
+  ])('rejects %s timeout (%s)', (value) => {
+    expect(() => parseArgs(['talk', 'claude', 'hello', '--timeout', value])).toThrow(CliParseError);
+  });
+
+  it('rejects detach together with an explicit timeout', () => {
+    expect(() => parseArgs(['talk', 'claude', 'hello', '--detach', '--timeout', '1s'])).toThrow(
+      CliParseError
+    );
+  });
+
   it('classifies existing positional targets without introducing future selector syntax', () => {
     expect(parseArgs(['list', 'all']).invocation).toMatchObject({
       target: { value: 'all', kind: 'identity' },
@@ -112,6 +141,7 @@ describe('declarative CLI parser', () => {
       key: 'mode',
       global: false,
     });
+    expect(() => parseArgs(['config', 'clear', 'mode', '--global'])).toThrow(CliParseError);
     expect(parseArgs(['install', 'codex']).invocation).toEqual({
       kind: 'install',
       target: 'codex',
@@ -220,11 +250,9 @@ describe('declarative CLI parser', () => {
       '/tmp/tmt.json',
       '--delay',
       '250ms',
-      '--wait',
       '--timeout',
       '3s',
-      '--lines',
-      '12',
+      '--detach',
       '--team',
       'legacy',
       'list',
@@ -236,9 +264,8 @@ describe('declarative CLI parser', () => {
       force: true,
       config: '/tmp/tmt.json',
       delay: 0.25,
-      wait: true,
       timeout: 3,
-      lines: 12,
+      detach: true,
     });
     expect(parsed.metadata).toMatchObject({ unsupportedTeam: true, commandPath: ['list'] });
   });

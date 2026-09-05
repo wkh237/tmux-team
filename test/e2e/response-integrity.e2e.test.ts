@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { withE2EFixture } from './harness.js';
 
 interface TalkResult {
-  nonce: string;
+  requestId: string;
   pane: string;
   response: string;
+  bodyBytes: number;
+  submittedAtMs: number;
   status: string;
-  truncated: boolean;
 }
 
 interface CheckResult {
@@ -24,54 +25,100 @@ function expectedVirtualizedResponse(token: string): string {
   ].join('\n');
 }
 
-describe.sequential('TMT-35 response-channel research characterization', () => {
-  it('shows that terminal capture cannot recover a virtualized full response', async () => {
-    // This is deliberately a research characterization of the current terminal-source
-    // limitation, not a complete-response acceptance test. A future structured-channel
-    // test must assert this exact full body and durable request correlation before delivery.
+describe.sequential('TMT-39 durable response integrity', () => {
+  it('returns the exact full body when the pane renders only a virtualized tail', async () => {
     await withE2EFixture(
       async (fixture) => {
         const peer = await fixture.createMockPane('virtualized-agent');
         const binding = await fixture.runJsonCli(['add', peer.pane, 'Virtualized']);
         expect(binding.code).toBe(0);
 
-        const token = 'tmt35-virtualized-response';
+        const token = 'tmt39-virtualized-response-🙂-日本語';
         const expectedResponse = expectedVirtualizedResponse(token);
         const talk = await fixture.runJsonCli<TalkResult>([
           'talk',
           'Virtualized',
           token,
           '--no-preamble',
-          '--wait',
           '--timeout',
           '8',
         ]);
 
         expect(talk.code).toBe(0);
-        expect(talk.json).toMatchObject({ status: 'completed', truncated: true });
+        expect(talk.json).toMatchObject({ status: 'completed' });
         expect(talk.json?.pane).toBe(peer.pane);
-        expect(talk.json?.nonce).toMatch(/^[a-f0-9]+$/);
-        expect(talk.json?.response).toContain(`VIRTUALIZED-END:${token}`);
-        expect(talk.json?.response).not.toContain(`VIRTUALIZED-LINE-100:${token}`);
+        expect(talk.json?.requestId).toMatch(/^req_[0-9a-f-]+$/);
+        expect(talk.json?.response).toBe(expectedResponse);
+        expect(talk.json?.bodyBytes).toBe(Buffer.byteLength(expectedResponse));
+        expect(talk.json).not.toHaveProperty('nonce');
+        expect(talk.json).not.toHaveProperty('endMarker');
+        expect(talk.json).not.toHaveProperty('truncated');
 
         const requestEvent = await fixture.waitForEvent(
           (event) =>
-            event.event === 'request' && event.pid === peer.pid && event.nonce === talk.json?.nonce
+            event.event === 'request' &&
+            event.pid === peer.pid &&
+            event.requestId === talk.json?.requestId
         );
         expect(requestEvent).toMatchObject({
           message: token,
           mode: 'virtualized',
-          nonce: talk.json?.nonce,
+          requestId: talk.json?.requestId,
           pid: peer.pid,
         });
         const responseEvent = await fixture.waitForEvent(
           (event) =>
-            event.event === 'response' && event.pid === peer.pid && event.nonce === talk.json?.nonce
+            event.event === 'submitted' &&
+            event.pid === peer.pid &&
+            event.requestId === talk.json?.requestId
         );
         expect(responseEvent.message).toBe(token);
-        expect(responseEvent.response).toBe(expectedResponse);
-        expect(responseEvent.responseLength).toBe(expectedResponse.length);
-        expect(responseEvent.response).toContain(`VIRTUALIZED-LINE-100:${token}`);
+        expect(responseEvent.body).toBe(expectedResponse);
+        expect(Buffer.byteLength(responseEvent.body ?? '')).toBe(
+          Buffer.byteLength(expectedResponse)
+        );
+        expect(responseEvent.bodyBytes).toBe(talk.json?.bodyBytes);
+        expect(responseEvent.submittedAtMs).toBe(talk.json?.submittedAtMs);
+        await fixture.waitForEvent(
+          (event) => event.event === 'summary' && event.requestId === talk.json?.requestId
+        );
+        const events = fixture.events();
+        const requestIndex = events.findIndex(
+          (event) =>
+            event.event === 'request' &&
+            event.pid === peer.pid &&
+            event.requestId === talk.json?.requestId
+        );
+        const responseIndex = events.findIndex(
+          (event) =>
+            event.event === 'submitted' &&
+            event.pid === peer.pid &&
+            event.requestId === talk.json?.requestId
+        );
+        const summaryIndex = events.findIndex(
+          (event) =>
+            event.event === 'summary' &&
+            event.pid === peer.pid &&
+            event.requestId === talk.json?.requestId
+        );
+        expect(requestIndex).toBeGreaterThanOrEqual(0);
+        expect(responseIndex).toBeGreaterThan(requestIndex);
+        expect(summaryIndex).toBeGreaterThan(responseIndex);
+
+        const retrieved = await fixture.runJsonCli<TalkResult>([
+          'result',
+          talk.json?.requestId ?? '',
+        ]);
+        expect(retrieved).toMatchObject({
+          code: 0,
+          json: {
+            status: 'completed',
+            requestId: talk.json?.requestId,
+            response: expectedResponse,
+            bodyBytes: Buffer.byteLength(expectedResponse),
+            submittedAtMs: talk.json?.submittedAtMs,
+          },
+        });
 
         const capturedAtDefault = await fixture.runJsonCli<CheckResult>([
           'check',

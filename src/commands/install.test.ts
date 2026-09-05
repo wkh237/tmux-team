@@ -25,13 +25,11 @@ function createCtx(testDir: string, overrides?: Partial<{ flags: Partial<Flags> 
     databaseFile: path.join(testDir, 'tmux-team.db'),
   };
   const config: ResolvedConfig = {
-    mode: 'polling',
     preambleMode: 'always',
     defaults: {
       timeout: 180,
       pollInterval: 1,
       captureLines: 100,
-      maxCaptureLines: 2000,
       preambleEvery: 3,
       pasteEnterDelayMs: 500,
     },

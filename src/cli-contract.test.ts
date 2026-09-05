@@ -195,14 +195,17 @@ describe('real CLI process contract', () => {
   );
 
   it(
-    'returns an explicit JSON success document while config set and clear persist safely',
+    'preserves opaque mode while allowing explicit local mode clear only',
     { timeout: 10_000 },
     () =>
       withSandbox(async (sandbox) => {
-        writeFileSync(sandbox.localConfig, '{"keep":{"value":true}}\n');
+        writeFileSync(
+          sandbox.localConfig,
+          '{"keep":{"value":true},"$config":{"mode":"polling"}}\n'
+        );
 
         const setResult = await runCli(sandbox, ['config', 'set', 'mode', 'polling', '--json']);
-        expectJsonSuccess(setResult, { ok: true });
+        expect(setResult.status).toBe(1);
         expect(JSON.parse(readFileSync(sandbox.localConfig, 'utf8'))).toEqual({
           keep: { value: true },
           $config: { mode: 'polling' },

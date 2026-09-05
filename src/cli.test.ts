@@ -44,13 +44,11 @@ function makeStubContext(): Context {
       json: vi.fn(),
     },
     config: {
-      mode: 'polling',
       preambleMode: 'always',
       defaults: {
         timeout: 180,
         pollInterval: 1,
         captureLines: 100,
-        maxCaptureLines: 2000,
         preambleEvery: 3,
         pasteEnterDelayMs: 500,
       },
@@ -527,7 +525,7 @@ describe('cli', () => {
     expect(ctx.flags.timeout).toBe(0.5);
   });
 
-  it('parses --lines flag', async () => {
+  it('parses --detach flag', async () => {
     vi.resetModules();
 
     const ctx = makeStubContext();
@@ -541,9 +539,23 @@ describe('cli', () => {
     }));
     vi.doMock('./commands/talk.js', () => ({ cmdTalk: talkSpy }));
     const { runCli } = await import('./cli-runner.js');
-    expect(await runCli(['talk', 'claude', 'hi', '--wait', '--lines', '50'])).toBe(0);
+    expect(await runCli(['talk', 'claude', 'hi', '--detach'])).toBe(0);
 
-    expect(ctx.flags.lines).toBe(50);
+    expect(ctx.flags.detach).toBe(true);
+  });
+
+  it('rejects talk --lines before creating command context', async () => {
+    vi.resetModules();
+    const contextFactory = vi.fn(() => makeStubContext());
+    vi.doMock('./context.js', () => ({
+      createContext: contextFactory,
+      ExitCodes: { SUCCESS: 0, ERROR: 1 },
+    }));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { runCli } = await import('./cli-runner.js');
+    expect(await runCli(['talk', 'claude', 'hi', '--lines', '50'])).toBe(1);
+    expect(contextFactory).not.toHaveBeenCalled();
+    expect(errorSpy).toHaveBeenCalled();
   });
 
   it('parses --no-preamble flag', async () => {

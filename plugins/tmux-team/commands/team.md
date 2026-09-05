@@ -15,7 +15,7 @@ Based on what the user wants, use the tmux-team CLI to coordinate with other age
 
 To send a message to a global identity or direct pane target and wait for a
 response:
-tmt talk <target> "<message>" --wait
+tmt talk <target> "<message>" --json
 
 To see available agents:
 tmt list
@@ -42,11 +42,9 @@ tmt reply <request-id> --receipt <receipt> --stdin < response.md
 tmt result <request-id> --json
 ```
 
-Use exactly one input source. Use the supplied receipt; never manufacture one,
-look up the latest request, or infer a current pane. `talk` remains
-marker-based in this release and does not generate receipts; receipt
-generation and durable completion are staged for TMT-39. There is no
-`--detach` behavior yet. A successful submission confirms delivery of the
+Use exactly one input source and the request ID/receipt supplied by `talk`,
+including detached requests. Never manufacture a receipt, look up the latest
+request, or infer a current pane. A successful submission confirms delivery of the
 body, not success of the requested task, so give a truthful summary only
 after submission.
 
@@ -70,31 +68,43 @@ pending, unknown, or expired bodies; input errors exit 1, input timeout exits
 ## Examples
 
 User says: "tell codex to review the auth module"
-You run: tmt talk codex "Please review the auth module and share your findings" --wait
+You run: tmt talk codex "Please review the auth module and share your findings" --json
 
 User says: "ask gemini about the test coverage"
-You run: tmt talk gemini "What is the current test coverage status?" --wait
+You run: tmt talk gemini "What is the current test coverage status?" --json
 
 User says: "ask codex to review the refactor"
-You run: tmt talk codex "Please review the refactor before I continue." --wait
+You run: tmt talk codex "Please review the refactor before I continue." --json
 
 ## Options
 
-For long responses, increase timeout and lines captured:
+Talk waits for a complete durable final by default (180 seconds unless configured).
+Timeout accepts positive seconds or ms/s suffixes, at most 24 hours. For longer work:
 
-tmt talk <target> "<message>" --wait --timeout 300 --lines 200
+tmt talk <target> "<message>" --timeout 300 --json
 
-## If --wait Times Out
+Use `--detach` instead of explicit timeout to return the request ID after sending.
+`--wait` is retired; `--lines` belongs to diagnostic `check`, not `talk`.
+Stored mode settings are inert; `config clear mode` removes only the local key.
 
-Use the check command to retrieve the response with an optional line count:
+## If talk times out
 
-tmt check <target>
-tmt check <target> 200
+Preserve the request ID and retrieve the final later:
+
+```bash
+tmt result <request-id> --json
+tmt check <target> 200  # diagnostics only, not full result retrieval
+```
+
+Timeout and interruption end only the observer, not recipient work. Transport/Enter
+time counts after preparation/delay, but synchronous transport cannot be cancelled
+mid-operation. No reply means no durable final; idle output, markers and summaries
+do not complete a request. Same-pane input serialization is not guaranteed.
 
 ## Important
 
-- Use `--wait` when the user asks for a synchronous answer; `check` can read a
-  response later after timeout.
+- Wait by default, or detach and use `result` later; do not automatically resend
+  on timeout, cleanup failure or `DELIVERY_UNCERTAIN` (exit 1).
 - Craft clear, specific messages for the other agent
 - Preserve multiline messages and do not send pane input without authorization
 - After receiving a response, summarize it for the user

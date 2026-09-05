@@ -78,29 +78,47 @@ describe.sequential('single JSON command error boundary', () => {
     });
   }, 125_000);
 
-  it('reports a real capture failure once and releases only its sent waiter', async () => {
+  it('does not complete from pane closure and accepts a late public reply', async () => {
     await withE2EFixture(
       async (fixture) => {
         expect((await fixture.runJsonCli(['name', 'Receiver'])).code).toBe(0);
-        const request = fixture.runCliProcess([
-          '--json',
-          'talk',
-          'Receiver',
-          'capture failure request',
-          '--wait',
-          '--timeout',
-          '20',
-        ]);
+        const request = fixture.runCliProcess<{
+          requestId: string;
+          status: string;
+          response?: string;
+        }>(['--json', 'talk', 'Receiver', 'pane closure request', '--timeout', '20']);
         const event = await fixture.waitForEvent(
-          (item) => item.event === 'silent' && item.message === 'capture failure request',
+          (item) => item.event === 'request' && item.message === 'pane closure request',
+          5_000
+        );
+        await fixture.waitForEvent(
+          (item) => item.event === 'silent' && item.requestId === event.requestId,
           5_000
         );
         await fixture.waitFor(() => requestAttempts(fixture)[0]?.status === 'sent');
         fixture.tmux(['kill-pane', '-t', fixture.pane]);
-        expectError(await request.result, 1, 'ERROR');
+        expect(requestAttempts(fixture)[0]).toMatchObject({
+          request_id: event.requestId,
+          status: 'sent',
+          wait_active: 1,
+        });
+        const bodyPath = path.join(fixture.root, 'late-response.txt');
+        fs.writeFileSync(bodyPath, 'late response after pane closure');
+        const reply = await fixture.runJsonCli(
+          ['reply', event.requestId ?? '', '--receipt', event.receipt ?? '', '--file', bodyPath],
+          { outsideTmux: true }
+        );
+        expect(reply.code).toBe(0);
+        const completed = await request.result;
+        expect(completed.code).toBe(0);
+        expect(completed.json).toMatchObject({
+          status: 'completed',
+          requestId: event.requestId,
+          response: 'late response after pane closure',
+        });
         expect(requestAttempts(fixture)).toHaveLength(1);
         expect(requestAttempts(fixture)[0]).toMatchObject({
-          nonce: event.nonce,
+          request_id: event.requestId,
           status: 'sent',
           wait_active: 0,
         });
@@ -122,7 +140,6 @@ describe.sequential('single JSON command error boundary', () => {
           'talk',
           'Receiver',
           'interrupt long poll',
-          '--wait',
           '--timeout',
           '120',
         ]);
@@ -133,10 +150,10 @@ describe.sequential('single JSON command error boundary', () => {
         await fixture.waitFor(() => requestAttempts(fixture)[0]?.status === 'sent');
         request.kill('SIGINT');
         const result = await request.result;
-        expectError(result, 1, 'ERROR');
+        expectError(result, 1, 'INTERRUPTED');
         expect(requestAttempts(fixture)).toHaveLength(1);
         expect(requestAttempts(fixture)[0]).toMatchObject({
-          nonce: event.nonce,
+          request_id: event.requestId,
           status: 'sent',
           wait_active: 0,
         });

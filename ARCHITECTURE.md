@@ -48,13 +48,13 @@ Unbind, pane death and rebind do not erase it. Binding failures never delete
 committed identities, regardless of whether they have a preamble or profile.
 
 Talk composes preambles once through a shared delivery-preparation path before
-existing wait marker framing and transport protection. A verified bound direct
+durable reply instructions and transport protection. A verified bound direct
 pane uses the same identity preamble as a name; unnamed panes use none. Storage
 lookup failure stops preparation rather than silently omitting the prefix.
 The `[SYSTEM: ...]` prefix is ordinary delivered text, not an authenticated
 provider system-message channel.
 
-Existing mode/every settings remain. Eligible attempts reserve identity-ID-keyed
+Existing preambleMode/preambleEvery settings remain. Eligible attempts reserve identity-ID-keyed
 SQLite cadence at effective counts 1, 1+N, ...; disabled/no-content/N=0 paths
 do not advance it. Set, clear and rebind do not reset cadence. No old JSON
 counter import or deletion occurs, so this cutover begins a fresh cadence.
@@ -73,24 +73,21 @@ There is no automatic preamble migration, role conversion or user-file deletion.
 These are invariants to protect. Known delivery
 gaps below remain limitations, not guarantees supplied by this document.
 
-## Request/response research boundary
+## Durable request/response boundary
 
-Current `talk --wait` completion and body extraction rely on terminal capture;
-a matching end marker is not proof of a complete, isolated response body.
-`check` is a diagnostic pane snapshot, not correlated response retrieval.
-The [request/response decision document](REQUEST-RESPONSE.md) records TMT-35's
-source evidence, capability limits and staged proposal. The shared request service
-now stores and retrieves immutable final bodies. Storage-only `reply` and `result`
-adapters expose that service; live `talk` integration is not implemented yet.
-Marker-based `talk` behavior remains unchanged.
-Keep this distinction
-and the document's verification status current as those slices are delivered.
+`talk` waits for an immutable final response through the existing request service
+by default. `--detach` sends the same receipt instruction but returns without
+observing completion. `reply` submits a complete body; `result` retrieves it.
+No terminal marker, capture, debounce, provider cleanup, idle state, summary or
+process exit determines completion. `check` remains a diagnostic pane snapshot.
+Cooperation is required: a recipient that never calls reply has no durable final.
 
-The accepted proposal now targets durable completion by default, timeout/detach,
-and a short human summary after successful final submission. TMT-36 owns the
-shared final-response service; TMT-37 owns the CLI cutover and shipped guidance.
-This supersedes the earlier opt-in proposal, not the current runtime contract.
-MCP/remote connectivity remains a separate future project.
+The [request/response decision document](REQUEST-RESPONSE.md) retains the historical
+research and current contracts. TMT-36 supplies the service, TMT-38 the bounded
+adapters, and TMT-39 the live cutover under TMT-37. Installed agent instructions
+require complete submission before a short truthful user summary. Delivery of a
+reply is not success of the requested task. Inbox, daemon, MCP/remote connectivity
+and memory remain outside this implementation.
 
 ## Message delivery and uncertainty
 
@@ -130,7 +127,8 @@ server ID, socket, server PID/start time, pane ID and pane PID. An endpoint is
 not a display name or `%pane_id` alone. Multiple waits on the same endpoint
 retain independent rows; the overlap warning is advisory and `--force` only
 suppresses that warning. This is bookkeeping isolation, not transport
-serialization or proof that terminal-captured responses cannot interleave.
+serialization or exactly-once agent processing. Finals are matched by request,
+attempt and full endpoint rather than by shared terminal output.
 
 Preparation and marking `sending` commit in separate short transactions before
 the external effect; no request transaction spans tmux, capture or polling.
@@ -187,8 +185,11 @@ provider-specific state machine or alternate database is introduced.
 complete final. `result <request-id>` reads a retained final without waiting.
 Both select storage-only Context capabilities: no live caller, pane reconciliation
 or tmux construction is required. Neither infers a request from a pane or name.
-The existing `talk` command does not generate receipts yet; TMT-39 owns that
-cutover. These adapters alone do not fix marker-based response extraction.
+`talk` generates the exact receipt after preparation and sends it inside the
+single recipient instruction frame, for both default waiting and detach. The
+frame bounds request instructions, not terminal output or result extraction.
+An instruction/encoding failure before beginSend settles definitely_failed and
+releases its waiter, refunding cadence through the existing service.
 
 The receipt is a versioned, bounded, canonical base64url JSON envelope containing
 the explicit request, attempt and complete recorded endpoint. It is correlation,
@@ -214,6 +215,31 @@ is formatted; exact-text consumers use JSON. Missing retained bodies return
 and expired results without inventing distinctions the service cannot establish.
 Submission conflicts use exit 5; stdin deadline uses exit 4. Neither timeout nor
 unavailable output cancels recipient work or changes service retention.
+
+## Talk observer and retired settings
+
+The parser rejects retired `--wait`, talk `--lines`, and explicit
+`--timeout`/`--detach` combinations before Context effects. `send` follows the
+same talk semantics. Runtime timing validation precedes preamble/request mutation:
+timeout is finite, positive and at most 24 hours; poll interval is finite and
+positive. Default timeout remains 180 seconds unless configured. Pre-send delay
+and configured paste-enter delay must be finite, non-negative and no greater
+than 2,147,483,647 milliseconds, avoiding timer overflow that could send early.
+
+The monotonic deadline starts immediately before beginSend/transport, after
+pre-send delay, preparation and receipt construction. It is checked before and
+after each synchronous getResponse read; equality or a read crossing the bound
+returns timeout, with no final read afterward. Sleeps are clamped to remaining
+time. Transport/Enter elapsed time counts, but synchronous transport cannot be
+cancelled mid-operation by this logical observer deadline. A retained late
+response remains available through result. No transaction spans polling.
+
+Wait/polling mode and extraction-only maxCaptureLines are absent from runtime
+types, defaults and resolved output. Raw stored values remain opaque and are
+not automatically rewritten. Explicit local `config clear mode` may remove
+that key; config set mode and global clear remain unsupported. captureLines
+still controls check diagnostics. Historical migrations/nonce columns stay
+unchanged; new talk attempts do not create a nonce.
 
 ## Caller context
 
@@ -331,11 +357,13 @@ use `USAGE_ERROR` without constructing Context; configuration parsing uses
 stderr when requested. Successful commands without a detailed result emit
 `{ok:true}`. A cleanup failure replaces a pending success with `CLEANUP_ERROR`
 and an effects warning, but cannot replace an existing primary failure/status.
-This is output consistency, not rollback of command effects.
+Failure replacement preserves only bounded data-property requestId/target/pane
+correlation from the pending document, never its response, receipt, endpoint or
+arbitrary fields. This is output consistency, not rollback of command effects.
 
-The alpha timeout envelope intentionally changes only its `error` string to
-`{code: "TIMEOUT", message}`. Exit 4, status, correlation/target fields and
-nullable partial response remain. SIGINT only signals and wakes the talk poll;
+Talk timeout uses `{code: "TIMEOUT", message}`, exit 4 and request/target/pane
+correlation, without partialResponse, nonce, endMarker or truncated. SIGINT
+only signals and wakes the talk poll;
 the awaited command flow releases its waiter and exits through the runner.
 It must not throw exit control flow across an event callback. Neither timeout
 nor interruption cancels recipient work or alters recorded delivery certainty.
@@ -369,6 +397,13 @@ unwritable output streams are outside the one-document guarantee.
 | [src/ui.ts](src/ui.ts), [src/exits.ts](src/exits.ts)                                                                                                                       | Presentation helpers and exit-code registry; do not invent conflicting mappings.                                                                                        |
 | [src/commands/install.ts](src/commands/install.ts), [src/update-check.ts](src/update-check.ts), [skills/](skills/), [plugins/](plugins/)                                   | User-facing integrations, instructions and updates. These differ from repository developer skills in `.agents/skills/`.                                                 |
 | [test/e2e/](test/e2e/), [scripts/](scripts/), [.github/workflows/ci.yml](.github/workflows/ci.yml)                                                                         | Docker fixtures/scenarios, orchestration/pack verification and CI. Unit tests are colocated with source; concurrency workers currently also live in `src/`.             |
+
+`src/commands/talk.ts` owns the bounded observer and existing request lifecycle
+composition. `src/talk-instruction.ts` owns recipient guidance only, using the
+shared response byte limit; it does not parse or infer terminal completion.
+The test mock independently recognizes the documented request instruction frame
+and invokes the public reply CLI, rather than importing a production response
+store or completing requests through a test-only endpoint.
 
 ## Dependency and module design rules
 

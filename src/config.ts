@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import type {
+  ConfigDefaults,
   GlobalConfig,
   LocalConfigFile,
   LocalSettings,
@@ -20,13 +21,11 @@ const DATABASE_FILENAME = 'tmux-team.db';
 
 // Default configuration values
 const DEFAULT_CONFIG: GlobalConfig = {
-  mode: 'wait',
   preambleMode: 'always',
   defaults: {
     timeout: 180,
     pollInterval: 1,
     captureLines: 100,
-    maxCaptureLines: 2000, // max lines for final extraction (expandable capture)
     preambleEvery: 3, // inject preamble every N messages
     pasteEnterDelayMs: 500, // delay after paste before Enter
   },
@@ -156,13 +155,20 @@ export function loadConfig(paths: Paths): ResolvedConfig {
     defaults: { ...DEFAULT_CONFIG.defaults },
   };
 
-  // Merge global config (mode, preambleMode, defaults only)
+  // Merge global config. Legacy mode and extraction-only maxCaptureLines are
+  // intentionally ignored while remaining opaque in the raw file.
   const globalConfig = loadJsonFile<Partial<GlobalConfig>>(paths.globalConfig);
   if (globalConfig) {
-    if (globalConfig.mode) config.mode = globalConfig.mode;
     if (globalConfig.preambleMode) config.preambleMode = globalConfig.preambleMode;
     if (globalConfig.defaults) {
-      config.defaults = { ...config.defaults, ...globalConfig.defaults };
+      const rawDefaults = globalConfig.defaults as ConfigDefaults & {
+        readonly maxCaptureLines?: unknown;
+      };
+      const { maxCaptureLines: _obsoleteMaxCaptureLines, ...runtimeDefaults } = rawDefaults;
+      config.defaults = {
+        ...config.defaults,
+        ...(runtimeDefaults as Partial<ResolvedConfig['defaults']>),
+      };
     }
   }
 
@@ -174,7 +180,6 @@ export function loadConfig(paths: Paths): ResolvedConfig {
 
     // Merge local settings (override global)
     if (localSettings) {
-      if (localSettings.mode) config.mode = localSettings.mode;
       if (localSettings.preambleMode) config.preambleMode = localSettings.preambleMode;
       if (localSettings.preambleEvery !== undefined) {
         config.defaults.preambleEvery = localSettings.preambleEvery;

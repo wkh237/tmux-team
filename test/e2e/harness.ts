@@ -16,14 +16,32 @@ export interface CliResult<T = unknown> {
 }
 
 export interface MockEvent {
-  event: 'ready' | 'request' | 'response' | 'silent' | 'malformed' | 'input' | 'stopped';
+  event:
+    | 'ready'
+    | 'request'
+    | 'submitted'
+    | 'summary'
+    | 'failure'
+    | 'fake-marker'
+    | 'child-start'
+    | 'child-close'
+    | 'silent'
+    | 'malformed'
+    | 'input'
+    | 'stopped';
   message?: string;
   line?: string;
-  nonce?: string;
+  requestId?: string;
+  receipt?: string;
+  body?: string;
+  bodyBytes?: number;
+  submittedAtMs?: number;
+  stage?: string;
+  exitCode?: number;
+  childPid?: number;
+  error?: { code?: string; message?: string };
   mode?: string;
   pid?: number;
-  response?: string;
-  responseLength?: number;
 }
 
 export interface MockPane {
@@ -67,6 +85,24 @@ export interface MetadataBarrierOptions {
   readonly operation?: 'publish' | 'clear';
 }
 
+export interface E2EFixtureOptions {
+  mode?: 'respond' | 'silent' | 'malformed' | 'virtualized' | 'fake-marker' | 'input-log';
+  delayMs?: number;
+  responseBodyBase64?: string;
+  responseBytes?: number;
+  responseMultibyte?: boolean;
+  replyDelayMs?: number;
+  replyGate?: boolean;
+  replyFailure?: boolean;
+  holdReplyEof?: boolean;
+  replyRetry?: boolean;
+  replyConflict?: boolean;
+  replyAckLoss?: boolean;
+  summaryFailure?: boolean;
+  globalDir?: string;
+  metadataBarrier?: MetadataBarrierOptions;
+}
+
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
@@ -82,6 +118,7 @@ export class E2EFixture {
   readonly transportTracePath = path.join(this.root, 'transport-trace.log');
   readonly forbiddenTmuxLogPath = path.join(this.root, 'forbidden-tmux.log');
   readonly metadataBarrierDirectory = path.join(this.root, 'metadata-barrier');
+  readonly replyGateDirectory = path.join(this.root, 'reply-gate');
   readonly socket = `tmt-e2e-${process.pid}-${Math.random().toString(16).slice(2)}`;
   readonly wrapperDir = path.join(this.root, 'bin');
   readonly tmuxPath: string;
@@ -113,13 +150,7 @@ export class E2EFixture {
     }
   }
 
-  async start(
-    options: {
-      mode?: 'respond' | 'silent' | 'malformed' | 'virtualized' | 'input-log';
-      delayMs?: number;
-      metadataBarrier?: MetadataBarrierOptions;
-    } = {}
-  ): Promise<void> {
+  async start(options: E2EFixtureOptions = {}): Promise<void> {
     try {
       fs.mkdirSync(this.workspace, { recursive: true });
       fs.mkdirSync(this.globalDir, { recursive: true });
@@ -243,7 +274,25 @@ exit ${'$'}status
         TMT_MOCK_MODE: options.mode ?? 'respond',
         TMT_MOCK_DELAY_MS: String(options.delayMs ?? 0),
         TMT_MOCK_LOG: this.logPath,
+        TMT_E2E_CLI_PATH: binPath,
       };
+      if (options.responseBodyBase64 !== undefined)
+        this.env.TMT_MOCK_RESPONSE_BODY_BASE64 = options.responseBodyBase64;
+      if (options.responseBytes !== undefined)
+        this.env.TMT_MOCK_RESPONSE_BYTES = String(options.responseBytes);
+      if (options.responseMultibyte) this.env.TMT_MOCK_RESPONSE_MULTIBYTE = '1';
+      if (options.replyDelayMs !== undefined)
+        this.env.TMT_MOCK_REPLY_DELAY_MS = String(options.replyDelayMs);
+      if (options.replyGate) {
+        fs.mkdirSync(this.replyGateDirectory);
+        this.env.TMT_MOCK_REPLY_GATE = this.replyGateDirectory;
+      }
+      if (options.replyFailure) this.env.TMT_MOCK_REPLY_FAILURE = '1';
+      if (options.holdReplyEof) this.env.TMT_MOCK_HOLD_REPLY_EOF = '1';
+      if (options.replyRetry) this.env.TMT_MOCK_REPLY_RETRY = '1';
+      if (options.replyConflict) this.env.TMT_MOCK_REPLY_CONFLICT = '1';
+      if (options.replyAckLoss) this.env.TMT_MOCK_REPLY_ACK_LOSS = '1';
+      if (options.summaryFailure) this.env.TMT_MOCK_SUMMARY_FAILURE = '1';
       if (options.metadataBarrier) {
         this.enableMetadataBarrier(options.metadataBarrier);
       }
@@ -307,10 +356,12 @@ exit ${'$'}status
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     if (child.pid) this.cliProcessPids.add(child.pid);
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (chunk: Buffer) => (stdout += chunk.toString()));
-    child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString()));
+    child.stdout.on('data', (chunk: string) => (stdout += chunk));
+    child.stderr.on('data', (chunk: string) => (stderr += chunk));
     const result = new Promise<CliResult<T>>((resolve) => {
       let settled = false;
       child.once('error', (error) => {
@@ -567,6 +618,17 @@ exit ${'$'}status
     fs.writeFileSync(path.join(this.metadataBarrierDirectory, 'release'), 'release');
   }
 
+  releaseReplyGate(requestId?: string): void {
+    if (!fs.existsSync(this.replyGateDirectory)) {
+      throw new Error('Reply gate is not enabled for this fixture.');
+    }
+    if (requestId !== undefined && !/^req_[0-9a-f-]+$/.test(requestId)) {
+      throw new Error(`Invalid request ID for reply gate: ${requestId}`);
+    }
+    const filename = requestId ? `${requestId}.release` : 'release';
+    fs.writeFileSync(path.join(this.replyGateDirectory, filename), 'release');
+  }
+
   enableMetadataBarrier(options: MetadataBarrierOptions): void {
     fs.mkdirSync(this.metadataBarrierDirectory, { recursive: true });
     for (const signal of ['entered', 'applied', 'release']) {
@@ -580,33 +642,36 @@ exit ${'$'}status
   async stop(): Promise<void> {
     const cliPids = [...this.cliProcessPids];
     let cleanupError: Error | undefined;
-    for (const pid of cliPids) {
-      try {
-        process.kill(-pid, 'SIGKILL');
-      } catch (error) {
-        if (!(error instanceof Error) || !('code' in error) || error.code !== 'ESRCH') {
-          cleanupError = new Error(`Could not kill E2E CLI process group ${pid}.`, {
-            cause: error,
-          });
+    const killAndWait = async (pids: number[], label: string): Promise<number[]> => {
+      for (const pid of pids) {
+        try {
+          process.kill(-pid, 'SIGKILL');
+        } catch (error) {
+          if (!(error instanceof Error) || !('code' in error) || error.code !== 'ESRCH') {
+            cleanupError ??= new Error(`Could not kill E2E ${label} process group ${pid}.`, {
+              cause: error,
+            });
+          }
         }
       }
-    }
-    const groupsRunning = (): number[] =>
-      cliPids.filter((pid) => {
-        try {
-          return this.processGroupIsRunning(pid);
-        } catch (error) {
-          cleanupError ??= new Error(`Could not inspect E2E CLI process group ${pid}.`, {
-            cause: error,
-          });
-          return false;
-        }
-      });
-    const deadline = Date.now() + 1_000;
-    while (Date.now() < deadline && groupsRunning().length > 0) {
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-    const survivors = groupsRunning();
+      const groupsRunning = (): number[] =>
+        pids.filter((pid) => {
+          try {
+            return this.processGroupIsRunning(pid);
+          } catch (error) {
+            cleanupError ??= new Error(`Could not inspect E2E ${label} process group ${pid}.`, {
+              cause: error,
+            });
+            return false;
+          }
+        });
+      const deadline = Date.now() + 1_000;
+      while (Date.now() < deadline && groupsRunning().length > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      return groupsRunning();
+    };
+    const survivors = await killAndWait(cliPids, 'CLI');
     if (survivors.length > 0) {
       cleanupError = new Error(`E2E CLI process groups survived cleanup: ${survivors.join(', ')}`);
     }
@@ -631,6 +696,20 @@ exit ${'$'}status
     this.serverStarted = false;
     this.started = false;
     await this.waitForProcessExit();
+
+    const activeChildren = new Set<number>();
+    for (const event of this.events()) {
+      if (event.childPid === undefined) continue;
+      if (event.event === 'child-start') activeChildren.add(event.childPid);
+      if (event.event === 'child-close') activeChildren.delete(event.childPid);
+    }
+    const replyPids = [...activeChildren];
+    const replySurvivors = await killAndWait(replyPids, 'reply');
+    if (replySurvivors.length > 0) {
+      cleanupError ??= new Error(
+        `E2E reply process groups survived cleanup: ${replySurvivors.join(', ')}`
+      );
+    }
     fs.rmSync(this.root, { recursive: true, force: true });
     fs.rmSync(this.socketRoot, { recursive: true, force: true });
     if (cleanupError) throw cleanupError;
@@ -724,12 +803,7 @@ exit ${'$'}status
 
 export async function withE2EFixture<T>(
   callback: (fixture: E2EFixture) => Promise<T> | T,
-  options: {
-    mode?: 'respond' | 'silent' | 'malformed' | 'virtualized' | 'input-log';
-    delayMs?: number;
-    globalDir?: string;
-    metadataBarrier?: MetadataBarrierOptions;
-  } = {}
+  options: E2EFixtureOptions = {}
 ): Promise<T> {
   const fixture = new E2EFixture(options);
   try {

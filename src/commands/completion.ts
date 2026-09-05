@@ -64,7 +64,7 @@ _tmux-team() {
   elif (( CURRENT == 4 )); then
     case \${words[2]} in
       talk)
-        compadd -- "--delay" "--wait" "--timeout"
+        compadd -- "--delay" "--detach" "--timeout"
         ;;
       reply)
         compadd -- "--receipt" "--file" "--stdin" "--json"
@@ -117,7 +117,7 @@ const bashCompletion = `_tmux_team() {
   elif [[ \${COMP_CWORD} -eq 3 ]]; then
     case "\${COMP_WORDS[1]}" in
       talk)
-        COMPREPLY=( $(compgen -W "--delay --wait --timeout" -- \${cur}) )
+        COMPREPLY=( $(compgen -W "--delay --detach --timeout" -- \${cur}) )
         ;;
       reply)
         COMPREPLY=( $(compgen -W "--receipt --file --stdin --json" -- \${cur}) )

@@ -23,7 +23,7 @@ interface RoleValue {
 interface TalkResult {
   status: string;
   response: string;
-  nonce: string;
+  requestId: string;
 }
 
 function json<T>(result: CliResult<T>): T {
@@ -65,7 +65,6 @@ async function causalTalk(
     'talk',
     target,
     message,
-    '--wait',
     '--timeout',
     '8',
     ...extraArgs,
@@ -73,18 +72,18 @@ async function causalTalk(
   const output = json<TalkResult>(result);
   expect(output.status).toBe('completed');
   expect(output.response).toContain(message);
-  expect(output.nonce).toMatch(/^[a-z0-9]+$/);
+  expect(output.requestId).toMatch(/^req_[0-9a-f-]+$/);
   // readline in the fixture intentionally records the logical payload without
   // the empty separator line; the production transport still sends \n\n.
   const expectedMessage = expectedPreamble ? `[SYSTEM: ${expectedPreamble}]\n${message}` : message;
   const event = await fixture.waitForEvent(
     (entry) =>
-      entry.event === 'response' &&
+      entry.event === 'submitted' &&
       entry.pid === pid &&
-      entry.nonce === output.nonce &&
+      entry.requestId === output.requestId &&
       entry.message === expectedMessage
   );
-  expect(event.nonce).toBe(output.nonce);
+  expect(event.requestId).toBe(output.requestId);
   expect(
     fixture
       .events()
@@ -92,7 +91,7 @@ async function causalTalk(
         (entry) =>
           entry.event === 'request' &&
           entry.pid === pid &&
-          entry.nonce === event.nonce &&
+          entry.requestId === event.requestId &&
           entry.message === expectedMessage
       )
   ).toBe(true);

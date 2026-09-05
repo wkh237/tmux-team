@@ -35,7 +35,7 @@ function publicError(error: unknown): { code: string; message: string } {
 }
 
 function writeJsonError(output: CliOutput, error: { code: string; message: string }): void {
-  output.replaceJson({ error });
+  output.replaceFailure(error);
 }
 
 function writeHumanError(output: CliOutput, message: string): void {
@@ -48,11 +48,9 @@ function flushJson(output: CliOutput, status: number, verbose: boolean, debug?: 
     return status;
   } catch (error) {
     if (!(error instanceof CliOutputSerializationError)) throw error;
-    output.replaceJson({
-      error: {
-        code: 'INTERNAL_ERROR',
-        message: 'Could not serialize JSON output.',
-      },
+    output.replaceFailure({
+      code: 'INTERNAL_ERROR',
+      message: 'Could not serialize JSON output.',
     });
     if (verbose || debug) console.error('[DEBUG] JSON serialization failure:', error);
     try {
@@ -89,7 +87,7 @@ function parseFailure(error: unknown): number {
 function helpConfig(showIntro: boolean): HelpConfig {
   try {
     const config = loadConfig(resolvePaths());
-    return { mode: config.mode, timeout: config.defaults.timeout, showIntro };
+    return { timeout: config.defaults.timeout, showIntro };
   } catch {
     return { showIntro };
   }

@@ -45,13 +45,11 @@ function context(json = false): Context {
       json: vi.fn(),
     },
     config: {
-      mode: 'polling',
       preambleMode: 'always',
       defaults: {
         timeout: 1,
         pollInterval: 1,
         captureLines: 1,
-        maxCaptureLines: 1,
         preambleEvery: 1,
         pasteEnterDelayMs: 0,
       },

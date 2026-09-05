@@ -6,15 +6,12 @@ import { colors } from '../ui.js';
 import { VERSION } from '../version.js';
 
 export interface HelpConfig {
-  mode?: 'polling' | 'wait';
   timeout?: number;
   showIntro?: boolean;
 }
 
 export function cmdHelp(config?: HelpConfig): void {
-  const mode = config?.mode ?? 'wait';
   const timeout = config?.timeout ?? 180;
-  const isWaitMode = mode === 'wait';
 
   // Show intro highlight when running just `tmux-team` with no args
   if (config?.showIntro) {
@@ -25,21 +22,12 @@ ${colors.cyan('│')}  ${colors.dim('tmt is a shorthand alias for tmux-team')}  
 ${colors.cyan('└─────────────────────────────────────────────────────────────┘')}`);
   }
 
-  // Mode indicator with clear explanation
-  const modeInfo = isWaitMode
-    ? `${colors.yellow('CURRENT MODE')}: ${colors.green('wait')} (timeout: ${timeout}s) ${colors.green('✓ recommended')}
-  ${colors.dim('→ talk commands will BLOCK until agent responds or timeout')}
-  ${colors.dim('→ Response is returned directly, no need to use check command')}`
-    : `${colors.yellow('CURRENT MODE')}: ${colors.cyan('polling')}
-  ${colors.dim('→ talk commands send and return immediately')}
-  ${colors.dim('→ Use check command to read agent response')}
-  ${colors.dim('→')} ${colors.yellow('TIP')}: ${colors.dim('Use --wait or set mode to wait for better token utilization')}`;
-
   console.log(`
 ${colors.cyan('tmux-team')} v${VERSION} - AI agent collaboration in tmux
 ${colors.dim('Alias: tmt')}
 
-${modeInfo}
+Talk waits for a complete durable reply (timeout: ${timeout}s).
+Use --detach to return after sending; use result <request-id> to retrieve later.
 
 ${colors.yellow('USAGE')}
   tmt <command> [arguments]
@@ -84,19 +72,18 @@ ${colors.yellow('CALLER CONTEXT')}
 
 ${colors.yellow('TALK OPTIONS')}
   ${colors.green('--delay')} <seconds>           Wait before sending
-  ${colors.green('--wait')}                      Force wait mode (block until response)
-  ${colors.green('--timeout')} <seconds>         Max wait time (current: ${timeout}s)
-  ${colors.green('--lines')} <number>            Lines to capture (default: 100)
+  ${colors.green('--timeout')} <time>            Observer bound (current: ${timeout}s; positive, at most 24h)
+  ${colors.green('--detach')}                    Return request ID after sending; no explicit --timeout
   ${colors.green('--no-preamble')}               Skip agent preamble for this message
   ${colors.green('--debug')}                     Show debug output
 
 ${colors.yellow('REPLY / RESULT')}
   tmt reply <request-id> --receipt <receipt> (--file <path> | --stdin) [--json]
   tmt result <request-id> [--json]
-  Use exactly one input source and the receipt supplied by TMT. Do not invent a
-  receipt, select the latest request, or infer a current pane. In this release,
-  talk remains marker-based and does not generate receipts; TMT-39 owns receipt
-  generation and durable completion. There is no --detach behavior yet.
+  Use exactly one input source and the request ID/receipt from the talk instruction.
+  Do not invent a receipt, select the latest request, or infer a current pane.
+  A recipient must submit a final; markers, idle output and summaries do not complete talk.
+  Reply/result work without tmux on the same local database; check is diagnostic only.
   Bodies are exact valid UTF-8 up to 1 MiB; stdin is EOF-driven with a 5s
   deadline. Submission means result delivery, not task success. Summarize only
   after successful submission. Result unavailable (pending, unknown, expired)
@@ -109,17 +96,11 @@ ${colors.yellow('REPLY / RESULT')}
   Missing results do not cancel work. Surface failed submission without a
   success summary, and never resubmit after accepted delivery.
 
-${colors.yellow('EXAMPLES')}${
-    isWaitMode
-      ? `
-  ${colors.dim('# Wait mode: commands block until response')}
-  tmux-team talk codex "Review this PR"     ${colors.dim('← blocks, returns response')}
-  tmux-team talk %12 "Status update"       ${colors.dim('← waits for one pane')}`
-      : `
-  ${colors.dim('# Polling mode: send then check')}
-  tmux-team talk codex "Review this PR"     ${colors.dim('← sends immediately')}
-  tmux-team check codex                     ${colors.dim('← read response later')}`
-  }
+${colors.yellow('EXAMPLES')}
+  tmux-team talk codex "Review this PR" --timeout 300 --json
+  tmux-team talk %12 "Run the agreed tests" --detach --json
+  tmux-team result <request-id> --json
+  tmux-team check codex 200                ${colors.dim('← diagnostic snapshot only')}
   tmux-team list --json
   tmux-team list main:1.0
   tmux-team add 10.1 codex
@@ -132,10 +113,15 @@ ${colors.yellow('CONFIG')}
   Local:  ./tmux-team.json (settings override; other fields remain opaque)
   Global: ~/.config/tmux-team/config.json (settings)
 
-${colors.yellow('CHANGE MODE')}
-  tmux-team config set mode wait            ${colors.dim('Enable wait mode (local)')}
-  tmux-team config set mode polling         ${colors.dim('Enable polling mode (local)')}
+${colors.yellow('SETTINGS')}
   tmux-team config set preambleMode disabled ${colors.dim('Disable preambles (local)')}
   tmux-team config set preambleEvery 5      ${colors.dim('Inject preamble every 5 messages')}
+  --wait is retired; --lines is only for check, not talk.
+  Stored mode/maxCaptureLines settings are inert and preserved, not migrated.
+  config clear mode removes only the obsolete local mode key.
+  Timeout accepts seconds or ms/s suffixes and includes transport/Enter time,
+  after pre-send delay/preparation. It never cancels work or permits a resend.
+  Synchronous transport is not interrupted mid-operation by this observer bound.
+  Same-pane input serialization and exactly-once processing are not guaranteed.
 `);
 }

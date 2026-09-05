@@ -20,13 +20,11 @@ describe('createContext', () => {
       databaseFile: '/g/tmux-team.db',
     };
     const config: ResolvedConfig = {
-      mode: 'polling',
       preambleMode: 'always',
       defaults: {
         timeout: 180,
         pollInterval: 1,
         captureLines: 100,
-        maxCaptureLines: 2000,
         preambleEvery: 3,
         pasteEnterDelayMs: 500,
       },
@@ -79,13 +77,11 @@ describe('createContext', () => {
       databaseFile: '/g/tmux-team.db',
     };
     const config: ResolvedConfig = {
-      mode: 'polling',
       preambleMode: 'always',
       defaults: {
         timeout: 180,
         pollInterval: 1,
         captureLines: 100,
-        maxCaptureLines: 2000,
         preambleEvery: 3,
         pasteEnterDelayMs: 500,
       },
