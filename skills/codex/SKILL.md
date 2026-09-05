@@ -13,6 +13,14 @@ Active presence also requires matching live tmux binding metadata.
 
 ## Commands
 
+`name`, `this`, `whoami` and `unbind` require matching live `TMUX` and
+`TMUX_PANE` caller context. Missing, malformed or stale context returns
+`PANE_NOT_FOUND` (exit 3), not the default pane's identity. Implicit `role`
+access returns `IDENTITY_REQUIRED` (exit 1). Do not fabricate caller variables:
+outside tmux, use explicit `add <pane-target> <global-name>`, `talk <target>`,
+`check <target>`, or `role show|set|clear --identity <name>`. Explicit selection
+does not bind or authenticate the caller.
+
 ```bash
 # Send a message to a global identity or direct pane target
 tmt talk codex "your message"

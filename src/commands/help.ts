@@ -75,6 +75,11 @@ ${colors.yellow('ROLE USAGE')}
   tmt role clear [--identity <name>]
   Omit --identity only in a verified bound pane; explicit offline identities are supported.
 
+${colors.yellow('CALLER CONTEXT')}
+  name, this, whoami and unbind require matching live TMUX/TMUX_PANE context.
+  Missing or stale caller: PANE_NOT_FOUND (exit 3); implicit role: IDENTITY_REQUIRED (exit 1).
+  Outside tmux, use explicit add/talk/check targets or role --identity <name>.
+
 ${colors.yellow('TALK OPTIONS')}
   ${colors.green('--delay')} <seconds>           Wait before sending
   ${colors.green('--wait')}                      Force wait mode (block until response)

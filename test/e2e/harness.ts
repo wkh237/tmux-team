@@ -34,6 +34,13 @@ export interface CliRunOptions {
   pane?: string;
   /** Remove pane context and fail visibly if the CLI attempts to invoke tmux. */
   withoutTmux?: boolean;
+  /** Remove caller context while keeping tmux available for explicit targets. */
+  outsideTmux?: boolean;
+  /** Narrow caller-context overrides for invalid-evidence scenarios. */
+  caller?: {
+    tmux?: string | null;
+    pane?: string | null;
+  };
   /** Touch this file when the child has made its first tmux invocation. */
   progressFile?: string;
 }
@@ -212,7 +219,21 @@ exit ${'$'}status
     options: CliRunOptions = {}
   ): CliProcess<T> {
     if (!this.started) throw new Error('E2E fixture must be started before invoking the CLI.');
-    const env: NodeJS.ProcessEnv = { ...this.env, TMUX_PANE: options.pane ?? this.pane };
+    const env: NodeJS.ProcessEnv = { ...this.env };
+    if (!options.outsideTmux && !options.withoutTmux) {
+      const callerPane = options.pane ?? this.pane;
+      env.TMUX = `${this.socketPath},${this.serverPid},${this.paneSessionId(callerPane)}`;
+      env.TMUX_PANE = callerPane;
+      if (options.caller) {
+        if (options.caller.tmux === null) delete env.TMUX;
+        else if (options.caller.tmux !== undefined) env.TMUX = options.caller.tmux;
+        if (options.caller.pane === null) delete env.TMUX_PANE;
+        else if (options.caller.pane !== undefined) env.TMUX_PANE = options.caller.pane;
+      }
+    } else {
+      delete env.TMUX;
+      delete env.TMUX_PANE;
+    }
     if (options.withoutTmux) {
       delete env.TMUX;
       delete env.TMUX_PANE;
@@ -408,12 +429,22 @@ exit ${'$'}status
     ]).trim();
   }
 
+  paneSessionId(pane = this.pane): string {
+    return this.tmux(['display-message', '-p', '-t', pane, '#{session_id}'])
+      .trim()
+      .replace(/^\$/, '');
+  }
+
   paneMetadata(pane = this.pane): string {
     try {
       return this.tmux(['show-options', '-p', '-t', pane, '-v', '@tmux-team.agent']).trim();
     } catch {
       return '';
     }
+  }
+
+  paneTitle(pane = this.pane): string {
+    return this.tmux(['display-message', '-p', '-t', pane, '#{pane_title}']).trim();
   }
 
   events(): MockEvent[] {

@@ -2,9 +2,10 @@ import type { Context } from '../types.js';
 import { failIdentity, resolveCurrentPane } from './global-identity.js';
 
 export function cmdWhoami(ctx: Context): void {
+  const paneId = resolveCurrentPane(ctx);
+  if (!paneId) failIdentity(ctx, 'PANE_NOT_FOUND', 'Not running inside a resolvable tmux pane.');
+
   if (ctx.identityService) {
-    const paneId = resolveCurrentPane(ctx);
-    if (!paneId) failIdentity(ctx, 'PANE_NOT_FOUND', 'Not running inside a resolvable tmux pane.');
     const current = ctx.identityService.currentIdentity();
     if (ctx.flags.json) {
       ctx.ui.json(
@@ -19,9 +20,6 @@ export function cmdWhoami(ctx: Context): void {
     }
     return;
   }
-  const paneId = resolveCurrentPane(ctx);
-  if (!paneId) failIdentity(ctx, 'PANE_NOT_FOUND', 'Not running inside a resolvable tmux pane.');
-
   const identity = ctx.tmux.listGlobalIdentities().find((entry) => entry.paneId === paneId);
   if (ctx.flags.json) {
     ctx.ui.json(

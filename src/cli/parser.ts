@@ -163,6 +163,13 @@ function capabilityFor(invocation: ParsedInvocation): ParsedMetadata['capability
       // Keep context creation storage-only. Implicit current-pane resolution
       // obtains tmux lazily, preserving offline explicit identity behavior.
       return 'storage';
+    case 'name':
+    case 'this':
+    case 'whoami':
+    case 'unbind':
+      // These commands validate caller-pane evidence before opening identity
+      // storage or eager legacy config, so an absent caller cannot bootstrap state.
+      return 'storage';
     default:
       return 'tmux';
   }

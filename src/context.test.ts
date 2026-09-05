@@ -218,12 +218,10 @@ describe('createContext', () => {
     expect(exitSpy).toHaveBeenCalledWith(5);
   });
 
-  it('serves explicit offline roles and rejects missing caller context without constructing tmux', async () => {
+  it('serves explicit offline roles and rejects missing caller context', async () => {
     vi.resetModules();
     vi.stubEnv('TMUX_PANE', '');
-    const createTmux = vi.fn(() => {
-      throw new Error('unexpected tmux construction');
-    });
+    const createTmux = vi.fn(() => ({ getCurrentPaneId: vi.fn(() => null) }));
     vi.doMock('./tmux.js', () => ({ createTmux }));
     const identity = { id: 'id', name: 'Alice', canonicalName: 'alice' };
     const repository = {
@@ -243,14 +241,45 @@ describe('createContext', () => {
       identity,
       role: null,
     });
+    expect(createTmux).not.toHaveBeenCalled();
     expect(() => ctx.roleService!.show()).toThrowError(
       expect.objectContaining({ code: 'IDENTITY_REQUIRED' })
     );
-    expect(createTmux).not.toHaveBeenCalled();
+    expect(createTmux).toHaveBeenCalledOnce();
     expect(openIdentityRepository).toHaveBeenCalledOnce();
     ctx.dispose!();
     ctx.dispose!();
     expect(repository.close).toHaveBeenCalledOnce();
+  });
+
+  it('does not open storage for an implicit role without validated caller evidence', async () => {
+    vi.resetModules();
+    vi.stubEnv('TMUX', '/tmp/tmux.sock,321,0');
+    vi.stubEnv('TMUX_PANE', '%9');
+    const openIdentityRepository = vi.fn(() => {
+      throw new Error('storage must remain unopened');
+    });
+    const createIdentityService = vi.fn(() => {
+      throw new Error('identity service must remain unopened');
+    });
+    const createTmux = vi.fn(() => ({ getCurrentPaneId: vi.fn(() => null) }));
+    vi.doMock('./storage/identity-repository.js', () => ({ openIdentityRepository }));
+    vi.doMock('./identity-service.js', () => ({ createIdentityService }));
+    vi.doMock('./tmux.js', () => ({ createTmux }));
+    const { createContext } = await import('./context.js');
+    const ctx = createContext({
+      argv: [],
+      flags: { json: true, verbose: false },
+      capability: 'storage',
+    });
+
+    expect(() => ctx.roleService!.show()).toThrowError(
+      expect.objectContaining({ code: 'IDENTITY_REQUIRED' })
+    );
+    expect(openIdentityRepository).not.toHaveBeenCalled();
+    expect(createIdentityService).not.toHaveBeenCalled();
+    expect(createTmux).toHaveBeenCalledOnce();
+    ctx.dispose!();
   });
 
   it('shares one repository between services and closes it even if service cleanup fails', async () => {
@@ -268,7 +297,9 @@ describe('createContext', () => {
     };
     const createIdentityService = vi.fn(() => service);
     vi.doMock('./identity-service.js', () => ({ createIdentityService }));
-    vi.doMock('./tmux.js', () => ({ createTmux: vi.fn(() => ({})) }));
+    vi.doMock('./tmux.js', () => ({
+      createTmux: vi.fn(() => ({ getCurrentPaneId: vi.fn(() => '%1') })),
+    }));
     const { createContext } = await import('./context.js');
     const ctx = createContext({
       argv: [],

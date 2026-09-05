@@ -30,8 +30,29 @@ identity memory, or durable inbox. Adding a command does not imply those feature
   injected preambles. Explicit durable role access works without tmux; implicit
   access requires verified caller identity.
 
-These are invariants to protect. Known caller-context and delivery
+These are invariants to protect. Known delivery
 gaps below remain limitations, not guarantees supplied by this document.
+
+## Caller context
+
+The tmux adapter owns current-pane evidence: a strict `TMUX_PANE` ID and the
+socket/server PID in `TMUX` must agree with a bounded, read-only query of that
+explicit pane. Missing, malformed, stale or mismatched evidence yields no caller;
+there is no ambient/default-pane fallback. Environment evidence selects local
+context, not an authenticated principal, and is not a defense against deliberate
+environment spoofing.
+
+`name`, `this`, `whoami` and `unbind` reject missing caller context with
+`PANE_NOT_FOUND` (exit 3) before opening identity storage. Implicit role access
+uses the same caller policy and returns `IDENTITY_REQUIRED` (exit 1) without
+bootstrapping storage or reconciling unrelated bindings. Context keeps repository
+access lazy until a selected operation needs it. A valid unbound pane is still
+distinct from an absent caller.
+
+Explicit `add`, `talk` and `check` target resolution remains available outside
+tmux; explicit `role --identity` access remains storage-only. These selectors
+choose a target or data owner, not the caller's identity. No listener, non-tmux
+identity binding, memory or inbox is implied by this boundary.
 
 ## Binding publication and recovery
 
@@ -151,7 +172,6 @@ a gap is resolved; do not leave a permanent exception or label a proposal as shi
 
 | Gap                                                                                                                                                      | Owning issue                                                                                                                                                           |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Some current-pane commands can fall back to an ambient pane outside a caller session; role selection guards this separately.                             | [TMT-21](https://linear.app/tigerpig-dev/issue/TMT-21)                                                                                                                 |
 | Numeric/flag validation needs hardening.                                                                                                                 | [TMT-22](https://linear.app/tigerpig-dev/issue/TMT-22)                                                                                                                 |
 | Message adaptation/fallback and JSON wait/counter updates have safety/concurrency gaps.                                                                  | [TMT-24](https://linear.app/tigerpig-dev/issue/TMT-24), [TMT-25](https://linear.app/tigerpig-dev/issue/TMT-25)                                                         |
 | JSON/process error boundaries are inconsistent; preamble/config still consume workspace registries after command retirement.                             | [TMT-26](https://linear.app/tigerpig-dev/issue/TMT-26), [TMT-27](https://linear.app/tigerpig-dev/issue/TMT-27)                                                         |

@@ -136,6 +136,41 @@ describe('durable identity service', () => {
     service.close();
   });
 
+  it('does not touch identity storage when current pane evidence is missing', () => {
+    const test = fixture();
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    const transaction = vi.spyOn(repository, 'withImmediateTransaction');
+    const snapshot = vi.spyOn(test.tmux, 'getEndpointSnapshot');
+    test.tmux.getCurrentPaneId = () => null;
+    const service = createIdentityService({ ...test, repository });
+
+    expect(() => service.bindCurrent('no-caller')).toThrow(
+      'Not running inside a resolvable tmux pane.'
+    );
+    expect(service.currentIdentity()).toBeUndefined();
+    expect(service.unbindCurrent()).toBeUndefined();
+    expect(transaction).not.toHaveBeenCalled();
+    expect(snapshot).not.toHaveBeenCalled();
+    expect(repository.listIdentities()).toEqual([]);
+    expect(repository.findBindings()).toEqual([]);
+
+    service.close();
+    repository.close();
+  });
+
+  it('uses verified current-pane evidence without resolving an ambient target', () => {
+    const test = fixture();
+    const resolvePaneTarget = vi.spyOn(test.tmux, 'resolvePaneTarget');
+    const service = createIdentityService(test);
+
+    const identity = service.bindCurrent('direct-current');
+    expect(service.currentIdentity()).toMatchObject({ identity: { id: identity.id } });
+    expect(service.unbindCurrent()).toMatchObject({ id: identity.id });
+    expect(resolvePaneTarget).not.toHaveBeenCalled();
+
+    service.close();
+  });
+
   it('creates one durable identity and a verified transient binding', () => {
     const test = fixture();
     const service = createIdentityService(test);

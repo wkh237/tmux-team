@@ -18,6 +18,7 @@ const mockedExecSync = vi.mocked(execSync);
 const mockedExecFileSync = vi.mocked(execFileSync);
 
 const ENDPOINT_SEPARATOR = '__TMT_FIELD_4f1c__';
+const CALLER_PANE_SEPARATOR = '__TMT_CALLER_PANE_4f1c__';
 const VALID_SERVER_ID = '123e4567-e89b-42d3-a456-426614174000';
 
 function endpointRow(
@@ -50,6 +51,7 @@ describe('createTmux', () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
   });
 
   describe('send', () => {
@@ -503,41 +505,118 @@ describe('createTmux', () => {
   });
 
   describe('getCurrentPaneId', () => {
-    it('returns TMUX_PANE when set', () => {
-      const old = process.env.TMUX_PANE;
-      process.env.TMUX_PANE = '%9';
+    it('returns TMUX_PANE only when the caller socket, server, and pane agree', () => {
+      vi.stubEnv('TMUX', '/tmp/tmux,with,comma.sock,321,0');
+      vi.stubEnv('TMUX_PANE', '%9');
+      mockedExecFileSync.mockReturnValueOnce(
+        `%9${CALLER_PANE_SEPARATOR}/tmp/tmux,with,comma.sock${CALLER_PANE_SEPARATOR}321\n`
+      );
       const tmux = createTmux();
       expect(tmux.getCurrentPaneId()).toBe('%9');
-      process.env.TMUX_PANE = old;
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        [
+          'display-message',
+          '-p',
+          '-t',
+          '%9',
+          `#{pane_id}${CALLER_PANE_SEPARATOR}#{socket_path}${CALLER_PANE_SEPARATOR}#{pid}`,
+        ],
+        expect.objectContaining({ timeout: 1000, maxBuffer: 4096, killSignal: 'SIGKILL' })
+      );
     });
 
-    it('falls back to tmux display-message', () => {
-      const old = process.env.TMUX_PANE;
-      delete process.env.TMUX_PANE;
+    it('does not fall back to the ambient tmux server without caller evidence', () => {
+      vi.stubEnv('TMUX', '');
+      vi.stubEnv('TMUX_PANE', '');
       mockedExecSync.mockReturnValue('%7\n');
       const tmux = createTmux();
-      expect(tmux.getCurrentPaneId()).toBe('%7');
-      process.env.TMUX_PANE = old;
+      expect(tmux.getCurrentPaneId()).toBeNull();
+      expect(mockedExecFileSync).not.toHaveBeenCalled();
+      expect(mockedExecSync).not.toHaveBeenCalled();
     });
 
-    it('returns null on failure', () => {
-      const old = process.env.TMUX_PANE;
-      delete process.env.TMUX_PANE;
-      mockedExecSync.mockImplementationOnce(() => {
+    it.each([
+      {
+        label: 'missing TMUX context',
+        tmux: undefined,
+        pane: '%9',
+        output: undefined,
+        calls: 0,
+      },
+      {
+        label: 'malformed pane target',
+        tmux: '/tmp/tmux.sock,321,0',
+        pane: '0.0',
+        output: undefined,
+        calls: 0,
+      },
+      {
+        label: 'malformed TMUX context',
+        tmux: '/tmp/tmux.sock,321',
+        pane: '%9',
+        output: undefined,
+        calls: 0,
+      },
+      {
+        label: 'empty socket in TMUX context',
+        tmux: ',321,0',
+        pane: '%9',
+        output: undefined,
+        calls: 0,
+      },
+      {
+        label: 'stale pane',
+        tmux: '/tmp/tmux.sock,321,0',
+        pane: '%9',
+        output: `${CALLER_PANE_SEPARATOR}/tmp/tmux.sock${CALLER_PANE_SEPARATOR}321\n`,
+        calls: 1,
+      },
+      {
+        label: 'socket mismatch',
+        tmux: '/tmp/tmux.sock,321,0',
+        pane: '%9',
+        output: `%9${CALLER_PANE_SEPARATOR}/tmp/other.sock${CALLER_PANE_SEPARATOR}321\n`,
+        calls: 1,
+      },
+      {
+        label: 'server mismatch',
+        tmux: '/tmp/tmux.sock,321,0',
+        pane: '%9',
+        output: `%9${CALLER_PANE_SEPARATOR}/tmp/tmux.sock${CALLER_PANE_SEPARATOR}999\n`,
+        calls: 1,
+      },
+      {
+        label: 'extra fields',
+        tmux: '/tmp/tmux.sock,321,0',
+        pane: '%9',
+        output: `%9${CALLER_PANE_SEPARATOR}/tmp/tmux.sock${CALLER_PANE_SEPARATOR}321${CALLER_PANE_SEPARATOR}extra\n`,
+        calls: 1,
+      },
+      {
+        label: 'extra lines',
+        tmux: '/tmp/tmux.sock,321,0',
+        pane: '%9',
+        output: `%9${CALLER_PANE_SEPARATOR}/tmp/tmux.sock${CALLER_PANE_SEPARATOR}321\nextra\n`,
+        calls: 1,
+      },
+    ])('rejects $label caller evidence', ({ tmux: tmuxValue, pane, output, calls }) => {
+      vi.stubEnv('TMUX', tmuxValue ?? '');
+      vi.stubEnv('TMUX_PANE', pane);
+      if (output !== undefined) mockedExecFileSync.mockReturnValueOnce(output);
+      const tmux = createTmux();
+      expect(tmux.getCurrentPaneId()).toBeNull();
+      expect(mockedExecFileSync).toHaveBeenCalledTimes(calls);
+    });
+
+    it('returns null when the caller pane query fails', () => {
+      vi.stubEnv('TMUX', '/tmp/tmux.sock,321,0');
+      vi.stubEnv('TMUX_PANE', '%9');
+      mockedExecFileSync.mockImplementationOnce(() => {
         throw new Error('fail');
       });
       const tmux = createTmux();
       expect(tmux.getCurrentPaneId()).toBeNull();
-      process.env.TMUX_PANE = old;
-    });
-
-    it('returns null when tmux output is empty', () => {
-      const old = process.env.TMUX_PANE;
-      delete process.env.TMUX_PANE;
-      mockedExecSync.mockReturnValue('   \n');
-      const tmux = createTmux();
-      expect(tmux.getCurrentPaneId()).toBeNull();
-      process.env.TMUX_PANE = old;
     });
   });
 

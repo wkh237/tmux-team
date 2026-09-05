@@ -74,6 +74,33 @@ describe('global identity commands', () => {
     expect(ctx.ui.success).toHaveBeenCalledWith("Bound 'Backend' to pane %1");
   });
 
+  it('uses the verified current-pane service path without resolving a target again', () => {
+    const ctx = context();
+    const identityService: NonNullable<Context['identityService']> = {
+      bindCurrent: vi.fn(() => ({
+        id: 'backend-id',
+        name: 'Backend',
+        canonicalName: 'backend',
+        createdAt: 'created',
+        updatedAt: 'updated',
+      })),
+      bindPane: vi.fn(),
+      unbindCurrent: vi.fn(),
+      currentIdentity: vi.fn(),
+      activeIdentities: vi.fn(() => []),
+      resolveActive: vi.fn(),
+      reconcile: vi.fn(),
+      close: vi.fn(),
+    };
+    ctx.identityService = identityService;
+
+    cmdName(ctx, 'Backend');
+
+    expect(identityService.bindCurrent).toHaveBeenCalledWith('Backend');
+    expect(identityService.bindPane).not.toHaveBeenCalled();
+    expect(ctx.tmux.resolvePaneTarget).not.toHaveBeenCalled();
+  });
+
   it('uses the exact same implementation for this', () => {
     const ctx = context();
     cmdThis(ctx, 'backend');

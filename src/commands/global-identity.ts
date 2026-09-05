@@ -6,7 +6,7 @@ import { IdentityServiceError } from '../identity-service.js';
 
 export function resolveCurrentPane(ctx: Context): string | null {
   const current = ctx.tmux.getCurrentPaneId();
-  return current ? ctx.tmux.resolvePaneTarget(current) : null;
+  return current;
 }
 
 export function resolvePane(ctx: Context, target: string): string | null {
@@ -33,10 +33,17 @@ export function failIdentity(
   return ctx.exit(exitCode);
 }
 
-export function bindIdentity(ctx: Context, paneId: string, name: string): void {
+export function bindIdentity(
+  ctx: Context,
+  paneId: string,
+  name: string,
+  options: { readonly current?: boolean } = {}
+): void {
   if (ctx.identityService) {
     try {
-      const identity = ctx.identityService.bindPane(paneId, name);
+      const identity = options.current
+        ? ctx.identityService.bindCurrent(name)
+        : ctx.identityService.bindPane(paneId, name);
       try {
         ctx.tmux.setPaneTitle(paneId, identity.name);
       } catch {
