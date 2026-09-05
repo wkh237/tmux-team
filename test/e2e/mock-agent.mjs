@@ -6,6 +6,7 @@ import readline from 'node:readline';
 const mode = process.env.TMT_MOCK_MODE ?? 'respond';
 const delayMs = Number(process.env.TMT_MOCK_DELAY_MS ?? 0);
 const logPath = process.env.TMT_MOCK_LOG;
+const virtualizedLineCount = 200;
 
 function appendEvent(event) {
   if (!logPath) return;
@@ -13,6 +14,33 @@ function appendEvent(event) {
 }
 
 function respond(message, nonce) {
+  if (mode === 'virtualized') {
+    const responseLines = [
+      `VIRTUALIZED-BEGIN:${message}`,
+      ...Array.from(
+        { length: virtualizedLineCount },
+        (_, index) => `VIRTUALIZED-LINE-${String(index + 1).padStart(3, '0')}:${message}`
+      ),
+      `VIRTUALIZED-END:${message}`,
+    ];
+    const response = responseLines.join('\n');
+    const visibleLines = responseLines.slice(-3).join('\n');
+    // The virtualized response replaces the terminal surface before rendering its
+    // short tail. The full plain-text body remains available only in the event log.
+    const output = `\u001b[2J\u001b[3J\u001b[H${visibleLines}\nRESPONSE-END-${nonce}\n`;
+    process.stdout.write(output, () =>
+      appendEvent({
+        event: 'response',
+        message,
+        nonce,
+        mode,
+        pid: process.pid,
+        response,
+        responseLength: response.length,
+      })
+    );
+    return;
+  }
   const output = `mock-agent response: ${message || '(empty)'}\nRESPONSE-END-${nonce}\n`;
   process.stdout.write(output, () =>
     appendEvent({ event: 'response', message, nonce, mode, pid: process.pid })

@@ -33,6 +33,17 @@ identity memory, or durable inbox. Adding a command does not imply those feature
 These are invariants to protect. Known delivery
 gaps below remain limitations, not guarantees supplied by this document.
 
+## Request/response research boundary
+
+Current `talk --wait` completion and body extraction rely on terminal capture;
+a matching end marker is not proof of a complete, isolated response body.
+`check` is a diagnostic pane snapshot, not correlated response retrieval.
+The [request/response decision document](REQUEST-RESPONSE.md) records TMT-35's
+source evidence, capability limits and staged proposal. Its structured service
+is not shipped: current marker behavior, JSON bookkeeping and CLI grammar remain
+unchanged until their bounded implementation issues land. Keep this distinction
+and the document's verification status current as those slices are delivered.
+
 ## Caller context
 
 The tmux adapter owns current-pane evidence: a strict `TMUX_PANE` ID and the
