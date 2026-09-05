@@ -12,6 +12,8 @@ _tmux-team() {
   commands=(
     'talk:Send message to an agent'
     'check:Capture output from agent pane'
+    'reply:Submit a complete result with a receipt'
+    'result:Retrieve a retained result'
     'list:List active identities or pane status'
     'add:Add a new agent'
     'name:Bind the current pane identity'
@@ -43,6 +45,12 @@ _tmux-team() {
           _describe -t agents 'agents' agents
         fi
         ;;
+      reply)
+        compadd -- "--receipt" "--file" "--stdin" "--json"
+        ;;
+      result)
+        compadd -- "--json"
+        ;;
       completion)
         compadd "zsh" "bash"
         ;;
@@ -57,6 +65,12 @@ _tmux-team() {
     case \${words[2]} in
       talk)
         compadd -- "--delay" "--wait" "--timeout"
+        ;;
+      reply)
+        compadd -- "--receipt" "--file" "--stdin" "--json"
+        ;;
+      result)
+        compadd -- "--json"
         ;;
       role)
         compadd -- "--identity"
@@ -74,7 +88,7 @@ const bashCompletion = `_tmux_team() {
   cur="\${COMP_WORDS[COMP_CWORD]}"
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
-  commands="talk check list add init completion help name this whoami unbind install upgrade config preamble role learn"
+  commands="talk check reply result list add init completion help name this whoami unbind install upgrade config preamble role learn"
 
   if [[ \${COMP_CWORD} -eq 1 ]]; then
     COMPREPLY=( $(compgen -W "\${commands}" -- \${cur}) )
@@ -83,6 +97,12 @@ const bashCompletion = `_tmux_team() {
       talk|check)
         agents=$(tmux-team list --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{try{const j=JSON.parse(s); console.log((j.identities||[]).map(a=>a.name).join(" "))}catch{}})')
         COMPREPLY=( $(compgen -W "\${agents}" -- \${cur}) )
+        ;;
+      reply)
+        COMPREPLY=( $(compgen -W "--receipt --file --stdin --json" -- \${cur}) )
+        ;;
+      result)
+        COMPREPLY=( $(compgen -W "--json" -- \${cur}) )
         ;;
       completion)
         COMPREPLY=( $(compgen -W "zsh bash" -- \${cur}) )
@@ -98,6 +118,12 @@ const bashCompletion = `_tmux_team() {
     case "\${COMP_WORDS[1]}" in
       talk)
         COMPREPLY=( $(compgen -W "--delay --wait --timeout" -- \${cur}) )
+        ;;
+      reply)
+        COMPREPLY=( $(compgen -W "--receipt --file --stdin --json" -- \${cur}) )
+        ;;
+      result)
+        COMPREPLY=( $(compgen -W "--json" -- \${cur}) )
         ;;
       role)
         if [[ "\${COMP_WORDS[2]}" == "set" ]]; then

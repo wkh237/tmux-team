@@ -47,6 +47,8 @@ ${colors.yellow('USAGE')}
 ${colors.yellow('COMMANDS')}
   ${colors.green('talk')} <target> <message>     Send message to an identity or pane
   ${colors.green('check')} <target> [lines]      Capture output from agent's pane
+  ${colors.green('reply')} <request-id>         Submit a complete result with a receipt
+  ${colors.green('result')} <request-id>        Retrieve a retained result
   ${colors.green('list')} [target]                List active identities or pane status
   ${colors.green('add')} <pane-target> <global-name> Bind an explicit pane identity
   ${colors.green('this')} <global-name>       Bind the current pane (alias of name)
@@ -87,6 +89,25 @@ ${colors.yellow('TALK OPTIONS')}
   ${colors.green('--lines')} <number>            Lines to capture (default: 100)
   ${colors.green('--no-preamble')}               Skip agent preamble for this message
   ${colors.green('--debug')}                     Show debug output
+
+${colors.yellow('REPLY / RESULT')}
+  tmt reply <request-id> --receipt <receipt> (--file <path> | --stdin) [--json]
+  tmt result <request-id> [--json]
+  Use exactly one input source and the receipt supplied by TMT. Do not invent a
+  receipt, select the latest request, or infer a current pane. In this release,
+  talk remains marker-based and does not generate receipts; TMT-39 owns receipt
+  generation and durable completion. There is no --detach behavior yet.
+  Bodies are exact valid UTF-8 up to 1 MiB; stdin is EOF-driven with a 5s
+  deadline. Submission means result delivery, not task success. Summarize only
+  after successful submission. Result unavailable (pending, unknown, expired)
+  uses RESPONSE_NOT_AVAILABLE (exit 3); input errors exit 1, input timeout
+  uses RESPONSE_INPUT_TIMEOUT (exit 4), and conflicts exit 5. Identical retries
+  keep the original submittedAtMs; conflicting bodies cannot replace results.
+  JSON unavailable is {status:"unavailable",requestId,error:{code:"RESPONSE_NOT_AVAILABLE",message}}.
+  Receipts are local correlation, not remote authentication. Bodies are
+  retained seven days; retry only with the same receipt/body while retained.
+  Missing results do not cancel work. Surface failed submission without a
+  success summary, and never resubmit after accepted delivery.
 
 ${colors.yellow('EXAMPLES')}${
     isWaitMode

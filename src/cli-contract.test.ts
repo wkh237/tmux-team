@@ -1,206 +1,26 @@
-import { spawn } from 'node:child_process';
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
-  readdirSync,
-  rmSync,
+  realpathSync,
   writeFileSync,
 } from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
+import { getSkillConfigs } from './commands/install.js';
 import { CURRENT_MIGRATIONS } from './storage/migrations.js';
-import { openStorageWithMigrations } from './storage/sqlite-adapter.js';
-
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const binPath = path.join(repoRoot, 'bin', 'tmux-team');
-const maxSubprocessOutputBytes = 1024 * 1024;
-
-interface Sandbox {
-  readonly root: string;
-  readonly cwd: string;
-  readonly home: string;
-  readonly xdgConfigHome: string;
-  readonly globalDir: string;
-  readonly globalConfig: string;
-  readonly database: string;
-  readonly localConfig: string;
-  readonly env: NodeJS.ProcessEnv;
-}
-
-interface CliResult {
-  readonly status: number | null;
-  readonly signal: NodeJS.Signals | null;
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
-type JsonDocument = Record<string, unknown>;
-
-function createSandbox(): Sandbox {
-  const root = mkdtempSync(path.join(os.tmpdir(), 'tmux-team-cli-contract-'));
-  try {
-    const cwd = path.join(root, 'cwd');
-    const home = path.join(root, 'home');
-    const xdgConfigHome = path.join(root, 'xdg');
-    mkdirSync(cwd);
-    mkdirSync(home);
-
-    const globalDir = path.join(xdgConfigHome, 'tmux-team');
-    return {
-      root,
-      cwd,
-      home,
-      xdgConfigHome,
-      globalDir,
-      globalConfig: path.join(globalDir, 'config.json'),
-      database: path.join(globalDir, 'tmux-team.db'),
-      localConfig: path.join(cwd, 'tmux-team.json'),
-      env: {
-        ...process.env,
-        HOME: home,
-        XDG_CONFIG_HOME: xdgConfigHome,
-        // The contract suite removes inherited tmux/config overrides before each
-        // child starts, so it never depends on the developer's session.
-      },
-    };
-  } catch (error) {
-    rmSync(root, { recursive: true, force: true });
-    throw error;
-  }
-}
-
-function runCli(sandbox: Sandbox, args: readonly string[]): Promise<CliResult> {
-  for (const key of ['TMUX', 'TMUX_PANE', 'TMUX_TEAM_HOME']) delete sandbox.env[key];
-  return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [binPath, ...args], {
-      cwd: sandbox.cwd,
-      env: sandbox.env,
-      detached: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    });
-    // Decode at the stream boundary so a multibyte UTF-8 character split
-    // across OS chunks cannot be corrupted by per-buffer toString() calls.
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    let stdout = '';
-    let stderr = '';
-    let timedOut = false;
-    let outputLimitExceeded = false;
-    const killProcessGroup = (): void => {
-      if (child.pid === undefined) return;
-      try {
-        process.kill(-child.pid, 'SIGKILL');
-      } catch {
-        child.kill('SIGKILL');
-      }
-    };
-    const timer = setTimeout(() => {
-      timedOut = true;
-      // The wrapper launches the TypeScript child; kill the process group so a
-      // timeout cannot leave that descendant running after the test exits.
-      killProcessGroup();
-    }, 5_000);
-    const readOutput =
-      (stream: 'stdout' | 'stderr') =>
-      (chunk: Buffer | string): void => {
-        const text = chunk.toString();
-        const nextBytes =
-          Buffer.byteLength(text) + Buffer.byteLength(stdout) + Buffer.byteLength(stderr);
-        if (nextBytes > maxSubprocessOutputBytes) {
-          outputLimitExceeded = true;
-          killProcessGroup();
-          return;
-        }
-        if (stream === 'stdout') stdout += text;
-        else stderr += text;
-      };
-    child.stdout.on('data', readOutput('stdout'));
-    child.stderr.on('data', readOutput('stderr'));
-    child.on('error', (error) => {
-      clearTimeout(timer);
-      if (outputLimitExceeded) {
-        reject(
-          new Error(`CLI subprocess exceeded the ${maxSubprocessOutputBytes}-byte output bound.`)
-        );
-      } else reject(error);
-    });
-    child.on('close', (status, signal) => {
-      clearTimeout(timer);
-      if (outputLimitExceeded) {
-        reject(
-          new Error(`CLI subprocess exceeded the ${maxSubprocessOutputBytes}-byte output bound.`)
-        );
-      } else if (timedOut) {
-        reject(new Error('CLI subprocess exceeded the 5 second test bound.'));
-        return;
-      }
-      resolve({ status, signal, stdout, stderr });
-    });
-  });
-}
-
-function parseWholeStdout(result: CliResult): JsonDocument {
-  expect(result.signal).toBeNull();
-  expect(result.stderr).toBe('');
-  expect(result.stdout.trim()).not.toBe('');
-  // Parse the complete stream. Parsing only the final line would allow human
-  // output or a second JSON document to leak into JSON mode unnoticed.
-  const document = JSON.parse(result.stdout) as unknown;
-  expect(document).toBeTypeOf('object');
-  expect(document).not.toBeNull();
-  return document as JsonDocument;
-}
-
-function expectError(result: CliResult, code: string, message?: string): JsonDocument {
-  const document = parseWholeStdout(result);
-  expect(document.error).toMatchObject({ code });
-  expect(document.error).toHaveProperty('message', expect.any(String));
-  expect((document.error as { message: string }).message.length).toBeGreaterThan(0);
-  if (message !== undefined) expect((document.error as { message: string }).message).toBe(message);
-  return document;
-}
-
-function expectJsonSuccess(result: CliResult, value: JsonDocument): void {
-  expect(result.status).toBe(0);
-  expect(parseWholeStdout(result)).toEqual(value);
-}
-
-function fileSnapshot(root: string): Record<string, string> {
-  const snapshot: Record<string, string> = {};
-  const visit = (current: string): void => {
-    for (const entry of readdirSync(current, { withFileTypes: true })) {
-      const entryPath = path.join(current, entry.name);
-      if (entry.isDirectory()) visit(entryPath);
-      else snapshot[path.relative(root, entryPath)] = readFileSync(entryPath, 'utf8');
-    }
-  };
-  visit(root);
-  return snapshot;
-}
-
-async function withSandbox<T>(callback: (sandbox: Sandbox) => T | Promise<T>): Promise<T> {
-  const sandbox = createSandbox();
-  try {
-    return await callback(sandbox);
-  } finally {
-    rmSync(sandbox.root, { recursive: true, force: true });
-  }
-}
-
-function initializeDatabase(sandbox: Sandbox): void {
-  let storage: ReturnType<typeof openStorageWithMigrations> | undefined;
-  try {
-    storage = openStorageWithMigrations(sandbox.database, CURRENT_MIGRATIONS);
-  } finally {
-    storage?.close();
-  }
-}
+import {
+  expectError,
+  expectJsonSuccess,
+  fileSnapshot,
+  initializeDatabase,
+  parseWholeStdout,
+  runCli,
+  withSandbox,
+} from './test-support/cli-process.js';
+import type { Sandbox } from './test-support/cli-process.js';
 
 function readMigrationHistory(sandbox: Sandbox): Array<{ version: number; name: string }> {
   const database = new Database(sandbox.database, { readonly: true });
@@ -214,6 +34,32 @@ function readMigrationHistory(sandbox: Sandbox): Array<{ version: number; name: 
 }
 
 describe('real CLI process contract', () => {
+  it(
+    'installs all skill integrations into isolated HOME with shipped source bytes',
+    { timeout: 10_000 },
+    () =>
+      withSandbox(async (sandbox) => {
+        const result = await runCli(sandbox, ['install', 'all', '--json']);
+        expect(result.status).toBe(0);
+        const document = parseWholeStdout(result) as {
+          installed: Array<{ agent: string; target: string }>;
+        };
+        expect(document.installed.map((item) => item.agent)).toEqual(['claude', 'codex', 'gemini']);
+
+        const configs = getSkillConfigs();
+        const claudeTarget = path.join(sandbox.home, '.claude', 'commands', 'team.md');
+        const universalTarget = path.join(sandbox.home, '.agents', 'skills', 'tmux-team');
+        expect(lstatSync(claudeTarget).isSymbolicLink()).toBe(true);
+        expect(lstatSync(universalTarget).isSymbolicLink()).toBe(true);
+        expect(realpathSync(claudeTarget)).toBe(realpathSync(configs.claude.source));
+        expect(realpathSync(universalTarget)).toBe(realpathSync(configs.codex.source));
+        expect(readFileSync(claudeTarget)).toEqual(readFileSync(configs.claude.source));
+        expect(readFileSync(path.join(universalTarget, 'SKILL.md'))).toEqual(
+          readFileSync(path.join(configs.codex.source, 'SKILL.md'))
+        );
+      })
+  );
+
   it(
     'reports JSON parse errors regardless of --json position without creating context state',
     { timeout: 10_000 },

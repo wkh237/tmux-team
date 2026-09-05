@@ -1,5 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { CliParseError, parseArgs } from './parser.js';
+import { encodeReplyReceipt } from '../reply-receipt.js';
+
+const receipt = encodeReplyReceipt({
+  version: 1,
+  requestId: 'request-1',
+  attemptId: 'attempt-1',
+  endpoint: {
+    serverId: 'server-1',
+    socketPath: '/tmp/tmt.sock',
+    serverPid: 1234,
+    serverStartTime: 'start',
+    paneId: '%1',
+    panePid: 5678,
+  },
+});
 
 describe('declarative CLI parser', () => {
   it('parses global options independently of command position', () => {
@@ -251,5 +266,49 @@ describe('declarative CLI parser', () => {
       CliParseError
     );
     expect(() => parseArgs(['role', 'set', 'a', 'b'])).toThrow(CliParseError);
+  });
+
+  it('parses storage-only reply/result commands with explicit input and no tmux capability', () => {
+    expect(
+      parseArgs(['reply', 'request-1', '--receipt', receipt, '--file', '/tmp/reply.txt', '--json'])
+    ).toEqual(
+      expect.objectContaining({
+        invocation: {
+          kind: 'reply',
+          requestId: 'request-1',
+          receipt,
+          file: '/tmp/reply.txt',
+        },
+        metadata: expect.objectContaining({ capability: 'storage', commandPath: ['reply'] }),
+      })
+    );
+    expect(parseArgs(['reply', 'request-1', '--receipt', receipt, '--stdin']).invocation).toEqual({
+      kind: 'reply',
+      requestId: 'request-1',
+      receipt,
+      stdin: true,
+    });
+    expect(parseArgs(['result', 'request-1', '--json'])).toMatchObject({
+      invocation: { kind: 'result', requestId: 'request-1' },
+      metadata: expect.objectContaining({ capability: 'storage', commandPath: ['result'] }),
+    });
+  });
+
+  it('rejects reply input ambiguity, missing receipt, invalid IDs, and result input flags', () => {
+    const invalid = [
+      ['reply', 'request-1', '--receipt', receipt],
+      ['reply', 'request-1', '--receipt', receipt, '--file', '/tmp/reply', '--stdin'],
+      ['reply', 'request-1', '--receipt', receipt, '--wait', '--stdin'],
+      ['reply', 'request-1', '--receipt', receipt, '--team', 'legacy', '--stdin'],
+      ['--wait', 'reply', 'request-1', '--receipt', receipt, '--stdin'],
+      ['reply', 'request-1', '--receipt', receipt, '--stdin', '--no-preamble'],
+      ['--timeout', '5s', 'result', 'request-1'],
+      ['result', 'request-1', '--no-preamble'],
+      ['result', 'request-1', '--file', '/tmp/reply'],
+      ['result', 'request-1', '--stdin'],
+      ['reply', '', '--receipt', receipt, '--stdin'],
+      ['reply', 'x'.repeat(257), '--receipt', receipt, '--stdin'],
+    ];
+    for (const args of invalid) expect(() => parseArgs(args)).toThrow(CliParseError);
   });
 });

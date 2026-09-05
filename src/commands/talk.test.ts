@@ -1981,7 +1981,10 @@ describe('cmdTalk - request state lifecycle', () => {
     await cmdTalk(secondCtx, 'claude', 'Second');
 
     expect(secondTmux.sends[0]?.message).toContain('[SYSTEM: Be brief]');
-    expect(requestService.listAttempts()[1]).toMatchObject({
+    expect(beginSend).toHaveBeenCalledTimes(2);
+    // Attempts created in the same millisecond sort by UUID, not invocation order.
+    const secondAttemptId = beginSend.mock.calls[1]![0];
+    expect(requestService.getAttempt(secondAttemptId)).toMatchObject({
       status: 'sent',
       injectPreamble: true,
       cadenceReserved: true,

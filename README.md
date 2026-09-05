@@ -41,6 +41,8 @@ once-daily cached update check, while local drift checks work without network.
 - `tmt role show|set|clear` manages an optional durable profile for an identity,
   including identities that are currently offline.
 - Multiline messages preserve real line breaks when delivered.
+- `tmt reply` submits a complete result with a supplied receipt, and `tmt result`
+  retrieves the exact retained body without tmux capture.
 - Skills can be installed and refreshed with `tmt install` and `tmt upgrade`.
 
 ## Quick Start
@@ -114,23 +116,25 @@ tmux display-message -p '#{pane_id}'
 
 ## Commands
 
-| Command                                      | Description                                                 |
-| -------------------------------------------- | ----------------------------------------------------------- |
-| `install [claude\|codex\|gemini\|all]`       | Install or repair agent integrations                        |
-| `upgrade`                                    | Upgrade tmux-team; managed skill links update automatically |
-| `name <global-name>`                         | Bind the current pane to a global identity                  |
-| `this <global-name>`                         | Exact supported alias for `name`                            |
-| `add <pane-target> <global-name>`            | Bind an explicit pane to a global identity                  |
-| `whoami`                                     | Show the current pane's global identity, if any             |
-| `unbind`                                     | Remove the current pane's global identity                   |
-| `role show [--identity <name>]`              | Read an identity's optional role profile                    |
-| `role set <profile> [--identity <name>]`     | Replace an identity's role profile                          |
-| `role set --file <path> [--identity <name>]` | Replace a profile from a UTF-8 file                         |
-| `role clear [--identity <name>]`             | Remove only the role profile                                |
-| `talk <target> "msg"`                        | Send a message to a global name or pane target              |
-| `check <target> [lines]`                     | Read output from a global name or pane target               |
-| `list [target]`                              | List active identities, or one target's pane status         |
-| `learn`                                      | Show the educational guide                                  |
+| Command                                                           | Description                                                 |
+| ----------------------------------------------------------------- | ----------------------------------------------------------- |
+| `install [claude\|codex\|gemini\|all]`                            | Install or repair agent integrations                        |
+| `upgrade`                                                         | Upgrade tmux-team; managed skill links update automatically |
+| `name <global-name>`                                              | Bind the current pane to a global identity                  |
+| `this <global-name>`                                              | Exact supported alias for `name`                            |
+| `add <pane-target> <global-name>`                                 | Bind an explicit pane to a global identity                  |
+| `whoami`                                                          | Show the current pane's global identity, if any             |
+| `unbind`                                                          | Remove the current pane's global identity                   |
+| `role show [--identity <name>]`                                   | Read an identity's optional role profile                    |
+| `role set <profile> [--identity <name>]`                          | Replace an identity's role profile                          |
+| `role set --file <path> [--identity <name>]`                      | Replace a profile from a UTF-8 file                         |
+| `role clear [--identity <name>]`                                  | Remove only the role profile                                |
+| `talk <target> "msg"`                                             | Send a message to a global name or pane target              |
+| `check <target> [lines]`                                          | Read output from a global name or pane target               |
+| `reply <request-id> --receipt <receipt> (--file <path>\|--stdin)` | Submit a complete result                                    |
+| `result <request-id>`                                             | Retrieve a retained result or report it unavailable         |
+| `list [target]`                                                   | List active identities, or one target's pane status         |
+| `learn`                                                           | Show the educational guide                                  |
 
 `list` also has the `ls` alias. With no target it shows all active global
 identities. With a target it resolves a global name or direct pane target and
@@ -142,6 +146,51 @@ shows that pane's status. `talk` and `check` use the same target resolution.
 - `--lines <number>` - Lines to capture from a response (default: 100)
 - `--wait` - Wait for a response before returning
 - `--delay <seconds>` - Delay before sending
+
+### Durable replies and results
+
+TMT-38 adds storage-only result adapters that work without tmux and can accept a
+late reply after a pane closes:
+
+```bash
+tmt reply <request-id> --receipt <receipt> --file response.md
+tmt reply <request-id> --receipt <receipt> --stdin < response.md
+tmt result <request-id>
+tmt result <request-id> --json
+```
+
+Use exactly one input source. The receipt must be supplied by TMT; do not
+manufacture one, look up the latest request, or infer a current pane. In this
+slice, `talk` still uses marker-based terminal capture and does not generate
+receipts; receipt generation and durable completion belong to TMT-39. There is
+no `--detach` or default durable-wait behavior yet.
+
+Reply input preserves the complete valid UTF-8 body, including empty or
+whitespace text, BOM, NUL, CR/LF, Unicode, and marker-like text, up to 1 MiB.
+File input must be a regular UTF-8 file; stdin is EOF-driven and bounded by a
+five-second input deadline. A successful reply means the result was delivered,
+not that the requested task succeeded. Agents should show a brief truthful
+summary only after a successful submission; the summary is not a completion
+signal.
+
+Retrying the identical body for the same request and attempt is idempotent and
+keeps the original `submittedAtMs`. A different body is a conflict; the
+stored response and timestamp remain unchanged.
+
+The receipt is local correlation, not remote authentication. Accepted bodies
+are retained for seven days from submission; identical retry is safe only
+while retained with the same receipt and body, not indefinitely. A missing
+result does not cancel the work. Surface failed submission without a success
+summary, and do not resubmit if final summarization fails after acceptance.
+
+With `--json`, reply success is `{status:"submitted",requestId,bodyBytes,submittedAtMs}`;
+result success is `{status:"completed",requestId,response,bodyBytes,submittedAtMs}`.
+Unavailable JSON is
+`{status:"unavailable",requestId,error:{code:"RESPONSE_NOT_AVAILABLE",message}}`.
+If no retained body is available—pending, unknown, or expired—result returns
+`RESPONSE_NOT_AVAILABLE` (exit 3). Input errors are typed and exit 1,
+`RESPONSE_INPUT_TIMEOUT` exits 4, and service conflicts use exit 5. Do not
+expect receipts, endpoints, or raw bodies in a reply acknowledgement.
 
 Run `tmt help` for all commands and options.
 

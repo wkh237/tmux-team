@@ -103,6 +103,12 @@ submission/retention boundaries, plus independent processes for writer races.
 They do not imply the live CLI already consumes durable replies; TMT-37 owns that
 integration and its exact-body Docker/mock-agent acceptance scenarios.
 
+Reply adapter verification additionally exercises the real CLI in an isolated
+home and SQLite database, including file/stdin decoding, exact result text,
+idempotent retry across invocations and rejection without partial finalization.
+Input tests cover EOF, byte/deadline limits and listener/descriptor cleanup.
+These storage-only checks do not substitute for TMT-39's live tmux cutover tests.
+
 `docs:format:check` covers the architecture, policy, conventions, development
 guide, repository skills and PR template. It uses `.gitignore` as its ignore
 file because the legacy `.prettierignore` excludes Markdown. For other changed
