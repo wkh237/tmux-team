@@ -1,402 +1,220 @@
 // ─────────────────────────────────────────────────────────────
-// Preamble Command Tests
+// Preamble command tests - durable service boundary and output contract
 // ─────────────────────────────────────────────────────────────
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
-import type { Context, Paths, ResolvedConfig, Flags, UI, Tmux } from '../types.js';
+import { describe, it, expect, vi } from 'vitest';
+import type { Context } from '../types.js';
+import type { PreambleService } from '../preamble-service.js';
+import type { StoredPreambleResult } from '../domain/preamble.js';
+import type { DurableIdentity } from '../domain/identity.js';
+import { IdentitySelectionError } from '../identity-context.js';
+import { PreambleContentError } from '../domain/preamble.js';
+import { ExitCodes } from '../exits.js';
 import { cmdPreamble, type PreambleRequest } from './preamble.js';
 
-const preambleRequest = (
-  operation: PreambleRequest['operation'],
-  values: Omit<PreambleRequest, 'kind' | 'operation'> = {}
-): PreambleRequest => ({ kind: 'preamble', operation, ...values });
+const identity: DurableIdentity = {
+  id: 'identity-alice',
+  name: 'Alice',
+  canonicalName: 'alice',
+  createdAt: 'now',
+  updatedAt: 'now',
+};
 
-// ─────────────────────────────────────────────────────────────
-// Test utilities
-// ─────────────────────────────────────────────────────────────
+function result(content: string | null = null) {
+  return {
+    identity,
+    preamble: content === null ? null : { content, updatedAt: 'now' },
+  };
+}
 
-function createMockUI(): UI & {
-  errors: string[];
-  warnings: string[];
-  infos: string[];
-  jsonOutput: unknown[];
-} {
-  const mock = {
-    errors: [] as string[],
-    warnings: [] as string[],
-    infos: [] as string[],
-    jsonOutput: [] as unknown[],
-    info: (msg: string) => mock.infos.push(msg),
+function createUI() {
+  return {
+    info: vi.fn(),
     success: vi.fn(),
-    warn: (msg: string) => mock.warnings.push(msg),
-    error: (msg: string) => mock.errors.push(msg),
+    warn: vi.fn(),
+    error: vi.fn(),
     table: vi.fn(),
-    json: (data: unknown) => mock.jsonOutput.push(data),
-  };
-  return mock;
-}
-
-function createTestPaths(testDir: string): Paths {
-  return {
-    globalDir: testDir,
-    globalConfig: path.join(testDir, 'config.json'),
-    localConfig: path.join(testDir, 'tmux-team.json'),
-    stateFile: path.join(testDir, 'state.json'),
-    databaseFile: path.join(testDir, 'tmux-team.db'),
+    json: vi.fn(),
   };
 }
 
-function createDefaultConfig(): ResolvedConfig {
-  return {
-    mode: 'polling',
-    preambleMode: 'always',
-    defaults: {
-      timeout: 60,
-      pollInterval: 1,
-      captureLines: 100,
-      maxCaptureLines: 2000,
-      preambleEvery: 3,
-      pasteEnterDelayMs: 500,
-    },
-    agents: {},
-    paneRegistry: {
-      claude: { pane: '1.0', remark: 'Test agent' },
-      codex: { pane: '1.1' },
-    },
-  };
-}
-
-function createMockTmux(): Tmux {
-  return {
-    send: vi.fn(),
-    capture: vi.fn(() => ''),
-    listPanes: vi.fn(() => []),
-    getCurrentPaneId: vi.fn(() => null),
-    resolvePaneTarget: vi.fn((target: string) => target),
-    setPaneTitle: vi.fn(),
-    getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
-    setAgentRegistration: vi.fn(),
-    clearAgentRegistration: vi.fn(() => false),
-    listGlobalIdentities: vi.fn(() => []),
-    setGlobalIdentity: vi.fn(),
-    clearGlobalIdentity: vi.fn(() => false),
-  };
-}
-
-function createContext(
-  overrides: Partial<{
-    ui: UI;
-    config: Partial<ResolvedConfig>;
-    flags: Partial<Flags>;
-    paths: Paths;
-  }>
-): Context {
-  const baseConfig = createDefaultConfig();
-  const config = {
-    ...baseConfig,
-    ...overrides.config,
-    defaults: {
-      ...baseConfig.defaults,
-      ...overrides.config?.defaults,
-    },
-  };
-  const flags: Flags = { json: false, verbose: false, ...overrides.flags };
-
+function createContext(service: PreambleService, flags: Partial<Context['flags']> = {}): Context {
+  const ui = createUI();
   return {
     argv: [],
-    flags,
-    ui: overrides.ui || createMockUI(),
-    config,
-    tmux: createMockTmux(),
-    paths: overrides.paths || createTestPaths('/tmp/test'),
+    flags: { json: false, verbose: false, ...flags },
+    ui,
+    config: {
+      mode: 'wait',
+      preambleMode: 'always',
+      defaults: {
+        timeout: 180,
+        pollInterval: 1,
+        captureLines: 100,
+        maxCaptureLines: 2000,
+        preambleEvery: 3,
+        pasteEnterDelayMs: 500,
+      },
+    },
+    tmux: {
+      send: vi.fn(),
+      capture: vi.fn(),
+      listPanes: vi.fn(() => []),
+      getCurrentPaneId: vi.fn(() => null),
+      resolvePaneTarget: vi.fn(() => null),
+      setPaneTitle: vi.fn(),
+      listGlobalIdentities: vi.fn(() => []),
+      setGlobalIdentity: vi.fn(),
+      clearGlobalIdentity: vi.fn(() => false),
+    },
+    preambleService: service,
+    paths: {
+      globalDir: '/tmp/tmt',
+      globalConfig: '/tmp/tmt/config.json',
+      localConfig: '/tmp/tmt/tmux-team.json',
+      stateFile: '/tmp/tmt/state.json',
+      databaseFile: '/tmp/tmt/tmux-team.db',
+    },
     exit: ((code: number) => {
-      const err = new Error(`exit(${code})`);
-      (err as Error & { exitCode: number }).exitCode = code;
-      throw err;
-    }) as (code: number) => never,
+      throw Object.assign(new Error(`exit(${code})`), { exitCode: code });
+    }) as Context['exit'],
   };
 }
 
-// ─────────────────────────────────────────────────────────────
-// Tests
-// ─────────────────────────────────────────────────────────────
+function createService(overrides: Partial<PreambleService> = {}): PreambleService {
+  return {
+    show: vi.fn(() => result()),
+    set: vi.fn(
+      (_name: string, _content: string): StoredPreambleResult => ({
+        ...result('saved'),
+        preamble: { content: 'saved', updatedAt: 'now' },
+      })
+    ),
+    clear: vi.fn(() => ({ ...result(), cleared: false })),
+    list: vi.fn(() => []),
+    ...overrides,
+  };
+}
+
+function request(
+  operation: PreambleRequest['operation'],
+  values: Omit<PreambleRequest, 'kind' | 'operation'> = {}
+): PreambleRequest {
+  return { kind: 'preamble', operation, ...values };
+}
 
 describe('cmdPreamble', () => {
-  let testDir: string;
+  it('shows the durable identity name and stored content', () => {
+    const service = createService({ show: vi.fn(() => result('Be helpful')) });
+    const ctx = createContext(service);
 
-  beforeEach(() => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'preamble-test-'));
+    cmdPreamble(ctx, request('show', { agent: 'alice' }));
+
+    expect(service.show).toHaveBeenCalledWith('alice');
+    expect(ctx.ui.info).toHaveBeenCalledWith('Preamble for Alice:\nBe helpful');
   });
 
-  afterEach(() => {
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
+  it('returns the legacy JSON shape while using durable identity data', () => {
+    const service = createService({ show: vi.fn(() => result('Be helpful')) });
+    const ctx = createContext(service, { json: true });
+
+    cmdPreamble(ctx, request('show', { agent: 'ALICE' }));
+
+    expect(ctx.ui.json).toHaveBeenCalledWith({ agent: 'Alice', preamble: 'Be helpful' });
   });
 
-  describe('show subcommand', () => {
-    it('shows preamble for specific agent', () => {
-      const ui = createMockUI();
-      const ctx = createContext({
-        ui,
-        paths: createTestPaths(testDir),
-        config: {
-          agents: { claude: { preamble: 'Be helpful' } },
-        },
-      });
-
-      cmdPreamble(ctx, preambleRequest('show', { agent: 'claude' }));
-
-      expect(ui.infos).toContain('Preamble for claude:');
+  it('treats an explicit empty identity as a lookup, not list', () => {
+    const service = createService({
+      show: vi.fn(() => {
+        throw new IdentitySelectionError('NAME_NOT_FOUND', 'Identity was not found.');
+      }),
     });
+    const ctx = createContext(service, { json: true });
 
-    it('shows message when agent has no preamble', () => {
-      const ui = createMockUI();
-      const ctx = createContext({
-        ui,
-        paths: createTestPaths(testDir),
-        config: { agents: {} },
-      });
-
-      cmdPreamble(ctx, preambleRequest('show', { agent: 'claude' }));
-
-      expect(ui.infos).toContain('No preamble set for claude');
-    });
-
-    it('shows all preambles when no agent specified', () => {
-      const ui = createMockUI();
-      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-
-      const ctx = createContext({
-        ui,
-        paths: createTestPaths(testDir),
-        config: {
-          agents: {
-            claude: { preamble: 'Be helpful' },
-            codex: { preamble: 'Be concise' },
-          },
-        },
-      });
-
-      cmdPreamble(ctx, preambleRequest('show'));
-
-      expect(logSpy).toHaveBeenCalled();
-      logSpy.mockRestore();
-    });
-
-    it('shows message when no preambles configured', () => {
-      const ui = createMockUI();
-      const ctx = createContext({
-        ui,
-        paths: createTestPaths(testDir),
-        config: { agents: {} },
-      });
-
-      cmdPreamble(ctx, preambleRequest('show'));
-
-      expect(ui.infos).toContain('No preambles configured');
-    });
-
-    it('outputs JSON for specific agent when --json flag is set', () => {
-      const ui = createMockUI();
-      const ctx = createContext({
-        ui,
-        paths: createTestPaths(testDir),
-        flags: { json: true },
-        config: {
-          agents: { claude: { preamble: 'Be helpful' } },
-        },
-      });
-
-      cmdPreamble(ctx, preambleRequest('show', { agent: 'claude' }));
-
-      expect(ui.jsonOutput).toHaveLength(1);
-      expect(ui.jsonOutput[0]).toEqual({ agent: 'claude', preamble: 'Be helpful' });
-    });
-
-    it('outputs JSON for all preambles when --json flag is set', () => {
-      const ui = createMockUI();
-      const ctx = createContext({
-        ui,
-        paths: createTestPaths(testDir),
-        flags: { json: true },
-        config: {
-          agents: {
-            claude: { preamble: 'Be helpful' },
-          },
-        },
-      });
-
-      cmdPreamble(ctx, preambleRequest('show'));
-
-      expect(ui.jsonOutput).toHaveLength(1);
-      expect(ui.jsonOutput[0]).toMatchObject({
-        preambles: [{ agent: 'claude', preamble: 'Be helpful' }],
-      });
-    });
-
-    it('handles undefined subcommand same as show', () => {
-      const ui = createMockUI();
-      const ctx = createContext({
-        ui,
-        paths: createTestPaths(testDir),
-        config: { agents: {} },
-      });
-
-      cmdPreamble(ctx, preambleRequest('show'));
-
-      expect(ui.infos).toContain('No preambles configured');
+    expect(() => cmdPreamble(ctx, request('show', { agent: '' }))).toThrow(
+      `exit(${ExitCodes.NAME_NOT_FOUND})`
+    );
+    expect(service.show).toHaveBeenCalledWith('');
+    expect(service.list).not.toHaveBeenCalled();
+    expect(ctx.ui.json).toHaveBeenCalledTimes(1);
+    expect(ctx.ui.json).toHaveBeenCalledWith({
+      error: { code: 'NAME_NOT_FOUND', message: 'Identity was not found.' },
     });
   });
 
-  describe('set subcommand', () => {
-    it('sets preamble for agent', () => {
-      const ui = createMockUI();
-      const paths = createTestPaths(testDir);
-
-      // Create local config file
-      fs.writeFileSync(paths.localConfig, JSON.stringify({ claude: { pane: '1.0' } }));
-
-      const ctx = createContext({ ui, paths });
-
-      cmdPreamble(ctx, preambleRequest('set', { agent: 'claude', preamble: 'Be very helpful' }));
-
-      // Check file was updated
-      const config = JSON.parse(fs.readFileSync(paths.localConfig, 'utf-8'));
-      expect(config.claude.preamble).toBe('Be very helpful');
-      expect(ui.success).toHaveBeenCalled();
+  it('shows only stored preambles in service-provided order', () => {
+    const bob = { ...identity, id: 'identity-bob', name: 'Bob', canonicalName: 'bob' };
+    const service = createService({
+      list: vi.fn(() => [
+        { identity, preamble: { content: 'A', updatedAt: 'now' } },
+        { identity: bob, preamble: { content: 'B', updatedAt: 'now' } },
+      ]),
     });
+    const ctx = createContext(service, { json: true });
 
-    it('errors when agent not found', () => {
-      const ui = createMockUI();
-      const paths = createTestPaths(testDir);
-      const ctx = createContext({
-        ui,
-        paths,
-        config: { paneRegistry: {} },
-      });
+    cmdPreamble(ctx, request('show'));
 
-      expect(() =>
-        cmdPreamble(ctx, preambleRequest('set', { agent: 'unknown', preamble: 'preamble' }))
-      ).toThrow('exit(1)');
-      expect(ui.errors[0]).toContain("Agent 'unknown' not found");
-    });
-
-    it('errors when not enough arguments', () => {
-      const ui = createMockUI();
-      const ctx = createContext({ ui, paths: createTestPaths(testDir) });
-
-      expect(() => cmdPreamble(ctx, preambleRequest('set', { agent: 'claude' }))).toThrow(
-        'exit(1)'
-      );
-      expect(ui.errors[0]).toContain('Usage: tmux-team preamble set');
-    });
-
-    it('outputs JSON when --json flag is set', () => {
-      const ui = createMockUI();
-      const paths = createTestPaths(testDir);
-
-      fs.writeFileSync(paths.localConfig, JSON.stringify({ claude: { pane: '1.0' } }));
-
-      const ctx = createContext({ ui, paths, flags: { json: true } });
-
-      cmdPreamble(ctx, preambleRequest('set', { agent: 'claude', preamble: 'Be helpful' }));
-
-      expect(ui.jsonOutput).toHaveLength(1);
-      expect(ui.jsonOutput[0]).toMatchObject({
-        agent: 'claude',
-        preamble: 'Be helpful',
-        status: 'set',
-      });
+    expect(ctx.ui.json).toHaveBeenCalledWith({
+      preambles: [
+        { agent: 'Alice', preamble: 'A' },
+        { agent: 'Bob', preamble: 'B' },
+      ],
     });
   });
 
-  describe('clear subcommand', () => {
-    it('clears preamble for agent', () => {
-      const ui = createMockUI();
-      const paths = createTestPaths(testDir);
-
-      // Create local config with preamble
-      fs.writeFileSync(
-        paths.localConfig,
-        JSON.stringify({ claude: { pane: '1.0', preamble: 'Old preamble' } })
-      );
-
-      const ctx = createContext({ ui, paths });
-
-      cmdPreamble(ctx, preambleRequest('clear', { agent: 'claude' }));
-
-      // Check file was updated
-      const config = JSON.parse(fs.readFileSync(paths.localConfig, 'utf-8'));
-      expect(config.claude.preamble).toBeUndefined();
-      expect(ui.success).toHaveBeenCalled();
+  it('sets and clears through the durable service', () => {
+    const service = createService({
+      set: vi.fn(
+        (_name: string, _content: string): StoredPreambleResult => ({
+          ...result('saved'),
+          preamble: { content: 'saved', updatedAt: 'now' },
+        })
+      ),
+      clear: vi.fn(() => ({ ...result(), cleared: true })),
     });
+    const ctx = createContext(service, { json: true });
 
-    it('shows message when no preamble was set', () => {
-      const ui = createMockUI();
-      const paths = createTestPaths(testDir);
+    cmdPreamble(ctx, request('set', { agent: 'alice', preamble: 'saved' }));
+    cmdPreamble(ctx, request('clear', { agent: 'alice' }));
 
-      fs.writeFileSync(paths.localConfig, JSON.stringify({ claude: { pane: '1.0' } }));
-
-      const ctx = createContext({ ui, paths });
-
-      cmdPreamble(ctx, preambleRequest('clear', { agent: 'claude' }));
-
-      expect(ui.infos).toContain('No preamble was set for claude');
+    expect(service.set).toHaveBeenCalledWith('alice', 'saved');
+    expect(service.clear).toHaveBeenCalledWith('alice');
+    expect(ctx.ui.json).toHaveBeenNthCalledWith(1, {
+      agent: 'Alice',
+      preamble: 'saved',
+      status: 'set',
     });
-
-    it('errors when not enough arguments', () => {
-      const ui = createMockUI();
-      const ctx = createContext({ ui, paths: createTestPaths(testDir) });
-
-      expect(() => cmdPreamble(ctx, preambleRequest('clear'))).toThrow('exit(1)');
-      expect(ui.errors[0]).toContain('Usage: tmux-team preamble clear');
-    });
-
-    it('outputs JSON when --json flag is set and preamble cleared', () => {
-      const ui = createMockUI();
-      const paths = createTestPaths(testDir);
-
-      fs.writeFileSync(
-        paths.localConfig,
-        JSON.stringify({ claude: { pane: '1.0', preamble: 'Old' } })
-      );
-
-      const ctx = createContext({ ui, paths, flags: { json: true } });
-
-      cmdPreamble(ctx, preambleRequest('clear', { agent: 'claude' }));
-
-      expect(ui.jsonOutput).toHaveLength(1);
-      expect(ui.jsonOutput[0]).toMatchObject({ agent: 'claude', status: 'cleared' });
-    });
-
-    it('outputs JSON when --json flag is set and no preamble was set', () => {
-      const ui = createMockUI();
-      const paths = createTestPaths(testDir);
-
-      fs.writeFileSync(paths.localConfig, JSON.stringify({ claude: { pane: '1.0' } }));
-
-      const ctx = createContext({ ui, paths, flags: { json: true } });
-
-      cmdPreamble(ctx, preambleRequest('clear', { agent: 'claude' }));
-
-      expect(ui.jsonOutput).toHaveLength(1);
-      expect(ui.jsonOutput[0]).toMatchObject({ agent: 'claude', status: 'not_set' });
-    });
+    expect(ctx.ui.json).toHaveBeenNthCalledWith(2, { agent: 'Alice', status: 'cleared' });
   });
 
-  describe('unknown subcommand', () => {
-    it('errors on unknown subcommand', () => {
-      const ui = createMockUI();
-      const ctx = createContext({ ui, paths: createTestPaths(testDir) });
+  it('returns not_set when clear finds no stored content', () => {
+    const ctx = createContext(createService(), { json: true });
+    cmdPreamble(ctx, request('clear', { agent: 'alice' }));
+    expect(ctx.ui.json).toHaveBeenCalledWith({ agent: 'Alice', status: 'not_set' });
+  });
 
-      expect(() => cmdPreamble(ctx, preambleRequest('set', { agent: 'invalid' }))).toThrow(
-        'exit(1)'
-      );
-      expect(ui.errors[0]).toContain('Usage: tmux-team preamble set');
+  it.each([
+    [
+      new IdentitySelectionError('NAME_NOT_FOUND', 'Identity was not found.'),
+      ExitCodes.NAME_NOT_FOUND,
+      'NAME_NOT_FOUND',
+    ],
+    [
+      new PreambleContentError('PREAMBLE_INPUT_INVALID', 'Invalid preamble.'),
+      ExitCodes.ERROR,
+      'PREAMBLE_INPUT_INVALID',
+    ],
+    [new Error('database failed'), ExitCodes.ERROR, 'PREAMBLE_ERROR'],
+  ])('maps service failure %s', async (error, exitCode, code) => {
+    const service = createService({
+      show: vi.fn(() => {
+        throw error;
+      }),
     });
+    const ctx = createContext(service, { json: true });
+    await expect(() => cmdPreamble(ctx, request('show', { agent: 'alice' }))).toThrow(
+      `exit(${exitCode})`
+    );
+    expect(ctx.ui.json).toHaveBeenCalledWith({ error: { code, message: error.message } });
   });
 });

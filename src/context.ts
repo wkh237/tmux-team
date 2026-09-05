@@ -10,6 +10,7 @@ import { ExitCodes } from './exits.js';
 import { createIdentityService } from './identity-service.js';
 import { openIdentityRepository, type IdentityRepository } from './storage/identity-repository.js';
 import { createRoleService, type RoleRepository } from './role-service.js';
+import { createPreambleService } from './preamble-service.js';
 
 export interface CreateContextOptions {
   argv: string[];
@@ -22,30 +23,21 @@ export interface CreateContextOptions {
 export function createContext(options: CreateContextOptions): Context {
   const { argv, flags, cwd = process.cwd() } = options;
 
-  // Global identities are intentionally scope-independent in v5. Keep the
-  // legacy metadata fields readable through loadConfig, but always use the
-  // workspace registry for legacy settings.
   const paths = resolvePaths(cwd);
   const ui = createUI(flags.json);
   const capability = options.capability ?? 'tmux';
   let tmux: Context['tmux'] | undefined;
   let config: Context['config'] | undefined;
   let identityService: Context['identityService'] | undefined;
+  let preambleService: Context['preambleService'] | undefined;
   let identityRepository: IdentityRepository | undefined;
   let roleService: Context['roleService'] | undefined;
   const getTmux = (): Context['tmux'] => {
     tmux ??= createTmux();
     return tmux;
   };
-  const registryScope = {
-    type: 'workspace' as const,
-    workspaceRoot: paths.workspaceRoot ?? cwd,
-  };
   const getConfig = (): Context['config'] => {
-    config ??= loadConfig(
-      paths,
-      capability === 'tmux' ? getTmux().getAgentRegistry(registryScope) : undefined
-    );
+    config ??= loadConfig(paths);
     return config;
   };
   const getIdentityService = (): NonNullable<Context['identityService']> => {
@@ -82,10 +74,15 @@ export function createContext(options: CreateContextOptions): Context {
     });
     return roleService;
   };
+  const getPreambleService = (): NonNullable<Context['preambleService']> => {
+    preambleService ??= createPreambleService({ repository: getIdentityRepository() });
+    return preambleService;
+  };
   const dispose = (): void => {
     const service = identityService;
     const repository = identityRepository;
     identityService = undefined;
+    preambleService = undefined;
     identityRepository = undefined;
     roleService = undefined;
     try {
@@ -100,7 +97,6 @@ export function createContext(options: CreateContextOptions): Context {
     flags,
     ui,
     paths,
-    registryScope,
     dispose,
     exit(code: number): never {
       dispose();
@@ -111,6 +107,7 @@ export function createContext(options: CreateContextOptions): Context {
     config: { enumerable: true, get: getConfig },
     tmux: { enumerable: true, get: getTmux },
     identityService: { enumerable: true, get: getIdentityService },
+    preambleService: { enumerable: true, get: getPreambleService },
     roleService: { enumerable: true, get: getRoleService },
   });
   // Preserve the established full-context behavior. Lightweight capabilities

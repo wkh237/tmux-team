@@ -15,7 +15,8 @@ export interface AgentRequestState {
 
 export interface StateFile {
   requests: Record<string, AgentRequestState>;
-  preambleCounters?: Record<string, number>; // agentName -> message count
+  // Durable identity ID -> eligible attempt count; old name keys remain opaque.
+  preambleCounters?: Record<string, number>;
 }
 
 const DEFAULT_STATE: StateFile = { requests: {} };
@@ -87,24 +88,24 @@ export function clearActiveRequest(paths: Paths, agent: string, requestId?: stri
 }
 
 /**
- * Get the current preamble counter for an agent.
+ * Get the current preamble counter for an identity.
  * Returns 0 if not set.
  */
-export function getPreambleCounter(paths: Paths, agent: string): number {
+export function getPreambleCounter(paths: Paths, identityId: string): number {
   const state = loadState(paths);
-  return state.preambleCounters?.[agent] ?? 0;
+  return state.preambleCounters?.[identityId] ?? 0;
 }
 
 /**
- * Increment the preamble counter for an agent and return the new value.
+ * Increment the preamble counter for an identity and return the new value.
  */
-export function incrementPreambleCounter(paths: Paths, agent: string): number {
+export function incrementPreambleCounter(paths: Paths, identityId: string): number {
   const state = loadState(paths);
   if (!state.preambleCounters) {
     state.preambleCounters = {};
   }
-  const newCount = (state.preambleCounters[agent] ?? 0) + 1;
-  state.preambleCounters[agent] = newCount;
+  const newCount = (state.preambleCounters[identityId] ?? 0) + 1;
+  state.preambleCounters[identityId] = newCount;
   saveState(paths, state);
   return newCount;
 }

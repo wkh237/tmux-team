@@ -46,15 +46,12 @@ function createMockTmux(): Tmux & {
       return target;
     },
     setPaneTitle() {},
-    getAgentRegistry() {
-      return { paneRegistry: {}, agents: {} };
-    },
-    setAgentRegistration() {},
-    clearAgentRegistration() {
-      return false;
-    },
     listGlobalIdentities() {
-      return [];
+      return [
+        { name: 'claude', canonicalName: 'claude', paneId: '1.0' },
+        { name: 'codex', canonicalName: 'codex', paneId: '1.1' },
+        { name: 'gemini', canonicalName: 'gemini', paneId: '1.2' },
+      ];
     },
     setGlobalIdentity() {},
     clearGlobalIdentity() {
@@ -101,12 +98,64 @@ function createDefaultConfig(): ResolvedConfig {
       preambleEvery: 3,
       pasteEnterDelayMs: 500,
     },
-    agents: {},
-    paneRegistry: {
-      claude: { pane: '1.0', remark: 'Test agent' },
-      codex: { pane: '1.1' },
-      gemini: { pane: '1.2' },
-    },
+  };
+}
+
+function createMockPreambleService(content?: string): NonNullable<Context['preambleService']> {
+  const identities = new Map([
+    [
+      'claude',
+      {
+        id: 'identity-claude',
+        name: 'claude',
+        canonicalName: 'claude',
+        createdAt: 'now',
+        updatedAt: 'now',
+      },
+    ],
+    [
+      'codex',
+      {
+        id: 'identity-codex',
+        name: 'codex',
+        canonicalName: 'codex',
+        createdAt: 'now',
+        updatedAt: 'now',
+      },
+    ],
+    [
+      'gemini',
+      {
+        id: 'identity-gemini',
+        name: 'gemini',
+        canonicalName: 'gemini',
+        createdAt: 'now',
+        updatedAt: 'now',
+      },
+    ],
+    [
+      'all',
+      {
+        id: 'identity-all',
+        name: 'all',
+        canonicalName: 'all',
+        createdAt: 'now',
+        updatedAt: 'now',
+      },
+    ],
+  ]);
+  return {
+    show: vi.fn((name: string) => {
+      const identity = identities.get(name);
+      if (!identity) throw new Error(`Unknown identity: ${name}`);
+      return {
+        identity,
+        preamble: content ? { content, updatedAt: 'now' } : null,
+      };
+    }),
+    set: vi.fn(),
+    clear: vi.fn(),
+    list: vi.fn(() => []),
   };
 }
 
@@ -114,9 +163,12 @@ function createContext(
   overrides: Partial<{
     tmux: Tmux;
     ui: UI;
-    config: Partial<ResolvedConfig>;
+    config: Partial<Omit<ResolvedConfig, 'defaults'>> & {
+      defaults?: Partial<ResolvedConfig['defaults']>;
+    };
     flags: Partial<Flags>;
     paths: Paths;
+    preambleService: NonNullable<Context['preambleService']>;
   }>
 ): Context {
   const exitError = new Error('exit called');
@@ -133,21 +185,13 @@ function createContext(
   };
   const flags: Flags = { json: false, verbose: false, ...overrides.flags };
   const tmux = overrides.tmux || createMockTmux();
-  if (Object.keys(config.paneRegistry).length > 0 && tmux.listGlobalIdentities().length === 0) {
-    tmux.listGlobalIdentities = () =>
-      Object.entries(config.paneRegistry).map(([name, entry]) => ({
-        name,
-        canonicalName: name.toLowerCase(),
-        paneId: entry.pane,
-      }));
-  }
-
   return {
     argv: [],
     flags,
     ui: overrides.ui || createMockUI(),
     config,
     tmux,
+    preambleService: overrides.preambleService || createMockPreambleService(),
     paths: overrides.paths || createTestPaths('/tmp/test'),
     exit: ((code: number) => {
       const err = new Error(`exit(${code})`);
@@ -194,10 +238,8 @@ describe('buildMessage (via cmdTalk)', () => {
       tmux,
       paths: createTestPaths(testDir),
       flags: { noPreamble: true },
-      config: {
-        preambleMode: 'always',
-        agents: { claude: { preamble: 'Be brief' } },
-      },
+      config: { preambleMode: 'always' },
+      preambleService: createMockPreambleService('Be brief'),
     });
 
     await cmdTalk(ctx, 'claude', 'Hello');
@@ -208,16 +250,21 @@ describe('buildMessage (via cmdTalk)', () => {
 
   it('returns original message when agent has no preamble', async () => {
     const tmux = createMockTmux();
+    const preambleService = createMockPreambleService();
+    const paths = createTestPaths(testDir);
     const ctx = createContext({
       tmux,
-      paths: createTestPaths(testDir),
-      config: { preambleMode: 'always', agents: {} },
+      paths,
+      config: { preambleMode: 'always' },
+      preambleService,
     });
 
     await cmdTalk(ctx, 'claude', 'Hello');
 
     expect(tmux.sends).toHaveLength(1);
     expect(tmux.sends[0].message).toBe('Hello');
+    expect(preambleService.show).toHaveBeenCalledWith('claude');
+    expect(fs.existsSync(paths.stateFile)).toBe(false);
   });
 
   it('prepends [SYSTEM: preamble] when preambleMode is always', async () => {
@@ -227,8 +274,8 @@ describe('buildMessage (via cmdTalk)', () => {
       paths: createTestPaths(testDir),
       config: {
         preambleMode: 'always',
-        agents: { claude: { preamble: 'Be helpful and concise' } },
       },
+      preambleService: createMockPreambleService('Be helpful and concise'),
     });
 
     await cmdTalk(ctx, 'claude', 'Hello');
@@ -245,8 +292,8 @@ describe('buildMessage (via cmdTalk)', () => {
       paths: createTestPaths(testDir),
       config: {
         preambleMode: 'always',
-        agents: { claude: { preamble: 'Test preamble' } },
       },
+      preambleService: createMockPreambleService('Test preamble'),
     });
 
     await cmdTalk(ctx, 'claude', 'Test message');
@@ -260,7 +307,6 @@ describe('buildMessage (via cmdTalk)', () => {
 
     const config = {
       preambleMode: 'always' as const,
-      agents: { claude: { preamble: 'Be brief' } },
       defaults: {
         timeout: 60,
         pollInterval: 0.1,
@@ -273,22 +319,58 @@ describe('buildMessage (via cmdTalk)', () => {
 
     // Message 1: should include preamble (first message)
     const tmux1 = createMockTmux();
-    await cmdTalk(createContext({ tmux: tmux1, paths, config }), 'claude', 'Hello 1');
+    await cmdTalk(
+      createContext({
+        tmux: tmux1,
+        paths,
+        config,
+        preambleService: createMockPreambleService('Be brief'),
+      }),
+      'claude',
+      'Hello 1'
+    );
     expect(tmux1.sends[0].message).toContain('[SYSTEM: Be brief]');
 
     // Message 2: should NOT include preamble
     const tmux2 = createMockTmux();
-    await cmdTalk(createContext({ tmux: tmux2, paths, config }), 'claude', 'Hello 2');
+    await cmdTalk(
+      createContext({
+        tmux: tmux2,
+        paths,
+        config,
+        preambleService: createMockPreambleService('Be brief'),
+      }),
+      'claude',
+      'Hello 2'
+    );
     expect(tmux2.sends[0].message).toBe('Hello 2');
 
     // Message 3: should NOT include preamble
     const tmux3 = createMockTmux();
-    await cmdTalk(createContext({ tmux: tmux3, paths, config }), 'claude', 'Hello 3');
+    await cmdTalk(
+      createContext({
+        tmux: tmux3,
+        paths,
+        config,
+        preambleService: createMockPreambleService('Be brief'),
+      }),
+      'claude',
+      'Hello 3'
+    );
     expect(tmux3.sends[0].message).toBe('Hello 3');
 
     // Message 4: should include preamble (4 - 1 = 3, divisible by 3)
     const tmux4 = createMockTmux();
-    await cmdTalk(createContext({ tmux: tmux4, paths, config }), 'claude', 'Hello 4');
+    await cmdTalk(
+      createContext({
+        tmux: tmux4,
+        paths,
+        config,
+        preambleService: createMockPreambleService('Be brief'),
+      }),
+      'claude',
+      'Hello 4'
+    );
     expect(tmux4.sends[0].message).toContain('[SYSTEM: Be brief]');
   });
 
@@ -298,7 +380,6 @@ describe('buildMessage (via cmdTalk)', () => {
 
     const config = {
       preambleMode: 'always' as const,
-      agents: { claude: { preamble: 'Be brief' } },
       defaults: {
         timeout: 60,
         pollInterval: 0.1,
@@ -312,7 +393,16 @@ describe('buildMessage (via cmdTalk)', () => {
     // All messages should include preamble
     for (let i = 0; i < 3; i++) {
       const tmux = createMockTmux();
-      await cmdTalk(createContext({ tmux, paths, config }), 'claude', `Hello ${i}`);
+      await cmdTalk(
+        createContext({
+          tmux,
+          paths,
+          config,
+          preambleService: createMockPreambleService('Be brief'),
+        }),
+        'claude',
+        `Hello ${i}`
+      );
       expect(tmux.sends[0].message).toContain('[SYSTEM: Be brief]');
     }
   });
@@ -323,7 +413,6 @@ describe('buildMessage (via cmdTalk)', () => {
 
     const config = {
       preambleMode: 'always' as const,
-      agents: { claude: { preamble: 'Be brief' } },
       defaults: {
         timeout: 60,
         pollInterval: 0.1,
@@ -337,7 +426,16 @@ describe('buildMessage (via cmdTalk)', () => {
     // No messages should include preamble
     for (let i = 0; i < 3; i++) {
       const tmux = createMockTmux();
-      await cmdTalk(createContext({ tmux, paths, config }), 'claude', `Hello ${i}`);
+      await cmdTalk(
+        createContext({
+          tmux,
+          paths,
+          config,
+          preambleService: createMockPreambleService('Be brief'),
+        }),
+        'claude',
+        `Hello ${i}`
+      );
       expect(tmux.sends[0].message).toBe(`Hello ${i}`);
     }
   });
@@ -380,7 +478,6 @@ describe('cmdTalk - basic send', () => {
       tmux,
       ui,
       paths: createTestPaths(testDir),
-      config: { paneRegistry: {} },
     });
 
     await expect(cmdTalk(ctx, 'all', 'Hello')).rejects.toThrow(`exit(${ExitCodes.NAME_NOT_FOUND})`);
@@ -390,10 +487,10 @@ describe('cmdTalk - basic send', () => {
 
   it('sends to a bound all identity as one pane', async () => {
     const tmux = createMockTmux();
+    tmux.listGlobalIdentities = () => [{ name: 'all', canonicalName: 'all', paneId: '1.9' }];
     const ctx = createContext({
       tmux,
       paths: createTestPaths(testDir),
-      config: { paneRegistry: { all: { pane: '1.9' } } },
     });
 
     await cmdTalk(ctx, 'all', 'Hello');
@@ -413,7 +510,6 @@ describe('cmdTalk - basic send', () => {
       ui,
       paths: createTestPaths(testDir),
       flags: { json: true },
-      config: { paneRegistry: { claude: { pane: '1.0' } } },
     });
 
     await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
@@ -433,7 +529,6 @@ describe('cmdTalk - basic send', () => {
       ui,
       paths: createTestPaths(testDir),
       flags: { json: true },
-      config: { paneRegistry: { claude: { pane: '1.0' } } },
     });
 
     await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
@@ -460,7 +555,6 @@ describe('cmdTalk - basic send', () => {
       tmux,
       ui,
       paths: createTestPaths(testDir),
-      config: { paneRegistry: { claude: { pane: '1.0' } } },
     });
 
     await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
@@ -469,6 +563,73 @@ describe('cmdTalk - basic send', () => {
     ]);
     expect(ui.jsonOutput).toEqual([]);
   });
+
+  it.each([
+    ['non-wait', { wait: false }],
+    ['wait', { wait: true, timeout: 0.5 }],
+  ] as const)(
+    'fails named %s talk before transport when the preamble service is absent',
+    async (_mode, flags) => {
+      const tmux = createMockTmux();
+      const ui = createMockUI();
+      const ctx = createContext({
+        tmux,
+        ui,
+        paths: createTestPaths(testDir),
+        flags: { ...flags, json: true },
+      });
+      delete ctx.preambleService;
+
+      await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
+      expect(tmux.sends).toHaveLength(0);
+      expect(ui.jsonOutput).toEqual([
+        { error: { code: 'PREAMBLE_ERROR', message: 'Preamble service is unavailable.' } },
+      ]);
+    }
+  );
+
+  it.each([
+    ['non-wait', { wait: false }],
+    ['wait', { wait: true, timeout: 0.5 }],
+  ] as const)('maps %s preamble lookup failures before transport', async (_mode, flags) => {
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+    const paths = createTestPaths(testDir);
+    const preambleService = createMockPreambleService('Be brief');
+    preambleService.show = vi.fn(() => {
+      throw new Error('preamble database unavailable');
+    });
+    const ctx = createContext({
+      tmux,
+      ui,
+      paths,
+      flags: { ...flags, json: true },
+      preambleService,
+    });
+
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(tmux.sends).toHaveLength(0);
+    expect(ui.jsonOutput).toEqual([
+      { error: { code: 'PREAMBLE_ERROR', message: 'preamble database unavailable' } },
+    ]);
+    expect(fs.existsSync(paths.stateFile)).toBe(false);
+  });
+
+  it.each([
+    ['disabled', { preambleMode: 'disabled' as const }],
+    ['zero cadence', { defaults: { preambleEvery: 0 } }],
+  ] as const)(
+    'does not require preamble service when %s disables lookup',
+    async (_mode, config) => {
+      const tmux = createMockTmux();
+      const ctx = createContext({ tmux, paths: createTestPaths(testDir), config });
+      delete ctx.preambleService;
+
+      await cmdTalk(ctx, 'claude', 'Hello');
+      expect(tmux.sends).toHaveLength(1);
+      expect(tmux.sends[0].message).toBe('Hello');
+    }
+  );
 
   it('preserves exclamation marks for gemini agent', async () => {
     const tmux = createMockTmux();
@@ -608,7 +769,6 @@ describe('cmdTalk - --wait mode', () => {
         paths,
         flags: { wait: true, json: true, timeout: 0.5 },
         config: {
-          paneRegistry: { claude: { pane: '1.0' } },
           defaults: {
             timeout: 0.5,
             pollInterval: 0.01,
@@ -900,9 +1060,7 @@ describe('cmdTalk - --wait mode', () => {
 
 describe('cmdTalk - errors and JSON output', () => {
   it('errors when target agent is not found', async () => {
-    const ctx = createContext({
-      config: { paneRegistry: {} },
-    });
+    const ctx = createContext({});
     await expect(cmdTalk(ctx, 'nope', 'hi')).rejects.toMatchObject({
       exitCode: ExitCodes.PANE_NOT_FOUND,
     });
@@ -912,7 +1070,6 @@ describe('cmdTalk - errors and JSON output', () => {
   it('outputs JSON in non-wait mode', async () => {
     const ctx = createContext({
       flags: { json: true },
-      config: { paneRegistry: { claude: { pane: '1.0' } } },
     });
     await cmdTalk(ctx, 'claude', 'hello');
     const out = (ctx.ui as any).jsonOutput[0] as any;

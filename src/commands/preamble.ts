@@ -1,11 +1,11 @@
 // ─────────────────────────────────────────────────────────────
-// Preamble command - manage agent preambles (local config only)
+// Preamble command - manage durable identity preambles
 // ─────────────────────────────────────────────────────────────
 
 import type { Context } from '../types.js';
-import { ExitCodes } from '../context.js';
-import { loadLocalConfigFile, saveLocalConfigFile } from '../config.js';
-import { getRegistryScope, registrationFromEntry } from '../registry.js';
+import { ExitCodes } from '../exits.js';
+import { IdentitySelectionError } from '../identity-context.js';
+import { PreambleContentError } from '../domain/preamble.js';
 
 export interface PreambleRequest {
   readonly kind: 'preamble';
@@ -14,160 +14,99 @@ export interface PreambleRequest {
   readonly preamble?: string;
 }
 
-/**
- * Show preamble(s) for agent(s).
- */
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Could not access identity preamble state.';
+}
+
+function failPreamble(ctx: Context, error: unknown): never {
+  const publicCode =
+    error instanceof IdentitySelectionError
+      ? error.code === 'NAME_NOT_FOUND'
+        ? 'NAME_NOT_FOUND'
+        : 'PREAMBLE_ERROR'
+      : error instanceof PreambleContentError
+        ? error.code
+        : 'PREAMBLE_ERROR';
+  const message = errorMessage(error);
+  if (ctx.flags.json) ctx.ui.json({ error: { code: publicCode, message } });
+  else ctx.ui.error(message);
+  return ctx.exit(publicCode === 'NAME_NOT_FOUND' ? ExitCodes.NAME_NOT_FOUND : ExitCodes.ERROR);
+}
+
+function service(ctx: Context): NonNullable<Context['preambleService']> {
+  if (!ctx.preambleService) {
+    throw new Error('Preamble service is unavailable.');
+  }
+  return ctx.preambleService;
+}
+
 function showPreamble(ctx: Context, agentName?: string): void {
-  const { ui, config, flags } = ctx;
-
-  if (agentName) {
-    // Show specific agent's preamble
-    const agentConfig = config.agents[agentName];
-    const preamble = agentConfig?.preamble;
-
-    if (flags.json) {
-      ui.json({ agent: agentName, preamble: preamble ?? null });
-      return;
-    }
-
-    if (preamble) {
-      ui.info(`Preamble for ${agentName}:`);
-      console.log(preamble);
-    } else {
-      ui.info(`No preamble set for ${agentName}`);
-    }
-  } else {
-    // Show all preambles
-    const preambles: { agent: string; preamble: string }[] = [];
-
-    for (const [name, agentConfig] of Object.entries(config.agents)) {
-      if (agentConfig.preamble) {
-        preambles.push({ agent: name, preamble: agentConfig.preamble });
+  try {
+    if (agentName !== undefined) {
+      const result = service(ctx).show(agentName);
+      const preamble = result.preamble?.content ?? null;
+      if (ctx.flags.json) {
+        ctx.ui.json({ agent: result.identity.name, preamble });
+      } else if (preamble) {
+        ctx.ui.info(`Preamble for ${result.identity.name}:\n${preamble}`);
+      } else {
+        ctx.ui.info(`No preamble set for ${result.identity.name}`);
       }
-    }
-
-    if (flags.json) {
-      ui.json({ preambles });
       return;
     }
 
-    if (preambles.length === 0) {
-      ui.info('No preambles configured');
+    const result = service(ctx)
+      .list()
+      .map(({ identity, preamble }) => ({
+        agent: identity.name,
+        preamble: preamble.content,
+      }));
+    if (ctx.flags.json) {
+      ctx.ui.json({ preambles: result });
       return;
     }
-
-    for (const { agent, preamble } of preambles) {
-      console.log(`─── ${agent} ───`);
-      console.log(preamble);
-      console.log();
+    if (result.length === 0) {
+      ctx.ui.info('No preambles configured');
+      return;
     }
+    for (const { agent, preamble } of result) {
+      ctx.ui.info(`─── ${agent} ───\n${preamble}\n`);
+    }
+  } catch (error) {
+    failPreamble(ctx, error);
   }
 }
 
-/**
- * Set preamble for an agent (in local config).
- */
-function setPreamble(ctx: Context, agentName: string, preamble: string): void {
-  const { ui, paths, flags, config, tmux } = ctx;
-
-  // Check if agent exists in pane registry
-  if (!config.paneRegistry[agentName]) {
-    ui.error(`Agent '${agentName}' not found in local config`);
-    ui.error('Add the identity with: tmt add <pane-target> <global-name>');
-    ctx.exit(ExitCodes.ERROR);
-  }
-
-  const pane = tmux.resolvePaneTarget(config.paneRegistry[agentName].pane);
-  if (!pane) {
-    ui.error(`Pane '${config.paneRegistry[agentName].pane}' not found. Is tmux running?`);
-    ctx.exit(ExitCodes.PANE_NOT_FOUND);
-  }
-
-  const nextEntry = { ...config.paneRegistry[agentName], pane, preamble };
-  tmux.setAgentRegistration(
-    pane,
-    getRegistryScope(ctx),
-    registrationFromEntry(agentName, nextEntry)
-  );
-  updateLegacyPreambleIfPresent(paths, agentName, preamble);
-
-  if (flags.json) {
-    ui.json({ agent: agentName, preamble, status: 'set' });
-  } else {
-    ui.success(`Set preamble for ${agentName}`);
+function setPreamble(ctx: Context, agentName: string, content: string): void {
+  try {
+    const result = service(ctx).set(agentName, content);
+    if (ctx.flags.json) {
+      ctx.ui.json({
+        agent: result.identity.name,
+        preamble: result.preamble.content,
+        status: 'set',
+      });
+    } else ctx.ui.success(`Set preamble for ${result.identity.name}`);
+  } catch (error) {
+    failPreamble(ctx, error);
   }
 }
 
-/**
- * Clear preamble for an agent (in local config).
- */
 function clearPreamble(ctx: Context, agentName: string): void {
-  const { ui, paths, flags, config, tmux } = ctx;
-
-  const entry = config.paneRegistry[agentName];
-  const hasPreamble =
-    entry?.preamble !== undefined ||
-    config.agents[agentName]?.preamble !== undefined ||
-    legacyHasPreamble(paths, agentName);
-
-  if (entry && hasPreamble) {
-    const pane = tmux.resolvePaneTarget(entry.pane);
-    if (!pane) {
-      ui.error(`Pane '${entry.pane}' not found. Is tmux running?`);
-      ctx.exit(ExitCodes.PANE_NOT_FOUND);
-    }
-    const nextEntry = { ...entry, pane };
-    delete nextEntry.preamble;
-    tmux.setAgentRegistration(
-      pane,
-      getRegistryScope(ctx),
-      registrationFromEntry(agentName, nextEntry)
-    );
-    clearLegacyPreambleIfPresent(paths, agentName);
-
-    if (flags.json) {
-      ui.json({ agent: agentName, status: 'cleared' });
+  try {
+    const result = service(ctx).clear(agentName);
+    if (ctx.flags.json) {
+      ctx.ui.json({ agent: result.identity.name, status: result.cleared ? 'cleared' : 'not_set' });
+    } else if (result.cleared) {
+      ctx.ui.success(`Cleared preamble for ${result.identity.name}`);
     } else {
-      ui.success(`Cleared preamble for ${agentName}`);
+      ctx.ui.info(`No preamble was set for ${result.identity.name}`);
     }
-  } else {
-    if (flags.json) {
-      ui.json({ agent: agentName, status: 'not_set' });
-    } else {
-      ui.info(`No preamble was set for ${agentName}`);
-    }
+  } catch (error) {
+    failPreamble(ctx, error);
   }
 }
 
-function updateLegacyPreambleIfPresent(
-  paths: Context['paths'],
-  agentName: string,
-  preamble: string
-): void {
-  const localConfig = loadLocalConfigFile(paths);
-  const agentEntry = localConfig[agentName] as { pane?: string; preamble?: string } | undefined;
-  if (!agentEntry) return;
-  agentEntry.preamble = preamble;
-  saveLocalConfigFile(paths, localConfig);
-}
-
-function clearLegacyPreambleIfPresent(paths: Context['paths'], agentName: string): void {
-  const localConfig = loadLocalConfigFile(paths);
-  const agentEntry = localConfig[agentName] as { pane?: string; preamble?: string } | undefined;
-  if (!agentEntry || !Object.prototype.hasOwnProperty.call(agentEntry, 'preamble')) return;
-  delete agentEntry.preamble;
-  saveLocalConfigFile(paths, localConfig);
-}
-
-function legacyHasPreamble(paths: Context['paths'], agentName: string): boolean {
-  const localConfig = loadLocalConfigFile(paths);
-  const agentEntry = localConfig[agentName] as { pane?: string; preamble?: string } | undefined;
-  return Boolean(agentEntry && Object.prototype.hasOwnProperty.call(agentEntry, 'preamble'));
-}
-
-/**
- * Preamble command entry point.
- */
 export function cmdPreamble(ctx: Context, request: PreambleRequest): void {
   switch (request.operation) {
     case 'show':

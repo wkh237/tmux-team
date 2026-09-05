@@ -13,9 +13,6 @@ function context(registrations: ActiveRegistration[] = [], json = false): Contex
     getCurrentPaneId: vi.fn(() => '%1'),
     resolvePaneTarget: vi.fn((target: string) => target),
     setPaneTitle: vi.fn(),
-    getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
-    setAgentRegistration: vi.fn(),
-    clearAgentRegistration: vi.fn(() => false),
     listGlobalIdentities: vi.fn(() => registrations),
     setGlobalIdentity: vi.fn(),
     clearGlobalIdentity: vi.fn(() => true),
@@ -42,8 +39,6 @@ function context(registrations: ActiveRegistration[] = [], json = false): Contex
         preambleEvery: 1,
         pasteEnterDelayMs: 0,
       },
-      agents: {},
-      paneRegistry: {},
     },
     tmux,
     paths: {

@@ -29,6 +29,35 @@ can coexist with cropped content; increasing `check` lines cannot recover text
 that the agent never rendered. No durable structured response channel is
 implied by this transport safety behavior.
 
+## Identity preambles
+
+Preambles are separate from role profiles and belong to existing durable global
+identities. These commands work without tmux, even when the identity is unbound:
+
+```bash
+tmt preamble show                    # list stored preambles
+tmt preamble show reviewer
+tmt preamble set reviewer "Review correctness before style."
+tmt preamble clear reviewer
+```
+
+Names are explicit; omitting the name lists preambles, not the caller's data.
+Unknown identities fail with `NAME_NOT_FOUND`; bind the intended identity
+explicitly rather than treating a pane ID or an old registration as its name.
+Use `clear`, not blank `set`. Content is limited to 65,536 UTF-8 bytes.
+
+`talk` uses the resolved identity's preamble for both names and bound pane
+targets; unnamed panes get none. Role text is never injected automatically.
+`--no-preamble`, disabled `preambleMode`, or `preambleEvery 0` skips injection.
+Frequency N applies on eligible attempts 1, 1+N, ...; counters are still
+best-effort JSON, not a concurrent delivery guarantee. The SQLite cutover starts
+a new identity-ID cadence; old name-keyed counters are not imported.
+
+Old JSON/workspace-metadata preambles are ignored, not migrated or deleted.
+Reapply intended text explicitly with `preamble set`. Preamble changes persist
+across folders, unbind and pane/server restart; clearing one does not clear its
+identity or role.
+
 ## Commands
 
 `name`, `this`, `whoami` and `unbind` require matching live `TMUX` and

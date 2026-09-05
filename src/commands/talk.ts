@@ -15,6 +15,8 @@ import {
 } from '../state.js';
 import { resolveTarget } from '../target-resolver.js';
 import { normalizeName } from '../domain/names.js';
+import { IdentitySelectionError } from '../identity-context.js';
+import { PreambleContentError } from '../domain/preamble.js';
 import { identityAwareTmux } from '../identity-service.js';
 import { TmuxDeliveryError } from '../message-delivery.js';
 
@@ -39,6 +41,24 @@ function failSend(ctx: Context, pane: string, error: unknown): never {
   if (ctx.flags.json) ctx.ui.json({ error: detail });
   else ctx.ui.error(detail.message);
   return ctx.exit(ExitCodes.ERROR);
+}
+
+function failPreamble(ctx: Context, error: unknown): never {
+  const code =
+    error instanceof IdentitySelectionError || error instanceof PreambleContentError
+      ? error.code
+      : 'PREAMBLE_ERROR';
+  const publicCode =
+    code === 'NAME_NOT_FOUND' ||
+    code === 'PREAMBLE_INPUT_INVALID' ||
+    code === 'PREAMBLE_INPUT_TOO_LARGE'
+      ? code
+      : 'PREAMBLE_ERROR';
+  const message =
+    error instanceof Error ? error.message : 'Could not access identity preamble state.';
+  if (ctx.flags.json) ctx.ui.json({ error: { code: publicCode, message } });
+  else ctx.ui.error(message);
+  return ctx.exit(publicCode === 'NAME_NOT_FOUND' ? ExitCodes.NAME_NOT_FOUND : ExitCodes.ERROR);
 }
 
 /**
@@ -252,7 +272,7 @@ function extractWithExpandableCapture(
  * Preamble injection frequency is controlled by preambleEvery config.
  * Default: inject every 3 messages per agent to save tokens.
  */
-function buildMessage(message: string, agentName: string, ctx: Context): string {
+function buildMessage(message: string, identityName: string | undefined, ctx: Context): string {
   const { config, flags, paths } = ctx;
 
   // Skip preamble if disabled or --no-preamble flag
@@ -260,28 +280,23 @@ function buildMessage(message: string, agentName: string, ctx: Context): string 
     return message;
   }
 
-  // Get agent-specific preamble
-  const agentConfig =
-    config.agents[agentName] ??
-    Object.entries(config.agents).find(
-      ([name]) => normalizeName(name) === normalizeName(agentName)
-    )?.[1];
-  const preamble = agentConfig?.preamble;
-
-  if (!preamble) {
-    return message;
-  }
-
-  // Check preamble frequency (preambleEvery: 0 means never, 1 means always)
+  // preambleEvery = 0 disables lookup and counter mutation entirely.
   const preambleEvery = config.defaults.preambleEvery;
-  if (preambleEvery <= 0) {
-    // preambleEvery = 0 means never inject (equivalent to disabled for this agent)
+  if (preambleEvery <= 0) return message;
+
+  // Direct pane targets without a durable identity have no preamble owner.
+  if (!identityName) return message;
+  if (!ctx.preambleService) throw new Error('Preamble service is unavailable.');
+
+  const result = ctx.preambleService.show(identityName);
+  const preamble = result.preamble?.content;
+  if (!preamble) {
     return message;
   }
 
   // Increment counter and check if we should inject preamble
   // Inject on message 1, 1+N, 1+2N, ... where N = preambleEvery
-  const count = incrementPreambleCounter(paths, agentName);
+  const count = incrementPreambleCounter(paths, result.identity.id);
   const shouldInject = (count - 1) % preambleEvery === 0;
 
   if (!shouldInject) {
@@ -325,11 +340,18 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
     await sleepMs(flags.delay * 1000);
   }
 
+  // Prepare once before either transport path or wait bookkeeping. A preamble
+  // lookup failure must not be reported as a delivery failure or send raw input.
+  let messageWithPreamble: string;
+  try {
+    messageWithPreamble = buildMessage(message, resolution.value.identity?.name, ctx);
+  } catch (error) {
+    failPreamble(ctx, error);
+  }
+
   if (!waitEnabled) {
     try {
-      // Build message with preamble, then apply Gemini filter
-      const msg = buildMessage(message, agentName, ctx);
-      tmux.send(pane, msg, { enterDelayMs });
+      tmux.send(pane, messageWithPreamble, { enterDelayMs });
 
       if (flags.json) {
         ui.json({ target, pane, ...(identity && { identity }), status: 'sent' });
@@ -353,7 +375,6 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
 
   // Build message with preamble and end marker instruction
   // Note: instruction doesn't contain literal marker to prevent false-positive detection
-  const messageWithPreamble = buildMessage(message, agentName, ctx);
   const fullMessage = `${messageWithPreamble}\n\n${makeEndMarkerInstruction(nonce)}`;
 
   // Best-effort cleanup and soft-lock warning

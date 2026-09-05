@@ -53,6 +53,18 @@ export const CURRENT_MIGRATIONS: readonly MigrationDefinition[] = [
         );
       `),
   },
+  {
+    version: 3,
+    name: 'create durable identity preambles',
+    up: (database) =>
+      database.exec(`
+        CREATE TABLE identity_preambles (
+          identity_id TEXT NOT NULL PRIMARY KEY REFERENCES identities(id) ON DELETE CASCADE,
+          content TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `),
+  },
 ];
 
 const CREATE_MIGRATIONS = `

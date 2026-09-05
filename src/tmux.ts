@@ -6,12 +6,9 @@ import { execFileSync, execSync } from 'child_process';
 import crypto from 'crypto';
 import { performance } from 'node:perf_hooks';
 import type {
-  AgentRegistration,
   PaneAgentMetadata,
   Tmux,
   PaneInfo,
-  RegistryScope,
-  TmuxRegistry,
   TmuxEndpointProbe,
   TmuxEndpointSnapshot,
   TmuxOperationOptions,
@@ -69,80 +66,6 @@ function safeParseMetadata(text: string): PaneAgentMetadata | undefined {
 
 function emptyMetadata(): PaneAgentMetadata {
   return { version: 1 };
-}
-
-function registrationForScope(
-  metadata: PaneAgentMetadata | undefined,
-  scope: RegistryScope
-): AgentRegistration | undefined {
-  return metadata?.workspaces?.[scope.workspaceRoot];
-}
-
-function setRegistrationForScope(
-  metadata: PaneAgentMetadata,
-  scope: RegistryScope,
-  registration: AgentRegistration
-): PaneAgentMetadata {
-  metadata.workspaces = {
-    ...metadata.workspaces,
-    [scope.workspaceRoot]: registration,
-  };
-  return metadata;
-}
-
-function deleteRegistrationForScope(
-  metadata: PaneAgentMetadata,
-  scope: RegistryScope
-): AgentRegistration | undefined {
-  const removed = metadata.workspaces?.[scope.workspaceRoot];
-  if (metadata.workspaces) {
-    delete metadata.workspaces[scope.workspaceRoot];
-    if (Object.keys(metadata.workspaces).length === 0) delete metadata.workspaces;
-  }
-  return removed;
-}
-
-function hasRegistrations(metadata: PaneAgentMetadata): boolean {
-  return Boolean(
-    metadata.globalIdentity ||
-    (metadata.workspaces && Object.keys(metadata.workspaces).length > 0) ||
-    (metadata.teams && Object.keys(metadata.teams).length > 0)
-  );
-}
-
-function registryFromPanes(panes: PaneInfo[], scope: RegistryScope): TmuxRegistry {
-  const paneRegistry: TmuxRegistry['paneRegistry'] = {};
-  const agents: TmuxRegistry['agents'] = {};
-
-  for (const pane of panes) {
-    const registration = registrationForScope(pane.metadata, scope);
-    if (!registration || paneRegistry[registration.name]) {
-      continue;
-    }
-
-    paneRegistry[registration.name] = {
-      pane: pane.id,
-      ...(registration.remark !== undefined && { remark: registration.remark }),
-      ...(registration.preamble !== undefined && { preamble: registration.preamble }),
-      ...(registration.deny !== undefined && { deny: registration.deny }),
-    };
-
-    if (
-      Object.prototype.hasOwnProperty.call(registration, 'preamble') ||
-      Object.prototype.hasOwnProperty.call(registration, 'deny')
-    ) {
-      agents[registration.name] = {
-        ...(Object.prototype.hasOwnProperty.call(registration, 'preamble') && {
-          preamble: registration.preamble,
-        }),
-        ...(Object.prototype.hasOwnProperty.call(registration, 'deny') && {
-          deny: registration.deny,
-        }),
-      };
-    }
-  }
-
-  return { paneRegistry, agents };
 }
 
 function parsePaneOutput(
@@ -479,34 +402,6 @@ export function createTmux(): Tmux {
       return callerPaneId();
     },
 
-    getAgentRegistry(scope: RegistryScope): TmuxRegistry {
-      return registryFromPanes(this.listPanes(), scope);
-    },
-
-    setAgentRegistration(
-      paneId: string,
-      scope: RegistryScope,
-      registration: AgentRegistration
-    ): void {
-      const metadata = readPaneMetadata(paneId);
-      const next = setRegistrationForScope(metadata, scope, registration);
-      writePaneMetadata(paneId, next);
-    },
-
-    clearAgentRegistration(name: string, scope: RegistryScope): boolean {
-      let removed = false;
-      for (const pane of this.listPanes()) {
-        const registration = registrationForScope(pane.metadata, scope);
-        if (registration?.name !== name) continue;
-
-        const metadata = pane.metadata ?? emptyMetadata();
-        deleteRegistrationForScope(metadata, scope);
-        writePaneMetadata(pane.id, metadata);
-        removed = true;
-      }
-      return removed;
-    },
-
     listGlobalIdentities() {
       return this.listPanes().flatMap((pane) => {
         const identity = pane.metadata?.globalIdentity;
@@ -651,12 +546,16 @@ function readPaneMetadata(paneId: string): PaneAgentMetadata {
   return tryReadPaneMetadata(paneId) ?? emptyMetadata();
 }
 
+function hasMetadata(metadata: PaneAgentMetadata): boolean {
+  return Object.keys(metadata).some((key) => key !== 'version');
+}
+
 function writePaneMetadata(
   paneId: string,
   metadata: PaneAgentMetadata,
   options: TmuxOperationOptions = {}
 ): void {
-  if (!hasRegistrations(metadata)) {
+  if (!hasMetadata(metadata)) {
     execFileSync('tmux', ['set-option', '-p', '-u', '-t', paneId, AGENT_METADATA_OPTION], {
       stdio: 'pipe',
       ...commandOptions(options),

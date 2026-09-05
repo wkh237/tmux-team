@@ -158,7 +158,7 @@ function capabilityFor(invocation: ParsedInvocation): ParsedMetadata['capability
     case 'install':
       return 'storage';
     case 'preamble':
-      return invocation.operation === 'show' ? 'storage' : 'tmux';
+      return 'storage';
     case 'role':
       // Keep context creation storage-only. Implicit current-pane resolution
       // obtains tmux lazily, preserving offline explicit identity behavior.

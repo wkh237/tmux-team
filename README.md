@@ -287,15 +287,18 @@ are rejected without changing the stored profile. Use `clear`, not an empty
 Writes replace the whole profile atomically. Concurrent writes use
 last-committed-write-wins; there is no content merge or version-conflict check.
 The role document is stored data only: it is not automatically injected into
-`talk` messages and does not change legacy preambles.
+`talk` messages and does not change identity preambles.
 
-## Legacy preambles
+## Identity preambles
 
-Workspace-scoped preambles remain available for migrated or legacy
-registrations:
+Preambles belong to existing durable global identities, separately from role
+profiles. Managing them does not require tmux or an active binding:
 
 ```bash
+tmt preamble show
+tmt preamble show codex
 tmt preamble set codex "You are the code quality guard. Be strict."
+tmt preamble clear codex
 ```
 
 When you send a message, tmux-team injects the preamble like this:
@@ -306,12 +309,32 @@ When you send a message, tmux-team injects the preamble like this:
 Review the login flow changes.
 ```
 
-This compatibility setting is separate from the global identity binding.
-Control how often it is injected with `preambleEvery`:
+Names are explicit and case-normalized; an unknown identity fails with
+`NAME_NOT_FOUND` (exit 3). Bare `preamble` or `show` without a name lists stored
+preambles, not the caller's data. Show returns null when an existing identity
+has no preamble; repeated clear is safe. Set accepts nonblank text up to 65,536
+UTF-8 bytes, normalizes an initial BOM and CRLF/CR, and rejects invalid Unicode
+or control characters without replacing existing content. Use clear to remove it.
+
+Both name targets and direct panes with a verified identity use that identity's
+preamble. Unnamed panes get none. Role text is never automatically injected.
+Content persists across directories, unbind, pane death and server restart.
+Control injection frequency with `preambleEvery`:
 
 ```bash
 tmt config set preambleEvery 3
 ```
+
+For N, injection occurs on eligible attempts 1, 1+N, 1+2N, and so on. Disabled
+`preambleMode`, `--no-preamble`, no stored content, or N=0 does not advance the
+counter. Set, clear and rebind do not reset it. Counters remain best-effort JSON:
+concurrent updates can race and a failed send can consume cadence. The SQLite
+content cutover uses identity-ID counter keys, starting fresh without importing
+or deleting old name-keyed counters. Transactional request/cadence work is separate.
+
+Old preambles in JSON or workspace metadata are ignored, not automatically
+imported or deleted. Reapply desired text using `preamble set`. A preamble lookup
+failure stops delivery rather than silently sending without it.
 
 ## Retired registry commands
 
@@ -324,10 +347,10 @@ Use `name`/`this` or `add` to bind a durable identity, and `unbind` to detach
 the current pane without deleting its identity or role profile. No replacement
 durable-identity deletion or rename command is introduced.
 
-Local `$config` settings and the existing preamble feature still use
-`tmux-team.json`/workspace metadata where applicable. Their remaining registry
-dependencies are tracked separately; command retirement does not migrate
-preambles into role profiles.
+Local `$config` settings still use `tmux-team.json`; unknown keys remain when
+editing settings. Legacy pane, preamble and deny entries are no longer runtime
+configuration or routing authority. Ordinary preamble operations leave those
+files and opaque old pane metadata untouched.
 
 ## Using /team in Claude Code
 

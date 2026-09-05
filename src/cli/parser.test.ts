@@ -108,6 +108,13 @@ describe('declarative CLI parser', () => {
     expect(parseArgs(['completion', 'zsh']).metadata).toMatchObject({ capability: 'none' });
     expect(parseArgs(['learn']).metadata).toMatchObject({ capability: 'none' });
     expect(parseArgs(['config']).metadata).toMatchObject({ capability: 'storage' });
+    for (const args of [
+      ['preamble', 'show', 'claude'],
+      ['preamble', 'set', 'claude', 'Be concise'],
+      ['preamble', 'clear', 'claude'],
+    ]) {
+      expect(parseArgs(args).metadata).toMatchObject({ capability: 'storage' });
+    }
     for (const args of [['name', 'Alice'], ['this', 'Alice'], ['whoami'], ['unbind']]) {
       expect(parseArgs(args).metadata).toMatchObject({ capability: 'storage' });
     }

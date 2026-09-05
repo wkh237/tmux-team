@@ -34,7 +34,7 @@ describe('SQLite storage adapter', () => {
 
     expect(storage.health()).toMatchObject({
       open: true,
-      schemaVersion: 2,
+      schemaVersion: 3,
       journalMode: 'wal',
       foreignKeys: true,
       busyTimeoutMs: 5000,
@@ -57,6 +57,7 @@ describe('SQLite storage adapter', () => {
       '_migrations',
       'bindings',
       'identities',
+      'identity_preambles',
       'role_profiles',
     ]);
     database.close();
@@ -194,16 +195,20 @@ describe('SQLite storage adapter', () => {
         }
         return statement;
       });
-      expect(applyMigrations(first)).toBe(2);
+      expect(applyMigrations(first)).toBe(3);
       spy.mockRestore();
       expect(interleave).toBe(false);
       expect(first.prepare('SELECT version FROM _migrations ORDER BY version').all()).toEqual([
         { version: 1 },
         { version: 2 },
+        { version: 3 },
       ]);
       expect(
         first.prepare("SELECT name FROM sqlite_master WHERE name = 'role_profiles'").all()
       ).toEqual([{ name: 'role_profiles' }]);
+      expect(
+        first.prepare("SELECT name FROM sqlite_master WHERE name = 'identity_preambles'").all()
+      ).toEqual([{ name: 'identity_preambles' }]);
     } finally {
       first.close();
       second.close();

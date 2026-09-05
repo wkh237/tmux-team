@@ -48,8 +48,6 @@ function createCtx(
       preambleEvery: 3,
       pasteEnterDelayMs: 500,
     },
-    agents: {},
-    paneRegistry: {},
     ...configOverrides,
   };
   const tmux: Tmux = {
@@ -59,9 +57,6 @@ function createCtx(
     getCurrentPaneId: vi.fn(() => null),
     resolvePaneTarget: vi.fn((target: string) => target),
     setPaneTitle: vi.fn(),
-    getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
-    setAgentRegistration: vi.fn(),
-    clearAgentRegistration: vi.fn(() => false),
     listGlobalIdentities: vi.fn(() => []),
     setGlobalIdentity: vi.fn(),
     clearGlobalIdentity: vi.fn(() => false),

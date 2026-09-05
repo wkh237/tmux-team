@@ -208,8 +208,6 @@ describe('loadConfig', () => {
     expect(config.defaults.pollInterval).toBe(1);
     expect(config.defaults.captureLines).toBe(100);
     expect(config.defaults.pasteEnterDelayMs).toBe(500);
-    expect(config.agents).toEqual({});
-    expect(config.paneRegistry).toEqual({});
   });
 
   it('loads and merges global config (mode, preambleMode, defaults only)', () => {
@@ -228,69 +226,6 @@ describe('loadConfig', () => {
     expect(config.preambleMode).toBe('disabled');
     expect(config.defaults.timeout).toBe(120);
     expect(config.defaults.pollInterval).toBe(1); // Default preserved
-    expect(config.agents).toEqual({}); // No agents from global config
-  });
-
-  it('loads local pane registry from tmux-team.json', () => {
-    const localConfig = {
-      claude: { pane: '1.0', remark: 'Main assistant' },
-      codex: { pane: '1.1' },
-    };
-
-    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
-
-    const config = loadConfig(mockPaths);
-
-    expect(config.paneRegistry.claude?.pane).toBe('1.0');
-    expect(config.paneRegistry.claude?.remark).toBe('Main assistant');
-    expect(config.paneRegistry.codex?.pane).toBe('1.1');
-  });
-
-  it('overlays tmux registry on top of legacy local entries', () => {
-    const localConfig = {
-      claude: { pane: '1.0', remark: 'legacy' },
-      codex: { pane: '1.1', remark: 'legacy codex' },
-    };
-
-    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
-
-    const config = loadConfig(mockPaths, {
-      paneRegistry: {
-        claude: { pane: '%9', remark: 'tmux' },
-      },
-      agents: {
-        claude: { preamble: 'from tmux' },
-      },
-    });
-
-    expect(config.registrySource).toBe('tmux');
-    expect(config.paneRegistry.claude).toEqual({ pane: '%9', remark: 'tmux' });
-    expect(config.paneRegistry.codex).toEqual({ pane: '1.1', remark: 'legacy codex' });
-    expect(config.agents.claude?.preamble).toBe('from tmux');
-  });
-
-  it('merges both global and local config (agents from local only)', () => {
-    const globalConfig = {
-      mode: 'wait',
-    };
-    const localConfig = {
-      claude: { pane: '1.0', preamble: 'Be brief' },
-    };
-
-    vi.mocked(fs.existsSync).mockReturnValue(true);
-    vi.mocked(fs.readFileSync).mockImplementation((p) => {
-      if (p === mockPaths.globalConfig) return JSON.stringify(globalConfig);
-      if (p === mockPaths.localConfig) return JSON.stringify(localConfig);
-      return '';
-    });
-
-    const config = loadConfig(mockPaths);
-
-    expect(config.mode).toBe('wait'); // from global
-    expect(config.agents.claude?.preamble).toBe('Be brief'); // from local
-    expect(config.paneRegistry.claude?.pane).toBe('1.0'); // from local
   });
 
   it('throws ConfigParseError on invalid JSON in config file', () => {
@@ -315,127 +250,12 @@ describe('loadConfig', () => {
     }
   });
 
-  it('loads local preamble into agents config', () => {
+  it('ignores legacy identity entries while preserving settings', () => {
+    const globalConfig = { mode: 'wait' };
     const localConfig = {
-      claude: { pane: '1.0', preamble: 'Be helpful and concise' },
-    };
-
-    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
-
-    const config = loadConfig(mockPaths);
-
-    expect(config.agents.claude?.preamble).toBe('Be helpful and concise');
-    expect(config.paneRegistry.claude?.pane).toBe('1.0');
-  });
-
-  it('loads local deny into agents config', () => {
-    const localConfig = {
-      claude: { pane: '1.0', deny: ['pm:task:update(status)'] },
-    };
-
-    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
-
-    const config = loadConfig(mockPaths);
-
-    expect(config.agents.claude?.deny).toEqual(['pm:task:update(status)']);
-  });
-
-  it('loads preamble from local config only', () => {
-    const localConfig = {
-      claude: { pane: '1.0', preamble: 'Local preamble' },
-    };
-
-    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
-
-    const config = loadConfig(mockPaths);
-
-    expect(config.agents.claude?.preamble).toBe('Local preamble');
-  });
-
-  it('loads deny from local config only', () => {
-    const localConfig = {
-      claude: { pane: '1.0', deny: ['pm:task:create'] },
-    };
-
-    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
-
-    const config = loadConfig(mockPaths);
-
-    expect(config.agents.claude?.deny).toEqual(['pm:task:create']);
-  });
-
-  it('handles local config with both preamble and deny', () => {
-    const localConfig = {
-      claude: { pane: '1.0', preamble: 'Be helpful', deny: ['pm:task:update(status)'] },
-    };
-
-    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
-
-    const config = loadConfig(mockPaths);
-
-    expect(config.agents.claude?.preamble).toBe('Be helpful');
-    expect(config.agents.claude?.deny).toEqual(['pm:task:update(status)']);
-  });
-
-  it('handles empty preamble in local config', () => {
-    const localConfig = {
-      claude: { pane: '1.0', preamble: '' },
-    };
-
-    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
-
-    const config = loadConfig(mockPaths);
-
-    expect(config.agents.claude?.preamble).toBe('');
-  });
-
-  it('handles empty deny array in local config', () => {
-    const localConfig = {
-      claude: { pane: '1.0', deny: [] },
-    };
-
-    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
-
-    const config = loadConfig(mockPaths);
-
-    expect(config.agents.claude?.deny).toEqual([]);
-  });
-
-  it('skips entries without pane field in paneRegistry', () => {
-    const localConfig = {
-      claude: { pane: '1.0' },
-      codex: { preamble: 'Preamble only, no pane' },
-    };
-
-    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
-
-    const config = loadConfig(mockPaths);
-
-    expect(config.paneRegistry.claude?.pane).toBe('1.0');
-    expect(config.paneRegistry.codex).toBeUndefined();
-    // But preamble should still be merged
-    expect(config.agents.codex?.preamble).toBe('Preamble only, no pane');
-  });
-
-  it('ignores agents field in global config (local config is SSOT)', () => {
-    // Even if global config has agents, they should be ignored
-    const globalConfig = {
-      mode: 'wait',
-      agents: {
-        // This should be ignored
-        claude: { preamble: 'Global preamble', deny: ['pm:task:delete'] },
-      },
-    };
-    const localConfig = {
-      claude: { pane: '1.0', preamble: 'Local preamble' },
+      $config: { preambleEvery: 5 },
+      claude: { pane: '1.0', preamble: 'legacy' },
+      future: { flag: true },
     };
 
     vi.mocked(fs.existsSync).mockReturnValue(true);
@@ -446,45 +266,9 @@ describe('loadConfig', () => {
     });
 
     const config = loadConfig(mockPaths);
-
-    // Mode from global should work
     expect(config.mode).toBe('wait');
-    // But agents come only from local config
-    expect(config.agents.claude?.preamble).toBe('Local preamble');
-    expect(config.agents.claude?.deny).toBeUndefined(); // Not from global
-  });
-
-  it('local config defines project-specific agent roles without global pollution', () => {
-    // No global config
-    const localConfig = {
-      claude: {
-        pane: '1.0',
-        remark: 'Main implementer',
-        preamble: 'You implement features. Ask Codex for review.',
-        deny: ['pm:task:update(status)', 'pm:milestone:update(status)'],
-      },
-      codex: {
-        pane: '1.1',
-        remark: 'Code quality guard',
-        preamble: 'You review code. You can update task status.',
-        // No deny - codex can do everything
-      },
-    };
-
-    vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.localConfig);
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(localConfig));
-
-    const config = loadConfig(mockPaths);
-
-    // Claude has deny rules
-    expect(config.agents.claude?.deny).toEqual([
-      'pm:task:update(status)',
-      'pm:milestone:update(status)',
-    ]);
-    expect(config.agents.claude?.preamble).toBe('You implement features. Ask Codex for review.');
-
-    // Codex has no deny rules (full access)
-    expect(config.agents.codex?.deny).toBeUndefined();
-    expect(config.agents.codex?.preamble).toBe('You review code. You can update task status.');
+    expect(config.defaults.preambleEvery).toBe(5);
+    expect(config).not.toHaveProperty('agents');
+    expect(config).not.toHaveProperty('paneRegistry');
   });
 });

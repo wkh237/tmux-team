@@ -1,28 +1,10 @@
 import type { ActiveRegistration } from './domain/types.js';
 import type { DurableIdentity, RoleProfile, TmuxBinding } from './domain/identity.js';
+import type { PreambleService } from './preamble-service.js';
 
 // ─────────────────────────────────────────────────────────────
 // Shared TypeScript interfaces for tmux-team
 // ─────────────────────────────────────────────────────────────
-
-export interface AgentConfig {
-  preamble?: string;
-  deny?: string[]; // Permission deny patterns, e.g., ["pm:task:update(status)"]
-}
-
-export interface PaneEntry {
-  pane: string;
-  remark?: string;
-  preamble?: string; // Agent preamble (prepended to messages)
-  deny?: string[]; // Permission deny patterns
-}
-
-export interface AgentRegistration {
-  name: string;
-  remark?: string;
-  preamble?: string;
-  deny?: string[];
-}
 
 export interface PaneAgentMetadata {
   version: 1;
@@ -34,13 +16,7 @@ export interface PaneAgentMetadata {
     serverId?: string;
     panePid?: number;
   };
-  workspaces?: Record<string, AgentRegistration>;
-  teams?: Record<string, AgentRegistration>;
-}
-
-export interface TmuxRegistry {
-  paneRegistry: Record<string, PaneEntry>;
-  agents: Record<string, AgentConfig>;
+  [key: string]: unknown;
 }
 
 export interface ConfigDefaults {
@@ -67,20 +43,13 @@ export interface LocalSettings {
 
 export interface LocalConfigFile {
   $config?: LocalSettings;
-  [agentName: string]: PaneEntry | LocalSettings | undefined;
-}
-
-export interface LocalConfig {
-  [agentName: string]: PaneEntry;
+  [key: string]: unknown;
 }
 
 export interface ResolvedConfig {
   mode: 'polling' | 'wait';
   preambleMode: 'always' | 'disabled';
   defaults: ConfigDefaults;
-  agents: Record<string, AgentConfig>;
-  paneRegistry: Record<string, PaneEntry>;
-  registrySource?: 'tmux' | 'legacy' | 'none';
 }
 
 export interface Flags {
@@ -103,7 +72,6 @@ export interface Paths {
   stateFile: string;
   /** User-scoped SQLite database used by durable v5 features. */
   databaseFile: string;
-  workspaceRoot?: string;
 }
 
 export interface UI {
@@ -133,13 +101,6 @@ export interface Tmux {
   getCurrentPaneId: () => string | null;
   resolvePaneTarget: (target: string) => string | null;
   setPaneTitle: (paneId: string, title: string) => void;
-  getAgentRegistry: (scope: RegistryScope) => TmuxRegistry;
-  setAgentRegistration: (
-    paneId: string,
-    scope: RegistryScope,
-    registration: AgentRegistration
-  ) => void;
-  clearAgentRegistration: (name: string, scope: RegistryScope) => boolean;
   listGlobalIdentities: () => ActiveRegistration[];
   setGlobalIdentity: (paneId: string, name: string) => void;
   clearGlobalIdentity: (paneId: string) => boolean;
@@ -212,11 +173,6 @@ export interface RoleResult {
   readonly role: RoleProfile | null;
 }
 
-export interface RegistryScope {
-  type: 'workspace';
-  workspaceRoot: string;
-}
-
 export interface WaitResult {
   requestId: string;
   nonce: string;
@@ -231,9 +187,9 @@ export interface Context {
   config: ResolvedConfig;
   tmux: Tmux;
   paths: Paths;
-  registryScope?: RegistryScope;
   exit: (code: number) => never;
   identityService?: IdentityService;
+  preambleService?: PreambleService;
   roleService?: RoleService;
   dispose?: () => void;
 }
