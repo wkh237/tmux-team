@@ -34,7 +34,7 @@ describe('SQLite storage adapter', () => {
 
     expect(storage.health()).toMatchObject({
       open: true,
-      schemaVersion: 3,
+      schemaVersion: 4,
       journalMode: 'wal',
       foreignKeys: true,
       busyTimeoutMs: 5000,
@@ -58,6 +58,8 @@ describe('SQLite storage adapter', () => {
       'bindings',
       'identities',
       'identity_preambles',
+      'preamble_counters',
+      'request_attempts',
       'role_profiles',
     ]);
     database.close();
@@ -95,6 +97,67 @@ describe('SQLite storage adapter', () => {
       count: 2,
     });
     database.close();
+  });
+
+  it('upgrades a v3 database while preserving durable identity data', () => {
+    const directory = temporaryDirectory();
+    const initial = openStorageWithMigrations(location(directory), CURRENT_MIGRATIONS.slice(0, 3));
+    initial.close();
+
+    const seeded = new Database(path.join(directory, 'tmux-team.db'));
+    seeded
+      .prepare(
+        'INSERT INTO identities (id, name, canonical_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+      )
+      .run(
+        'identity-1',
+        'Reviewer',
+        'reviewer',
+        '2026-01-01T00:00:00.000Z',
+        '2026-01-01T00:00:00.000Z'
+      );
+    seeded
+      .prepare(
+        'INSERT INTO bindings (id, identity_id, transport, pane_id, server_id, socket_path, server_pid, server_start_time, pane_pid, bound_at, last_verified_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      )
+      .run(
+        'binding-1',
+        'identity-1',
+        'tmux',
+        '%1',
+        'server-1',
+        '/tmp/tmux.sock',
+        123,
+        'server-start-1',
+        456,
+        '2026-01-01T00:00:00.000Z',
+        '2026-01-01T00:00:00.000Z'
+      );
+    seeded
+      .prepare('INSERT INTO role_profiles (identity_id, content, updated_at) VALUES (?, ?, ?)')
+      .run('identity-1', 'role text', '2026-01-01T00:00:00.000Z');
+    seeded
+      .prepare('INSERT INTO identity_preambles (identity_id, content, updated_at) VALUES (?, ?, ?)')
+      .run('identity-1', 'preamble text', '2026-01-01T00:00:00.000Z');
+    seeded.close();
+
+    const upgraded = openStorage(location(directory));
+    expect(upgraded.health().schemaVersion).toBe(4);
+    upgraded.close();
+
+    const verification = new Database(path.join(directory, 'tmux-team.db'), { readonly: true });
+    expect(verification.prepare('SELECT name FROM identities').get()).toEqual({ name: 'Reviewer' });
+    expect(verification.prepare('SELECT pane_id FROM bindings').get()).toEqual({ pane_id: '%1' });
+    expect(verification.prepare('SELECT content FROM role_profiles').get()).toEqual({
+      content: 'role text',
+    });
+    expect(verification.prepare('SELECT content FROM identity_preambles').get()).toEqual({
+      content: 'preamble text',
+    });
+    expect(
+      verification.prepare("SELECT name FROM sqlite_master WHERE name = 'request_attempts'").get()
+    ).toEqual({ name: 'request_attempts' });
+    verification.close();
   });
 
   it('rejects future and non-contiguous schema history without changing it', () => {
@@ -195,13 +258,14 @@ describe('SQLite storage adapter', () => {
         }
         return statement;
       });
-      expect(applyMigrations(first)).toBe(3);
+      expect(applyMigrations(first)).toBe(4);
       spy.mockRestore();
       expect(interleave).toBe(false);
       expect(first.prepare('SELECT version FROM _migrations ORDER BY version').all()).toEqual([
         { version: 1 },
         { version: 2 },
         { version: 3 },
+        { version: 4 },
       ]);
       expect(
         first.prepare("SELECT name FROM sqlite_master WHERE name = 'role_profiles'").all()

@@ -58,6 +58,9 @@ function context(json = false): Context {
     },
     tmux,
     identityService,
+    get requestService(): Context['requestService'] {
+      throw new Error('Unexpected request service access.');
+    },
     paths: { globalDir: '', globalConfig: '', localConfig: '', stateFile: '', databaseFile: '' },
     exit: ((code: number) => {
       throw Object.assign(new Error(`exit(${code})`), { exitCode: code });

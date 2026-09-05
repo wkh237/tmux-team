@@ -74,6 +74,9 @@ function createContext(service: PreambleService, flags: Partial<Context['flags']
       resolveActive: vi.fn(),
       reconcile: vi.fn(),
     },
+    get requestService(): Context['requestService'] {
+      throw new Error('Unexpected request service access.');
+    },
     paths: {
       globalDir: '/tmp/tmt',
       globalConfig: '/tmp/tmt/config.json',

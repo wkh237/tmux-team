@@ -26,6 +26,9 @@ function context(json: boolean): Context {
       resolveActive: vi.fn(),
       reconcile: vi.fn(),
     },
+    get requestService(): Context['requestService'] {
+      throw new Error('Unexpected request service access.');
+    },
     paths: {} as Context['paths'],
     exit: ((code: number) => {
       const error = new Error(`exit(${code})`) as Error & { exitCode: number };

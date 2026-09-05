@@ -6,13 +6,12 @@ import type { Context } from '../types.js';
 import type { WaitResult } from '../types.js';
 import { ExitCodes } from '../exits.js';
 import { colors } from '../ui.js';
-import crypto from 'crypto';
+import crypto from 'node:crypto';
 import {
-  cleanupState,
-  clearActiveRequest,
-  setActiveRequest,
-  incrementPreambleCounter,
-} from '../state.js';
+  endpointFromSnapshot,
+  type RequestPreparation,
+  type RequestService,
+} from '../request-service.js';
 import { resolveTarget } from '../target-resolver.js';
 import { normalizeName } from '../domain/names.js';
 import { IdentitySelectionError } from '../identity-context.js';
@@ -37,9 +36,13 @@ function failSend(ctx: Context, pane: string, error: unknown): never {
     return ctx.exit(ExitCodes.ERROR);
   }
 
-  const detail = { code: 'ERROR', message: `Failed to send to pane ${pane}. Is tmux running?` };
+  const detail = {
+    code: 'ERROR',
+    message: `Failed to send to pane ${pane}. Is tmux running?`,
+    suggestion: 'Delivery may have occurred; inspect the target pane before retrying.',
+  };
   if (ctx.flags.json) ctx.ui.json({ error: detail });
-  else ctx.ui.error(detail.message);
+  else ctx.ui.error(`${detail.message} ${detail.suggestion}`);
   return ctx.exit(ExitCodes.ERROR);
 }
 
@@ -61,6 +64,24 @@ function failPreamble(ctx: Context, error: unknown): never {
   return ctx.exit(publicCode === 'NAME_NOT_FOUND' ? ExitCodes.NAME_NOT_FOUND : ExitCodes.ERROR);
 }
 
+function failRequestState(ctx: Context, possibleDelivery: boolean, cause?: unknown): never {
+  const detail = {
+    code: 'REQUEST_STATE_ERROR',
+    message: possibleDelivery
+      ? 'Request state could not be persisted after transport; delivery may have occurred. Do not retry until you inspect the target pane.'
+      : 'Request state could not be persisted before transport; no message was sent. Fix the request state database before retrying.',
+    suggestion: possibleDelivery
+      ? 'Inspect the target pane before retrying.'
+      : 'Fix the request state database before retrying.',
+  };
+  if (ctx.flags.json) ctx.ui.json({ error: detail });
+  else ctx.ui.error(`${detail.message} ${detail.suggestion}`);
+  if (cause && ctx.flags.debug) {
+    console.error('[DEBUG] Request state failure:', cause);
+  }
+  return ctx.exit(ExitCodes.ERROR);
+}
+
 /**
  * Clean Gemini CLI response by removing UI artifacts.
  */
@@ -80,7 +101,7 @@ function cleanGeminiResponse(response: string): string {
 }
 
 function makeRequestId(): string {
-  return `req_${Date.now().toString(36)}_${crypto.randomBytes(3).toString('hex')}`;
+  return `req_${crypto.randomUUID()}`;
 }
 
 function makeNonce(): string {
@@ -272,38 +293,70 @@ function extractWithExpandableCapture(
  * Preamble injection frequency is controlled by preambleEvery config.
  * Default: inject every 3 messages per agent to save tokens.
  */
-function buildMessage(message: string, identityName: string | undefined, ctx: Context): string {
-  const { config, flags, paths } = ctx;
+interface PreparedMessage {
+  readonly message: string;
+  readonly preamble?: {
+    readonly identityId: string;
+    readonly every: number;
+    readonly content: string;
+  };
+}
+
+function prepareMessage(
+  message: string,
+  identityName: string | undefined,
+  ctx: Context
+): PreparedMessage {
+  const { config, flags } = ctx;
 
   // Skip preamble if disabled or --no-preamble flag
   if (config.preambleMode === 'disabled' || flags.noPreamble) {
-    return message;
+    return { message };
   }
 
   // preambleEvery = 0 disables lookup and counter mutation entirely.
   const preambleEvery = config.defaults.preambleEvery;
-  if (preambleEvery <= 0) return message;
+  if (preambleEvery <= 0) return { message };
 
   // Direct pane targets without a durable identity have no preamble owner.
-  if (!identityName) return message;
+  if (!identityName) return { message };
   if (!ctx.preambleService) throw new Error('Preamble service is unavailable.');
 
   const result = ctx.preambleService.show(identityName);
   const preamble = result.preamble?.content;
-  if (!preamble) {
-    return message;
+  if (!preamble) return { message };
+
+  return {
+    message,
+    preamble: { identityId: result.identity.id, every: preambleEvery, content: preamble },
+  };
+}
+
+function composeMessage(prepared: PreparedMessage, injectPreamble: boolean): string {
+  if (!injectPreamble || !prepared.preamble) return prepared.message;
+  return `[SYSTEM: ${prepared.preamble.content}]\n\n${prepared.message}`;
+}
+
+function requestExpiryMs(wait: boolean, timeoutSeconds: number, enterDelayMs: number): number {
+  if (!Number.isFinite(enterDelayMs) || enterDelayMs < 0) {
+    throw new Error('The configured paste-enter delay must be a finite non-negative number.');
+  }
+  if (wait && (!Number.isFinite(timeoutSeconds) || timeoutSeconds < 0)) {
+    throw new Error('The wait timeout must be a finite non-negative number.');
   }
 
-  // Increment counter and check if we should inject preamble
-  // Inject on message 1, 1+N, 1+2N, ... where N = preambleEvery
-  const count = incrementPreambleCounter(paths, result.identity.id);
-  const shouldInject = (count - 1) % preambleEvery === 0;
-
-  if (!shouldInject) {
-    return message;
+  const nowMs = Date.now();
+  const timeoutMs = wait ? Math.ceil(timeoutSeconds * 1000) : 0;
+  const delayMs = Math.ceil(enterDelayMs);
+  const budgetMs = timeoutMs + delayMs + 1000;
+  const retentionMs = Math.max(60 * 60 * 1000, wait ? budgetMs : delayMs + 1000);
+  if (!Number.isSafeInteger(timeoutMs) || !Number.isSafeInteger(delayMs)) {
+    throw new Error('The request timing budget is outside the supported range.');
   }
-
-  return `[SYSTEM: ${preamble}]\n\n${message}`;
+  if (!Number.isSafeInteger(retentionMs) || !Number.isSafeInteger(nowMs + retentionMs)) {
+    throw new Error('The request expiry is outside the supported range.');
+  }
+  return nowMs + retentionMs;
 }
 
 export async function cmdTalk(ctx: Context, target: string, message: string): Promise<void> {
@@ -342,51 +395,139 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
 
   // Prepare once before either transport path or wait bookkeeping. A preamble
   // lookup failure must not be reported as a delivery failure or send raw input.
-  let messageWithPreamble: string;
+  let preparedMessage: PreparedMessage;
   try {
-    messageWithPreamble = buildMessage(message, resolution.value.identity?.name, ctx);
+    preparedMessage = prepareMessage(message, resolution.value.identity?.name, ctx);
   } catch (error) {
     failPreamble(ctx, error);
   }
+  const timeoutSeconds = flags.timeout ?? config.defaults.timeout;
+  const requestId = makeRequestId();
+  const nonce = waitEnabled ? makeNonce() : undefined;
+  const endMarker = nonce ? makeEndMarker(nonce) : undefined;
 
-  if (!waitEnabled) {
-    try {
-      tmux.send(pane, messageWithPreamble, { enterDelayMs });
-
-      if (flags.json) {
-        ui.json({ target, pane, ...(identity && { identity }), status: 'sent' });
-      } else {
-        console.log(`${colors.green('→')} Sent to ${colors.cyan(target)} (${pane})`);
-      }
-      return;
-    } catch (error) {
-      failSend(ctx, pane, error);
-    }
+  let endpoint;
+  try {
+    if (!tmux.getEndpointSnapshot) throw new Error('Tmux endpoint evidence is unavailable.');
+    endpoint = endpointFromSnapshot(tmux.getEndpointSnapshot(), pane);
+  } catch (error) {
+    return failRequestState(ctx, false, error);
   }
 
-  // Wait mode
-  const timeoutSeconds = flags.timeout ?? config.defaults.timeout;
-  const pollIntervalSeconds = Math.max(0.1, config.defaults.pollInterval);
-  const captureLines = config.defaults.captureLines;
+  let requestService: RequestService;
+  try {
+    requestService = ctx.requestService;
+  } catch (error) {
+    return failRequestState(ctx, false, error);
+  }
 
-  const requestId = makeRequestId();
-  const nonce = makeNonce();
-  const endMarker = makeEndMarker(nonce);
+  let preparation: RequestPreparation;
+  try {
+    preparation = requestService.prepare({
+      requestId,
+      ...(nonce !== undefined && { nonce }),
+      endpoint,
+      wait: waitEnabled,
+      expiresAtMs: requestExpiryMs(waitEnabled, timeoutSeconds, enterDelayMs),
+      ...(preparedMessage.preamble && {
+        preamble: {
+          identityId: preparedMessage.preamble.identityId,
+          every: preparedMessage.preamble.every,
+        },
+      }),
+    });
+  } catch (error) {
+    return failRequestState(ctx, false, error);
+  }
 
-  // Build message with preamble and end marker instruction
-  // Note: instruction doesn't contain literal marker to prevent false-positive detection
-  const fullMessage = `${messageWithPreamble}\n\n${makeEndMarkerInstruction(nonce)}`;
-
-  // Best-effort cleanup and soft-lock warning
-  const state = cleanupState(ctx.paths, 60 * 60); // 1 hour TTL
-  const existing = state.requests[pane];
-  if (existing && !flags.json && !flags.force) {
+  if (waitEnabled && preparation.previousRequestId && !flags.json && !flags.force) {
     ui.warn(
-      `Another recent wait request exists for '${agentName}' (id: ${existing.id}). Results may interleave.`
+      `Another recent wait request exists for '${agentName}' (id: ${preparation.previousRequestId}). Results may interleave.`
     );
   }
 
-  setActiveRequest(ctx.paths, pane, { id: requestId, nonce, pane, startedAtMs: Date.now() });
+  const messageWithPreamble = composeMessage(preparedMessage, preparation.injectPreamble);
+  const fullMessage = waitEnabled
+    ? `${messageWithPreamble}\n\n${makeEndMarkerInstruction(nonce!)}`
+    : messageWithPreamble;
+
+  let waitReleased = false;
+  const releaseWait = (possibleDelivery: boolean): void => {
+    if (!waitEnabled || waitReleased) return;
+    waitReleased = true;
+    try {
+      requestService.releaseWait(preparation.attemptId);
+    } catch (error) {
+      failRequestState(ctx, possibleDelivery, error);
+    }
+  };
+
+  const settle = (
+    outcome: 'sent' | 'uncertain' | 'definitely_failed',
+    possibleDelivery: boolean
+  ): void => {
+    try {
+      requestService.settle(preparation.attemptId, outcome);
+    } catch (error) {
+      // Once transport may have run, release the waiter before reporting the
+      // persistence failure. Cleanup is best effort and must not replace the
+      // primary state error.
+      if (possibleDelivery && waitEnabled && !waitReleased) {
+        waitReleased = true;
+        try {
+          requestService.releaseWait(preparation.attemptId);
+        } catch (cleanupError) {
+          if (flags.debug) console.error('[DEBUG] Request waiter cleanup failed:', cleanupError);
+        }
+      }
+      failRequestState(ctx, possibleDelivery, error);
+    }
+  };
+
+  const beginSend = (): void => {
+    try {
+      requestService.beginSend(preparation.attemptId);
+    } catch (error) {
+      try {
+        requestService.settle(preparation.attemptId, 'definitely_failed');
+      } catch (cleanupError) {
+        if (flags.debug) console.error('[DEBUG] Failed to refund prepared request:', cleanupError);
+      }
+      if (waitEnabled && !waitReleased) {
+        waitReleased = true;
+        try {
+          requestService.releaseWait(preparation.attemptId);
+        } catch (cleanupError) {
+          if (flags.debug) console.error('[DEBUG] Request waiter cleanup failed:', cleanupError);
+        }
+      }
+      failRequestState(ctx, false, error);
+    }
+  };
+
+  if (!waitEnabled) {
+    beginSend();
+    try {
+      tmux.send(pane, fullMessage, { enterDelayMs });
+    } catch (error) {
+      settle('uncertain', true);
+      failSend(ctx, pane, error);
+    }
+    settle('sent', true);
+
+    if (flags.json) {
+      ui.json({ target, pane, ...(identity && { identity }), status: 'sent' });
+    } else {
+      console.log(`${colors.green('→')} Sent to ${colors.cyan(target)} (${pane})`);
+    }
+    return;
+  }
+
+  // Wait mode
+  const waitNonce = nonce!;
+  const waitEndMarker = endMarker!;
+  const pollIntervalSeconds = Math.max(0.1, config.defaults.pollInterval);
+  const captureLines = config.defaults.captureLines;
 
   const startedAt = Date.now();
   let lastNonTtyLogAt = 0;
@@ -401,7 +542,7 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
   let lastOutputChangeAt = Date.now();
 
   const onSigint = (): void => {
-    clearActiveRequest(ctx.paths, pane, requestId);
+    releaseWait(true);
     if (!flags.json) process.stdout.write('\n');
     ui.error('Interrupted.');
     exit(ExitCodes.ERROR);
@@ -410,6 +551,7 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
   process.once('SIGINT', onSigint);
 
   try {
+    beginSend();
     const msg = fullMessage;
 
     if (flags.debug) {
@@ -421,24 +563,21 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
     try {
       tmux.send(pane, msg, { enterDelayMs });
     } catch (error) {
-      // process.exit() does not run the surrounding finally block. Clear only
-      // this request before reporting the send failure; the request ID guard
-      // preserves a newer request that may have replaced it concurrently.
-      clearActiveRequest(ctx.paths, pane, requestId);
+      settle('uncertain', true);
+      releaseWait(true);
       failSend(ctx, pane, error);
     }
+    settle('sent', true);
 
     while (true) {
       const elapsedSeconds = (Date.now() - startedAt) / 1000;
       if (elapsedSeconds >= timeoutSeconds) {
-        clearActiveRequest(ctx.paths, pane, requestId);
-
         // Capture partial response on timeout
         const responseLines = flags.lines ?? 100;
         let partialResponse: string | null = null;
         try {
           const output = tmux.capture(pane, captureLines);
-          const extracted = extractPartialResponse(output, endMarker, responseLines);
+          const extracted = extractPartialResponse(output, waitEndMarker, responseLines);
           if (extracted) {
             partialResponse = isGemini ? cleanGeminiResponse(extracted) : extracted;
           }
@@ -450,6 +589,8 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
           process.stdout.write('\r' + ' '.repeat(80) + '\r');
         }
 
+        releaseWait(true);
+
         if (flags.json) {
           ui.json({
             target,
@@ -458,8 +599,8 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
             status: 'timeout',
             error: `Timed out waiting for ${agentName} after ${Math.floor(timeoutSeconds)}s`,
             requestId,
-            nonce,
-            endMarker,
+            nonce: waitNonce,
+            endMarker: waitEndMarker,
             partialResponse,
           });
           exit(ExitCodes.TIMEOUT);
@@ -495,7 +636,7 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
       try {
         output = tmux.capture(pane, captureLines);
       } catch {
-        clearActiveRequest(ctx.paths, pane, requestId);
+        releaseWait(true);
         const error = {
           code: 'ERROR',
           message: `Failed to capture pane ${pane}. Is tmux running?`,
@@ -508,8 +649,8 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
       // DEBUG: Log captured output
       if (flags.debug) {
         const elapsedSec = Math.floor((Date.now() - startedAt) / 1000);
-        const firstIdx = output.indexOf(endMarker);
-        const lastIdx = output.lastIndexOf(endMarker);
+        const firstIdx = output.indexOf(waitEndMarker);
+        const lastIdx = output.lastIndexOf(waitEndMarker);
         console.error(`\n[DEBUG ${elapsedSec}s] Output: ${output.length} chars`);
         console.error(`[DEBUG ${elapsedSec}s] End marker: ${endMarker}`);
         console.error(`[DEBUG ${elapsedSec}s] First index: ${firstIdx}, Last index: ${lastIdx}`);
@@ -521,12 +662,15 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
         if (firstIdx !== -1) {
           const context = output.slice(
             Math.max(0, firstIdx - 50),
-            firstIdx + endMarker.length + 50
+            firstIdx + waitEndMarker.length + 50
           );
           console.error(`[DEBUG ${elapsedSec}s] First marker context:\n---\n${context}\n---`);
         }
         if (lastIdx !== -1 && lastIdx !== firstIdx) {
-          const context = output.slice(Math.max(0, lastIdx - 50), lastIdx + endMarker.length + 50);
+          const context = output.slice(
+            Math.max(0, lastIdx - 50),
+            lastIdx + waitEndMarker.length + 50
+          );
           console.error(`[DEBUG ${elapsedSec}s] Last marker context:\n---\n${context}\n---`);
         }
 
@@ -545,8 +689,8 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
 
       // Find end marker (case-insensitive to handle agent variations)
       // Must be an actual marker line, not the instruction line
-      const endMarkerRegex = makeEndMarkerRegex(nonce);
-      const hasEndMarker = hasActualEndMarker(output, nonce, endMarkerRegex);
+      const endMarkerRegex = makeEndMarkerRegex(waitNonce);
+      const hasEndMarker = hasActualEndMarker(output, waitNonce, endMarkerRegex);
 
       // Completion conditions:
       // 1. Must wait at least MIN_WAIT_MS
@@ -572,7 +716,7 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
       const { response: extractedResponse, truncated } = extractWithExpandableCapture(
         tmux,
         pane,
-        nonce,
+        waitNonce,
         endMarkerRegex,
         output,
         captureLines,
@@ -591,9 +735,14 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
         process.stdout.write('\n');
       }
 
-      clearActiveRequest(ctx.paths, pane, requestId);
+      releaseWait(true);
 
-      const result: WaitResult = { requestId, nonce, endMarker, response };
+      const result: WaitResult = {
+        requestId,
+        nonce: waitNonce,
+        endMarker: waitEndMarker,
+        response,
+      };
       if (flags.json) {
         ui.json({
           target,
@@ -614,7 +763,16 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
     }
   } finally {
     process.removeListener('SIGINT', onSigint);
-    clearActiveRequest(ctx.paths, pane, requestId);
+    if (waitEnabled && !waitReleased) {
+      waitReleased = true;
+      try {
+        requestService.releaseWait(preparation.attemptId);
+      } catch (error) {
+        // Preserve an unexpected primary failure; cleanup is retried by the
+        // retention/expiry path when the request state service is available.
+        if (flags.debug) console.error('[DEBUG] Request waiter cleanup failed:', error);
+      }
+    }
   }
 }
 

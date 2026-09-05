@@ -3,6 +3,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { withE2EFixture, type CliResult, type E2EFixture, type MockEvent } from './harness.js';
+import { preambleCounters } from './request-state-oracle.js';
 
 interface CommandError {
   error: { code: string; message: string };
@@ -50,14 +51,6 @@ function identityId(fixture: E2EFixture, name: string): string {
   } finally {
     database.close();
   }
-}
-
-function preambleCounters(fixture: E2EFixture): Record<string, number> {
-  const statePath = path.join(fixture.globalDir, 'state.json');
-  const state = JSON.parse(fs.readFileSync(statePath, 'utf8')) as {
-    preambleCounters?: Record<string, number>;
-  };
-  return state.preambleCounters ?? {};
 }
 
 async function causalTalk(
@@ -283,9 +276,9 @@ describe.sequential('durable identity preambles', () => {
       fs.writeFileSync(statePath, '{"requests":{},"preambleCounters":{"Peer":99}}\n');
 
       await causalTalk(fixture, 'Peer', peer.pid, 'first', preamble);
-      expect(preambleCounters(fixture)).toEqual({ [peerIdentityId]: 1, Peer: 99 });
+      expect(preambleCounters(fixture)).toEqual({ [peerIdentityId]: 1 });
       await causalTalk(fixture, 'Peer', peer.pid, 'explicitly raw', undefined, ['--no-preamble']);
-      expect(preambleCounters(fixture)).toEqual({ [peerIdentityId]: 1, Peer: 99 });
+      expect(preambleCounters(fixture)).toEqual({ [peerIdentityId]: 1 });
       const legacyPane = await fixture.createMockPane('legacy-marker');
       fixture.tmux([
         'set-option',
@@ -306,30 +299,33 @@ describe.sequential('durable identity preambles', () => {
       const legacyBytes = '{\n  "Peer": {"pane": "%998", "preamble": "legacy"}\n}\n';
       fs.writeFileSync(legacyPath, legacyBytes);
       await causalTalk(fixture, fixture.paneTarget(peer.pane), peer.pid, 'direct second');
-      expect(preambleCounters(fixture)).toEqual({ [peerIdentityId]: 2, Peer: 99 });
+      expect(preambleCounters(fixture)).toEqual({ [peerIdentityId]: 2 });
       await causalTalk(fixture, 'Peer', peer.pid, 'third ordinary', preamble);
-      expect(preambleCounters(fixture)).toEqual({ [peerIdentityId]: 3, Peer: 99 });
+      expect(preambleCounters(fixture)).toEqual({ [peerIdentityId]: 3 });
       expect(fixture.paneMetadata(legacyPane.pane)).toBe(legacyMarker);
       expect(fs.readFileSync(legacyPath, 'utf8')).toBe(legacyBytes);
 
       await setConfig('preambleEvery', '0');
       await causalTalk(fixture, 'Peer', peer.pid, 'zero disables');
-      expect(preambleCounters(fixture)).toEqual({ [peerIdentityId]: 3, Peer: 99 });
+      expect(preambleCounters(fixture)).toEqual({ [peerIdentityId]: 3 });
       await setConfig('preambleEvery', '2');
       await causalTalk(fixture, 'Peer', peer.pid, 'zero did not advance');
-      expect(preambleCounters(fixture)).toEqual({ [peerIdentityId]: 4, Peer: 99 });
+      expect(preambleCounters(fixture)).toEqual({ [peerIdentityId]: 4 });
 
       await setConfig('preambleMode', 'disabled');
       await causalTalk(fixture, 'Peer', peer.pid, 'disabled does not advance');
-      expect(preambleCounters(fixture)).toEqual({ [peerIdentityId]: 4, Peer: 99 });
+      expect(preambleCounters(fixture)).toEqual({ [peerIdentityId]: 4 });
       await setConfig('preambleMode', 'always');
       const directBound = fixture.paneTarget(peer.pane);
       // Counter 4 would be skipped; this fifth attempt proves disabled mode did not advance it.
       await causalTalk(fixture, directBound, peer.pid, 'direct bound', preamble);
-      expect(preambleCounters(fixture)).toEqual({ [peerIdentityId]: 5, Peer: 99 });
+      expect(preambleCounters(fixture)).toEqual({ [peerIdentityId]: 5 });
       const unnamed = await fixture.createMockPane('unnamed');
       await causalTalk(fixture, fixture.paneTarget(unnamed.pane), unnamed.pid, 'direct unnamed');
-      expect(preambleCounters(fixture)).toEqual({ [peerIdentityId]: 5, Peer: 99 });
+      expect(preambleCounters(fixture)).toEqual({ [peerIdentityId]: 5 });
+      expect(fs.readFileSync(statePath, 'utf8')).toBe(
+        '{"requests":{},"preambleCounters":{"Peer":99}}\n'
+      );
       expect(fs.readFileSync(legacyPath, 'utf8')).toBe(legacyBytes);
       expect(fs.existsSync(fixture.forbiddenTmuxLogPath)).toBe(false);
     });

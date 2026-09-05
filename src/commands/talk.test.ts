@@ -7,9 +7,11 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import type { Context, Tmux, UI, Paths, ResolvedConfig, Flags } from '../types.js';
+import type { RequestService, RequestSettlement } from '../request-service.js';
+import { createRequestService } from '../request-service.js';
+import { openIdentityRepository, type IdentityRepository } from '../storage/identity-repository.js';
 import { ExitCodes } from '../exits.js';
 import { TmuxDeliveryError } from '../message-delivery.js';
-import { loadState, setActiveRequest } from '../state.js';
 import { cmdTalk } from './talk.js';
 
 // ─────────────────────────────────────────────────────────────
@@ -46,9 +48,74 @@ function createMockTmux(): Tmux & {
       return target;
     },
     setPaneTitle() {},
+    getEndpointSnapshot() {
+      return {
+        server: {
+          serverId: 'server-test',
+          socketPath: '/tmp/tmt-test',
+          serverPid: 123,
+          serverStartTime: 'test-start',
+        },
+        panes: ['1.0', '1.1', '1.2', '1.9', '%9'].map((id) => ({
+          id,
+          command: 'test-agent',
+          panePid: 456,
+          suggestedName: null,
+        })),
+      };
+    },
   };
   return mock;
 }
+
+interface RequestFixture {
+  readonly repository: IdentityRepository;
+  readonly service: RequestService;
+  readonly identityIds: ReadonlyMap<string, string>;
+}
+
+const requestFixtures = new Map<string, RequestFixture>();
+const ownedTempDirs = new Set<string>();
+
+function createOwnedTempDir(prefix: string): string {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  ownedTempDirs.add(directory);
+  return directory;
+}
+
+function requestFixture(databaseFile: string): RequestFixture {
+  const existing = requestFixtures.get(databaseFile);
+  if (existing) return existing;
+  const repository = openIdentityRepository(databaseFile);
+  try {
+    const identityIds = new Map<string, string>();
+    for (const name of ['claude', 'codex', 'gemini', 'all']) {
+      const existingIdentity = repository.findByCanonicalName(name);
+      identityIds.set(name, (existingIdentity ?? repository.createIdentity(name, name)).id);
+    }
+    const fixture = {
+      repository,
+      service: createRequestService({ repository }),
+      identityIds,
+    };
+    requestFixtures.set(databaseFile, fixture);
+    return fixture;
+  } catch (error) {
+    repository.close();
+    throw error;
+  }
+}
+
+function closeRequestFixtures(): void {
+  for (const fixture of requestFixtures.values()) fixture.repository.close();
+  requestFixtures.clear();
+  for (const directory of ownedTempDirs) {
+    if (fs.existsSync(directory)) fs.rmSync(directory, { recursive: true, force: true });
+  }
+  ownedTempDirs.clear();
+}
+
+afterEach(closeRequestFixtures);
 
 function createMockUI(): UI & { errors: string[]; warnings: string[]; jsonOutput: unknown[] } {
   const mock = {
@@ -184,6 +251,7 @@ function createContext(
     flags: Partial<Flags>;
     paths: Paths;
     preambleService: NonNullable<Context['preambleService']>;
+    requestService: RequestService;
   }>
 ): Context {
   const exitError = new Error('exit called');
@@ -200,6 +268,18 @@ function createContext(
   };
   const flags: Flags = { json: false, verbose: false, ...overrides.flags };
   const tmux = overrides.tmux || createMockTmux();
+  const paths = overrides.paths || createTestPaths(createOwnedTempDir('talk-default-'));
+  const requestFixtureValue = requestFixture(paths.databaseFile);
+  const sourcePreambleService = overrides.preambleService || createMockPreambleService();
+  const preambleService: NonNullable<Context['preambleService']> = {
+    ...sourcePreambleService,
+    show(name: string) {
+      const result = sourcePreambleService.show(name);
+      const identityId = requestFixtureValue.identityIds.get(name);
+      if (!identityId) return result;
+      return { ...result, identity: { ...result.identity, id: identityId } };
+    },
+  };
   const identityService = {
     bindCurrent: vi.fn(),
     bindPane: vi.fn(),
@@ -218,8 +298,9 @@ function createContext(
     config,
     tmux,
     identityService,
-    preambleService: overrides.preambleService || createMockPreambleService(),
-    paths: overrides.paths || createTestPaths('/tmp/test'),
+    preambleService,
+    requestService: overrides.requestService || requestFixtureValue.service,
+    paths,
     exit: ((code: number) => {
       const err = new Error(`exit(${code})`);
       (err as Error & { exitCode: number }).exitCode = code;
@@ -240,6 +321,7 @@ describe('buildMessage (via cmdTalk)', () => {
   });
 
   afterEach(() => {
+    closeRequestFixtures();
     if (fs.existsSync(testDir)) {
       fs.rmSync(testDir, { recursive: true, force: true });
     }
@@ -499,6 +581,7 @@ describe('cmdTalk - basic send', () => {
   });
 
   afterEach(() => {
+    closeRequestFixtures();
     process.env = { ...originalEnv };
     if (fs.existsSync(testDir)) {
       fs.rmSync(testDir, { recursive: true, force: true });
@@ -563,7 +646,13 @@ describe('cmdTalk - basic send', () => {
 
     await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
     expect(ui.jsonOutput).toEqual([
-      { error: { code: 'ERROR', message: 'Failed to send to pane 1.0. Is tmux running?' } },
+      {
+        error: {
+          code: 'ERROR',
+          message: 'Failed to send to pane 1.0. Is tmux running?',
+          suggestion: 'Delivery may have occurred; inspect the target pane before retrying.',
+        },
+      },
     ]);
   });
 
@@ -730,6 +819,7 @@ describe('cmdTalk - --delay flag', () => {
   });
 
   afterEach(() => {
+    closeRequestFixtures();
     vi.useRealTimers();
     if (fs.existsSync(testDir)) {
       fs.rmSync(testDir, { recursive: true, force: true });
@@ -765,6 +855,7 @@ describe('cmdTalk - --wait mode', () => {
   });
 
   afterEach(() => {
+    closeRequestFixtures();
     if (fs.existsSync(testDir)) {
       fs.rmSync(testDir, { recursive: true, force: true });
     }
@@ -784,7 +875,11 @@ describe('cmdTalk - --wait mode', () => {
     [
       'generic',
       () => new Error('tmux error'),
-      { code: 'ERROR', message: 'Failed to send to pane 1.0. Is tmux running?' },
+      {
+        code: 'ERROR',
+        message: 'Failed to send to pane 1.0. Is tmux running?',
+        suggestion: 'Delivery may have occurred; inspect the target pane before retrying.',
+      },
     ],
     [
       'typed',
@@ -797,7 +892,7 @@ describe('cmdTalk - --wait mode', () => {
       },
     ],
   ] as const)(
-    'maps %s send failure once in wait mode and clears request state',
+    'maps %s send failure once in wait mode and releases only its waiter',
     async (_kind, makeError, expected) => {
       const tmux = createMockTmux();
       const ui = createMockUI();
@@ -805,13 +900,21 @@ describe('cmdTalk - --wait mode', () => {
         throw makeError();
       };
       const paths = createTestPaths(testDir);
-      const unrelated = {
-        id: 'other-request',
+      const requestService = requestFixture(paths.databaseFile).service;
+      const unrelated = requestService.prepare({
+        requestId: 'other-request',
         nonce: 'other',
-        pane: '1.1',
-        startedAtMs: Date.now(),
-      };
-      setActiveRequest(paths, '1.1', unrelated);
+        endpoint: {
+          serverId: 'server-test',
+          socketPath: '/tmp/tmt-test',
+          serverPid: 123,
+          serverStartTime: 'test-start',
+          paneId: '1.1',
+          panePid: 456,
+        },
+        wait: true,
+        expiresAtMs: Date.now() + 60_000,
+      });
       const ctx = createContext({
         tmux,
         ui,
@@ -827,48 +930,62 @@ describe('cmdTalk - --wait mode', () => {
             pasteEnterDelayMs: 500,
           },
         },
+        requestService,
       });
       ctx.exit = (code: number) => {
         expect(code).toBe(ExitCodes.ERROR);
-        expect(loadState(paths).requests['1.0']).toBeUndefined();
-        expect(loadState(paths).requests['1.1']).toEqual(unrelated);
+        const attempts = requestService.listAttempts();
+        expect(
+          attempts.find((attempt) => attempt.requestId === unrelated.requestId)?.waitActive
+        ).toBe(true);
         throw new Error(`exit(${code})`);
       };
 
       await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
       expect(ui.jsonOutput).toEqual([{ error: expected }]);
       expect(ui.jsonOutput).toHaveLength(1);
-      expect(fs.existsSync(paths.stateFile)).toBe(true);
-      const state = loadState(paths);
-      expect(state.requests['1.0']).toBeUndefined();
-      expect(state.requests['1.1']).toEqual(unrelated);
+      const failed = requestService
+        .listAttempts()
+        .find((attempt) => attempt.requestId !== unrelated.requestId);
+      expect(failed?.status).toBe('uncertain');
+      expect(failed?.waitActive).toBe(false);
     }
   );
 
   it('does not clear a newer pane request after an uncertain send', async () => {
     const paths = createTestPaths(testDir);
     const tmux = createMockTmux();
-    const replacement = {
-      id: 'newer-request',
-      nonce: 'newer',
-      pane: '1.0',
-      startedAtMs: Date.now(),
-    };
+    const requestService = requestFixture(paths.databaseFile).service;
+    let replacement: ReturnType<RequestService['prepare']> | undefined;
     tmux.send = () => {
-      expect(loadState(paths).requests['1.0']?.id).not.toBe(replacement.id);
-      expect(loadState(paths).requests['1.0']?.pane).toBe('1.0');
-      setActiveRequest(paths, '1.0', replacement);
+      const attempt = requestService.listAttempts()[0];
+      expect(attempt?.requestId).not.toBe('newer-request');
+      replacement = requestService.prepare({
+        requestId: 'newer-request',
+        nonce: 'newer',
+        endpoint: {
+          serverId: 'server-test',
+          socketPath: '/tmp/tmt-test',
+          serverPid: 123,
+          serverStartTime: 'test-start',
+          paneId: '1.0',
+          panePid: 456,
+        },
+        wait: true,
+        expiresAtMs: Date.now() + 60_000,
+      });
       throw new TmuxDeliveryError('paste');
     };
-    const ctx = createContext({ tmux, paths, flags: { wait: true, json: true } });
+    const ctx = createContext({ tmux, paths, requestService, flags: { wait: true, json: true } });
     ctx.exit = (code: number) => {
       expect(code).toBe(ExitCodes.ERROR);
-      expect(loadState(paths).requests['1.0']).toEqual(replacement);
+      expect(replacement).toBeDefined();
+      expect(requestService.getAttempt(replacement!.attemptId)?.waitActive).toBe(true);
       throw new Error(`exit(${code})`);
     };
 
     await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(loadState(paths).requests['1.0']).toEqual(replacement);
+    expect(requestService.getAttempt(replacement!.attemptId)?.waitActive).toBe(true);
   });
 
   it('appends nonce instruction to message', async () => {
@@ -1134,6 +1251,7 @@ describe('cmdTalk - nonce collision handling', () => {
   });
 
   afterEach(() => {
+    closeRequestFixtures();
     if (fs.existsSync(testDir)) {
       fs.rmSync(testDir, { recursive: true, force: true });
     }
@@ -1205,6 +1323,7 @@ describe('cmdTalk - JSON output contract', () => {
   });
 
   afterEach(() => {
+    closeRequestFixtures();
     if (fs.existsSync(testDir)) {
       fs.rmSync(testDir, { recursive: true, force: true });
     }
@@ -1388,6 +1507,7 @@ describe('cmdTalk - end marker detection', () => {
   });
 
   afterEach(() => {
+    closeRequestFixtures();
     if (fs.existsSync(testDir)) {
       fs.rmSync(testDir, { recursive: true, force: true });
     }
@@ -1655,5 +1775,183 @@ Line 4 final`;
     const output = ui.jsonOutput[0] as Record<string, unknown>;
     expect(output.status).toBe('completed');
     expect(output.response).toContain('actual response');
+  });
+});
+
+describe('cmdTalk - request state lifecycle', () => {
+  it('fails closed before transport when request preparation cannot persist', async () => {
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+    const stateDir = createOwnedTempDir('talk-state-test-');
+    const statePaths = createTestPaths(stateDir);
+    const requestService = requestFixture(statePaths.databaseFile).service;
+    requestService.prepare = vi.fn(() => {
+      throw new Error('database unavailable');
+    });
+    const ctx = createContext({
+      tmux,
+      ui,
+      requestService,
+      paths: statePaths,
+      flags: { json: true },
+    });
+
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(tmux.sends).toHaveLength(0);
+    expect(ui.jsonOutput).toEqual([
+      {
+        error: {
+          code: 'REQUEST_STATE_ERROR',
+          message:
+            'Request state could not be persisted before transport; no message was sent. Fix the request state database before retrying.',
+          suggestion: 'Fix the request state database before retrying.',
+        },
+      },
+    ]);
+  });
+
+  it('fails closed when the wait timing budget is not finite', async () => {
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+    const stateDir = createOwnedTempDir('talk-state-test-');
+    const statePaths = createTestPaths(stateDir);
+    const ctx = createContext({
+      tmux,
+      ui,
+      paths: statePaths,
+      flags: { wait: true, json: true, timeout: Number.POSITIVE_INFINITY },
+    });
+
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(tmux.sends).toHaveLength(0);
+    expect(ui.jsonOutput[0]).toMatchObject({
+      error: expect.objectContaining({ code: 'REQUEST_STATE_ERROR' }),
+    });
+  });
+
+  it('records uncertainty and never replays after a possible transport failure', async () => {
+    const tmux = createMockTmux();
+    const stateDir = createOwnedTempDir('talk-state-test-');
+    const statePaths = createTestPaths(stateDir);
+    const requestService = requestFixture(statePaths.databaseFile).service;
+    let sendAttempts = 0;
+    tmux.send = () => {
+      sendAttempts += 1;
+      throw new Error('submit failed');
+    };
+    const ctx = createContext({
+      tmux,
+      requestService,
+      paths: statePaths,
+      flags: { json: true },
+    });
+
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(sendAttempts).toBe(1);
+    expect(requestService.listAttempts()).toHaveLength(1);
+    expect(requestService.listAttempts()[0]?.status).toBe('uncertain');
+  });
+
+  it('reports state uncertainty after transport and releases a waiter before exit', async () => {
+    const tmux = createMockTmux();
+    const stateDir = createOwnedTempDir('talk-state-test-');
+    const statePaths = createTestPaths(stateDir);
+    const base = requestFixture(statePaths.databaseFile).service;
+    const releaseWait = vi.fn(base.releaseWait);
+    const settle = vi.fn((attemptId: string, outcome: RequestSettlement) => {
+      if (outcome === 'sent') throw new Error('settle failed');
+      base.settle(attemptId, outcome);
+    });
+    const requestService: RequestService = { ...base, releaseWait, settle };
+    const ui = createMockUI();
+    const ctx = createContext({
+      tmux,
+      ui,
+      requestService,
+      paths: statePaths,
+      flags: { wait: true, json: true },
+    });
+
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(tmux.sends).toHaveLength(1);
+    expect(releaseWait).toHaveBeenCalledOnce();
+    expect(ui.jsonOutput[0]).toMatchObject({
+      error: expect.objectContaining({ code: 'REQUEST_STATE_ERROR' }),
+    });
+  });
+
+  it('refunds a begin-send failure and allows the next preamble reservation', async () => {
+    const stateDir = createOwnedTempDir('talk-state-test-');
+    const statePaths = createTestPaths(stateDir);
+    const base = requestFixture(statePaths.databaseFile).service;
+    let failBegin = true;
+    const beginSend = vi.fn((attemptId: string) => {
+      if (failBegin) {
+        failBegin = false;
+        throw new Error('begin failed');
+      }
+      base.beginSend(attemptId);
+    });
+    const requestService: RequestService = { ...base, beginSend };
+    const firstTmux = createMockTmux();
+    const firstCtx = createContext({
+      tmux: firstTmux,
+      requestService,
+      paths: statePaths,
+      preambleService: createMockPreambleService('Be brief'),
+      flags: { json: true },
+    });
+
+    await expect(cmdTalk(firstCtx, 'claude', 'First')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(firstTmux.sends).toHaveLength(0);
+    expect(requestService.listAttempts()[0]).toMatchObject({
+      status: 'definitely_failed',
+      cadenceReserved: false,
+      waitActive: false,
+    });
+
+    const secondTmux = createMockTmux();
+    const secondCtx = createContext({
+      tmux: secondTmux,
+      requestService,
+      paths: statePaths,
+      preambleService: createMockPreambleService('Be brief'),
+      flags: { json: true },
+    });
+    await cmdTalk(secondCtx, 'claude', 'Second');
+
+    expect(secondTmux.sends[0]?.message).toContain('[SYSTEM: Be brief]');
+    expect(requestService.listAttempts()[1]).toMatchObject({
+      status: 'sent',
+      injectPreamble: true,
+      cadenceReserved: true,
+    });
+  });
+
+  it('releases a sent waiter when capture fails unexpectedly', async () => {
+    const stateDir = createOwnedTempDir('talk-state-test-');
+    const statePaths = createTestPaths(stateDir);
+    const base = requestFixture(statePaths.databaseFile).service;
+    const releaseWait = vi.fn(base.releaseWait);
+    const requestService: RequestService = { ...base, releaseWait };
+    const tmux = createMockTmux();
+    tmux.capture = () => {
+      throw new Error('capture failed');
+    };
+    const ui = createMockUI();
+    const ctx = createContext({
+      tmux,
+      ui,
+      requestService,
+      paths: statePaths,
+      flags: { wait: true, json: true, timeout: 0.5 },
+    });
+
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(releaseWait).toHaveBeenCalledOnce();
+    expect(requestService.listAttempts()[0]).toMatchObject({ status: 'sent', waitActive: false });
+    expect(ui.jsonOutput).toEqual([
+      { error: { code: 'ERROR', message: 'Failed to capture pane 1.0. Is tmux running?' } },
+    ]);
   });
 });

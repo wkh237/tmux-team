@@ -224,8 +224,8 @@ only: it is not a shared service, does not listen on a network socket, and is
 not accessed by a daemon. The default path is the global TMT directory
 selected by the XDG config resolution rules: `$XDG_CONFIG_HOME/tmux-team/tmux-team.db`,
 or `~/.config/tmux-team/tmux-team.db` when `XDG_CONFIG_HOME` is unset. The
-configuration file and legacy JSON state remain separate compatibility
-surfaces in that directory.
+configuration file remains separate. Legacy JSON request/counter state is
+ignored and left untouched; it is not imported into SQLite.
 
 The storage directory is created with mode `0700` and database files with mode
 `0600`; operators should not place the database on a shared or untrusted
@@ -333,12 +333,37 @@ Control injection frequency with `preambleEvery`:
 tmt config set preambleEvery 3
 ```
 
-For N, injection occurs on eligible attempts 1, 1+N, 1+2N, and so on. Disabled
+For N, injection occurs at effective reservation counts 1, 1+N, 1+2N, and so on. Disabled
 `preambleMode`, `--no-preamble`, no stored content, or N=0 does not advance the
-counter. Set, clear and rebind do not reset it. Counters remain best-effort JSON:
-concurrent updates can race and a failed send can consume cadence. The SQLite
-content cutover uses identity-ID counter keys, starting fresh without importing
-or deleting old name-keyed counters. Transactional request/cadence work is separate.
+counter. Set, clear and rebind do not reset it. SQLite atomically reserves each
+eligible attempt against its durable identity. Sent, uncertain, and pending
+attempts count; a proven unsent attempt refunds only future reservations.
+Already prepared payloads do not change. Sequential definitely-unsent failures
+do not consume cadence, but overlapping failures can produce extra or missing
+preambles relative to ideal successful-send spacing. There is no hidden
+single-flight lock or exactly-once delivery guarantee. The SQLite request/cadence
+cutover starts fresh without importing or deleting old JSON state.
+
+### Concurrent request bookkeeping
+
+Each `talk` attempt records its own ID and complete tmux server/pane instance
+in SQLite, including direct unnamed panes. Concurrent waiters never replace
+one another's rows; an overlap warning is advisory, and `--force` only suppresses
+the warning. Cleanup affects only its own attempt. Transactions end before
+transport and capture, so a waiting agent does not hold the database writer lock.
+
+An attempt is prepared before transmission and marked sending immediately
+before invoking it. A crash after sending starts is uncertain, never permission
+to retry. Timeout or interruption releases the waiter, not the recipient's
+work. Expired prepared attempts can refund their reservations; expired sending
+attempts remain consumed as uncertain. Attempt metadata is pruned opportunistically
+after terminal retention; cadence totals persist. No prompt or response body is
+stored by this bookkeeping feature.
+
+`REQUEST_STATE_ERROR` (exit 1) reports a bookkeeping failure. When delivery may
+already have occurred, inspect the pane before retrying; a failed state write
+does not mean the message was not sent. The existing terminal-marker response
+and truncation limitations remain unchanged.
 
 Old preambles in JSON or workspace metadata are ignored, not automatically
 imported or deleted. Reapply desired text using `preamble set`. A preamble lookup

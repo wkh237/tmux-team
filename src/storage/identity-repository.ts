@@ -4,14 +4,17 @@ import type { DurableIdentity, TmuxBinding } from '../domain/identity.js';
 import type { PreambleRepository } from '../preamble-service.js';
 import type { IdentityRepository as IdentityBindingRepository } from '../identity-service.js';
 import type { RoleRepository } from '../role-service.js';
+import type { RequestRepository } from '../request-service.js';
 import { openStorageWithDatabase } from './sqlite-adapter.js';
+import { createRequestRepository } from './request-repository.js';
 import { StorageError } from './errors.js';
 import type { StorageLocation } from './ports.js';
 
 /** Concrete adapter composed from the application-owned repository ports. */
 export type IdentityRepository = IdentityBindingRepository &
   RoleRepository &
-  PreambleRepository & {
+  PreambleRepository &
+  RequestRepository & {
     close(): void;
   };
 
@@ -91,6 +94,7 @@ export function openIdentityRepository(location: StorageLocation): IdentityRepos
   };
 
   return {
+    ...createRequestRepository(requireOpen),
     withImmediateTransaction<T>(operation: () => T): T {
       return requireOpen().transaction(operation).immediate();
     },

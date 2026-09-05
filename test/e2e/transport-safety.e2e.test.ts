@@ -1,7 +1,6 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { E2EFixture, withE2EFixture } from './harness.js';
+import { requestAttempts } from './request-state-oracle.js';
 
 interface TalkResult {
   nonce?: string;
@@ -241,10 +240,13 @@ describe.sequential('TMT-24 safe transport', () => {
           code: 1,
           json: { error: { code: 'DELIVERY_UNCERTAIN', stage: 'submit' } },
         });
-        const state = JSON.parse(
-          fs.readFileSync(path.join(fixture.globalDir, 'state.json'), 'utf8')
-        ) as { requests: Record<string, unknown> };
-        expect(state.requests).toEqual({});
+        expect(requestAttempts(fixture)).toHaveLength(1);
+        expect(requestAttempts(fixture)[0]).toMatchObject({
+          status: 'uncertain',
+          wait_active: 0,
+          pane_id: peer.pane,
+          pane_pid: peer.pid,
+        });
       },
       { mode: 'respond' }
     );

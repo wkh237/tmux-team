@@ -15,6 +15,15 @@ maintained shipped transport boundary.
 
 ## Current implementation map
 
+TMT-25 implementation update: request/attempt bookkeeping and identity cadence
+now share the existing SQLite connection through an application service.
+Independent wait records use full server/pane-instance evidence, exact-attempt
+cleanup, and short transactions outside tmux effects. Cadence uses reservations,
+not an exact ordering of successful concurrent sends. Old JSON state is ignored
+and preserved. The map and matrix below remain the historical research baseline;
+see ARCHITECTURE.md for the maintained shipped state. TMT-36/37 final-body
+storage and live structured reply integration are still not shipped.
+
 `cmdTalk` resolves one target, then either sends and returns (`talk` without
 `--wait`) or creates a request ID, random nonce, and
 `RESPONSE-END-<nonce>` marker. Wait mode stores `{id, nonce, pane,
