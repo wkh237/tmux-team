@@ -231,7 +231,7 @@ storage. Role's lazy repository adapter also preserves no-storage rejection for
 invalid implicit callers; explicit role and preamble operations do not construct
 tmux. Missing required dependencies fail closed instead of selecting legacy
 behavior. Role and preamble commands retain their existing unavailable-service
-error mappings; a uniform process error envelope remains TMT-26 work.
+error mappings within the shared invocation output boundary.
 
 `TargetResolverPort` contains only pane resolution and the verified active-name
 view. The shared target resolver retains pane-first ordering; `identityAwareTmux`
@@ -240,11 +240,41 @@ live in the CLI layer, not in the command handler. Focused AST import checks
 cover direct literal imports/re-exports in maintained production sources; they
 are not a complete semantic dependency or dynamically computed-import analysis.
 
+## CLI output and lifecycle
+
+The invocation runner owns parsing, initialization, startup checks, dispatch and
+final disposal. Context remains the sole repository lifetime owner; the runner
+injects its UI and non-returning exit control flow, then disposes once before
+publishing the result. Commands do not own process termination. The executable
+sets the returned exit status and allows output pipes to drain naturally.
+
+JSON output is buffered per invocation, not captured through global console
+patching. Exactly one document goes to stdout after cleanup. Expected command
+errors preserve their codes, details and meaningful exit statuses. Parser errors
+use `USAGE_ERROR` without constructing Context; configuration parsing uses
+`CONFIG_ERROR`; unexpected failures use `INTERNAL_ERROR`. Diagnostics belong on
+stderr when requested. Successful commands without a detailed result emit
+`{ok:true}`. A cleanup failure replaces a pending success with `CLEANUP_ERROR`
+and an effects warning, but cannot replace an existing primary failure/status.
+This is output consistency, not rollback of command effects.
+
+The alpha timeout envelope intentionally changes only its `error` string to
+`{code: "TIMEOUT", message}`. Exit 4, status, correlation/target fields and
+nullable partial response remain. SIGINT only signals and wakes the talk poll;
+the awaited command flow releases its waiter and exits through the runner.
+It must not throw exit control flow across an event callback. Neither timeout
+nor interruption cancels recipient work or alters recorded delivery certainty.
+
+Text-only help/version/completion/learn reject JSON mode with `JSON_UNSUPPORTED`
+before effects; upgrade retains its JSON rejection. No new text-command schemas
+or grammar are introduced. Runtime boot failures before application loading and
+unwritable output streams are outside the one-document guarantee.
+
 ## Current module map
 
 | Location                                                                                                                                 | Responsibility and integration points                                                                                                                                   |
 | ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [bin/tmux-team](bin/tmux-team), [src/cli.ts](src/cli.ts)                                                                                 | Executable/process boundary, startup checks, dispatch, disposal and exit. Some top-level error paths remain inconsistent.                                               |
+| [bin/tmux-team](bin/tmux-team), [src/cli.ts](src/cli.ts), [src/cli-runner.ts](src/cli-runner.ts), [src/cli-output.ts](src/cli-output.ts) | Executable entry, guarded invocation lifetime and one buffered JSON result after disposal; natural output draining.                                                     |
 | [src/cli/parser.ts](src/cli/parser.ts), [src/cli/application.ts](src/cli/application.ts)                                                 | Repository-owned Commander adapter produces typed invocations and capability metadata; dispatcher routes them. Do not create another positional parser.                 |
 | [src/context.ts](src/context.ts), [src/types.ts](src/types.ts)                                                                           | Composition and lazy resource lifetime; shared UI, adapter, service and configuration contracts. The shared types module is not a dumping ground for new domain models. |
 | [src/commands/](src/commands/)                                                                                                           | CLI orchestration, error mapping and presentation. Some delivery policy still lives in commands; they are effectful adapters, not pure functions.                       |
@@ -320,7 +350,6 @@ a gap is resolved; do not leave a permanent exception or label a proposal as shi
 | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Numeric/flag validation needs hardening.                                                                                     | [TMT-22](https://linear.app/tigerpig-dev/issue/TMT-22)                                                                                                                 |
 | Terminal completion/extraction cannot guarantee a complete correlated body; transactional bookkeeping does not resolve this. | [TMT-36](https://linear.app/tigerpig-dev/issue/TMT-36), [TMT-37](https://linear.app/tigerpig-dev/issue/TMT-37)                                                         |
-| JSON/process error boundaries remain inconsistent outside the bounded preamble and transport mappings.                       | [TMT-26](https://linear.app/tigerpig-dev/issue/TMT-26)                                                                                                                 |
 | Shipped skill/help inventories drift; packed verification does not yet prove application migrations.                         | [TMT-29](https://linear.app/tigerpig-dev/issue/TMT-29)                                                                                                                 |
 | Non-tmux identity management, memory and durable inbox are future capabilities, not installed APIs.                          | [TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30), [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16) |
 

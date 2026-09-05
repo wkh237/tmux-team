@@ -2,7 +2,7 @@
 // Context object - passed to all commands
 // ─────────────────────────────────────────────────────────────
 
-import type { Context, Flags } from './types.js';
+import type { Context, Flags, UI } from './types.js';
 import { resolvePaths, loadConfig } from './config.js';
 import { createUI } from './ui.js';
 import { createTmux } from './tmux.js';
@@ -17,6 +17,9 @@ export interface CreateContextOptions {
   argv: string[];
   flags: Flags;
   cwd?: string;
+  /** Allows the process runner to own output buffering and termination. */
+  ui?: UI;
+  exit?: (code: number) => never;
   /** Declares the resources a command may need; tmux and config are lazy. */
   capability?: 'none' | 'storage' | 'tmux';
 }
@@ -25,7 +28,7 @@ export function createContext(options: CreateContextOptions): Context {
   const { argv, flags, cwd = process.cwd() } = options;
 
   const paths = resolvePaths(cwd);
-  const ui = createUI(flags.json);
+  const ui = options.ui ?? createUI(flags.json);
   const capability = options.capability ?? 'tmux';
   let tmux: Context['tmux'] | undefined;
   let config: Context['config'] | undefined;
@@ -113,6 +116,7 @@ export function createContext(options: CreateContextOptions): Context {
     paths,
     dispose,
     exit(code: number): never {
+      if (options.exit) return options.exit(code);
       dispose();
       process.exit(code);
     },

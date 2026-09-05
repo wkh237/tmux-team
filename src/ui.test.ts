@@ -53,7 +53,10 @@ describe('ui', () => {
     expect(logSpy).not.toHaveBeenCalled();
 
     ui.error('boom');
-    expect(errSpy).toHaveBeenCalledWith(JSON.stringify({ error: 'boom' }));
+    expect(errSpy).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith(
+      JSON.stringify({ error: { code: 'ERROR', message: 'boom' } }, null, 2)
+    );
 
     ui.json({ ok: true });
     expect(logSpy).toHaveBeenCalledWith(JSON.stringify({ ok: true }, null, 2));

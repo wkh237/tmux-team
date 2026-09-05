@@ -80,8 +80,20 @@ describe.sequential('transactional live request bookkeeping', () => {
         const timedOut = await first.result;
         expect(timedOut).toMatchObject({
           code: 4,
-          json: { status: 'timeout', nonce: firstEvent.nonce },
+          json: {
+            status: 'timeout',
+            nonce: firstEvent.nonce,
+            error: { code: 'TIMEOUT', message: expect.stringContaining('Timed out') },
+          },
         });
+        expect(timedOut.stderr).toBe('');
+        const timeoutOutput = JSON.parse(timedOut.stdout);
+        expect(timeoutOutput).toMatchObject({
+          requestId: before.find((row) => row.nonce === firstEvent.nonce)?.request_id,
+          pane: fixture.pane,
+          endMarker: `RESPONSE-END-${firstEvent.nonce}`,
+        });
+        expect(timeoutOutput).toHaveProperty('partialResponse');
         const afterFirst = attempts(fixture);
         expect(afterFirst.find((row) => row.nonce === firstEvent.nonce)).toMatchObject({
           wait_active: 0,

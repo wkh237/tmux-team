@@ -369,6 +369,33 @@ Old preambles in JSON or workspace metadata are ignored, not automatically
 imported or deleted. Reapply desired text using `preamble set`. A preamble lookup
 failure stops delivery rather than silently sending without it.
 
+## JSON result contract
+
+For commands using `--json`, stdout contains one JSON document after cleanup.
+Errors use `{ "error": { "code": "...", "message": "..." } }`; optional
+diagnostics use stderr. Preserve and inspect additional error fields such as
+delivery `stage` and `suggestion`. Successful operations without a detailed
+result, such as `config set`, return `{ "ok": true }`.
+
+Exit statuses remain meaningful: 1 is a general failure, 3 a missing target,
+4 a timeout, and 5 a conflict. Parse errors now use `USAGE_ERROR` on stdout,
+not a flat string error on stderr. Initialization errors are also handled by
+the command boundary. `CLEANUP_ERROR` after successful work does not roll back
+its effects; inspect state before retrying. A cleanup failure alongside an
+existing command failure preserves that primary error and status.
+
+This v5 alpha intentionally changes the timeout `error` field from a string to
+`{ "code": "TIMEOUT", "message": "..." }`. The existing `status`, target,
+pane, identity when present, request ID, nonce, end marker and nullable
+`partialResponse` remain. Read `error.message` instead of treating `error` as
+text. Timeout and Ctrl+C release the waiter, not recipient work.
+
+`help`, `version`, `completion`, and `learn` remain text-only; combining them
+with `--json` returns `JSON_UNSUPPORTED` before output or effects. `upgrade`
+also rejects JSON because its installer streams text. Run these without
+`--json`. This contract covers the running application, not a broken runtime
+installation or an unwritable output pipe.
+
 ## Retired registry commands
 
 V5 no longer supports `update`, `remove` (or `rm`), or `migrate`, including

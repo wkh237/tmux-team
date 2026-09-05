@@ -4,6 +4,11 @@
 
 import type { UI } from './types.js';
 
+export interface UIOptions {
+  /** Receive JSON documents instead of writing them immediately. */
+  readonly jsonSink?: (data: unknown) => void;
+}
+
 const isTTY = process.stdout.isTTY;
 
 // Strip ANSI escape codes for accurate length calculation
@@ -19,7 +24,7 @@ export const colors = {
   dim: (s: string) => (isTTY ? `\x1b[2m${s}\x1b[0m` : s),
 };
 
-export function createUI(jsonMode: boolean): UI {
+export function createUI(jsonMode: boolean, options: UIOptions = {}): UI {
   if (jsonMode) {
     // In JSON mode, suppress all human-friendly output
     return {
@@ -27,11 +32,14 @@ export function createUI(jsonMode: boolean): UI {
       success: () => {},
       warn: () => {},
       error: (msg: string) => {
-        console.error(JSON.stringify({ error: msg }));
+        const data = { error: { code: 'ERROR', message: msg } };
+        if (options.jsonSink) options.jsonSink(data);
+        else console.log(JSON.stringify(data, null, 2));
       },
       table: () => {},
       json: (data: unknown) => {
-        console.log(JSON.stringify(data, null, 2));
+        if (options.jsonSink) options.jsonSink(data);
+        else console.log(JSON.stringify(data, null, 2));
       },
     };
   }
