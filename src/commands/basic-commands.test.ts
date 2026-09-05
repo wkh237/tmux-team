@@ -8,8 +8,6 @@ import { ExitCodes } from '../exits.js';
 import { cmdInit } from './init.js';
 import { cmdAdd } from './add.js';
 import { cmdThis } from './this.js';
-import { cmdRemove } from './remove.js';
-import { cmdUpdate } from './update.js';
 import { cmdList } from './list.js';
 import { cmdCheck } from './check.js';
 import { cmdPreamble, type PreambleRequest } from './preamble.js';
@@ -17,7 +15,6 @@ import { cmdConfig, type ConfigRequest } from './config.js';
 import { cmdCompletion } from './completion.js';
 import { cmdHelp } from './help.js';
 import { cmdLearn } from './learn.js';
-import { cmdMigrate, type MigrateRequest } from './migrate.js';
 
 const preambleRequest = (
   operation: PreambleRequest['operation'],
@@ -196,73 +193,6 @@ describe('basic commands', () => {
       name: 'jsonagent',
       pane: '%3',
     });
-  });
-
-  it('cmdRemove deletes agent', () => {
-    const ctx = createCtx(testDir, { config: { paneRegistry: { codex: { pane: '1.1' } } } });
-    fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({ codex: { pane: '1.1' } }, null, 2));
-    cmdRemove(ctx, 'codex');
-    const saved = JSON.parse(fs.readFileSync(ctx.paths.localConfig, 'utf-8'));
-    expect(saved.codex).toBeUndefined();
-  });
-
-  it('cmdRemove errors when agent not found', () => {
-    const ctx = createCtx(testDir);
-    expect(() => cmdRemove(ctx, 'notfound')).toThrow(`exit(${ExitCodes.PANE_NOT_FOUND})`);
-    expect(ctx.ui.error).toHaveBeenCalledWith("Agent 'notfound' not found.");
-  });
-
-  it('cmdRemove outputs JSON when --json flag set', () => {
-    const ctx = createCtx(testDir, {
-      flags: { json: true },
-      config: { paneRegistry: { codex: { pane: '1.1' } } },
-    });
-    fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({ codex: { pane: '1.1' } }, null, 2));
-    cmdRemove(ctx, 'codex');
-    expect((ctx.ui as any).jsonCalls).toEqual([{ removed: 'codex', source: 'legacy' }]);
-  });
-
-  it('cmdUpdate updates pane and remark in tmux metadata', () => {
-    const ctx = createCtx(testDir, { config: { paneRegistry: { codex: { pane: '1.1' } } } });
-    fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({}, null, 2));
-    cmdUpdate(ctx, 'codex', { pane: '2.2', remark: 'new' });
-    expect(ctx.tmux.clearAgentRegistration).toHaveBeenCalledWith(
-      'codex',
-      expect.objectContaining({ type: 'workspace' })
-    );
-    expect(ctx.tmux.setAgentRegistration).toHaveBeenCalledWith(
-      '2.2',
-      expect.objectContaining({ type: 'workspace' }),
-      { name: 'codex', remark: 'new' }
-    );
-  });
-
-  it('cmdUpdate errors when agent not found', () => {
-    const ctx = createCtx(testDir);
-    expect(() => cmdUpdate(ctx, 'notfound', { pane: '1.0' })).toThrow(
-      `exit(${ExitCodes.PANE_NOT_FOUND})`
-    );
-    expect(ctx.ui.error).toHaveBeenCalledWith(
-      "Agent 'notfound' not found. Use 'tmux-team add' to create."
-    );
-  });
-
-  it('cmdUpdate errors when no updates specified', () => {
-    const ctx = createCtx(testDir, { config: { paneRegistry: { codex: { pane: '1.1' } } } });
-    expect(() => cmdUpdate(ctx, 'codex', {})).toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(ctx.ui.error).toHaveBeenCalledWith('No updates specified. Use --pane or --remark.');
-  });
-
-  it('cmdUpdate outputs JSON when --json flag set', () => {
-    const ctx = createCtx(testDir, {
-      flags: { json: true },
-      config: { paneRegistry: { codex: { pane: '1.1' } } },
-    });
-    fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({ codex: { pane: '1.1' } }, null, 2));
-    cmdUpdate(ctx, 'codex', { pane: '2.0', remark: 'updated' });
-    expect((ctx.ui as any).jsonCalls).toEqual([
-      { updated: 'codex', pane: '2.0', remark: 'updated' },
-    ]);
   });
 
   it('cmdList outputs JSON when --json', () => {
@@ -523,64 +453,6 @@ describe('basic commands', () => {
     expect(ctx.ui.error).toHaveBeenCalledWith(
       'Invalid key: invalidkey. Valid keys: mode, preambleMode, preambleEvery, pasteEnterDelayMs'
     );
-  });
-
-  it('cmdMigrate dry-run reports legacy entries without writing tmux metadata', () => {
-    const ctx = createCtx(testDir, { flags: { json: true } });
-    fs.writeFileSync(
-      ctx.paths.localConfig,
-      JSON.stringify({ claude: { pane: '1.1', remark: 'review' } }, null, 2)
-    );
-
-    cmdMigrate(ctx, { kind: 'migrate', dryRun: true, cleanup: false } satisfies MigrateRequest);
-
-    expect(ctx.tmux.setAgentRegistration).not.toHaveBeenCalled();
-    expect((ctx.ui as any).jsonCalls[0]).toMatchObject({
-      dryRun: true,
-      migrated: 0,
-      items: [{ agent: 'claude', fromPane: '1.1', pane: '1.1', status: 'ready' }],
-    });
-  });
-
-  it('cmdMigrate writes tmux metadata and can clean legacy entries', () => {
-    const ctx = createCtx(testDir);
-    fs.writeFileSync(
-      ctx.paths.localConfig,
-      JSON.stringify({
-        $config: { mode: 'wait' },
-        claude: { pane: '1.1', remark: 'review', preamble: 'Be helpful' },
-      })
-    );
-
-    cmdMigrate(ctx, { kind: 'migrate', dryRun: false, cleanup: true } satisfies MigrateRequest);
-
-    expect(ctx.tmux.setAgentRegistration).toHaveBeenCalledWith(
-      '1.1',
-      expect.objectContaining({ type: 'workspace' }),
-      { name: 'claude', remark: 'review', preamble: 'Be helpful' }
-    );
-    const saved = JSON.parse(fs.readFileSync(ctx.paths.localConfig, 'utf-8'));
-    expect(saved.$config.mode).toBe('wait');
-    expect(saved.claude).toBeUndefined();
-  });
-
-  it('cmdMigrate errors when a legacy pane cannot be resolved', () => {
-    const ctx = createCtx(testDir);
-    (ctx.tmux.resolvePaneTarget as ReturnType<typeof vi.fn>).mockReturnValue(null);
-    fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({ claude: { pane: 'missing' } }));
-
-    expect(() => cmdMigrate(ctx, { kind: 'migrate', dryRun: false, cleanup: false })).toThrow(
-      `exit(${ExitCodes.PANE_NOT_FOUND})`
-    );
-  });
-
-  it('cmdMigrate reports when no legacy agents exist', () => {
-    const ctx = createCtx(testDir);
-    fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({ $config: { mode: 'wait' } }));
-
-    cmdMigrate(ctx, { kind: 'migrate', dryRun: false, cleanup: false });
-
-    expect(ctx.ui.info).toHaveBeenCalledWith(`No legacy agents found in ${ctx.paths.localConfig}`);
   });
 
   it('cmdCompletion prints scripts', () => {

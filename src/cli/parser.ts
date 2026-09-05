@@ -13,13 +13,6 @@ export type ParsedInvocation =
   | { readonly kind: 'init' | 'whoami' | 'unbind' | 'upgrade' | 'learn' }
   | { readonly kind: 'list'; readonly target?: IdentitySelector }
   | { readonly kind: 'add'; readonly pane: string; readonly name: string }
-  | {
-      readonly kind: 'update';
-      readonly name: string;
-      readonly options: { pane?: string; remark?: string };
-    }
-  | { readonly kind: 'remove'; readonly name: string }
-  | { readonly kind: 'migrate'; readonly dryRun: boolean; readonly cleanup: boolean }
   | { readonly kind: 'this' | 'name'; readonly name: string }
   | { readonly kind: 'talk'; readonly target: IdentitySelector; readonly message: string }
   | { readonly kind: 'check'; readonly target: IdentitySelector; readonly lines?: number }
@@ -77,10 +70,6 @@ interface CommonOptions {
 }
 
 interface CommandOptions extends CommonOptions {
-  pane?: string;
-  remark?: string;
-  dryRun?: boolean;
-  cleanup?: boolean;
   global?: boolean;
   identity?: string;
   file?: string;
@@ -142,9 +131,6 @@ function compatibilityUsage(argv: readonly string[], message: string): string | 
     name: 'Usage: tmux-team name <global-name>',
     this: 'Usage: tmux-team this <global-name>',
     add: 'Usage: tmux-team add <pane-target> <global-name>',
-    update: 'Usage: tmux-team update <global-name> [--pane <pane>] [--remark <remark>]',
-    remove: 'Usage: tmux-team remove <global-name>',
-    rm: 'Usage: tmux-team rm <global-name>',
     check: 'Usage: tmux-team check <target> [lines]',
     read: 'Usage: tmux-team read <target> [lines]',
     talk: 'Usage: tmux-team talk <target> <message>',
@@ -177,8 +163,6 @@ function capabilityFor(invocation: ParsedInvocation): ParsedMetadata['capability
       // Keep context creation storage-only. Implicit current-pane resolution
       // obtains tmux lazily, preserving offline explicit identity behavior.
       return 'storage';
-    case 'migrate':
-      return 'tmux';
     default:
       return 'tmux';
   }
@@ -260,45 +244,6 @@ function setupProgram(capture: Capture): Command {
   add.action(function (pane: string, name: string) {
     action(this, { kind: 'add', pane, name });
   });
-  const update = leaf(program.command('update').argument('<name>'));
-  update
-    .option('--pane <pane>')
-    .option('--remark <remark>')
-    .action(function (name: string) {
-      const options = commandOptions(this);
-      action(this, {
-        kind: 'update',
-        name,
-        options: {
-          ...(options.pane && { pane: options.pane }),
-          ...(options.remark && { remark: options.remark }),
-        },
-      });
-    });
-  for (const [name, kind] of [
-    ['remove', 'remove'],
-    ['rm', 'remove'],
-  ] as const) {
-    const command = leaf(program.command(name).argument('<name>'));
-    command.action(function (value: string) {
-      action(this, { kind, name: value });
-    });
-  }
-  const migrate = leaf(program.command('migrate'));
-  migrate
-    .option('--dry-run')
-    .option('--cleanup')
-    .action(function () {
-      const options = commandOptions(this) as CommonOptions & {
-        dryRun?: boolean;
-        cleanup?: boolean;
-      };
-      action(this, {
-        kind: 'migrate',
-        dryRun: options.dryRun === true,
-        cleanup: options.cleanup === true,
-      });
-    });
   for (const kind of ['this', 'name'] as const) {
     const command = leaf(program.command(kind).argument('<name>'));
     command.action(function (name: string) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Context } from './types.js';
-import { getRegistryScope, registrationFromEntry, scopeLabel } from './registry.js';
+import { getRegistryScope, registrationFromEntry } from './registry.js';
 
 function ctx(overrides: Partial<Context>): Context {
   return {
@@ -35,10 +35,6 @@ describe('registry helpers', () => {
       type: 'workspace',
       workspaceRoot: '/repo',
     });
-  });
-
-  it('falls back to workspace scope', () => {
-    expect(scopeLabel({ type: 'workspace', workspaceRoot: '/repo' })).toBe('workspace /repo');
   });
 
   it('converts pane entries into registrations', () => {

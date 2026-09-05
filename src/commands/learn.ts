@@ -58,7 +58,7 @@ ${colors.yellow('GLOBAL IDENTITIES')}
   ${colors.cyan('tmux-team add %2 gemini')}     Bind another pane by stable ID
 
   Find your pane ID: ${colors.cyan('tmux display-message -p "#{pane_id}"')}
-  ${colors.dim('tmux-team.json is retained only for legacy migration and local settings.')}
+  ${colors.dim('Legacy registry commands are retired; local settings and preamble compatibility remain.')}
   ${colors.dim('tmux-team is CLI-only; there is no daemon to run.')}
 
 ${colors.yellow('BEST PRACTICES')}

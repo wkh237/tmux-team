@@ -14,9 +14,6 @@ _tmux-team() {
     'check:Capture output from agent pane'
     'list:List active identities or pane status'
     'add:Add a new agent'
-    'update:Update agent config'
-    'remove:Remove an agent'
-    'migrate:Copy legacy tmux-team.json registry into tmux metadata'
     'name:Bind the current pane identity'
     'this:Bind the current pane identity'
     'whoami:Show the current pane identity'
@@ -40,7 +37,7 @@ _tmux-team() {
     _describe -t commands 'tmux-team commands' commands
   elif (( CURRENT == 3 )); then
     case \${words[2]} in
-      talk|check|update|remove|rm)
+      talk|check)
         _get_agents
         if [[ -n "$agents" ]]; then
           _describe -t agents 'agents' agents
@@ -58,9 +55,6 @@ _tmux-team() {
     esac
   elif (( CURRENT == 4 )); then
     case \${words[2]} in
-      update)
-        compadd -- "--pane" "--remark"
-        ;;
       talk)
         compadd -- "--delay" "--wait" "--timeout"
         ;;
@@ -80,13 +74,13 @@ const bashCompletion = `_tmux_team() {
   cur="\${COMP_WORDS[COMP_CWORD]}"
   prev="\${COMP_WORDS[COMP_CWORD-1]}"
 
-  commands="talk check list add update remove migrate init completion help name this whoami unbind install upgrade config preamble role learn"
+  commands="talk check list add init completion help name this whoami unbind install upgrade config preamble role learn"
 
   if [[ \${COMP_CWORD} -eq 1 ]]; then
     COMPREPLY=( $(compgen -W "\${commands}" -- \${cur}) )
   elif [[ \${COMP_CWORD} -eq 2 ]]; then
     case "\${prev}" in
-      talk|check|update|remove|rm)
+      talk|check)
         agents=$(tmux-team list --json 2>/dev/null | node -e 'let s="";process.stdin.on("data",d=>s+=d);process.stdin.on("end",()=>{try{const j=JSON.parse(s); console.log((j.identities||[]).map(a=>a.name).join(" "))}catch{}})')
         COMPREPLY=( $(compgen -W "\${agents}" -- \${cur}) )
         ;;
@@ -102,9 +96,6 @@ const bashCompletion = `_tmux_team() {
     esac
   elif [[ \${COMP_CWORD} -eq 3 ]]; then
     case "\${COMP_WORDS[1]}" in
-      update)
-        COMPREPLY=( $(compgen -W "--pane --remark" -- \${cur}) )
-        ;;
       talk)
         COMPREPLY=( $(compgen -W "--delay --wait --timeout" -- \${cur}) )
         ;;

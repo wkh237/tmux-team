@@ -12,6 +12,7 @@ tmux-team enables AI agents (like Claude, Codex, Gemini) running in separate ter
 ## Core Concept
 
 Each agent runs in its own tmux pane. When you want to talk to another agent:
+
 1. Your message is pasted via a tmux buffer
 2. tmux-team waits briefly, then sends Enter to submit
 3. You read their response by capturing their pane output
@@ -32,17 +33,20 @@ tmt check <target> 100
 ## Practical Examples
 
 ### Quick question to another agent
+
 ```bash
 tmt talk codex "What's the status of the authentication refactor?" --wait
 # Response is returned directly
 ```
 
 ### Delegate a task with longer timeout and more output
+
 ```bash
 tmt talk codex "Please implement the login form. Reply when done." --wait --timeout 300 --lines 200
 ```
 
 ### Address a named identity
+
 ```bash
 tmt talk codex "Sync: PR #123 was merged, please pull latest" --wait
 ```
@@ -52,10 +56,12 @@ another pane directly, use `%pane_id`, `window.pane`, or `session:window.pane`.
 
 ## Configuration
 
-Global identity registrations are stored in tmux pane metadata and are
-independent of the current working directory. Legacy projects may still have
-`tmux-team.json`; use `tmt migrate` to import it into tmux metadata. tmux-team
-is CLI-only and has no daemon or background service.
+Durable identities live in SQLite, independent of the current working
+directory; active presence also requires matching live tmux metadata.
+The old `update`, `remove`/`rm`, and `migrate` commands are not supported in
+v5. Bind explicitly with `name`/`this` or `add`; `unbind` detaches the current
+pane without deleting its durable identity. Do not delete old user files as a
+migration step. tmux-team is CLI-only and has no daemon or background service.
 
 ```bash
 tmt name codex
