@@ -43,6 +43,48 @@ retrying. Existing delivery-uncertainty guidance still applies.
 `--json` with `JSON_UNSUPPORTED`; run them without that flag. `upgrade`
 also rejects JSON mode because it streams installer output.
 
+## Durable replies and results (TMT-38)
+
+When TMT supplies an exact receipt, submit the complete result through the
+storage-only adapters:
+
+```bash
+tmt reply <request-id> --receipt <receipt> --file response.md
+tmt reply <request-id> --receipt <receipt> --stdin < response.md
+tmt result <request-id> --json
+```
+
+Use exactly one input source. Never manufacture a receipt, select the latest
+request, or infer a current pane. `talk` remains marker-based terminal
+capture in this release and does not generate receipts; TMT-39 owns receipt
+generation and durable completion. There is no `--detach` behavior yet.
+
+Reply input is one exact valid UTF-8 body up to 1 MiB, preserving empty,
+whitespace, BOM, NUL, CR/LF, Unicode, and marker-like text. Stdin is
+EOF-driven with a five-second input deadline. Successful submission means the
+result was delivered, not that the task succeeded; show a brief truthful
+summary only after submission, never as completion evidence.
+
+An identical retry for the same request and attempt keeps the original
+`submittedAtMs`; a different body is a conflict and cannot replace the stored
+response.
+
+The receipt is local correlation, not remote authentication. Accepted bodies
+are retained for seven days from submission; an identical retry is safe only
+while that body is retained and with the same receipt and body, not
+indefinitely. A missing result does not cancel the work. Surface a failed
+submission without a success summary; if final summarization fails after
+acceptance, do not resubmit.
+
+With `--json`, reply success is `{status:"submitted",requestId,bodyBytes,submittedAtMs}`
+and result success is `{status:"completed",requestId,response,bodyBytes,submittedAtMs}`.
+Unavailable JSON is
+`{status:"unavailable",requestId,error:{code:"RESPONSE_NOT_AVAILABLE",message}}`.
+`result` reports `RESPONSE_NOT_AVAILABLE` (exit 3) for pending, unknown, or
+expired bodies. Input errors exit 1, input timeout is `RESPONSE_INPUT_TIMEOUT`
+(exit 4), and conflicts exit 5. Receipts, endpoints, and raw bodies are not
+echoed in acknowledgements.
+
 ## Identity preambles
 
 Preambles are separate from role profiles and belong to existing durable global

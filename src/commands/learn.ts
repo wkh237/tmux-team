@@ -27,6 +27,32 @@ ${colors.yellow('ESSENTIAL COMMANDS')}
   ${colors.green('tmux-team check')} <target> [lines]  Read pane output
   ${colors.green('tmux-team talk')} <target> --wait    Send and wait for response
 
+${colors.yellow('DURABLE REPLIES AND RESULTS')}
+
+  When TMT supplies an exact receipt, submit a complete response without tmux:
+  ${colors.cyan('tmt reply <request-id> --receipt <receipt> --file response.md')}
+  ${colors.cyan('tmt reply <request-id> --receipt <receipt> --stdin < response.md')}
+  ${colors.cyan('tmt result <request-id> --json')}
+
+  Use exactly one input source and never manufacture a receipt, select the
+  latest request, or infer a pane. talk remains marker-based in this release
+  and does not generate receipts; TMT-39 owns receipt generation and durable
+  completion. There is no --detach behavior yet. Submission confirms result
+  delivery, not task success; summarize only after successful submission.
+
+  Bodies preserve exact valid UTF-8 up to 1 MiB, including empty, whitespace,
+  BOM, NUL, CR/LF, Unicode, and marker-like text. Stdin is EOF-driven with a
+  five-second deadline. result reports RESPONSE_NOT_AVAILABLE (exit 3) for
+  pending, unknown, or expired bodies; input errors exit 1, timeout exits 4,
+  and conflicts exit 5. JSON unavailable output is
+  {status:"unavailable",requestId,error:{code:"RESPONSE_NOT_AVAILABLE",message}}.
+  Identical retries keep the original submission timestamp; conflicting bodies
+  cannot replace stored results.
+  Receipts are local correlation, not remote authentication. Bodies are
+  retained seven days; retry only with the same receipt/body while retained.
+  Missing results do not cancel work. Surface failed submission without a
+  success summary, and never resubmit after accepted delivery.
+
 ${colors.yellow('RECOMMENDED: WAIT MODE (--wait)')}
 
   The ${colors.green('--wait')} flag is recommended for better token utilization:

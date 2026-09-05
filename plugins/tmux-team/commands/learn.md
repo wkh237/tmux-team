@@ -83,6 +83,38 @@ tmt check <target>
 tmt check <target> 200
 ```
 
+## Durable result replies
+
+When TMT supplies an exact receipt, submit a complete response without tmux:
+
+```bash
+tmt reply <request-id> --receipt <receipt> --file response.md
+tmt reply <request-id> --receipt <receipt> --stdin < response.md
+tmt result <request-id> --json
+```
+
+Use exactly one input source and never manufacture a receipt, select the latest
+request, or infer a pane. `talk` is still marker-based in this release and
+does not generate receipts; TMT-39 owns receipt generation and durable
+completion. There is no `--detach` behavior yet. Submission confirms result
+delivery, not task success; summarize only after a successful submission.
+
+An identical retry keeps the original submission timestamp; a different body
+is a conflict and cannot replace the stored response.
+
+The receipt is local correlation, not remote authentication. Accepted bodies
+are retained for seven days from submission; identical retry is safe only
+while retained with the same receipt and body, not indefinitely. A missing
+result does not cancel the work. Surface failed submission without a success
+summary, and do not resubmit if final summarization fails after acceptance.
+
+Bodies are exact valid UTF-8 up to 1 MiB, including empty, whitespace, BOM,
+NUL, CR/LF, Unicode, and marker-like text. Stdin is EOF-driven with a
+five-second deadline. `result` reports `RESPONSE_NOT_AVAILABLE` (exit 3) for
+pending, unknown, or expired bodies; input errors exit 1, timeout exits 4,
+and conflicts exit 5. JSON unavailable output is
+`{status:"unavailable",requestId,error:{code:"RESPONSE_NOT_AVAILABLE",message}}`.
+
 ## Best Practices
 
 1. Use `--wait` for synchronous request/response; use `check` after timeout

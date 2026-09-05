@@ -72,6 +72,42 @@ The `add` order is pane target first, then global name. Older name-first
 examples are rejected with a usage error. `all` is an ordinary identity name,
 not a special destination.
 
+## Durable replies and results
+
+When TMT supplies an exact receipt, an agent can submit a complete result
+without tmux:
+
+```bash
+tmt reply <request-id> --receipt <receipt> --file response.md
+tmt reply <request-id> --receipt <receipt> --stdin < response.md
+tmt result <request-id> --json
+```
+
+Use exactly one input source and the receipt supplied by TMT. Do not invent a
+receipt, guess the latest request, or infer a pane. In this release, `talk`
+still uses marker-based terminal capture and does not generate receipts;
+TMT-39 owns receipt generation and durable completion. There is no `--detach`
+or default durable-wait behavior yet. A successful submission means the
+result was delivered, not that the task succeeded; summarize only afterward.
+
+An identical retry for the same request and attempt keeps the original
+submission timestamp. A different body is a conflict and cannot replace the
+stored response.
+
+The receipt is local correlation, not remote authentication. Accepted bodies
+are retained for seven days from submission; identical retry is safe only
+while retained with the same receipt and body, not indefinitely. A missing
+result does not cancel the work. Surface failed submission without a success
+summary, and do not resubmit if final summarization fails after acceptance.
+
+Reply bodies are exact valid UTF-8 up to 1 MiB, including empty or whitespace
+text, BOM, NUL, CR/LF, Unicode, and marker-like content. Stdin is EOF-driven
+with a five-second input deadline. Result reports `RESPONSE_NOT_AVAILABLE`
+(exit 3) when the body is pending, unknown, or expired; input errors exit 1,
+input timeout exits 4, and conflicts exit 5.
+With `--json`, unavailable output is
+`{status:"unavailable",requestId,error:{code:"RESPONSE_NOT_AVAILABLE",message}}`.
+
 tmux-team is CLI-only: each invocation exits after its operation and no daemon
 or background service is required.
 

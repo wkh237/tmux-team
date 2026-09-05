@@ -80,8 +80,9 @@ a matching end marker is not proof of a complete, isolated response body.
 `check` is a diagnostic pane snapshot, not correlated response retrieval.
 The [request/response decision document](REQUEST-RESPONSE.md) records TMT-35's
 source evidence, capability limits and staged proposal. The shared request service
-now stores and retrieves immutable final bodies, but has no public reply command
-or live caller integration yet. Marker behavior and CLI grammar remain unchanged.
+now stores and retrieves immutable final bodies. Storage-only `reply` and `result`
+adapters expose that service; live `talk` integration is not implemented yet.
+Marker-based `talk` behavior remains unchanged.
 Keep this distinction
 and the document's verification status current as those slices are delivered.
 
@@ -155,7 +156,7 @@ and one exact valid Unicode body, bounded to 1,048,576 UTF-8 bytes. It accepts o
 live pane. `getResponse` returns the original body and association, not a capture.
 Empty bodies, whitespace, BOM, NUL, CR/LF and marker-like text are preserved.
 Role/preamble normalization is not applied; only the Unicode predicate is shared.
-Input adapters such as file/stdin decoding remain TMT-37 work.
+The reply adapter decodes bounded file/stdin input before invoking this service.
 
 The same immediate transaction validates the fence and inserts the final plus its
 attempt's `responseSubmittedAtMs` marker. Retained identical retries return the
@@ -179,6 +180,40 @@ Typed response errors distinguish invalid/oversized input, unknown request, wron
 attempt/recipient, ineligible state, expiry and conflict. Rejections preserve
 attempts, cadence and replies. No cancellation, listener, remote authorization,
 provider-specific state machine or alternate database is introduced.
+
+### Explicit reply and result adapters
+
+`reply <request-id> --receipt <receipt> (--file <path> | --stdin)` submits one
+complete final. `result <request-id>` reads a retained final without waiting.
+Both select storage-only Context capabilities: no live caller, pane reconciliation
+or tmux construction is required. Neither infers a request from a pane or name.
+The existing `talk` command does not generate receipts yet; TMT-39 owns that
+cutover. These adapters alone do not fix marker-based response extraction.
+
+The receipt is a versioned, bounded, canonical base64url JSON envelope containing
+the explicit request, attempt and complete recorded endpoint. It is correlation,
+not authentication against another process running as the same OS user. The
+adapter validates its shape and positional request match; the shared service
+validates the recorded fence and transition in its existing transaction. Routine
+acknowledgements, result output and errors do not include the receipt or endpoint.
+
+File input follows symlinks to regular files, using nonblocking open, descriptor
+type validation and a cap-plus-one bounded read with guaranteed closure. It is
+explicit user-selected input, not a filesystem confinement boundary. Reply and
+role input share bounded file decoding, not feature limits or normalization.
+Stdin requires explicit `--stdin`, rejects a TTY, and completes only on EOF within
+five seconds and the 1 MiB body cap. Failure removes input listeners/timers and
+does not submit a partial body. Fatal UTF-8 decoding preserves BOM and exact text.
+No storage transaction spans either input path.
+
+Submission returns `status: submitted`, request ID, byte count and the original
+submission timestamp, including on an identical retry. Result JSON returns
+`status: completed` with exact `response`, byte count and timestamp. Human output
+is formatted; exact-text consumers use JSON. Missing retained bodies return
+`RESPONSE_NOT_AVAILABLE`/`status: unavailable` (exit 3), covering pending, unknown
+and expired results without inventing distinctions the service cannot establish.
+Submission conflicts use exit 5; stdin deadline uses exit 4. Neither timeout nor
+unavailable output cancels recipient work or changes service retention.
 
 ## Caller context
 
@@ -326,6 +361,8 @@ unwritable output streams are outside the one-document guarantee.
 | [src/tmux.ts](src/tmux.ts)                                                                                                                                                 | External tmux commands, snapshots, opaque metadata preservation and paste/capture. No workspace registry adapter.                                                       |
 | [src/tmux-message.ts](src/tmux-message.ts), [src/message-delivery.ts](src/message-delivery.ts)                                                                             | Stageful protected input and shared submission policy; narrow delivery uncertainty contract consumed by commands without importing the tmux implementation.             |
 | [src/role-content.ts](src/role-content.ts)                                                                                                                                 | Bounded role file reading/UTF-8 decoding; pure role and preamble normalization share `domain/text-content.ts`.                                                          |
+| [src/bounded-utf8-file.ts](src/bounded-utf8-file.ts), [src/response-content.ts](src/response-content.ts)                                                                   | Shared bounded regular-file decoding and response-specific EOF/deadline input. Feature adapters retain their own limits and error mappings.                             |
+| [src/reply-receipt.ts](src/reply-receipt.ts), [src/commands/reply.ts](src/commands/reply.ts), [src/commands/result.ts](src/commands/result.ts)                             | Versioned local correlation codec and storage-only CLI adapters over the existing request service. No SQL, endpoint discovery or completion policy duplication.         |
 | [src/preamble-service.ts](src/preamble-service.ts)                                                                                                                         | Explicit durable-name preamble CRUD/list and its narrow repository contract. Context composes the existing SQLite connection.                                           |
 | [src/config.ts](src/config.ts)                                                                                                                                             | Path/settings resolution. Legacy registration fields and request JSON are not runtime authorities.                                                                      |
 | [src/request-service.ts](src/request-service.ts), [src/storage/request-repository.ts](src/storage/request-repository.ts), [src/domain/response.ts](src/domain/response.ts) | Application-owned request/cadence/final-response policy, composed SQL adapter and exact-body validation. Context owns the shared connection.                            |

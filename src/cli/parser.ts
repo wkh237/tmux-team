@@ -2,7 +2,8 @@ import { Command, CommanderError } from 'commander';
 import { isPaneTarget } from '../domain/names.js';
 import type { Flags } from '../types.js';
 import type { IdentitySelector } from '../identity-context.js';
-import type { RoleRequest } from './requests.js';
+import type { ReplyRequest, ResultRequest, RoleRequest } from './requests.js';
+import { validateReplyRequestId } from '../reply-receipt.js';
 export type { IdentitySelector } from '../identity-context.js';
 
 export type ParsedInvocation =
@@ -29,6 +30,8 @@ export type ParsedInvocation =
       readonly agent?: string;
       readonly preamble?: string;
     }
+  | ReplyRequest
+  | ResultRequest
   | RoleRequest;
 
 export interface ParsedMetadata {
@@ -158,6 +161,8 @@ function capabilityFor(invocation: ParsedInvocation): ParsedMetadata['capability
     case 'install':
       return 'storage';
     case 'preamble':
+    case 'reply':
+    case 'result':
       return 'storage';
     case 'role':
       // Keep context creation storage-only. Implicit current-pane resolution
@@ -226,6 +231,34 @@ function setupProgram(capture: Capture): Command {
   const leaf = <T extends Command>(command: T): T => {
     commonOptions(command);
     return command;
+  };
+  const storageOnly = <T extends Command>(command: T): T => {
+    command.option('--json');
+    return command;
+  };
+  const optionWasProvided = (command: Command, name: string): boolean => {
+    let current: Command | null = command;
+    while (current) {
+      if (current.getOptionValueSource(name) === 'cli') return true;
+      current = current.parent;
+    }
+    return false;
+  };
+  const rejectIrrelevantStorageOptions = (command: Command, kind: 'reply' | 'result'): void => {
+    const allowed = new Set(kind === 'reply' ? ['json', 'receipt', 'file', 'stdin'] : ['json']);
+    const seen = new Set<string>();
+    let current: Command | null = command;
+    while (current) {
+      for (const option of current.options) {
+        const name = option.attributeName();
+        if (seen.has(name)) continue;
+        seen.add(name);
+        if (!allowed.has(name) && optionWasProvided(command, name)) {
+          throw new CliParseError(`Unknown option '${option.long ?? option.flags}' for ${kind}.`);
+        }
+      }
+      current = current.parent;
+    }
   };
 
   program.action(() => action(program, { kind: 'help', showIntro: true }));
@@ -372,6 +405,45 @@ function setupProgram(capture: Capture): Command {
       operation: 'clear',
       ...(options.identity !== undefined && { selector: selector(options.identity, true) }),
     });
+  });
+  const reply = storageOnly(program.command('reply').argument('<request-id>'))
+    .requiredOption('--receipt <receipt>')
+    .option('--file <path>')
+    .option('--stdin');
+  reply.action(function (requestId: string) {
+    rejectIrrelevantStorageOptions(this, 'reply');
+    try {
+      validateReplyRequestId(requestId);
+    } catch (error) {
+      throw new CliParseError(error instanceof Error ? error.message : 'Invalid request ID.');
+    }
+    const options = commandOptions(this) as CommandOptions & {
+      receipt?: string;
+      stdin?: boolean;
+    };
+    const hasFile = options.file !== undefined;
+    const hasStdin = options.stdin === true;
+    if (hasFile === hasStdin || options.receipt === undefined) {
+      throw new CliParseError(
+        'Usage: tmux-team reply <request-id> --receipt <receipt> (--file <path> | --stdin) [--json]'
+      );
+    }
+    action(this, {
+      kind: 'reply',
+      requestId,
+      receipt: options.receipt,
+      ...(hasFile ? { file: options.file! } : { stdin: true }),
+    });
+  });
+  const result = storageOnly(program.command('result').argument('<request-id>'));
+  result.action(function (requestId: string) {
+    rejectIrrelevantStorageOptions(this, 'result');
+    try {
+      validateReplyRequestId(requestId);
+    } catch (error) {
+      throw new CliParseError(error instanceof Error ? error.message : 'Invalid request ID.');
+    }
+    action(this, { kind: 'result', requestId });
   });
   const install = leaf(program.command('install').argument('[agent]'));
   install.action(function (agent?: string) {

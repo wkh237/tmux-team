@@ -17,6 +17,8 @@ const handlers = {
   cmdWhoami: vi.fn(),
   cmdUnbind: vi.fn(),
   cmdRole: vi.fn(),
+  cmdReply: vi.fn(),
+  cmdResult: vi.fn(),
 };
 
 vi.mock('../commands/init.js', () => ({ cmdInit: handlers.cmdInit }));
@@ -34,6 +36,8 @@ vi.mock('../commands/upgrade.js', () => ({ cmdUpgrade: handlers.cmdUpgrade }));
 vi.mock('../commands/whoami.js', () => ({ cmdWhoami: handlers.cmdWhoami }));
 vi.mock('../commands/unbind.js', () => ({ cmdUnbind: handlers.cmdUnbind }));
 vi.mock('../commands/role.js', () => ({ cmdRole: handlers.cmdRole }));
+vi.mock('../commands/reply.js', () => ({ cmdReply: handlers.cmdReply }));
+vi.mock('../commands/result.js', () => ({ cmdResult: handlers.cmdResult }));
 
 const { dispatchCommand } = await import('./application.js');
 const parsed = (invocation: any) => ({
@@ -63,6 +67,8 @@ describe('application dispatcher', () => {
       ['config', { operation: 'show', global: false }],
       ['preamble', { operation: 'show' }],
       ['role', { operation: 'show' }],
+      ['reply', { requestId: 'request-1', receipt: 'receipt', file: '/tmp/reply.txt' }],
+      ['result', { requestId: 'request-1' }],
       ['install', { target: 'codex' }],
       ['upgrade', {}],
       ['learn', {}],
@@ -83,6 +89,14 @@ describe('application dispatcher', () => {
     expect(handlers.cmdRole).toHaveBeenCalledWith(
       ctx,
       expect.objectContaining({ operation: 'show' })
+    );
+    expect(handlers.cmdReply).toHaveBeenCalledWith(
+      ctx,
+      expect.objectContaining({ kind: 'reply', requestId: 'request-1', file: '/tmp/reply.txt' })
+    );
+    expect(handlers.cmdResult).toHaveBeenCalledWith(
+      ctx,
+      expect.objectContaining({ kind: 'result', requestId: 'request-1' })
     );
   });
 

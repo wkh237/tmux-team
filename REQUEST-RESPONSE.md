@@ -2,8 +2,9 @@
 
 Status: historical research based on `cecaec7` (2026-09-05), with the accepted
 direction and TMT-36 service contract maintained below. The shared final-response
-service is implemented; live CLI integration is still TMT-37 work. No provider
-integration, daemon, inbox, memory feature, or new CLI syntax is supplied here.
+service and explicit reply/result adapters are implemented; the default live
+`talk` cutover remains TMT-39 under TMT-37. No provider integration, daemon,
+inbox or memory feature is supplied here.
 
 ## Accepted direction (2026-09-05; CLI integration not yet shipped)
 
@@ -11,8 +12,9 @@ The [accepted design](https://linear.app/tigerpig-dev/document/accepted-design-d
 supersedes the earlier opt-in proposal below. TMT-36 adds immutable full replies
 to the existing request service; TMT-37 changes the CLI to wait for a durable
 reply by default, with bounded `--timeout` and explicit `--detach`, retiring
-`--wait` and the polling/wait mode switch. These are proposals, not installed
-commands. Terminal capture and `check` remain diagnostics, never authoritative
+`--wait` and the polling/wait mode switch. The default-wait change remains a
+proposal, not installed behavior. Explicit `reply`/`result` adapters are described
+below. Terminal capture and `check` must not be treated as authoritative durable
 completion or full-body retrieval.
 
 A cooperating agent first successfully submits its complete final body, then
@@ -63,7 +65,43 @@ Typed response errors distinguish invalid/oversized input, unknown request, wron
 attempt, wrong recipient, ineligible state, expiry and conflicting content.
 Rejected submissions preserve attempts, cadence and responses. Storage failures
 remain storage failures. No cancellation operation, retry routing policy or new
-CLI command is introduced by this service contract.
+CLI command is introduced by this service contract itself.
+
+### TMT-38 explicit CLI adapters
+
+TMT-37 is split into TMT-38 (bounded submission/retrieval) and TMT-39 (default
+durable `talk`, obsolete-mode removal and the exact-body Docker cutover).
+TMT-38 adds:
+
+```text
+tmt reply <request-id> --receipt <receipt> (--file <path> | --stdin) [--json]
+tmt result <request-id> [--json]
+```
+
+The receipt is an explicit version-1 base64url envelope of request ID, attempt ID
+and the complete six-field endpoint. Its encoded length is at most 8192 characters.
+It is not authentication. The recipient must use the supplied receipt, not infer
+the latest request from a pane. Current `talk` does not supply one yet; TMT-39
+owns generation and delivery. No receipt is included in routine result/ack output.
+
+Files must resolve to regular files; symlinks are followed, and descriptors are
+closed after bounded reads. Explicit stdin requires EOF within five seconds.
+Both reject malformed UTF-8 and bodies beyond 1,048,576 bytes before submission,
+preserving empty text, BOM, NUL, CR/LF and whitespace without normalization.
+
+Reply success returns `status: submitted`, `requestId`, `bodyBytes` and
+`submittedAtMs`. Identical retries preserve the timestamp; different bodies
+cannot overwrite a final. Result success returns `status: completed`, `requestId`,
+exact `response`, `bodyBytes` and `submittedAtMs`. JSON is the exact-text interface;
+human output adds formatting. A missing retained result is `status: unavailable`
+with `RESPONSE_NOT_AVAILABLE` (exit 3), not a claim that a request is unknown,
+cancelled or completed. Input deadline uses exit 4; conflicting final uses exit 5.
+
+Storage-only commands work after pane closure and waiter exit. They reuse the
+service and its retention, not another reply store. Agent guidance requires a
+truthful short user summary only after successful submission. Submission means
+the result was delivered, not that the requested task succeeded. Summary failure
+does not undo or justify repeating an accepted final.
 
 TMT-24 implementation update: transport now prevents replay after an input
 stage may have acted, preserves the same `!` protection on fallback, reports
