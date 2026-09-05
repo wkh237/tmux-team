@@ -53,7 +53,8 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
 - Message framing and adaptation belong to shared delivery implementation.
   Current waits use `RESPONSE-END-<nonce>`; do not invent a second marker.
   The `!` policy protects coding-agent shell/bash mode, not TTY cosmetics.
-  Consult the delivery gap in ARCHITECTURE before changing payload/fallback behavior.
+  Consult ARCHITECTURE's message delivery and uncertainty contract before
+  changing payload/fallback behavior.
 
 ## Dependencies and refactoring
 

@@ -53,6 +53,10 @@ let messageLines = [];
 appendEvent({ event: 'ready', mode, pid: process.pid });
 
 input.on('line', (line) => {
+  if (mode === 'input-log') {
+    appendEvent({ event: 'input', line, mode, pid: process.pid });
+    return;
+  }
   const instruction = line.match(
     /^When done, output exactly: RESPONSE-END-xxxx \(where xxxx = ([A-Za-z0-9]+)\)$/
   );

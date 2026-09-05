@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────
-// Pure tmux wrapper - buffer paste, capture-pane, pane detection
+// External tmux adapter - message delivery, capture, and pane detection
 // ─────────────────────────────────────────────────────────────
 
 import { execFileSync, execSync } from 'child_process';
@@ -17,6 +17,7 @@ import type {
   TmuxOperationOptions,
 } from './types.js';
 import { normalizeName } from './domain/service.js';
+import { sendTmuxMessage } from './tmux-message.js';
 
 const AGENT_METADATA_OPTION = '@tmux-team.agent';
 const SERVER_ID_OPTION = '@tmux-team.server-id';
@@ -24,6 +25,8 @@ const PANE_FIELD_SEPARATOR = '__TMT_FIELD_4f1c__';
 const ENDPOINT_PROBE_TIMEOUT_MS = 1_000;
 const ENDPOINT_PROBE_MAX_BUFFER = 1024 * 1024;
 const TMUX_OPERATION_TIMEOUT_MS = 1_000;
+const TMUX_CAPTURE_TIMEOUT_MS = 1_000;
+const TMUX_CAPTURE_MAX_BUFFER = 4 * 1024 * 1024;
 const CALLER_PANE_TIMEOUT_MS = 1_000;
 const CALLER_PANE_MAX_BUFFER = 4096;
 const CALLER_PANE_SEPARATOR = '__TMT_CALLER_PANE_4f1c__';
@@ -399,60 +402,30 @@ function probeEndpoint(
 }
 
 export function createTmux(): Tmux {
-  function sleepMs(ms: number): void {
-    if (ms <= 0) return;
-    const buffer = new SharedArrayBuffer(4);
-    const view = new Int32Array(buffer);
-    Atomics.wait(view, 0, 0, ms);
-  }
-
-  function ensureTrailingNewline(message: string): string {
-    return message.endsWith('\n') ? message : `${message}\n`;
-  }
-
-  function escapeExclamation(message: string): string {
-    // Replace "!" with fullwidth "！" (U+FF01) to avoid shell history expansion
-    return message.replace(/!/g, '\uff01');
-  }
-
-  function makeBufferName(): string {
-    const nonce = crypto.randomBytes(4).toString('hex');
-    return `tmt-${process.pid}-${Date.now()}-${nonce}`;
-  }
-
   return {
     send(paneId: string, message: string, options?: { enterDelayMs?: number }): void {
       const enterDelayMs = Math.max(0, options?.enterDelayMs ?? 500);
-      const bufferName = makeBufferName();
-      const escaped = escapeExclamation(message);
-      const payload = ensureTrailingNewline(escaped);
-
-      try {
-        execFileSync('tmux', ['set-buffer', '-b', bufferName, '--', payload], {
-          stdio: 'pipe',
-        });
-        execFileSync('tmux', ['paste-buffer', '-b', bufferName, '-d', '-t', paneId, '-p'], {
-          stdio: 'pipe',
-        });
-        sleepMs(enterDelayMs);
-        execFileSync('tmux', ['send-keys', '-t', paneId, 'Enter'], {
-          stdio: 'pipe',
-        });
-      } catch {
-        // Fallback to legacy send-keys if buffer/paste fails
-        execFileSync('tmux', ['send-keys', '-t', paneId, message], {
-          stdio: 'pipe',
-        });
-        execFileSync('tmux', ['send-keys', '-t', paneId, 'Enter'], {
-          stdio: 'pipe',
-        });
-      }
+      sendTmuxMessage({
+        paneId,
+        message,
+        enterDelayMs,
+        execute: (args, commandOptions) => execFileSync('tmux', args, commandOptions),
+        sleep: (ms) => {
+          if (ms <= 0) return;
+          const buffer = new SharedArrayBuffer(4);
+          const view = new Int32Array(buffer);
+          Atomics.wait(view, 0, 0, ms);
+        },
+      });
     },
 
     capture(paneId: string, lines: number): string {
-      const output = execSync(`tmux capture-pane -t "${paneId}" -p -S -${lines}`, {
+      const output = execFileSync('tmux', ['capture-pane', '-t', paneId, '-p', '-S', `-${lines}`], {
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
+        timeout: TMUX_CAPTURE_TIMEOUT_MS,
+        maxBuffer: TMUX_CAPTURE_MAX_BUFFER,
+        killSignal: 'SIGKILL',
       });
       return output;
     },

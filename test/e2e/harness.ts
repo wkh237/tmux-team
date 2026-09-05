@@ -16,8 +16,9 @@ export interface CliResult<T = unknown> {
 }
 
 export interface MockEvent {
-  event: 'ready' | 'request' | 'response' | 'silent' | 'malformed' | 'stopped';
+  event: 'ready' | 'request' | 'response' | 'silent' | 'malformed' | 'input' | 'stopped';
   message?: string;
+  line?: string;
   nonce?: string;
   mode?: string;
   pid?: number;
@@ -45,6 +46,11 @@ export interface CliRunOptions {
   };
   /** Touch this file when the child has made its first tmux invocation. */
   progressFile?: string;
+  /** Inject one transport-stage failure into this CLI process only. */
+  transportFault?: {
+    /** set-buffer is safe to fall back from; paste and submit are uncertain. */
+    readonly stage: 'set-buffer' | 'paste' | 'submit';
+  };
 }
 
 export interface CliProcess<T = unknown> {
@@ -73,6 +79,7 @@ export class E2EFixture {
   readonly workspace = path.join(this.root, 'workspace');
   readonly globalDir: string;
   readonly logPath = path.join(this.root, 'mock-agent.jsonl');
+  readonly transportTracePath = path.join(this.root, 'transport-trace.log');
   readonly forbiddenTmuxLogPath = path.join(this.root, 'forbidden-tmux.log');
   readonly metadataBarrierDirectory = path.join(this.root, 'metadata-barrier');
   readonly socket = `tmt-e2e-${process.pid}-${Math.random().toString(16).slice(2)}`;
@@ -108,7 +115,7 @@ export class E2EFixture {
 
   async start(
     options: {
-      mode?: 'respond' | 'silent' | 'malformed' | 'virtualized';
+      mode?: 'respond' | 'silent' | 'malformed' | 'virtualized' | 'input-log';
       delayMs?: number;
       metadataBarrier?: MetadataBarrierOptions;
     } = {}
@@ -145,7 +152,7 @@ if [ "${'$'}1" = "set-option" ]; then
     metadata_write=0
   fi
 fi
-if [ -z "${'$'}{TMT_E2E_PROGRESS_FILE:-}" ] && [ -z "${'$'}{TMT_E2E_METADATA_BARRIER_DIR:-}" ]; then
+if [ -z "${'$'}{TMT_E2E_PROGRESS_FILE:-}" ] && [ -z "${'$'}{TMT_E2E_METADATA_BARRIER_DIR:-}" ] && [ -z "${'$'}{TMT_E2E_TRANSPORT_TRACE_FILE:-}" ]; then
   exec ${shellQuote(this.tmuxPath)} -f /dev/null -L "${'$'}TMT_E2E_SOCKET" "${'$'}@"
 fi
 metadata_target=0
@@ -165,8 +172,54 @@ if [ "${'$'}metadata_target" = "1" ] && [ -n "${'$'}{TMT_E2E_METADATA_BARRIER_DI
     [ -e "${'$'}TMT_E2E_METADATA_BARRIER_DIR/release" ] || exit 124
   fi
 fi
+trace_transport() {
+  if [ -z "${'$'}{TMT_E2E_TRANSPORT_TRACE_FILE:-}" ]; then return; fi
+  trace_stage="${'$'}1"
+  shift
+  trace_argv=""
+  for trace_arg in "${'$'}@"; do
+    trace_arg=$(printf '%s' "${'$'}trace_arg" | tr '\n' ' ')
+    trace_argv="${'$'}trace_argv [${'$'}trace_arg]"
+  done
+  printf '%s|%s\n' "${'$'}trace_stage" "${'$'}trace_argv" >> "${'$'}TMT_E2E_TRANSPORT_TRACE_FILE"
+}
+transport_stage=""
+case "${'$'}1" in
+  set-buffer) transport_stage="set-buffer" ;;
+  paste-buffer) transport_stage="paste-buffer" ;;
+  send-keys)
+    if [ "${'$'}#" -eq 4 ] && [ "${'$'}4" = "Enter" ]; then
+      transport_stage="submit"
+    else
+      transport_stage="literal-input"
+    fi
+    ;;
+esac
+if [ "${'$'}transport_stage" = "set-buffer" ] && [ "${'$'}{TMT_E2E_TRANSPORT_FAULT_STAGE:-}" = "set-buffer" ]; then
+  trace_transport "set-buffer.fault-before" "${'$'}@"
+  exit 97
+fi
+if [ -n "${'$'}transport_stage" ]; then
+  trace_transport "${'$'}transport_stage.before" "${'$'}@"
+fi
 ${shellQuote(this.tmuxPath)} -f /dev/null -L "${'$'}TMT_E2E_SOCKET" "${'$'}@"
 status=${'$'}?
+if [ -n "${'$'}transport_stage" ]; then
+  trace_transport "${'$'}transport_stage.after.${'$'}status" "${'$'}@"
+fi
+fault_after=0
+if [ "${'$'}status" -eq 0 ]; then
+  if [ "${'$'}transport_stage" = "paste-buffer" ] && [ "${'$'}{TMT_E2E_TRANSPORT_FAULT_STAGE:-}" = "paste" ]; then
+    fault_after=1
+  fi
+  if [ "${'$'}transport_stage" = "submit" ] && [ "${'$'}{TMT_E2E_TRANSPORT_FAULT_STAGE:-}" = "submit" ]; then
+    fault_after=1
+  fi
+fi
+if [ "${'$'}fault_after" -eq 1 ]; then
+  trace_transport "${'$'}transport_stage.fault-after" "${'$'}@"
+  exit 98
+fi
 if [ "${'$'}metadata_target" = "1" ] && [ -n "${'$'}{TMT_E2E_METADATA_BARRIER_DIR:-}" ] && [ "${'$'}{TMT_E2E_METADATA_BARRIER_PHASE:-}" = "after" ]; then
   : > "${'$'}TMT_E2E_METADATA_BARRIER_DIR/applied"
   barrier_wait=0
@@ -243,6 +296,10 @@ exit ${'$'}status
       env.TMT_E2E_FORBIDDEN_TMUX_LOG = this.forbiddenTmuxLogPath;
     }
     if (options.progressFile) env.TMT_E2E_PROGRESS_FILE = options.progressFile;
+    if (options.transportFault) {
+      env.TMT_E2E_TRANSPORT_FAULT_STAGE = options.transportFault.stage;
+      env.TMT_E2E_TRANSPORT_TRACE_FILE = this.transportTracePath;
+    }
     const child = spawn(binPath, args, {
       cwd: options.cwd ?? this.workspace,
       env,
@@ -447,6 +504,11 @@ exit ${'$'}status
 
   paneTitle(pane = this.pane): string {
     return this.tmux(['display-message', '-p', '-t', pane, '#{pane_title}']).trim();
+  }
+
+  transportTrace(): string[] {
+    if (!fs.existsSync(this.transportTracePath)) return [];
+    return fs.readFileSync(this.transportTracePath, 'utf8').split('\n').filter(Boolean);
   }
 
   events(): MockEvent[] {
@@ -663,7 +725,7 @@ exit ${'$'}status
 export async function withE2EFixture<T>(
   callback: (fixture: E2EFixture) => Promise<T> | T,
   options: {
-    mode?: 'respond' | 'silent' | 'malformed' | 'virtualized';
+    mode?: 'respond' | 'silent' | 'malformed' | 'virtualized' | 'input-log';
     delayMs?: number;
     globalDir?: string;
     metadataBarrier?: MetadataBarrierOptions;

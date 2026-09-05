@@ -46,7 +46,7 @@ function endpointRow(
 
 describe('createTmux', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   afterEach(() => {
@@ -73,7 +73,11 @@ describe('createTmux', () => {
       expect(mockedExecFileSync).toHaveBeenCalledWith(
         'tmux',
         ['send-keys', '-t', '1.0', 'Enter'],
-        expect.any(Object)
+        expect.objectContaining({
+          timeout: 1000,
+          maxBuffer: 64 * 1024,
+          killSignal: 'SIGKILL',
+        })
       );
     });
 
@@ -107,25 +111,94 @@ describe('createTmux', () => {
       );
     });
 
-    it('falls back to send-keys when buffer paste fails', () => {
+    it('falls back once with the adapted literal payload when set-buffer fails', () => {
       const error = new Error('set-buffer failed');
       mockedExecFileSync.mockImplementationOnce(() => {
         throw error;
       });
       const tmux = createTmux();
 
-      tmux.send('1.0', 'Hello', { enterDelayMs: 0 });
+      tmux.send('1.0', '-n weird!\nLine two', { enterDelayMs: 0 });
 
-      expect(mockedExecFileSync).toHaveBeenCalledWith(
-        'tmux',
-        ['send-keys', '-t', '1.0', 'Hello'],
-        expect.any(Object)
+      const calls = mockedExecFileSync.mock.calls.map(([, args]) => args);
+      const bufferName = calls[0]?.[2];
+      expect(calls[0]).toEqual([
+        'set-buffer',
+        '-b',
+        expect.stringMatching(/^tmt-/),
+        '--',
+        '-n weird！\nLine two\n',
+      ]);
+      expect(calls[1]).toEqual(['delete-buffer', '-b', bufferName]);
+      expect(calls[2]).toEqual(['send-keys', '-l', '-t', '1.0', '--', '-n weird！\nLine two\n']);
+      expect(calls[3]).toEqual(['send-keys', '-t', '1.0', 'Enter']);
+      expect(calls.filter((args) => args?.[0] === 'paste-buffer')).toHaveLength(0);
+      expect(calls.filter((args) => args?.[0] === 'send-keys')).toEqual([calls[2], calls[3]]);
+    });
+
+    it('reports uncertain literal fallback without submitting or replaying', () => {
+      mockedExecFileSync.mockImplementation((_, args = []) => {
+        if (args[0] === 'set-buffer') throw new Error('set-buffer failed');
+        if (args[0] === 'send-keys' && args.includes('--')) throw new Error('literal failed');
+        return '';
+      });
+      const tmux = createTmux();
+
+      expect(() => tmux.send('1.0', 'Hello!', { enterDelayMs: 0 })).toThrowError(
+        expect.objectContaining({ code: 'DELIVERY_UNCERTAIN', stage: 'literal' })
       );
-      expect(mockedExecFileSync).toHaveBeenCalledWith(
-        'tmux',
+      const calls = mockedExecFileSync.mock.calls.map(([, args]) => args);
+      expect(calls.filter((args) => args?.[0] === 'send-keys')).toEqual([
+        ['send-keys', '-l', '-t', '1.0', '--', 'Hello！\n'],
+      ]);
+    });
+
+    it('reports uncertain paste failure without replaying input', () => {
+      mockedExecFileSync.mockImplementation((_, args = []) => {
+        if (args[0] === 'paste-buffer') throw new Error('paste failed');
+        return '';
+      });
+      const tmux = createTmux();
+
+      expect(() => tmux.send('1.0', 'Hello', { enterDelayMs: 0 })).toThrowError(
+        expect.objectContaining({ code: 'DELIVERY_UNCERTAIN', stage: 'paste' })
+      );
+      const calls = mockedExecFileSync.mock.calls.map(([, args]) => args);
+      expect(calls[0]?.[0]).toBe('set-buffer');
+      expect(calls[1]?.[0]).toBe('paste-buffer');
+      expect(calls[2]).toEqual(['delete-buffer', '-b', calls[0]?.[2]]);
+      expect(calls.filter((args) => args?.[0] === 'send-keys')).toEqual([]);
+    });
+
+    it('preserves uncertain paste outcome when cleanup fails', () => {
+      mockedExecFileSync.mockImplementation((_, args = []) => {
+        if (args[0] === 'paste-buffer') throw new Error('paste failed');
+        if (args[0] === 'delete-buffer') throw new Error('cleanup failed');
+        return '';
+      });
+      const tmux = createTmux();
+
+      expect(() => tmux.send('1.0', 'Hello', { enterDelayMs: 0 })).toThrowError(
+        expect.objectContaining({ code: 'DELIVERY_UNCERTAIN', stage: 'paste' })
+      );
+      const calls = mockedExecFileSync.mock.calls.map(([, args]) => args);
+      expect(calls[2]).toEqual(['delete-buffer', '-b', calls[0]?.[2]]);
+    });
+
+    it('does not replay after Enter submission becomes uncertain', () => {
+      mockedExecFileSync.mockImplementation((_, args = []) => {
+        if (args[0] === 'send-keys' && args.includes('Enter')) throw new Error('Enter failed');
+        return '';
+      });
+      const tmux = createTmux();
+
+      expect(() => tmux.send('1.0', 'Hello', { enterDelayMs: 0 })).toThrowError(
+        expect.objectContaining({ code: 'DELIVERY_UNCERTAIN', stage: 'submit' })
+      );
+      const calls = mockedExecFileSync.mock.calls.map(([, args]) => args);
+      expect(calls.filter((args) => args?.[0] === 'send-keys')).toEqual([
         ['send-keys', '-t', '1.0', 'Enter'],
-        expect.any(Object)
-      );
+      ]);
     });
 
     it('uses pipe stdio to suppress output', () => {
@@ -133,26 +206,40 @@ describe('createTmux', () => {
 
       tmux.send('1.0', 'Hello', { enterDelayMs: 0 });
 
-      expect(mockedExecFileSync).toHaveBeenCalledWith('tmux', expect.any(Array), { stdio: 'pipe' });
+      for (const [, , options] of mockedExecFileSync.mock.calls) {
+        expect(options).toEqual(
+          expect.objectContaining({
+            stdio: ['pipe', 'pipe', 'pipe'],
+            timeout: 1000,
+            maxBuffer: 64 * 1024,
+            killSignal: 'SIGKILL',
+          })
+        );
+      }
     });
   });
 
   describe('capture', () => {
     it('calls tmux capture-pane with pane ID and line count', () => {
-      mockedExecSync.mockReturnValue('captured output');
+      mockedExecFileSync.mockReturnValue('captured output');
       const tmux = createTmux();
 
       tmux.capture('1.0', 100);
 
-      expect(mockedExecSync).toHaveBeenCalledWith(
-        'tmux capture-pane -t "1.0" -p -S -100',
-        expect.any(Object)
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        ['capture-pane', '-t', '1.0', '-p', '-S', '-100'],
+        expect.objectContaining({
+          timeout: 1000,
+          maxBuffer: 4 * 1024 * 1024,
+          killSignal: 'SIGKILL',
+        })
       );
     });
 
     it('returns captured pane content', () => {
       const expectedOutput = 'Line 1\nLine 2\nLine 3';
-      mockedExecSync.mockReturnValue(expectedOutput);
+      mockedExecFileSync.mockReturnValue(expectedOutput);
       const tmux = createTmux();
 
       const result = tmux.capture('1.0', 50);
@@ -161,20 +248,36 @@ describe('createTmux', () => {
     });
 
     it('captures specified number of lines', () => {
-      mockedExecSync.mockReturnValue('');
+      mockedExecFileSync.mockReturnValue('');
       const tmux = createTmux();
 
       tmux.capture('2.1', 200);
 
-      expect(mockedExecSync).toHaveBeenCalledWith(
-        'tmux capture-pane -t "2.1" -p -S -200',
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        ['capture-pane', '-t', '2.1', '-p', '-S', '-200'],
+        expect.any(Object)
+      );
+    });
+
+    it('passes hostile pane targets as argv without shell interpretation', () => {
+      mockedExecFileSync.mockReturnValue('captured output');
+      const tmux = createTmux();
+      const hostilePane = '1.0; touch /tmp/tmt-should-not-run';
+
+      tmux.capture(hostilePane, 1);
+
+      expect(mockedExecSync).not.toHaveBeenCalled();
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        ['capture-pane', '-t', hostilePane, '-p', '-S', '-1'],
         expect.any(Object)
       );
     });
 
     it('throws when pane does not exist', () => {
       const error = new Error("can't find pane: 99.99");
-      mockedExecSync.mockImplementationOnce(() => {
+      mockedExecFileSync.mockImplementationOnce(() => {
         throw error;
       });
 
@@ -184,25 +287,27 @@ describe('createTmux', () => {
     });
 
     it('uses utf-8 encoding for output', () => {
-      mockedExecSync.mockReturnValue('');
+      mockedExecFileSync.mockReturnValue('');
       const tmux = createTmux();
 
       tmux.capture('1.0', 100);
 
-      expect(mockedExecSync).toHaveBeenCalledWith(
-        expect.any(String),
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        expect.any(Array),
         expect.objectContaining({ encoding: 'utf-8' })
       );
     });
 
     it('uses pipe stdio for all streams', () => {
-      mockedExecSync.mockReturnValue('');
+      mockedExecFileSync.mockReturnValue('');
       const tmux = createTmux();
 
       tmux.capture('1.0', 100);
 
-      expect(mockedExecSync).toHaveBeenCalledWith(
-        expect.any(String),
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        expect.any(Array),
         expect.objectContaining({ stdio: ['pipe', 'pipe', 'pipe'] })
       );
     });

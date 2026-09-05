@@ -14,6 +14,24 @@ You are working in a multi-agent tmux environment. Use the `tmux-team` CLI to co
 - Checking responses from agents you've messaged
 - Coordinating parallel work across multiple agents
 
+## Delivery safety
+
+`talk` converts ASCII `!` to fullwidth `！` on both normal and fallback input
+paths to protect coding-agent shell/bash-mode shortcuts. Line breaks are
+preserved, but text such as `if (!ready)` is not delivered byte-for-byte. Do not
+assume bracketed paste or an agent's identity name makes literal `!` safe.
+
+`DELIVERY_UNCERTAIN` (exit 1) means input or Enter may already have reached the
+pane. JSON includes the failed `stage`. Do not automatically resend: inspect
+with `tmt check <target>` and establish whether work started before deciding
+what to do next. Missing visible output is not proof that nothing executed.
+Successful submission also does not guarantee exactly-once agent processing.
+
+`--wait` still extracts a best-effort terminal response. A completion marker
+can coexist with cropped content; increasing `check` lines cannot recover text
+that the agent never rendered. No durable structured response channel is
+implied by this transport safety behavior.
+
 ## Commands
 
 `name`, `this`, `whoami` and `unbind` require matching live `TMUX` and

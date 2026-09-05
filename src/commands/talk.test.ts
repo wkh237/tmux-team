@@ -8,6 +8,8 @@ import path from 'path';
 import os from 'os';
 import type { Context, Tmux, UI, Paths, ResolvedConfig, Flags } from '../types.js';
 import { ExitCodes } from '../exits.js';
+import { TmuxDeliveryError } from '../message-delivery.js';
+import { loadState, setActiveRequest } from '../state.js';
 import { cmdTalk } from './talk.js';
 
 // ─────────────────────────────────────────────────────────────
@@ -420,6 +422,54 @@ describe('cmdTalk - basic send', () => {
     ]);
   });
 
+  it('returns one structured uncertainty envelope for a typed send failure', async () => {
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+    tmux.send = () => {
+      throw new TmuxDeliveryError('paste');
+    };
+    const ctx = createContext({
+      tmux,
+      ui,
+      paths: createTestPaths(testDir),
+      flags: { json: true },
+      config: { paneRegistry: { claude: { pane: '1.0' } } },
+    });
+
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(ui.jsonOutput).toEqual([
+      {
+        error: {
+          code: 'DELIVERY_UNCERTAIN',
+          message: 'Message delivery is uncertain during paste.',
+          stage: 'paste',
+          suggestion: 'Inspect the target pane before retrying.',
+        },
+      },
+    ]);
+    expect(ui.jsonOutput).toHaveLength(1);
+  });
+
+  it('shows an actionable inspection hint for human uncertainty output', async () => {
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+    tmux.send = () => {
+      throw new TmuxDeliveryError('literal');
+    };
+    const ctx = createContext({
+      tmux,
+      ui,
+      paths: createTestPaths(testDir),
+      config: { paneRegistry: { claude: { pane: '1.0' } } },
+    });
+
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(ui.errors).toEqual([
+      'Message delivery is uncertain during literal. Inspect the target pane before retrying.',
+    ]);
+    expect(ui.jsonOutput).toEqual([]);
+  });
+
   it('preserves exclamation marks for gemini agent', async () => {
     const tmux = createMockTmux();
     const ctx = createContext({ tmux, paths: createTestPaths(testDir) });
@@ -519,6 +569,98 @@ describe('cmdTalk - --wait mode', () => {
     // Simulate: scrollback, user message with instruction, agent response, marker
     return `Some scrollback content\nUser message here\n\n${instruction}\n${response}\n${endMarker}`;
   }
+
+  it.each([
+    [
+      'generic',
+      () => new Error('tmux error'),
+      { code: 'ERROR', message: 'Failed to send to pane 1.0. Is tmux running?' },
+    ],
+    [
+      'typed',
+      () => new TmuxDeliveryError('submit'),
+      {
+        code: 'DELIVERY_UNCERTAIN',
+        message: 'Message delivery is uncertain during submit.',
+        stage: 'submit',
+        suggestion: 'Inspect the target pane before retrying.',
+      },
+    ],
+  ] as const)(
+    'maps %s send failure once in wait mode and clears request state',
+    async (_kind, makeError, expected) => {
+      const tmux = createMockTmux();
+      const ui = createMockUI();
+      tmux.send = () => {
+        throw makeError();
+      };
+      const paths = createTestPaths(testDir);
+      const unrelated = {
+        id: 'other-request',
+        nonce: 'other',
+        pane: '1.1',
+        startedAtMs: Date.now(),
+      };
+      setActiveRequest(paths, '1.1', unrelated);
+      const ctx = createContext({
+        tmux,
+        ui,
+        paths,
+        flags: { wait: true, json: true, timeout: 0.5 },
+        config: {
+          paneRegistry: { claude: { pane: '1.0' } },
+          defaults: {
+            timeout: 0.5,
+            pollInterval: 0.01,
+            captureLines: 100,
+            maxCaptureLines: 2000,
+            preambleEvery: 3,
+            pasteEnterDelayMs: 500,
+          },
+        },
+      });
+      ctx.exit = (code: number) => {
+        expect(code).toBe(ExitCodes.ERROR);
+        expect(loadState(paths).requests['1.0']).toBeUndefined();
+        expect(loadState(paths).requests['1.1']).toEqual(unrelated);
+        throw new Error(`exit(${code})`);
+      };
+
+      await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
+      expect(ui.jsonOutput).toEqual([{ error: expected }]);
+      expect(ui.jsonOutput).toHaveLength(1);
+      expect(fs.existsSync(paths.stateFile)).toBe(true);
+      const state = loadState(paths);
+      expect(state.requests['1.0']).toBeUndefined();
+      expect(state.requests['1.1']).toEqual(unrelated);
+    }
+  );
+
+  it('does not clear a newer pane request after an uncertain send', async () => {
+    const paths = createTestPaths(testDir);
+    const tmux = createMockTmux();
+    const replacement = {
+      id: 'newer-request',
+      nonce: 'newer',
+      pane: '1.0',
+      startedAtMs: Date.now(),
+    };
+    tmux.send = () => {
+      expect(loadState(paths).requests['1.0']?.id).not.toBe(replacement.id);
+      expect(loadState(paths).requests['1.0']?.pane).toBe('1.0');
+      setActiveRequest(paths, '1.0', replacement);
+      throw new TmuxDeliveryError('paste');
+    };
+    const ctx = createContext({ tmux, paths, flags: { wait: true, json: true } });
+    ctx.exit = (code: number) => {
+      expect(code).toBe(ExitCodes.ERROR);
+      expect(loadState(paths).requests['1.0']).toEqual(replacement);
+      throw new Error(`exit(${code})`);
+    };
+
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(loadState(paths).requests['1.0']).toEqual(replacement);
+  });
 
   it('appends nonce instruction to message', async () => {
     const tmux = createMockTmux();
