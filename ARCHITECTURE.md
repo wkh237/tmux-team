@@ -79,11 +79,17 @@ Current `talk --wait` completion and body extraction rely on terminal capture;
 a matching end marker is not proof of a complete, isolated response body.
 `check` is a diagnostic pane snapshot, not correlated response retrieval.
 The [request/response decision document](REQUEST-RESPONSE.md) records TMT-35's
-source evidence, capability limits and staged proposal. Its structured service
-has only its transactional bookkeeping foundation shipped: marker behavior and
-CLI grammar remain unchanged, and final-body storage/retrieval is still deferred.
+source evidence, capability limits and staged proposal. The shared request service
+now stores and retrieves immutable final bodies, but has no public reply command
+or live caller integration yet. Marker behavior and CLI grammar remain unchanged.
 Keep this distinction
 and the document's verification status current as those slices are delivered.
+
+The accepted proposal now targets durable completion by default, timeout/detach,
+and a short human summary after successful final submission. TMT-36 owns the
+shared final-response service; TMT-37 owns the CLI cutover and shipped guidance.
+This supersedes the earlier opt-in proposal, not the current runtime contract.
+MCP/remote connectivity remains a separate future project.
 
 ## Message delivery and uncertainty
 
@@ -115,7 +121,8 @@ The request application service owns preparation, transport state, waiter
 release and preamble reservation policy through a narrow repository port.
 The concrete request adapter composes over Context's existing SQLite connection;
 it does not open a second handle. Migration 4 adds attempt metadata and persistent
-identity cadence totals. Neither prompts nor response bodies are stored here.
+identity cadence totals. Migration 5 adds independent final-response records and
+a bounded completion marker on attempts. Prompts are not stored here.
 
 Each invocation receives an immutable request/attempt identity and records full
 server ID, socket, server PID/start time, pane ID and pane PID. An endpoint is
@@ -134,11 +141,44 @@ settlement/refund is idempotent and cannot mutate another request.
 
 Wait release does not cancel recipient work or alter delivery outcome. Expiry is
 at least one hour and extends for configured send/wait budgets. Opportunistic
-cleanup prunes terminal metadata after 24 hours while keeping cadence totals.
-This policy is not future final-response retention. A failure before reservation
+cleanup prunes terminal metadata only after both 24 hours from settlement and the
+response submission deadline, while keeping cadence totals. A failure before reservation
 or begin-send stops input; a post-send persistence failure cannot safely imply
 non-delivery. Commands report `REQUEST_STATE_ERROR` with inspection guidance
 when appropriate. There is no automatic retry, daemon or inbox in this slice.
+
+### Immutable final replies
+
+`submitResponse` takes explicit request and attempt IDs, the recorded full endpoint,
+and one exact valid Unicode body, bounded to 1,048,576 UTF-8 bytes. It accepts only
+`sending`, `sent` and `uncertain`; it does not change transport status or infer a
+live pane. `getResponse` returns the original body and association, not a capture.
+Empty bodies, whitespace, BOM, NUL, CR/LF and marker-like text are preserved.
+Role/preamble normalization is not applied; only the Unicode predicate is shared.
+Input adapters such as file/stdin decoding remain TMT-37 work.
+
+The same immediate transaction validates the fence and inserts the final plus its
+attempt's `responseSubmittedAtMs` marker. Retained identical retries return the
+original record and timestamp, including after restart or attempt cleanup.
+Conflicting bodies and wrong fences cannot mutate a final. A response-first
+definitely-failed settlement becomes uncertain without refund; already terminal
+delivery outcomes cannot be rewritten by contradictory settlement. Completion
+means a submitted result, not successful task execution or authenticated delivery.
+
+Submission remains eligible until the later of attempt expiry and seven days from
+preparation. Wait release does not close this window. Final bodies expire seven
+days after submission: reads hide them at that boundary; opportunistic cleanup
+physically removes them. Independent endpoint snapshots and no cascading foreign
+keys let a final outlive its attempt or identity binding. The bounded attempt
+completion marker prevents recreation and false refunds after body deletion when
+a long attempt deadline is still open. Preparation rejects IDs still owned by a
+retained final. After all retained metadata is gone, unknown and previously expired
+requests are indistinguishable; there is no permanent tombstone store.
+
+Typed response errors distinguish invalid/oversized input, unknown request, wrong
+attempt/recipient, ineligible state, expiry and conflict. Rejections preserve
+attempts, cadence and replies. No cancellation, listener, remote authorization,
+provider-specific state machine or alternate database is introduced.
 
 ## Caller context
 
@@ -272,26 +312,26 @@ unwritable output streams are outside the one-document guarantee.
 
 ## Current module map
 
-| Location                                                                                                                                 | Responsibility and integration points                                                                                                                                   |
-| ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [bin/tmux-team](bin/tmux-team), [src/cli.ts](src/cli.ts), [src/cli-runner.ts](src/cli-runner.ts), [src/cli-output.ts](src/cli-output.ts) | Executable entry, guarded invocation lifetime and one buffered JSON result after disposal; natural output draining.                                                     |
-| [src/cli/parser.ts](src/cli/parser.ts), [src/cli/application.ts](src/cli/application.ts)                                                 | Repository-owned Commander adapter produces typed invocations and capability metadata; dispatcher routes them. Do not create another positional parser.                 |
-| [src/context.ts](src/context.ts), [src/types.ts](src/types.ts)                                                                           | Composition and lazy resource lifetime; shared UI, adapter, service and configuration contracts. The shared types module is not a dumping ground for new domain models. |
-| [src/commands/](src/commands/)                                                                                                           | CLI orchestration, error mapping and presentation. Some delivery policy still lives in commands; they are effectful adapters, not pure functions.                       |
-| [src/domain/](src/domain/)                                                                                                               | Pure name validation, bounded text normalization, feature-specific errors and identity models; no alternate in-memory binding model.                                    |
-| [src/identity-service.ts](src/identity-service.ts)                                                                                       | Durable binding, presence, reconciliation and an application-owned identity repository port; supplies verified identities to the target resolver.                       |
-| [src/role-service.ts](src/role-service.ts), [src/identity-context.ts](src/identity-context.ts)                                           | Role use cases with an application-owned repository port and shared durable explicit/implicit identity selection.                                                       |
-| [src/target-resolver.ts](src/target-resolver.ts)                                                                                         | Shared name/pane resolution; pane-shaped arguments are resolved before names.                                                                                           |
-| [src/storage/](src/storage/)                                                                                                             | SQLite lifecycle, migrations, errors and SQL implementing composed application-owned repository ports; Context owns the CLI handle.                                     |
-| [src/tmux.ts](src/tmux.ts)                                                                                                               | External tmux commands, snapshots, opaque metadata preservation and paste/capture. No workspace registry adapter.                                                       |
-| [src/tmux-message.ts](src/tmux-message.ts), [src/message-delivery.ts](src/message-delivery.ts)                                           | Stageful protected input and shared submission policy; narrow delivery uncertainty contract consumed by commands without importing the tmux implementation.             |
-| [src/role-content.ts](src/role-content.ts)                                                                                               | Bounded role file reading/UTF-8 decoding; pure role and preamble normalization share `domain/text-content.ts`.                                                          |
-| [src/preamble-service.ts](src/preamble-service.ts)                                                                                       | Explicit durable-name preamble CRUD/list and its narrow repository contract. Context composes the existing SQLite connection.                                           |
-| [src/config.ts](src/config.ts)                                                                                                           | Path/settings resolution. Legacy registration fields and request JSON are not runtime authorities.                                                                      |
-| [src/request-service.ts](src/request-service.ts), [src/storage/request-repository.ts](src/storage/request-repository.ts)                 | Application-owned live request/cadence policy and its composed SQL adapter. Context owns the shared connection.                                                         |
-| [src/ui.ts](src/ui.ts), [src/exits.ts](src/exits.ts)                                                                                     | Presentation helpers and exit-code registry; do not invent conflicting mappings.                                                                                        |
-| [src/commands/install.ts](src/commands/install.ts), [src/update-check.ts](src/update-check.ts), [skills/](skills/), [plugins/](plugins/) | User-facing integrations, instructions and updates. These differ from repository developer skills in `.agents/skills/`.                                                 |
-| [test/e2e/](test/e2e/), [scripts/](scripts/), [.github/workflows/ci.yml](.github/workflows/ci.yml)                                       | Docker fixtures/scenarios, orchestration/pack verification and CI. Unit tests are colocated with source; concurrency workers currently also live in `src/`.             |
+| Location                                                                                                                                                                   | Responsibility and integration points                                                                                                                                   |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [bin/tmux-team](bin/tmux-team), [src/cli.ts](src/cli.ts), [src/cli-runner.ts](src/cli-runner.ts), [src/cli-output.ts](src/cli-output.ts)                                   | Executable entry, guarded invocation lifetime and one buffered JSON result after disposal; natural output draining.                                                     |
+| [src/cli/parser.ts](src/cli/parser.ts), [src/cli/application.ts](src/cli/application.ts)                                                                                   | Repository-owned Commander adapter produces typed invocations and capability metadata; dispatcher routes them. Do not create another positional parser.                 |
+| [src/context.ts](src/context.ts), [src/types.ts](src/types.ts)                                                                                                             | Composition and lazy resource lifetime; shared UI, adapter, service and configuration contracts. The shared types module is not a dumping ground for new domain models. |
+| [src/commands/](src/commands/)                                                                                                                                             | CLI orchestration, error mapping and presentation. Some delivery policy still lives in commands; they are effectful adapters, not pure functions.                       |
+| [src/domain/](src/domain/)                                                                                                                                                 | Pure name validation, bounded text normalization, feature-specific errors and identity models; no alternate in-memory binding model.                                    |
+| [src/identity-service.ts](src/identity-service.ts)                                                                                                                         | Durable binding, presence, reconciliation and an application-owned identity repository port; supplies verified identities to the target resolver.                       |
+| [src/role-service.ts](src/role-service.ts), [src/identity-context.ts](src/identity-context.ts)                                                                             | Role use cases with an application-owned repository port and shared durable explicit/implicit identity selection.                                                       |
+| [src/target-resolver.ts](src/target-resolver.ts)                                                                                                                           | Shared name/pane resolution; pane-shaped arguments are resolved before names.                                                                                           |
+| [src/storage/](src/storage/)                                                                                                                                               | SQLite lifecycle, migrations, errors and SQL implementing composed application-owned repository ports; Context owns the CLI handle.                                     |
+| [src/tmux.ts](src/tmux.ts)                                                                                                                                                 | External tmux commands, snapshots, opaque metadata preservation and paste/capture. No workspace registry adapter.                                                       |
+| [src/tmux-message.ts](src/tmux-message.ts), [src/message-delivery.ts](src/message-delivery.ts)                                                                             | Stageful protected input and shared submission policy; narrow delivery uncertainty contract consumed by commands without importing the tmux implementation.             |
+| [src/role-content.ts](src/role-content.ts)                                                                                                                                 | Bounded role file reading/UTF-8 decoding; pure role and preamble normalization share `domain/text-content.ts`.                                                          |
+| [src/preamble-service.ts](src/preamble-service.ts)                                                                                                                         | Explicit durable-name preamble CRUD/list and its narrow repository contract. Context composes the existing SQLite connection.                                           |
+| [src/config.ts](src/config.ts)                                                                                                                                             | Path/settings resolution. Legacy registration fields and request JSON are not runtime authorities.                                                                      |
+| [src/request-service.ts](src/request-service.ts), [src/storage/request-repository.ts](src/storage/request-repository.ts), [src/domain/response.ts](src/domain/response.ts) | Application-owned request/cadence/final-response policy, composed SQL adapter and exact-body validation. Context owns the shared connection.                            |
+| [src/ui.ts](src/ui.ts), [src/exits.ts](src/exits.ts)                                                                                                                       | Presentation helpers and exit-code registry; do not invent conflicting mappings.                                                                                        |
+| [src/commands/install.ts](src/commands/install.ts), [src/update-check.ts](src/update-check.ts), [skills/](skills/), [plugins/](plugins/)                                   | User-facing integrations, instructions and updates. These differ from repository developer skills in `.agents/skills/`.                                                 |
+| [test/e2e/](test/e2e/), [scripts/](scripts/), [.github/workflows/ci.yml](.github/workflows/ci.yml)                                                                         | Docker fixtures/scenarios, orchestration/pack verification and CI. Unit tests are colocated with source; concurrency workers currently also live in `src/`.             |
 
 ## Dependency and module design rules
 
@@ -346,12 +386,12 @@ These links identify owners of unresolved work, not permission to widen an
 unrelated PR. Update this section and the current map in the delivering PR when
 a gap is resolved; do not leave a permanent exception or label a proposal as shipped.
 
-| Gap                                                                                                                          | Owning issue                                                                                                                                                           |
-| ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Numeric/flag validation needs hardening.                                                                                     | [TMT-22](https://linear.app/tigerpig-dev/issue/TMT-22)                                                                                                                 |
-| Terminal completion/extraction cannot guarantee a complete correlated body; transactional bookkeeping does not resolve this. | [TMT-36](https://linear.app/tigerpig-dev/issue/TMT-36), [TMT-37](https://linear.app/tigerpig-dev/issue/TMT-37)                                                         |
-| Shipped skill/help inventories drift; packed verification does not yet prove application migrations.                         | [TMT-29](https://linear.app/tigerpig-dev/issue/TMT-29)                                                                                                                 |
-| Non-tmux identity management, memory and durable inbox are future capabilities, not installed APIs.                          | [TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30), [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16) |
+| Gap                                                                                                                                     | Owning issue                                                                                                                                                           |
+| --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Numeric/flag validation needs hardening.                                                                                                | [TMT-22](https://linear.app/tigerpig-dev/issue/TMT-22)                                                                                                                 |
+| Terminal completion/extraction cannot guarantee a complete correlated body; the durable final service still needs live CLI integration. | [TMT-37](https://linear.app/tigerpig-dev/issue/TMT-37)                                                                                                                 |
+| Shipped skill/help inventories drift; packed verification does not yet prove application migrations.                                    | [TMT-29](https://linear.app/tigerpig-dev/issue/TMT-29)                                                                                                                 |
+| Non-tmux identity management, memory and durable inbox are future capabilities, not installed APIs.                                     | [TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30), [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16) |
 
 ## Maintenance contract
 

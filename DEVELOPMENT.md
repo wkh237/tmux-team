@@ -93,6 +93,16 @@ tests forbidden examples as well as repository files. It does not prove semantic
 architecture correctness; primary review and the architecture-impact record
 remain required.
 
+Request and response concurrency suites share bounded worker startup, barriers,
+result collection and termination in `src/test-support/request-workers.ts`.
+Scenario assertions and worker operations remain in their owning test modules.
+Test-support infrastructure is excluded from production coverage, like worker
+fixtures; this does not exclude the request service, domain rules or SQL adapter.
+Final-response tests use real temporary SQLite and an injected clock for exact
+submission/retention boundaries, plus independent processes for writer races.
+They do not imply the live CLI already consumes durable replies; TMT-37 owns that
+integration and its exact-body Docker/mock-agent acceptance scenarios.
+
 `docs:format:check` covers the architecture, policy, conventions, development
 guide, repository skills and PR template. It uses `.gitignore` as its ignore
 file because the legacy `.prettierignore` excludes Markdown. For other changed

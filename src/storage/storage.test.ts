@@ -34,7 +34,7 @@ describe('SQLite storage adapter', () => {
 
     expect(storage.health()).toMatchObject({
       open: true,
-      schemaVersion: 4,
+      schemaVersion: 5,
       journalMode: 'wal',
       foreignKeys: true,
       busyTimeoutMs: 5000,
@@ -60,6 +60,7 @@ describe('SQLite storage adapter', () => {
       'identity_preambles',
       'preamble_counters',
       'request_attempts',
+      'request_responses',
       'role_profiles',
     ]);
     database.close();
@@ -142,7 +143,7 @@ describe('SQLite storage adapter', () => {
     seeded.close();
 
     const upgraded = openStorage(location(directory));
-    expect(upgraded.health().schemaVersion).toBe(4);
+    expect(upgraded.health().schemaVersion).toBe(5);
     upgraded.close();
 
     const verification = new Database(path.join(directory, 'tmux-team.db'), { readonly: true });
@@ -258,7 +259,7 @@ describe('SQLite storage adapter', () => {
         }
         return statement;
       });
-      expect(applyMigrations(first)).toBe(4);
+      expect(applyMigrations(first)).toBe(5);
       spy.mockRestore();
       expect(interleave).toBe(false);
       expect(first.prepare('SELECT version FROM _migrations ORDER BY version').all()).toEqual([
@@ -266,6 +267,7 @@ describe('SQLite storage adapter', () => {
         { version: 2 },
         { version: 3 },
         { version: 4 },
+        { version: 5 },
       ]);
       expect(
         first.prepare("SELECT name FROM sqlite_master WHERE name = 'role_profiles'").all()

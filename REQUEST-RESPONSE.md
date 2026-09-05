@@ -1,16 +1,76 @@
 # TMT-35 request/response channel research
 
-Status: research only, based on `cecaec7` (2026-09-05). This document does not
-ship a provider integration, daemon, inbox, memory feature, or new CLI syntax.
-Exact schemas, limits, and compatibility decisions belong in implementation
-tickets after this boundary is accepted.
+Status: historical research based on `cecaec7` (2026-09-05), with the accepted
+direction and TMT-36 service contract maintained below. The shared final-response
+service is implemented; live CLI integration is still TMT-37 work. No provider
+integration, daemon, inbox, memory feature, or new CLI syntax is supplied here.
+
+## Accepted direction (2026-09-05; CLI integration not yet shipped)
+
+The [accepted design](https://linear.app/tigerpig-dev/document/accepted-design-durable-replies-automatic-completion-and-human-21745047ee15)
+supersedes the earlier opt-in proposal below. TMT-36 adds immutable full replies
+to the existing request service; TMT-37 changes the CLI to wait for a durable
+reply by default, with bounded `--timeout` and explicit `--detach`, retiring
+`--wait` and the polling/wait mode switch. These are proposals, not installed
+commands. Terminal capture and `check` remain diagnostics, never authoritative
+completion or full-body retrieval.
+
+A cooperating agent first successfully submits its complete final body, then
+shows the user a short summary of work, actual verification, and unresolved
+items. A summary is not completion evidence. Submission failure must not be
+reported as delivery success; a failed summary cannot undo an accepted reply.
+A delivered reply may truthfully report failed or blocked work.
+
+CLI and future MCP/provider adapters must compose the same functional core.
+MCP and authenticated remote connectivity are a separate future project; neither
+requires a daemon, network service, or parallel state machine in this slice.
+
+### TMT-36 service implementation contract
+
+The tracked implementation extends `RequestService` with `submitResponse` and
+`getResponse`. Submission supplies `requestId`, `attemptId`, the recorded six-field
+endpoint and an exact body. A response record carries those values, its UTF-8
+`bodyBytes`, and immutable `submittedAtMs`. The body limit is 1,048,576 bytes,
+inclusive. Empty text, BOM, NUL, CR/LF and valid Unicode are preserved; malformed
+Unicode and oversized input fail before mutation. File/stdin decoding is a later
+adapter responsibility, not an alternate response store.
+
+One immediate transaction validates the request, attempt and full endpoint and
+accepts only `sending`, `sent` or `uncertain`. A matching retained final is an
+idempotent retry with its original timestamp; different content cannot overwrite
+it. `prepared` and `definitely_failed` cannot submit. If a reply wins the race
+against definitely-failed settlement, settlement remains conservatively uncertain
+and cannot refund cadence. A local reply is not authentication or proof of an
+external transport effect. No transaction spans external work.
+
+The submission deadline is the later of attempt expiry and seven days after
+preparation. Equality is expired. Wait release and the existing one-hour minimum
+attempt expiry do not end that window. Cleanup preserves terminal attempt metadata
+through both this deadline and the existing 24-hour settlement retention floor.
+Final bodies have independent seven-day retention after submission; expired bodies
+are hidden by reads and deleted by opportunistic cleanup. This is not a scheduled
+physical-deletion SLA. Retained retries remain idempotent past submission expiry.
+
+Migration 5 adds independent `request_responses` rows, with complete endpoint
+snapshots and no cascading foreign keys to attempts or identities. It also adds
+`response_submitted_at_ms` to attempts, committed atomically with the final body.
+That bounded completion marker prevents recreation or false cadence refunds if a
+long-lived attempt outlasts its body's retention. It is not a second result body or
+an unbounded tombstone store. After all retained metadata is physically removed,
+an unknown request cannot be distinguished from a previously expired one.
+
+Typed response errors distinguish invalid/oversized input, unknown request, wrong
+attempt, wrong recipient, ineligible state, expiry and conflicting content.
+Rejected submissions preserve attempts, cadence and responses. Storage failures
+remain storage failures. No cancellation operation, retry routing policy or new
+CLI command is introduced by this service contract.
 
 TMT-24 implementation update: transport now prevents replay after an input
 stage may have acted, preserves the same `!` protection on fallback, reports
 `DELIVERY_UNCERTAIN`, and bounds argv-based capture. The current implementation
 map below describes the research baseline; its broad resend fallback is no
-longer present. Request/response storage, instruction-boundary extraction and
-structured final-body delivery remain unresolved. See ARCHITECTURE.md for the
+longer present. At that baseline, request/response storage, instruction-boundary
+extraction and structured final-body delivery remained unresolved. See ARCHITECTURE.md for the
 maintained shipped transport boundary.
 
 ## Current implementation map
@@ -21,8 +81,9 @@ Independent wait records use full server/pane-instance evidence, exact-attempt
 cleanup, and short transactions outside tmux effects. Cadence uses reservations,
 not an exact ordering of successful concurrent sends. Old JSON state is ignored
 and preserved. The map and matrix below remain the historical research baseline;
-see ARCHITECTURE.md for the maintained shipped state. TMT-36/37 final-body
-storage and live structured reply integration are still not shipped.
+see ARCHITECTURE.md for the maintained shipped state. Final-body
+storage is implemented by TMT-36; TMT-37 live structured reply integration is
+still not shipped.
 
 `cmdTalk` resolves one target, then either sends and returns (`talk` without
 `--wait`) or creates a request ID, random nonce, and
@@ -139,8 +200,8 @@ Suggested delivery order:
    ownership. Do not add a second store when final responses are introduced.
 4. [TMT-36](https://linear.app/tigerpig-dev/issue/TMT-36) owns immutable final
    responses in the shared service;
-   [TMT-37](https://linear.app/tigerpig-dev/issue/TMT-37) owns opt-in live CLI
-   integration, exact-body retrieval and shipped skill guidance. These are
+   [TMT-37](https://linear.app/tigerpig-dev/issue/TMT-37) owns default durable live CLI
+   completion, timeout/detach, exact-body retrieval and shipped skill guidance. These are
    bounded children of TMT-31/32, not the broader inbox/offline-routing rollout.
    Their preparation gates require exact types, limits and CLI contracts before
    implementation. Prove timeout/late replies and fencing before expanding modes.

@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import type {
   RequestAttemptRecord,
   RequestEndpoint,
+  RequestResponseRecord,
   RequestRepository,
 } from '../request-service.js';
 
@@ -27,14 +28,34 @@ type AttemptRow = {
   sending_at_ms: number | null;
   settled_at_ms: number | null;
   wait_released_at_ms: number | null;
+  response_submitted_at_ms: number | null;
   expires_at_ms: number;
+};
+
+type ResponseRow = {
+  request_id: string;
+  attempt_id: string;
+  server_id: string;
+  socket_path: string;
+  server_pid: number;
+  server_start_time: string;
+  pane_id: string;
+  pane_pid: number;
+  body: string;
+  body_bytes: number;
+  submitted_at_ms: number;
 };
 
 const ATTEMPT_COLUMNS = `
   attempt_id, request_id, nonce, identity_id, server_id, socket_path, server_pid,
   server_start_time, pane_id, pane_pid, wait_active, status, preamble_every,
   inject_preamble, cadence_reserved, prepared_at_ms, sending_at_ms, settled_at_ms,
-  wait_released_at_ms, expires_at_ms
+  wait_released_at_ms, response_submitted_at_ms, expires_at_ms
+`;
+
+const RESPONSE_COLUMNS = `
+  request_id, attempt_id, server_id, socket_path, server_pid, server_start_time,
+  pane_id, pane_pid, body, body_bytes, submitted_at_ms
 `;
 
 function mapAttempt(row: AttemptRow): RequestAttemptRecord {
@@ -58,7 +79,28 @@ function mapAttempt(row: AttemptRow): RequestAttemptRecord {
     ...(row.sending_at_ms !== null && { sendingAtMs: row.sending_at_ms }),
     ...(row.settled_at_ms !== null && { settledAtMs: row.settled_at_ms }),
     ...(row.wait_released_at_ms !== null && { waitReleasedAtMs: row.wait_released_at_ms }),
+    ...(row.response_submitted_at_ms !== null && {
+      responseSubmittedAtMs: row.response_submitted_at_ms,
+    }),
     expiresAtMs: row.expires_at_ms,
+  };
+}
+
+function mapResponse(row: ResponseRow): RequestResponseRecord {
+  return {
+    requestId: row.request_id,
+    attemptId: row.attempt_id,
+    endpoint: {
+      serverId: row.server_id,
+      socketPath: row.socket_path,
+      serverPid: row.server_pid,
+      serverStartTime: row.server_start_time,
+      paneId: row.pane_id,
+      panePid: row.pane_pid,
+    },
+    body: row.body,
+    bodyBytes: row.body_bytes,
+    submittedAtMs: row.submitted_at_ms,
   };
 }
 
@@ -79,6 +121,12 @@ function getAttempt(database: SqliteDatabase, attemptId: string): AttemptRow | u
     .get(attemptId) as AttemptRow | undefined;
 }
 
+function getResponse(database: SqliteDatabase, requestId: string): ResponseRow | undefined {
+  return database
+    .prepare(`SELECT ${RESPONSE_COLUMNS} FROM request_responses WHERE request_id = ?`)
+    .get(requestId) as ResponseRow | undefined;
+}
+
 export function createRequestRepository(
   requireOpen: () => SqliteDatabase
 ): Omit<RequestRepository, 'withImmediateTransaction'> {
@@ -90,8 +138,8 @@ export function createRequestRepository(
              attempt_id, request_id, nonce, identity_id, server_id, socket_path, server_pid,
              server_start_time, pane_id, pane_pid, wait_active, status, preamble_every,
              inject_preamble, cadence_reserved, prepared_at_ms, sending_at_ms, settled_at_ms,
-             wait_released_at_ms, expires_at_ms
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             wait_released_at_ms, response_submitted_at_ms, expires_at_ms
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .run(
           attempt.attemptId,
@@ -113,6 +161,7 @@ export function createRequestRepository(
           attempt.sendingAtMs ?? null,
           attempt.settledAtMs ?? null,
           attempt.waitReleasedAtMs ?? null,
+          attempt.responseSubmittedAtMs ?? null,
           attempt.expiresAtMs
         );
     },
@@ -120,6 +169,54 @@ export function createRequestRepository(
     findAttempt(attemptId) {
       const row = getAttempt(requireOpen(), attemptId);
       return row ? mapAttempt(row) : undefined;
+    },
+
+    findAttemptByRequestId(requestId) {
+      const row = requireOpen()
+        .prepare(`SELECT ${ATTEMPT_COLUMNS} FROM request_attempts WHERE request_id = ?`)
+        .get(requestId) as AttemptRow | undefined;
+      return row ? mapAttempt(row) : undefined;
+    },
+
+    findResponse(requestId) {
+      const row = getResponse(requireOpen(), requestId);
+      return row ? mapResponse(row) : undefined;
+    },
+
+    createResponse(response) {
+      const database = requireOpen();
+      database
+        .prepare(
+          `INSERT INTO request_responses (
+             request_id, attempt_id, server_id, socket_path, server_pid, server_start_time,
+             pane_id, pane_pid, body, body_bytes, submitted_at_ms
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          response.requestId,
+          response.attemptId,
+          response.endpoint.serverId,
+          response.endpoint.socketPath,
+          response.endpoint.serverPid,
+          response.endpoint.serverStartTime,
+          response.endpoint.paneId,
+          response.endpoint.panePid,
+          response.body,
+          response.bodyBytes,
+          response.submittedAtMs
+        );
+      const marker = database
+        .prepare(
+          `UPDATE request_attempts
+           SET response_submitted_at_ms = ?
+           WHERE attempt_id = ? AND request_id = ? AND response_submitted_at_ms IS NULL`
+        )
+        .run(response.submittedAtMs, response.attemptId, response.requestId);
+      if (marker.changes !== 1) {
+        throw new Error(
+          `Request attempt '${response.attemptId}' could not record response completion.`
+        );
+      }
     },
 
     findActiveRequest(endpoint) {
@@ -191,14 +288,22 @@ export function createRequestRepository(
         .run(identityId, count, nowMs);
     },
 
-    deleteRetained(nowMs, retentionMs) {
+    deleteRetained(nowMs, retentionMs, responseAcceptanceWindowMs) {
       const database = requireOpen();
       database
         .prepare(
           `DELETE FROM request_attempts
            WHERE wait_active = 0 AND status IN ('sent', 'uncertain', 'definitely_failed')
-             AND settled_at_ms IS NOT NULL AND settled_at_ms <= ?`
+             AND settled_at_ms IS NOT NULL
+             AND settled_at_ms <= ?
+             AND expires_at_ms <= ? AND prepared_at_ms <= ?`
         )
+        .run(nowMs - retentionMs, nowMs, nowMs - responseAcceptanceWindowMs);
+    },
+
+    deleteRetainedResponses(nowMs, retentionMs) {
+      requireOpen()
+        .prepare('DELETE FROM request_responses WHERE submitted_at_ms <= ?')
         .run(nowMs - retentionMs);
     },
 
