@@ -46,7 +46,7 @@ export class E2EFixture {
     fs.mkdtempSync(path.join(process.platform === 'darwin' ? '/private/tmp' : os.tmpdir(), 'te2e-'))
   );
   readonly workspace = path.join(this.root, 'workspace');
-  readonly globalDir = path.join(this.root, 'global');
+  readonly globalDir: string;
   readonly logPath = path.join(this.root, 'mock-agent.jsonl');
   readonly forbiddenTmuxLogPath = path.join(this.root, 'forbidden-tmux.log');
   readonly socket = `tmt-e2e-${process.pid}-${Math.random().toString(16).slice(2)}`;
@@ -61,7 +61,8 @@ export class E2EFixture {
   private env: NodeJS.ProcessEnv = {};
   private panePids: number[] = [];
 
-  constructor() {
+  constructor(options: { globalDir?: string } = {}) {
+    this.globalDir = options.globalDir ?? path.join(this.root, 'global');
     try {
       this.tmuxPath = execFileSync('/bin/sh', ['-lc', 'command -v tmux'], {
         encoding: 'utf8',
@@ -414,9 +415,9 @@ export class E2EFixture {
 
 export async function withE2EFixture<T>(
   callback: (fixture: E2EFixture) => Promise<T> | T,
-  options: { mode?: 'respond' | 'silent' | 'malformed'; delayMs?: number } = {}
+  options: { mode?: 'respond' | 'silent' | 'malformed'; delayMs?: number; globalDir?: string } = {}
 ): Promise<T> {
-  const fixture = new E2EFixture();
+  const fixture = new E2EFixture(options);
   try {
     await fixture.start(options);
     return await callback(fixture);

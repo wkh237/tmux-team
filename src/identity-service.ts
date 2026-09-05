@@ -5,6 +5,7 @@ import type {
   IdentityService,
   PaneInfo,
   Tmux,
+  TmuxEndpointProbe,
   TmuxEndpointSnapshot,
   TmuxServerEvidence,
 } from './types.js';
@@ -150,6 +151,15 @@ function paneEvidence(snapshot: TmuxEndpointSnapshot, paneId: string): PaneInfo 
   return pane;
 }
 
+function probeForeignEndpoint(tmux: Tmux, binding: TmuxBinding): TmuxEndpointProbe {
+  if (!tmux.probeEndpoint) return { status: 'unknown' };
+  try {
+    return tmux.probeEndpoint(binding.socketPath, binding.serverPid);
+  } catch {
+    return { status: 'unknown' };
+  }
+}
+
 /**
  * Adapt the legacy target resolver to the verified identity view. Commands
  * only consume this adapter; lifecycle and presence policy remain here.
@@ -216,6 +226,10 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
     }
 
     for (const binding of allBindings) {
+      // A command can observe only its current tmux server. Never prune a
+      // binding owned by another socket merely because its panes are absent
+      // from this endpoint snapshot.
+      if (binding.socketPath !== snapshot.server.socketPath) continue;
       const identity = identities.get(binding.identityId);
       const pane = findPane(snapshot, binding.paneId);
       if (
@@ -288,7 +302,34 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
           'Name is already active on another pane.'
         );
       }
-      repository.removeBinding(existingIdentityBinding.id);
+      if (existingIdentityBinding.socketPath === snapshot.server.socketPath) {
+        repository.removeBinding(existingIdentityBinding.id);
+      } else {
+        const probe = probeForeignEndpoint(tmux, existingIdentityBinding);
+        if (probe.status === 'live') {
+          const foreignPane = findPane(probe.snapshot, existingIdentityBinding.paneId);
+          if (
+            serverMatches(existingIdentityBinding, probe.snapshot.server) &&
+            foreignPane &&
+            paneMatches(existingIdentityBinding, foreignPane)
+          ) {
+            cleanupUnboundIdentity(repository, resolved.created, identity.id);
+            throw new IdentityServiceError(
+              'NAME_ALREADY_ACTIVE',
+              'Name is already active on another pane.'
+            );
+          }
+          repository.removeBinding(existingIdentityBinding.id);
+        } else if (probe.status === 'unknown') {
+          cleanupUnboundIdentity(repository, resolved.created, identity.id);
+          throw new IdentityServiceError(
+            'RECONCILIATION_FAILED',
+            'Could not verify the existing tmux binding.'
+          );
+        } else {
+          repository.removeBinding(existingIdentityBinding.id);
+        }
+      }
     }
     if (current) {
       if (tmux.setDurableIdentity && !metadataMatches(pane, identity, current)) {

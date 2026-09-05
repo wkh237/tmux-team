@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createIdentityService, identityAwareTmux } from './identity-service.js';
 import { IdentityServiceError } from './identity-service.js';
 import { openIdentityRepository } from './storage/identity-repository.js';
@@ -54,7 +54,44 @@ function fixture() {
     globalDir,
     databaseFile: path.join(globalDir, 'tmux-team.db'),
   } as Paths;
-  return { tmux, paths, pane, setSnapshot: (next: TmuxEndpointSnapshot) => (snapshot = next) };
+  return {
+    tmux,
+    paths,
+    pane,
+    setSnapshot: (next: TmuxEndpointSnapshot) => (snapshot = next),
+    setProbe: (probe: NonNullable<Tmux['probeEndpoint']>) => (tmux.probeEndpoint = probe),
+  };
+}
+
+function seedForeignBinding(test: ReturnType<typeof fixture>, name = 'Foreign') {
+  const repository = openIdentityRepository(test.paths.databaseFile);
+  const identity = repository.createIdentity(name, name.toLowerCase());
+  const binding = repository.createBinding({
+    identityId: identity.id,
+    transport: 'tmux',
+    paneId: '%foreign',
+    serverId: 'server-foreign',
+    socketPath: '/tmp/tmt-foreign',
+    serverPid: 999999,
+    serverStartTime: 'foreign-start',
+    panePid: 8888,
+    boundAt: 'foreign-bound',
+    lastVerifiedAt: 'foreign-verified',
+  });
+  repository.close();
+  return { identity, binding };
+}
+
+function addSecondPane(test: ReturnType<typeof fixture>): void {
+  const second: PaneInfo = {
+    id: '%2',
+    command: 'mock-agent',
+    panePid: 2345,
+    suggestedName: null,
+  };
+  test.setSnapshot({ ...test.tmux.getEndpointSnapshot!(), panes: [test.pane, second] });
+  test.tmux.resolvePaneTarget = (target: string) =>
+    target === '%1' || target === '%2' ? target : null;
 }
 
 afterEach(() => {
@@ -181,7 +218,12 @@ describe('durable identity service', () => {
     expect(service.activeIdentities()).toEqual([]);
     const repository = openIdentityRepository(test.paths.databaseFile);
     expect(repository.listIdentities()).toMatchObject([{ id: identity.id }]);
-    expect(repository.findBindings()).toEqual([]);
+    expect(repository.findBindings()).toHaveLength(1);
+    expect(repository.findBindings()[0]).toMatchObject({
+      id: expect.any(String),
+      identityId: identity.id,
+      socketPath: '/tmp/tmt-a',
+    });
     repository.close();
     service.close();
   });
@@ -200,6 +242,171 @@ describe('durable identity service', () => {
       panes: [{ ...test.pane }],
     });
     expect(service.activeIdentities()).toEqual([]);
+    service.close();
+  });
+
+  it('preserves a binding owned by another live socket while discovering only the current server', () => {
+    const test = fixture();
+    const service = createIdentityService(test);
+    service.bindCurrent('local');
+    const foreign = seedForeignBinding(test);
+    const probe = vi.fn<[string, number], ReturnType<NonNullable<Tmux['probeEndpoint']>>>(() => ({
+      status: 'unknown',
+    }));
+    test.setProbe(probe);
+
+    expect(service.activeIdentities()).toMatchObject([
+      { identity: { canonicalName: 'local' }, binding: { socketPath: '/tmp/tmt-a' } },
+    ]);
+    expect(probe).not.toHaveBeenCalled();
+
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    expect(repository.findBindings()).toContainEqual(foreign.binding);
+    repository.close();
+    service.close();
+  });
+
+  it.each([
+    ['live', 'NAME_ALREADY_ACTIVE'],
+    ['unknown', 'RECONCILIATION_FAILED'],
+  ] as const)('does not steal a foreign identity when its endpoint is %s', (status, code) => {
+    const test = fixture();
+    addSecondPane(test);
+    const service = createIdentityService(test);
+    const foreign = seedForeignBinding(test);
+    test.setProbe(() =>
+      status === 'live'
+        ? {
+            status,
+            snapshot: {
+              server: {
+                serverId: foreign.binding.serverId,
+                socketPath: foreign.binding.socketPath,
+                serverPid: foreign.binding.serverPid,
+                serverStartTime: foreign.binding.serverStartTime,
+              },
+              panes: [
+                {
+                  id: foreign.binding.paneId,
+                  command: 'mock-agent',
+                  panePid: foreign.binding.panePid,
+                  suggestedName: null,
+                },
+              ],
+            },
+          }
+        : { status }
+    );
+
+    expect(() => service.bindPane('%2', foreign.identity.name)).toThrowError(
+      expect.objectContaining({ code })
+    );
+
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    expect(repository.findBindings()).toContainEqual(foreign.binding);
+    repository.close();
+    service.close();
+  });
+
+  it('releases a proven-dead foreign binding for reuse without deleting its identity', () => {
+    const test = fixture();
+    addSecondPane(test);
+    const service = createIdentityService(test);
+    const foreign = seedForeignBinding(test);
+    const profileRepository = openIdentityRepository(test.paths.databaseFile);
+    profileRepository.setRole(foreign.identity.id, 'foreign profile');
+    profileRepository.close();
+    test.setProbe(() => ({ status: 'dead' }));
+
+    expect(service.bindPane('%2', foreign.identity.name)).toEqual(foreign.identity);
+
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    expect(repository.findBindings()).toHaveLength(1);
+    expect(repository.findBindings()[0]).toMatchObject({
+      identityId: foreign.identity.id,
+      paneId: '%2',
+      socketPath: '/tmp/tmt-a',
+    });
+    expect(repository.findByCanonicalName('foreign')).toEqual(foreign.identity);
+    expect(repository.findRole(foreign.identity.id)).toMatchObject({ content: 'foreign profile' });
+    repository.close();
+    service.close();
+  });
+
+  it('releases a foreign binding when the known socket is live but its server instance is stale', () => {
+    const test = fixture();
+    addSecondPane(test);
+    const service = createIdentityService(test);
+    const foreign = seedForeignBinding(test);
+    test.setProbe(() => ({
+      status: 'live',
+      snapshot: {
+        server: {
+          serverId: 'server-foreign-restarted',
+          socketPath: foreign.binding.socketPath,
+          serverPid: foreign.binding.serverPid + 1,
+          serverStartTime: 'foreign-restarted',
+        },
+        panes: [
+          {
+            id: foreign.binding.paneId,
+            command: 'mock-agent',
+            panePid: foreign.binding.panePid,
+            suggestedName: null,
+          },
+        ],
+      },
+    }));
+
+    expect(service.bindPane('%2', foreign.identity.name)).toEqual(foreign.identity);
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    expect(repository.findBindings()[0]).toMatchObject({ paneId: '%2' });
+    repository.close();
+    service.close();
+  });
+
+  it.each(['missing', 'throwing'] as const)(
+    'treats a %s foreign endpoint probe as unknown and preserves the binding',
+    (probeMode) => {
+      const test = fixture();
+      addSecondPane(test);
+      const service = createIdentityService(test);
+      const foreign = seedForeignBinding(test);
+      if (probeMode === 'throwing') {
+        test.setProbe(() => {
+          throw new Error('probe failed');
+        });
+      }
+
+      expect(() => service.bindPane('%2', foreign.identity.name)).toThrowError(
+        expect.objectContaining({ code: 'RECONCILIATION_FAILED' })
+      );
+      const repository = openIdentityRepository(test.paths.databaseFile);
+      expect(repository.findBindings()).toContainEqual(foreign.binding);
+      repository.close();
+      service.close();
+    }
+  );
+
+  it('prunes stale bindings after a restart on the same socket', () => {
+    const test = fixture();
+    const service = createIdentityService(test);
+    const identity = service.bindCurrent('same-socket');
+    test.setSnapshot({
+      server: {
+        serverId: 'server-restarted',
+        socketPath: '/tmp/tmt-a',
+        serverPid: 11,
+        serverStartTime: 'two',
+      },
+      panes: [test.pane],
+    });
+
+    expect(service.activeIdentities()).toEqual([]);
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    expect(repository.findBindings()).toEqual([]);
+    expect(repository.findByCanonicalName('same-socket')).toEqual(identity);
+    repository.close();
     service.close();
   });
 

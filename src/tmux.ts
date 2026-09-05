@@ -11,12 +11,17 @@ import type {
   PaneInfo,
   RegistryScope,
   TmuxRegistry,
+  TmuxEndpointProbe,
+  TmuxEndpointSnapshot,
 } from './types.js';
 import { normalizeName } from './domain/service.js';
 
 const AGENT_METADATA_OPTION = '@tmux-team.agent';
 const SERVER_ID_OPTION = '@tmux-team.server-id';
 const PANE_FIELD_SEPARATOR = '__TMT_FIELD_4f1c__';
+const ENDPOINT_PROBE_TIMEOUT_MS = 1_000;
+const ENDPOINT_PROBE_MAX_BUFFER = 1024 * 1024;
+const SERVER_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // Known agent patterns for auto-detection
 const KNOWN_AGENTS: Record<string, string[]> = {
@@ -130,7 +135,7 @@ function registryFromPanes(panes: PaneInfo[], scope: RegistryScope): TmuxRegistr
   return { paneRegistry, agents };
 }
 
-function parsePaneOutput(output: string): PaneInfo[] {
+function parsePaneOutput(output: string, allowMetadataFallback = true): PaneInfo[] {
   const seen = new Set<string>();
   return output
     .split('\n')
@@ -156,7 +161,9 @@ function parsePaneOutput(output: string): PaneInfo[] {
             : [fields[0], undefined, undefined, fields[1] ?? '', undefined, fields[2] ?? ''];
       // tmux 3.3 may omit pane user options in list formats. The fallback is
       // conservative because all independent evidence must still agree.
-      const metadata = safeParseMetadata(metadataText) ?? tryReadPaneMetadata(id || '');
+      const metadata =
+        safeParseMetadata(metadataText) ??
+        (allowMetadataFallback ? tryReadPaneMetadata(id || '') : undefined);
       return {
         id: id || '',
         ...(target && { target }),
@@ -173,6 +180,119 @@ function parsePaneOutput(output: string): PaneInfo[] {
       seen.add(pane.id);
       return true;
     });
+}
+
+function endpointFormat(): string {
+  return [
+    `#{${SERVER_ID_OPTION}}`,
+    '#{socket_path}',
+    '#{pid}',
+    '#{start_time}',
+    '#{pane_id}',
+    '#{session_name}:#{window_index}.#{pane_index}',
+    '#{pane_current_path}',
+    '#{pane_current_command}',
+    '#{pane_pid}',
+    `#{${AGENT_METADATA_OPTION}}`,
+  ].join(PANE_FIELD_SEPARATOR);
+}
+
+function parseEndpointSnapshot(
+  output: string,
+  options: {
+    readonly expectedServerId?: string;
+    readonly allowMetadataFallback: boolean;
+    readonly requireCompleteEvidence?: boolean;
+  }
+): TmuxEndpointSnapshot {
+  const rows = output.split('\n').filter((line) => line.trim());
+  if (rows.length === 0) throw new Error('tmux endpoint snapshot is empty');
+
+  const evidence = rows.map((line) => line.split(PANE_FIELD_SEPARATOR).slice(0, 4));
+  const [serverId = '', socketPath, serverPidText, serverStartTime] = evidence[0] ?? [];
+  const serverPid = Number(serverPidText);
+  const completeEvidence = rows.every((line) => line.split(PANE_FIELD_SEPARATOR).length >= 10);
+  if (
+    (options.expectedServerId !== undefined && serverId !== options.expectedServerId) ||
+    (options.requireCompleteEvidence && (!SERVER_ID_PATTERN.test(serverId) || !completeEvidence)) ||
+    !socketPath ||
+    !serverStartTime ||
+    !Number.isSafeInteger(serverPid) ||
+    serverPid <= 0 ||
+    evidence.some(
+      ([id, socket, pid, started]) =>
+        id !== serverId ||
+        socket !== socketPath ||
+        pid !== serverPidText ||
+        started !== serverStartTime
+    )
+  ) {
+    throw new Error('tmux endpoint snapshot contains inconsistent server evidence');
+  }
+
+  const paneOutput = rows
+    .map((line) => line.split(PANE_FIELD_SEPARATOR).slice(4).join(PANE_FIELD_SEPARATOR))
+    .join('\n');
+  const panes = parsePaneOutput(paneOutput, options.allowMetadataFallback);
+  if (
+    options.requireCompleteEvidence &&
+    (panes.length !== rows.length ||
+      panes.some(
+        (pane) =>
+          !/^%\d+$/.test(pane.id) ||
+          typeof pane.panePid !== 'number' ||
+          !Number.isSafeInteger(pane.panePid) ||
+          pane.panePid <= 0
+      ))
+  ) {
+    throw new Error('tmux endpoint snapshot contains incomplete pane evidence');
+  }
+  return {
+    server: { serverId, socketPath, serverPid, serverStartTime },
+    panes,
+  };
+}
+
+function isMissingProcess(error: unknown): boolean {
+  return (
+    typeof error === 'object' && error !== null && (error as NodeJS.ErrnoException).code === 'ESRCH'
+  );
+}
+
+function probeEndpoint(socketPath: string, serverPid: number): TmuxEndpointProbe {
+  if (!socketPath || !Number.isSafeInteger(serverPid) || serverPid <= 0) {
+    return { status: 'unknown' };
+  }
+
+  let output: string;
+  try {
+    output = execFileSync('tmux', ['-S', socketPath, 'list-panes', '-a', '-F', endpointFormat()], {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: ENDPOINT_PROBE_TIMEOUT_MS,
+      maxBuffer: ENDPOINT_PROBE_MAX_BUFFER,
+      killSignal: 'SIGKILL',
+    });
+  } catch {
+    try {
+      process.kill(serverPid, 0);
+    } catch (signalError) {
+      if (isMissingProcess(signalError)) return { status: 'dead' };
+    }
+    return { status: 'unknown' };
+  }
+
+  try {
+    const snapshot = parseEndpointSnapshot(output, {
+      allowMetadataFallback: false,
+      requireCompleteEvidence: true,
+    });
+    return snapshot.server.socketPath === socketPath
+      ? { status: 'live', snapshot }
+      : { status: 'unknown' };
+  } catch {
+    return { status: 'unknown' };
+  }
 }
 
 export function createTmux(): Tmux {
@@ -358,6 +478,8 @@ export function createTmux(): Tmux {
       return readEndpointSnapshot();
     },
 
+    probeEndpoint,
+
     setDurableIdentity(paneId, identity, binding) {
       const metadata = readPaneMetadata(paneId);
       metadata.globalIdentity = {
@@ -399,7 +521,7 @@ function ensureServerId(): string {
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
   }
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(serverId)) {
+  if (!SERVER_ID_PATTERN.test(serverId)) {
     throw new Error('tmux server identity is unavailable');
   }
   return serverId;
@@ -407,52 +529,14 @@ function ensureServerId(): string {
 
 function readEndpointSnapshot() {
   const expectedServerId = ensureServerId();
-  const format = [
-    `#{${SERVER_ID_OPTION}}`,
-    '#{socket_path}',
-    '#{pid}',
-    '#{start_time}',
-    '#{pane_id}',
-    '#{session_name}:#{window_index}.#{pane_index}',
-    '#{pane_current_path}',
-    '#{pane_current_command}',
-    '#{pane_pid}',
-    `#{${AGENT_METADATA_OPTION}}`,
-  ].join(PANE_FIELD_SEPARATOR);
-  const output = execFileSync('tmux', ['list-panes', '-a', '-F', format], {
+  const output = execFileSync('tmux', ['list-panes', '-a', '-F', endpointFormat()], {
     encoding: 'utf-8',
     stdio: ['pipe', 'pipe', 'pipe'],
   });
-  const rows = output.split('\n').filter((line) => line.trim());
-  if (rows.length === 0) throw new Error('tmux endpoint snapshot is empty');
-
-  const evidence = rows.map((line) => line.split(PANE_FIELD_SEPARATOR).slice(0, 4));
-  const [serverId, socketPath, serverPidText, serverStartTime] = evidence[0] ?? [];
-  const serverPid = Number(serverPidText);
-  if (
-    serverId !== expectedServerId ||
-    !socketPath ||
-    !serverStartTime ||
-    !Number.isInteger(serverPid) ||
-    serverPid <= 0 ||
-    evidence.some(
-      ([id, socket, pid, started]) =>
-        id !== serverId ||
-        socket !== socketPath ||
-        pid !== serverPidText ||
-        started !== serverStartTime
-    )
-  ) {
-    throw new Error('tmux endpoint snapshot contains inconsistent server evidence');
-  }
-
-  const paneOutput = rows
-    .map((line) => line.split(PANE_FIELD_SEPARATOR).slice(4).join(PANE_FIELD_SEPARATOR))
-    .join('\n');
-  return {
-    server: { serverId, socketPath, serverPid, serverStartTime },
-    panes: parsePaneOutput(paneOutput),
-  };
+  return parseEndpointSnapshot(output, {
+    expectedServerId,
+    allowMetadataFallback: true,
+  });
 }
 
 function tryReadPaneMetadata(paneId: string): PaneAgentMetadata | undefined {

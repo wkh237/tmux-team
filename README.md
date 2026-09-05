@@ -146,6 +146,20 @@ tmux server removes the stale binding on reconciliation without deleting the
 identity record; the same name can be bound again later with its original
 identity ID.
 
+Names are unique across tmux servers that share the same local TMT database,
+but active discovery and `talk`/`check` routing remain scoped to the current
+server. A routine read reconciles only that server's socket; it does not
+remove another server's bindings. `%pane_id` alone is not globally unique
+across servers.
+
+Binding a name already recorded on another socket performs a bounded,
+read-only check of that endpoint. A verified live binding returns
+`NAME_ALREADY_ACTIVE` (exit 5). If its state cannot be verified, the operation
+returns `RECONCILIATION_FAILED` (exit 1) and preserves the binding. A proven
+stale endpoint can be rebound without replacing the durable identity or role
+profile. This does not add cross-server message routing or a background
+reconciler.
+
 Pane metadata is part of that presence check. A pane title may be updated as a
 best-effort presentation side effect, but titles are not the identity API.
 
