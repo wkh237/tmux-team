@@ -1,32 +1,19 @@
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
-import type { DurableIdentity, RoleProfile, TmuxBinding } from '../domain/identity.js';
-import type { PreambleProfile, StoredPreambleResult } from '../domain/preamble.js';
+import type { DurableIdentity, TmuxBinding } from '../domain/identity.js';
+import type { PreambleRepository } from '../preamble-service.js';
+import type { IdentityRepository as IdentityBindingRepository } from '../identity-service.js';
+import type { RoleRepository } from '../role-service.js';
 import { openStorageWithDatabase } from './sqlite-adapter.js';
 import { StorageError } from './errors.js';
 import type { StorageLocation } from './ports.js';
 
-export interface IdentityRepository {
-  /** Run a bounded identity mutation while holding SQLite's immediate writer lock. */
-  withImmediateTransaction<T>(operation: () => T): T;
-  findByCanonicalName(canonicalName: string): DurableIdentity | undefined;
-  createIdentity(name: string, canonicalName: string): DurableIdentity;
-  listIdentities(): DurableIdentity[];
-  findBindings(): TmuxBinding[];
-  findBindingByPane(paneId: string, serverId: string): TmuxBinding | undefined;
-  createBinding(binding: Omit<TmuxBinding, 'id'> & { id?: string }): TmuxBinding;
-  touchBinding(id: string, lastVerifiedAt: string): void;
-  removeBinding(id: string): void;
-  removeIdentityIfUnbound(id: string): void;
-  findRole(identityId: string): RoleProfile | undefined;
-  setRole(identityId: string, content: string): RoleProfile;
-  clearRole(identityId: string): null;
-  findPreamble(identityId: string): PreambleProfile | undefined;
-  setPreamble(identityId: string, content: string): PreambleProfile;
-  clearPreamble(identityId: string): boolean;
-  listPreambles(): StoredPreambleResult[];
-  close(): void;
-}
+/** Concrete adapter composed from the application-owned repository ports. */
+export type IdentityRepository = IdentityBindingRepository &
+  RoleRepository &
+  PreambleRepository & {
+    close(): void;
+  };
 
 type IdentityRow = {
   id: string;
@@ -183,13 +170,6 @@ export function openIdentityRepository(location: StorageLocation): IdentityRepos
     },
     removeBinding(id) {
       requireOpen().prepare('DELETE FROM bindings WHERE id = ?').run(id);
-    },
-    removeIdentityIfUnbound(id) {
-      requireOpen()
-        .prepare(
-          'DELETE FROM identities WHERE id = ? AND NOT EXISTS (SELECT 1 FROM bindings WHERE identity_id = ?) AND NOT EXISTS (SELECT 1 FROM role_profiles WHERE identity_id = ?) AND NOT EXISTS (SELECT 1 FROM identity_preambles WHERE identity_id = ?)'
-        )
-        .run(id, id, id, id);
     },
     findRole(identityId) {
       const row = requireOpen()

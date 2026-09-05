@@ -54,6 +54,16 @@ Reapply intended text explicitly with `preamble set`. Preamble changes persist
 across folders, unbind and pane/server restart; clearing one does not clear its
 identity or role.
 
+## Committed identity retention
+
+Once identity creation commits, a later binding failure does not delete the
+identity. A valid new name tried on an occupied pane can therefore return
+`PANE_ALREADY_BOUND` (exit 5) while leaving that name unbound in SQLite.
+It is not an active `list`/`talk` destination, but explicit `role --identity`
+and `preamble` commands can access it. A later successful bind reuses its UUID
+and profiles. Invalid names and missing preflight panes create no identity.
+Do not treat a failed bind as permission to delete data or try unrelated names.
+
 ## Commands
 
 `name`, `this`, `whoami` and `unbind` require matching live `TMUX` and

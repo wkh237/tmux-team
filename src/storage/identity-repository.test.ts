@@ -112,7 +112,7 @@ describe('identity repository contract', () => {
     repository.close();
   });
 
-  it('stores, replaces, clears, and protects an unbound identity with a role', () => {
+  it('stores, replaces, clears, and retains an unbound identity with a role', () => {
     const repository = openIdentityRepository(databasePath());
     const identity = repository.createIdentity('RoleOwner', 'roleowner');
     expect(repository.findRole(identity.id)).toBeUndefined();
@@ -122,12 +122,10 @@ describe('identity repository contract', () => {
     const second = repository.setRole(identity.id, 'second');
     expect(second.content).toBe('second');
     expect(repository.findRole(identity.id)).toEqual(second);
-    repository.removeIdentityIfUnbound(identity.id);
     expect(repository.findByCanonicalName('roleowner')).toEqual(identity);
     expect(repository.clearRole(identity.id)).toBeNull();
     expect(repository.findRole(identity.id)).toBeUndefined();
-    repository.removeIdentityIfUnbound(identity.id);
-    expect(repository.findByCanonicalName('roleowner')).toBeUndefined();
+    expect(repository.findByCanonicalName('roleowner')).toEqual(identity);
     repository.close();
   });
 
@@ -174,11 +172,9 @@ describe('identity repository contract', () => {
       expect(repository.findPreamble(first.id)).toBeUndefined();
       expect(() => repository.setPreamble('missing-id', 'orphan')).toThrow();
 
-      repository.removeIdentityIfUnbound(second.id);
       expect(repository.findByCanonicalName('alpha')).toEqual(second);
       repository.clearPreamble(second.id);
-      repository.removeIdentityIfUnbound(second.id);
-      expect(repository.findByCanonicalName('alpha')).toBeUndefined();
+      expect(repository.findByCanonicalName('alpha')).toEqual(second);
     } finally {
       repository.close();
     }

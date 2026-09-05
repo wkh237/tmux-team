@@ -32,23 +32,30 @@ export function createContext(options: CreateContextOptions): Context {
   let preambleService: Context['preambleService'] | undefined;
   let identityRepository: IdentityRepository | undefined;
   let roleService: Context['roleService'] | undefined;
+  let disposed = false;
+  const assertActive = (): void => {
+    if (disposed) throw new Error('Context is disposed.');
+  };
   const getTmux = (): Context['tmux'] => {
+    assertActive();
     tmux ??= createTmux();
     return tmux;
   };
   const getConfig = (): Context['config'] => {
+    assertActive();
     config ??= loadConfig(paths);
     return config;
   };
   const getIdentityService = (): NonNullable<Context['identityService']> => {
+    assertActive();
     identityService ??= createIdentityService({
       tmux: getTmux(),
-      paths,
       repository: getIdentityRepository(),
     });
     return identityService;
   };
   const getIdentityRepository = (): IdentityRepository => {
+    assertActive();
     identityRepository ??= openIdentityRepository(paths.databaseFile);
     return identityRepository;
   };
@@ -67,6 +74,7 @@ export function createContext(options: CreateContextOptions): Context {
     },
   };
   const getRoleService = (): NonNullable<Context['roleService']> => {
+    assertActive();
     roleService ??= createRoleService({
       repository: roleRepository,
       currentIdentity: () =>
@@ -75,21 +83,19 @@ export function createContext(options: CreateContextOptions): Context {
     return roleService;
   };
   const getPreambleService = (): NonNullable<Context['preambleService']> => {
+    assertActive();
     preambleService ??= createPreambleService({ repository: getIdentityRepository() });
     return preambleService;
   };
   const dispose = (): void => {
-    const service = identityService;
+    if (disposed) return;
+    disposed = true;
     const repository = identityRepository;
     identityService = undefined;
     preambleService = undefined;
     identityRepository = undefined;
     roleService = undefined;
-    try {
-      service?.close();
-    } finally {
-      repository?.close();
-    }
+    repository?.close();
   };
 
   const context = {

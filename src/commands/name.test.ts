@@ -2,10 +2,20 @@ import { describe, expect, it, vi } from 'vitest';
 import { cmdName } from './name.js';
 import { cmdThis } from './this.js';
 import { cmdAdd } from './add.js';
-import type { ActiveRegistration } from '../domain/types.js';
-import type { Context } from '../types.js';
+import { IdentityServiceError } from '../identity-service.js';
+import type { Context, IdentityService } from '../types.js';
 
-function context(registrations: ActiveRegistration[] = [], json = false): Context {
+function identity(name: string = 'Backend') {
+  return {
+    id: 'backend-id',
+    name,
+    canonicalName: name.trim().toLowerCase(),
+    createdAt: 'created',
+    updatedAt: 'updated',
+  };
+}
+
+function context(json = false): Context {
   const tmux: Context['tmux'] = {
     send: vi.fn(),
     capture: vi.fn(),
@@ -13,9 +23,15 @@ function context(registrations: ActiveRegistration[] = [], json = false): Contex
     getCurrentPaneId: vi.fn(() => '%1'),
     resolvePaneTarget: vi.fn((target: string) => target),
     setPaneTitle: vi.fn(),
-    listGlobalIdentities: vi.fn(() => registrations),
-    setGlobalIdentity: vi.fn(),
-    clearGlobalIdentity: vi.fn(() => true),
+  };
+  const identityService: IdentityService = {
+    bindCurrent: vi.fn(() => identity()),
+    bindPane: vi.fn(() => identity()),
+    unbindCurrent: vi.fn(),
+    currentIdentity: vi.fn(),
+    activeIdentities: vi.fn(() => []),
+    resolveActive: vi.fn(),
+    reconcile: vi.fn(),
   };
   return {
     argv: [],
@@ -41,207 +57,158 @@ function context(registrations: ActiveRegistration[] = [], json = false): Contex
       },
     },
     tmux,
-    paths: {
-      globalDir: '',
-      globalConfig: '',
-      localConfig: '',
-      stateFile: '',
-      databaseFile: '',
-    },
+    identityService,
+    paths: { globalDir: '', globalConfig: '', localConfig: '', stateFile: '', databaseFile: '' },
     exit: ((code: number) => {
       throw Object.assign(new Error(`exit(${code})`), { exitCode: code });
     }) as Context['exit'],
   };
 }
 
-const active = (name: string, paneId: string): ActiveRegistration => ({
-  name,
-  canonicalName: name.toLowerCase(),
-  paneId,
-});
-
 describe('global identity commands', () => {
-  it('binds the current pane and writes canonical metadata', () => {
+  it('never selects the name-only writer when required service wiring is absent', () => {
+    const ctx = context();
+    const legacyRead = vi.fn(() => []);
+    const legacyWrite = vi.fn();
+    Object.assign(ctx.tmux, { listGlobalIdentities: legacyRead, setGlobalIdentity: legacyWrite });
+    Object.defineProperty(ctx, 'identityService', { value: undefined });
+    expect(() => cmdName(ctx, 'Backend')).toThrow();
+    expect(legacyRead).not.toHaveBeenCalled();
+    expect(legacyWrite).not.toHaveBeenCalled();
+    expect(ctx.tmux.setPaneTitle).not.toHaveBeenCalled();
+    expect(ctx.ui.success).not.toHaveBeenCalled();
+  });
+  it('binds the current pane through the durable service and keeps title output', () => {
     const ctx = context();
     cmdName(ctx, 'Backend');
-    expect(ctx.tmux.setGlobalIdentity).toHaveBeenCalledWith('%1', 'Backend');
+    expect(ctx.identityService.bindCurrent).toHaveBeenCalledWith('Backend');
     expect(ctx.tmux.setPaneTitle).toHaveBeenCalledWith('%1', 'Backend');
     expect(ctx.ui.success).toHaveBeenCalledWith("Bound 'Backend' to pane %1");
   });
 
-  it('uses the verified current-pane service path without resolving a target again', () => {
-    const ctx = context();
-    const identityService: NonNullable<Context['identityService']> = {
-      bindCurrent: vi.fn(() => ({
-        id: 'backend-id',
-        name: 'Backend',
-        canonicalName: 'backend',
-        createdAt: 'created',
-        updatedAt: 'updated',
-      })),
-      bindPane: vi.fn(),
-      unbindCurrent: vi.fn(),
-      currentIdentity: vi.fn(),
-      activeIdentities: vi.fn(() => []),
-      resolveActive: vi.fn(),
-      reconcile: vi.fn(),
-      close: vi.fn(),
-    };
-    ctx.identityService = identityService;
-
-    cmdName(ctx, 'Backend');
-
-    expect(identityService.bindCurrent).toHaveBeenCalledWith('Backend');
-    expect(identityService.bindPane).not.toHaveBeenCalled();
-    expect(ctx.tmux.resolvePaneTarget).not.toHaveBeenCalled();
-  });
-
-  it('uses the exact same implementation for this', () => {
+  it('uses the same service path for this', () => {
     const ctx = context();
     cmdThis(ctx, 'backend');
-    expect(ctx.tmux.setGlobalIdentity).toHaveBeenCalledWith('%1', 'backend');
+    expect(ctx.identityService.bindCurrent).toHaveBeenCalledWith('backend');
     expect(ctx.ui.error).not.toHaveBeenCalled();
   });
 
-  it('keeps human success output exactly identical between name and this', () => {
-    const nameCtx = context();
-    const thisCtx = context();
-    cmdName(nameCtx, 'backend');
-    cmdThis(thisCtx, 'backend');
-    expect(thisCtx.ui.success).toHaveBeenCalledWith(
-      (nameCtx.ui.success as ReturnType<typeof vi.fn>).mock.calls[0][0]
+  it('keeps human and JSON success output identical between name and this', () => {
+    const humanName = context();
+    const humanThis = context();
+    cmdName(humanName, 'backend');
+    cmdThis(humanThis, 'backend');
+    expect(humanThis.ui.success).toHaveBeenCalledWith(
+      (humanName.ui.success as ReturnType<typeof vi.fn>).mock.calls[0][0]
+    );
+
+    const jsonName = context(true);
+    const jsonThis = context(true);
+    cmdName(jsonName, 'backend');
+    cmdThis(jsonThis, 'backend');
+    expect(jsonName.ui.json).toHaveBeenCalledWith({ bound: true, name: 'Backend', pane: '%1' });
+    expect(jsonThis.ui.json).toHaveBeenCalledWith(
+      (jsonName.ui.json as ReturnType<typeof vi.fn>).mock.calls[0][0]
     );
   });
 
-  it('keeps JSON success output exactly identical between name and this', () => {
-    const nameCtx = context([], true);
-    const thisCtx = context([], true);
-    cmdName(nameCtx, 'backend');
-    cmdThis(thisCtx, 'backend');
-    expect(thisCtx.ui.json).toHaveBeenCalledWith(
-      (nameCtx.ui.json as ReturnType<typeof vi.fn>).mock.calls[0][0]
-    );
-  });
-
-  it('keeps semantic failure code, message, and exit identical between name and this', () => {
-    const nameCtx = context([active('Alice', '%2')], true);
-    const thisCtx = context([active('Alice', '%2')], true);
-    let nameError: unknown;
-    let thisError: unknown;
-    try {
-      cmdName(nameCtx, 'alice');
-    } catch (error) {
-      nameError = error;
-    }
-    try {
-      cmdThis(thisCtx, 'alice');
-    } catch (error) {
-      thisError = error;
-    }
-    expect((nameError as Error & { exitCode: number }).exitCode).toBe(5);
-    expect((thisError as Error & { exitCode: number }).exitCode).toBe(5);
-    expect(nameCtx.ui.json).toHaveBeenCalledWith(
-      (thisCtx.ui.json as ReturnType<typeof vi.fn>).mock.calls[0][0]
-    );
-    expect(nameCtx.ui.warn).not.toHaveBeenCalled();
-    expect(thisCtx.ui.warn).not.toHaveBeenCalled();
-  });
-
-  it.each(['10.3', '%14', 'session:2.1'])('binds an explicit target: %s', (target) => {
-    const ctx = context();
-    (ctx.tmux.resolvePaneTarget as ReturnType<typeof vi.fn>).mockReturnValue('%14');
-    cmdAdd(ctx, target, 'server-log');
-    expect(ctx.tmux.setGlobalIdentity).toHaveBeenCalledWith('%14', 'server-log');
-  });
-
-  it('rejects a stale explicit target before any name or metadata work', () => {
-    const ctx = context([], true);
-    (ctx.tmux.resolvePaneTarget as ReturnType<typeof vi.fn>).mockReturnValue(null);
-    expect(() => cmdAdd(ctx, '10.3', 'server-log')).toThrow('exit(3)');
-    expect(ctx.ui.json).toHaveBeenCalledWith({
-      error: { code: 'PANE_NOT_FOUND', message: "Pane target '10.3' was not found." },
-    });
-    expect(ctx.tmux.listGlobalIdentities).not.toHaveBeenCalled();
-    expect(ctx.tmux.setGlobalIdentity).not.toHaveBeenCalled();
-    expect(ctx.tmux.setPaneTitle).not.toHaveBeenCalled();
-  });
-
-  it('returns deterministic JSON for binding output', () => {
-    const ctx = context([], true);
-    cmdName(ctx, 'alice');
-    expect(ctx.ui.json).toHaveBeenCalledWith({ bound: true, name: 'alice', pane: '%1' });
-  });
-
-  it.each(['', '  ', 'bad\nname', '%14', '10.3', 'session:2.1'])(
-    'rejects invalid names without writing: %j',
-    (name) => {
+  it.each(['10.3', '%14', 'session:2.1'])(
+    'binds explicit target %s through the durable service',
+    (target) => {
       const ctx = context();
-      expect(() => cmdName(ctx, name)).toThrow('exit(1)');
-      expect(ctx.tmux.setGlobalIdentity).not.toHaveBeenCalled();
+      (ctx.tmux.resolvePaneTarget as ReturnType<typeof vi.fn>).mockReturnValue('%14');
+      cmdAdd(ctx, target, 'server-log');
+      expect(ctx.tmux.resolvePaneTarget).toHaveBeenCalledWith(target);
+      expect(ctx.identityService.bindPane).toHaveBeenCalledOnce();
+      expect(ctx.identityService.bindPane).toHaveBeenCalledWith('%14', 'server-log');
     }
   );
 
-  it('reports name conflicts without mutation', () => {
-    const ctx = context([active('Alice', '%2')]);
-    expect(() => cmdName(ctx, 'alice')).toThrow('exit(5)');
-    expect(ctx.tmux.setGlobalIdentity).not.toHaveBeenCalled();
+  it('rejects a stale explicit target before service work', () => {
+    const ctx = context(true);
+    (ctx.tmux.resolvePaneTarget as ReturnType<typeof vi.fn>).mockReturnValue(null);
+    expect(() => cmdAdd(ctx, '10.3', 'server-log')).toThrow('exit(3)');
+    expect(ctx.identityService.bindPane).not.toHaveBeenCalled();
+    expect(ctx.ui.json).toHaveBeenCalledWith({
+      error: { code: 'PANE_NOT_FOUND', message: "Pane target '10.3' was not found." },
+    });
   });
 
-  it('reports NAME_ALREADY_ACTIVE as structured JSON without mutation', () => {
-    const ctx = context([active('Alice', '%2')], true);
-    expect(() => cmdName(ctx, 'alice')).toThrow('exit(5)');
+  it('maps durable service errors without a fallback', () => {
+    const ctx = context(true);
+    (ctx.identityService.bindCurrent as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new IdentityServiceError(
+        'NAME_ALREADY_ACTIVE',
+        'Name is already active on another pane.'
+      );
+    });
+    expect(() => cmdName(ctx, 'backend')).toThrow('exit(5)');
     expect(ctx.ui.json).toHaveBeenCalledWith({
       error: { code: 'NAME_ALREADY_ACTIVE', message: 'Name is already active on another pane.' },
     });
-    expect(ctx.tmux.setGlobalIdentity).not.toHaveBeenCalled();
     expect(ctx.tmux.setPaneTitle).not.toHaveBeenCalled();
   });
 
-  it('reports PANE_ALREADY_BOUND as structured JSON without mutation', () => {
-    const ctx = context([active('Alice', '%1')], true);
-    expect(() => cmdName(ctx, 'other')).toThrow('exit(5)');
-    expect(ctx.ui.json).toHaveBeenCalledWith({
-      error: { code: 'PANE_ALREADY_BOUND', message: 'Pane is already bound to another name.' },
+  it.each([
+    ['PANE_ALREADY_BOUND', 5],
+    ['NAME_ALREADY_ACTIVE', 5],
+    ['RECONCILIATION_FAILED', 1],
+  ] as const)('maps typed service error %s to exit %i', (code, exitCode) => {
+    const ctx = context(true);
+    (ctx.identityService.bindCurrent as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new IdentityServiceError(code, `failure: ${code}`);
     });
-    expect(ctx.tmux.setGlobalIdentity).not.toHaveBeenCalled();
-    expect(ctx.tmux.setPaneTitle).not.toHaveBeenCalled();
+    expect(() => cmdName(ctx, 'backend')).toThrow(`exit(${exitCode})`);
+    expect(ctx.ui.json).toHaveBeenCalledWith({ error: { code, message: `failure: ${code}` } });
   });
 
-  it('reports INVALID_NAME as structured JSON without mutation', () => {
-    const ctx = context([], true);
+  it('passes validation errors to the durable service boundary', () => {
+    const ctx = context(true);
+    (ctx.identityService.bindCurrent as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new IdentityServiceError(
+        'INVALID_NAME',
+        'Identity name must not look like a pane target.'
+      );
+    });
     expect(() => cmdName(ctx, '%14')).toThrow('exit(1)');
     expect(ctx.ui.json).toHaveBeenCalledWith({
       error: { code: 'INVALID_NAME', message: 'Identity name must not look like a pane target.' },
     });
-    expect(ctx.tmux.setGlobalIdentity).not.toHaveBeenCalled();
-    expect(ctx.tmux.setPaneTitle).not.toHaveBeenCalled();
   });
 
-  it('trims display names while comparing canonical names case-insensitively', () => {
+  it('uses verified current-pane binding without resolving the pane again', () => {
     const ctx = context();
-    cmdName(ctx, '  Backend  ');
-    expect(ctx.tmux.setGlobalIdentity).toHaveBeenCalledWith('%1', 'Backend');
+    cmdName(ctx, 'backend');
+    expect(ctx.identityService.bindCurrent).toHaveBeenCalledWith('backend');
+    expect(ctx.tmux.resolvePaneTarget).not.toHaveBeenCalled();
   });
 
-  it('is idempotent for the same canonical name and pane', () => {
-    const ctx = context([active('Alice', '%1')]);
-    cmdName(ctx, ' alice ');
-    expect(ctx.tmux.setGlobalIdentity).not.toHaveBeenCalled();
+  it('keeps name and this failure output and exit identical', () => {
+    const contexts = [context(true), context(true)];
+    for (const [index, handler] of [cmdName, cmdThis].entries()) {
+      const ctx = contexts[index];
+      vi.mocked(ctx.identityService.bindCurrent).mockImplementation(() => {
+        throw new IdentityServiceError(
+          'NAME_ALREADY_ACTIVE',
+          'Name is already active on another pane.'
+        );
+      });
+      expect(() => handler(ctx, 'alice')).toThrow('exit(5)');
+      expect(ctx.ui.json).toHaveBeenCalledOnce();
+      expect(ctx.tmux.setPaneTitle).not.toHaveBeenCalled();
+    }
+    expect(vi.mocked(contexts[0].ui.json).mock.calls).toEqual(
+      vi.mocked(contexts[1].ui.json).mock.calls
+    );
   });
 
-  it('treats NFKC-equivalent names as the same active identity', () => {
-    const ctx = context([active('Alice', '%1')]);
-    cmdName(ctx, 'ＡＬＩＣＥ');
-    expect(ctx.tmux.setGlobalIdentity).not.toHaveBeenCalled();
-  });
-
-  it('does not fail a successful bind when title synchronization fails', () => {
+  it('keeps a successful bind when title synchronization fails', () => {
     const ctx = context();
     (ctx.tmux.setPaneTitle as ReturnType<typeof vi.fn>).mockImplementation(() => {
       throw new Error('title unavailable');
     });
     cmdName(ctx, 'backend');
-    expect(ctx.tmux.setGlobalIdentity).toHaveBeenCalledWith('%1', 'backend');
+    expect(ctx.identityService.bindCurrent).toHaveBeenCalledWith('backend');
     expect(ctx.ui.success).toHaveBeenCalled();
   });
 });

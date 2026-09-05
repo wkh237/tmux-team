@@ -10,6 +10,7 @@ import type { DurableIdentity, TmuxBinding } from './domain/identity.js';
 import type { PaneInfo, Paths, Tmux, TmuxEndpointSnapshot } from './types.js';
 
 const directories: string[] = [];
+const repositories: Array<ReturnType<typeof openIdentityRepository>> = [];
 
 function fixture() {
   const globalDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-identity-'));
@@ -70,6 +71,12 @@ function fixture() {
   };
 }
 
+function createTestService(test: ReturnType<typeof fixture>) {
+  const repository = openIdentityRepository(test.paths.databaseFile);
+  repositories.push(repository);
+  return createIdentityService({ tmux: test.tmux, repository });
+}
+
 function seedForeignBinding(test: ReturnType<typeof fixture>, name = 'Foreign') {
   const repository = openIdentityRepository(test.paths.databaseFile);
   const identity = repository.createIdentity(name, name.toLowerCase());
@@ -102,14 +109,22 @@ function addSecondPane(test: ReturnType<typeof fixture>): void {
 }
 
 afterEach(() => {
+  for (const repository of repositories.splice(0)) repository.close();
   for (const directory of directories.splice(0))
     fs.rmSync(directory, { recursive: true, force: true });
 });
 
 describe('durable identity service', () => {
+  it('requires an injected repository without opening default storage', () => {
+    const test = fixture();
+    expect(() => createIdentityService({ tmux: test.tmux } as never)).toThrow(
+      'Identity repository is required.'
+    );
+  });
+
   it('rejects invalid names before creating durable state', () => {
     const test = fixture();
-    const service = createIdentityService(test);
+    const service = createTestService(test);
 
     expect(() => service.bindCurrent('%12')).toThrowError(
       new IdentityServiceError('INVALID_NAME', 'Identity name must not look like a pane target.')
@@ -118,7 +133,6 @@ describe('durable identity service', () => {
     expect(repository.listIdentities()).toEqual([]);
     expect(repository.findBindings()).toEqual([]);
     repository.close();
-    service.close();
   });
 
   it('requires pane process evidence before creating durable state', () => {
@@ -127,13 +141,12 @@ describe('durable identity service', () => {
       ...test.tmux.getEndpointSnapshot!(),
       panes: [{ ...test.pane, panePid: undefined }],
     });
-    const service = createIdentityService(test);
+    const service = createTestService(test);
 
     expect(() => service.bindCurrent('missing-evidence')).toThrow("Pane '%1' was not found.");
     const repository = openIdentityRepository(test.paths.databaseFile);
     expect(repository.listIdentities()).toEqual([]);
     repository.close();
-    service.close();
   });
 
   it('does not touch identity storage when current pane evidence is missing', () => {
@@ -154,26 +167,23 @@ describe('durable identity service', () => {
     expect(repository.listIdentities()).toEqual([]);
     expect(repository.findBindings()).toEqual([]);
 
-    service.close();
     repository.close();
   });
 
   it('uses verified current-pane evidence without resolving an ambient target', () => {
     const test = fixture();
     const resolvePaneTarget = vi.spyOn(test.tmux, 'resolvePaneTarget');
-    const service = createIdentityService(test);
+    const service = createTestService(test);
 
     const identity = service.bindCurrent('direct-current');
     expect(service.currentIdentity()).toMatchObject({ identity: { id: identity.id } });
     expect(service.unbindCurrent()).toMatchObject({ id: identity.id });
     expect(resolvePaneTarget).not.toHaveBeenCalled();
-
-    service.close();
   });
 
   it('creates one durable identity and a verified transient binding', () => {
     const test = fixture();
-    const service = createIdentityService(test);
+    const service = createTestService(test);
     const first = service.bindCurrent('  Ｇｅｍｉｎｉ  ');
     const second = service.bindCurrent('gemini');
     expect(second.id).toBe(first.id);
@@ -187,7 +197,6 @@ describe('durable identity service', () => {
     expect(repository.listIdentities()).toHaveLength(1);
     expect(repository.findBindings()).toHaveLength(1);
     repository.close();
-    service.close();
   });
 
   it('does not let reconciliation delete a binding while metadata is publishing', () => {
@@ -222,8 +231,6 @@ describe('durable identity service', () => {
     expect(binder.activeIdentities()).toHaveLength(1);
     expect(test.pane.metadata?.globalIdentity?.bindingId).toBe(base.findBindings()[0]?.id);
 
-    binder.close();
-    reconciler.close();
     base.close();
     observerBase.close();
   });
@@ -250,19 +257,21 @@ describe('durable identity service', () => {
     expect(service.activeIdentities()).toEqual([]);
     expect(events.slice(0, 2)).toEqual(['lock', 'snapshot']);
 
-    service.close();
     base.close();
   });
 
   it('fails closed when the tmux adapter cannot provide endpoint evidence', () => {
     const test = fixture();
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    repositories.push(repository);
     const service = createIdentityService({
-      ...test,
       tmux: { ...test.tmux, getEndpointSnapshot: undefined },
+      repository,
     });
     expect(() => service.reconcile()).toThrow('coherent endpoint snapshot');
-    expect(identityAwareTmux(test.tmux)).toBe(test.tmux);
-    service.close();
+    expect(() => identityAwareTmux(test.tmux, undefined as never)).toThrow(
+      'Identity service is required'
+    );
   });
 
   it('converts endpoint inspection failures into a structured service error', () => {
@@ -270,14 +279,13 @@ describe('durable identity service', () => {
     test.tmux.getEndpointSnapshot = () => {
       throw new Error('tmux unavailable');
     };
-    const service = createIdentityService(test);
+    const service = createTestService(test);
     expect(() => service.activeIdentities()).toThrow('Could not inspect the tmux endpoint.');
-    service.close();
   });
 
   it('prunes a changed pane process while preserving the durable identity', () => {
     const test = fixture();
-    const service = createIdentityService(test);
+    const service = createTestService(test);
     const identity = service.bindCurrent('worker');
     test.setSnapshot({
       server: {
@@ -295,12 +303,11 @@ describe('durable identity service', () => {
     ]);
     expect(repository.findBindings()).toEqual([]);
     repository.close();
-    service.close();
   });
 
   it('does not accept a binding from a different server instance with the same pane ID', () => {
     const test = fixture();
-    const service = createIdentityService(test);
+    const service = createTestService(test);
     const identity = service.bindCurrent('server-bound');
     test.setSnapshot({
       server: {
@@ -331,12 +338,11 @@ describe('durable identity service', () => {
       socketPath: '/tmp/tmt-a',
     });
     repository.close();
-    service.close();
   });
 
   it('does not accept a binding when the tmux socket changes', () => {
     const test = fixture();
-    const service = createIdentityService(test);
+    const service = createTestService(test);
     service.bindCurrent('socket-bound');
     test.setSnapshot({
       server: {
@@ -348,12 +354,11 @@ describe('durable identity service', () => {
       panes: [{ ...test.pane }],
     });
     expect(service.activeIdentities()).toEqual([]);
-    service.close();
   });
 
   it('preserves a binding owned by another live socket while discovering only the current server', () => {
     const test = fixture();
-    const service = createIdentityService(test);
+    const service = createTestService(test);
     service.bindCurrent('local');
     const foreign = seedForeignBinding(test);
     const probe = vi.fn<[string, number], ReturnType<NonNullable<Tmux['probeEndpoint']>>>(() => ({
@@ -369,7 +374,6 @@ describe('durable identity service', () => {
     const repository = openIdentityRepository(test.paths.databaseFile);
     expect(repository.findBindings()).toContainEqual(foreign.binding);
     repository.close();
-    service.close();
   });
 
   it.each([
@@ -378,7 +382,7 @@ describe('durable identity service', () => {
   ] as const)('does not steal a foreign identity when its endpoint is %s', (status, code) => {
     const test = fixture();
     addSecondPane(test);
-    const service = createIdentityService(test);
+    const service = createTestService(test);
     const foreign = seedForeignBinding(test);
     test.setProbe(() =>
       status === 'live'
@@ -411,13 +415,12 @@ describe('durable identity service', () => {
     const repository = openIdentityRepository(test.paths.databaseFile);
     expect(repository.findBindings()).toContainEqual(foreign.binding);
     repository.close();
-    service.close();
   });
 
   it('releases a proven-dead foreign binding for reuse without deleting its identity', () => {
     const test = fixture();
     addSecondPane(test);
-    const service = createIdentityService(test);
+    const service = createTestService(test);
     const foreign = seedForeignBinding(test);
     const profileRepository = openIdentityRepository(test.paths.databaseFile);
     profileRepository.setRole(foreign.identity.id, 'foreign profile');
@@ -436,13 +439,12 @@ describe('durable identity service', () => {
     expect(repository.findByCanonicalName('foreign')).toEqual(foreign.identity);
     expect(repository.findRole(foreign.identity.id)).toMatchObject({ content: 'foreign profile' });
     repository.close();
-    service.close();
   });
 
   it('releases a foreign binding when the known socket is live but its server instance is stale', () => {
     const test = fixture();
     addSecondPane(test);
-    const service = createIdentityService(test);
+    const service = createTestService(test);
     const foreign = seedForeignBinding(test);
     test.setProbe(() => ({
       status: 'live',
@@ -468,7 +470,6 @@ describe('durable identity service', () => {
     const repository = openIdentityRepository(test.paths.databaseFile);
     expect(repository.findBindings()[0]).toMatchObject({ paneId: '%2' });
     repository.close();
-    service.close();
   });
 
   it.each(['missing', 'throwing'] as const)(
@@ -476,7 +477,7 @@ describe('durable identity service', () => {
     (probeMode) => {
       const test = fixture();
       addSecondPane(test);
-      const service = createIdentityService(test);
+      const service = createTestService(test);
       const foreign = seedForeignBinding(test);
       if (probeMode === 'throwing') {
         test.setProbe(() => {
@@ -490,13 +491,12 @@ describe('durable identity service', () => {
       const repository = openIdentityRepository(test.paths.databaseFile);
       expect(repository.findBindings()).toContainEqual(foreign.binding);
       repository.close();
-      service.close();
     }
   );
 
   it('prunes stale bindings after a restart on the same socket', () => {
     const test = fixture();
-    const service = createIdentityService(test);
+    const service = createTestService(test);
     const identity = service.bindCurrent('same-socket');
     test.setSnapshot({
       server: {
@@ -513,7 +513,6 @@ describe('durable identity service', () => {
     expect(repository.findBindings()).toEqual([]);
     expect(repository.findByCanonicalName('same-socket')).toEqual(identity);
     repository.close();
-    service.close();
   });
 
   it('does not backfill duplicate name-only v5 metadata or mutate it on repeated reads', () => {
@@ -531,7 +530,7 @@ describe('durable identity service', () => {
     };
     const firstMetadata = JSON.stringify(test.pane.metadata);
     const secondMetadata = JSON.stringify(second.metadata);
-    const service = createIdentityService(test);
+    const service = createTestService(test);
     expect(service.activeIdentities()).toEqual([]);
     expect(service.activeIdentities()).toEqual([]);
 
@@ -541,7 +540,6 @@ describe('durable identity service', () => {
     repository.close();
     expect(JSON.stringify(test.pane.metadata)).toBe(firstMetadata);
     expect(JSON.stringify(second.metadata)).toBe(secondMetadata);
-    service.close();
   });
 
   it.each([
@@ -612,7 +610,7 @@ describe('durable identity service', () => {
   ] as const)('rejects %s durable metadata without affecting a healthy peer', (_label, mutate) => {
     const test = fixture();
     addSecondPane(test);
-    const service = createIdentityService(test);
+    const service = createTestService(test);
     const primary = service.bindCurrent('Primary');
     service.bindPane('%2', 'Peer');
 
@@ -644,13 +642,12 @@ describe('durable identity service', () => {
     );
     expect(repository.findRole(primary.id)).toMatchObject({ content: 'Preserve this profile.' });
     repository.close();
-    service.close();
   });
 
   it('rejects an unsupported durable metadata version while preserving identity and profile', () => {
     const test = fixture();
     addSecondPane(test);
-    const service = createIdentityService(test);
+    const service = createTestService(test);
     const primary = service.bindCurrent('Versioned');
     service.bindPane('%2', 'Peer');
 
@@ -672,7 +669,6 @@ describe('durable identity service', () => {
     expect(repository.findByCanonicalName('versioned')).toEqual(primary);
     expect(repository.findRole(primary.id)).toMatchObject({ content: 'Preserve this profile.' });
     repository.close();
-    service.close();
   });
 
   it('removes a database binding when the tmux metadata write fails', () => {
@@ -680,13 +676,12 @@ describe('durable identity service', () => {
     test.tmux.setDurableIdentity = () => {
       throw new Error('simulated tmux write failure');
     };
-    const service = createIdentityService(test);
+    const service = createTestService(test);
     expect(() => service.bindCurrent('partial')).toThrow('Could not write pane metadata.');
     const repository = openIdentityRepository(test.paths.databaseFile);
     expect(repository.listIdentities()).toMatchObject([{ canonicalName: 'partial' }]);
     expect(repository.findBindings()).toEqual([]);
     repository.close();
-    service.close();
   });
 
   it('rolls back when metadata publication verifies a missing marker while retaining identity data', () => {
@@ -696,7 +691,7 @@ describe('durable identity service', () => {
     seed.setRole(identity.id, 'Keep this profile.');
     seed.close();
     test.tmux.setDurableIdentity = () => {};
-    const service = createIdentityService(test);
+    const service = createTestService(test);
 
     expect(() => service.bindCurrent(identity.name)).toThrow('Could not write pane metadata.');
     const repository = openIdentityRepository(test.paths.databaseFile);
@@ -704,7 +699,6 @@ describe('durable identity service', () => {
     expect(repository.findByCanonicalName(identity.canonicalName)).toEqual(identity);
     expect(repository.findRole(identity.id)).toMatchObject({ content: 'Keep this profile.' });
     repository.close();
-    service.close();
   });
 
   it('rejects successful metadata when the binding row is missing at verification', () => {
@@ -726,7 +720,6 @@ describe('durable identity service', () => {
     expect(base.findByCanonicalName(identity.canonicalName)).toEqual(identity);
     expect(base.findRole(identity.id)).toMatchObject({ content: 'Keep this profile.' });
 
-    service.close();
     base.close();
   });
 
@@ -740,7 +733,7 @@ describe('durable identity service', () => {
       // the shared boundary must reject success before committing the row.
       clock.mockReturnValue(4_001);
     };
-    const service = createIdentityService(test);
+    const service = createTestService(test);
 
     try {
       expect(() => service.bindCurrent('deadline-race')).toThrowError(
@@ -752,13 +745,12 @@ describe('durable identity service', () => {
       repository.close();
     } finally {
       clock.mockRestore();
-      service.close();
     }
   });
 
   it('keeps a valid binding when a later strict snapshot read fails', () => {
     const test = fixture();
-    const service = createIdentityService(test);
+    const service = createTestService(test);
     const identity = service.bindCurrent('Persisted');
     const before = openIdentityRepository(test.paths.databaseFile);
     before.setRole(identity.id, 'Keep this profile.');
@@ -775,7 +767,6 @@ describe('durable identity service', () => {
     expect(after.findBindingByPane('%1', 'server-a')).toMatchObject({ id: binding?.id });
     expect(after.findRole(identity.id)).toMatchObject({ content: 'Keep this profile.' });
     after.close();
-    service.close();
   });
 
   it('maps writer contention to a reconciliation failure', () => {
@@ -792,7 +783,6 @@ describe('durable identity service', () => {
     expect(() => service.activeIdentities()).toThrowError(
       expect.objectContaining({ code: 'RECONCILIATION_FAILED' })
     );
-    service.close();
     base.close();
   });
 
@@ -815,22 +805,49 @@ describe('durable identity service', () => {
     expect(() => service.unbindCurrent()).toThrow('Could not remove tmux binding.');
     expect(service.activeIdentities()).toEqual([]);
     expect(base.findBindings()).toEqual([]);
-    service.close();
     base.close();
   });
 
   it('rejects a second identity on one live pane and preserves the first binding', () => {
     const test = fixture();
-    const service = createIdentityService(test);
-    service.bindCurrent('first');
-    expect(() => service.bindCurrent('second')).toThrowError(
-      new IdentityServiceError('PANE_ALREADY_BOUND', 'Pane is already bound to another name.')
-    );
-    expect(service.currentIdentity()?.identity.name).toBe('first');
-    const repository = openIdentityRepository(test.paths.databaseFile);
-    expect(repository.listIdentities()).toMatchObject([{ canonicalName: 'first' }]);
-    repository.close();
-    service.close();
+    const base = openIdentityRepository(test.paths.databaseFile);
+    const observer = openIdentityRepository(test.paths.databaseFile);
+    const repository = {
+      ...base,
+      createIdentity(name: string, canonicalName: string) {
+        const identity = base.createIdentity(name, canonicalName);
+        // Observation alone must preserve the committed UUID; no profile row
+        // exists to trigger the former feature-specific deletion guards.
+        if (canonicalName === 'second') {
+          expect(observer.findByCanonicalName(canonicalName)).toEqual(identity);
+        }
+        return identity;
+      },
+    };
+    const service = createIdentityService({ tmux: test.tmux, repository });
+    try {
+      service.bindCurrent('first');
+      expect(() => service.bindCurrent('second')).toThrowError(
+        new IdentityServiceError('PANE_ALREADY_BOUND', 'Pane is already bound to another name.')
+      );
+      const identities = observer.listIdentities();
+      expect(identities.map(({ canonicalName }) => canonicalName)).toEqual(['first', 'second']);
+      expect(observer.findBindings()).toMatchObject([{ identityId: identities[0]?.id }]);
+      expect(service.currentIdentity()?.identity.name).toBe('first');
+      const second = identities.find(({ canonicalName }) => canonicalName === 'second');
+      expect(second).toBeDefined();
+      observer.setRole(second!.id, 'Retain this role.');
+      observer.setPreamble(second!.id, 'Retain this preamble.');
+      expect(observer.findRole(second!.id)?.content).toBe('Retain this role.');
+      expect(observer.findPreamble(second!.id)?.content).toBe('Retain this preamble.');
+      addSecondPane(test);
+      expect(service.bindPane('%2', 'SECOND')).toEqual(second);
+      expect(observer.findRole(second!.id)?.content).toBe('Retain this role.');
+      expect(observer.findPreamble(second!.id)?.content).toBe('Retain this preamble.');
+    } finally {
+      base.close();
+      observer.close();
+    }
   });
 
   it('rejects a live identity on another pane', () => {
@@ -839,17 +856,16 @@ describe('durable identity service', () => {
     test.setSnapshot({ ...test.tmux.getEndpointSnapshot!(), panes: [test.pane, secondPane] });
     (test.tmux.resolvePaneTarget as any) = (target: string) =>
       target === '%1' || target === '%2' ? target : null;
-    const service = createIdentityService(test);
+    const service = createTestService(test);
     service.bindPane('%1', 'shared');
     expect(() => service.bindPane('%2', 'shared')).toThrow(
       'Name is already active on another pane.'
     );
-    service.close();
   });
 
   it('makes explicit unbind idempotent while preserving the durable row', () => {
     const test = fixture();
-    const service = createIdentityService(test);
+    const service = createTestService(test);
     const identity = service.bindCurrent('keep-me');
     expect(service.unbindCurrent()).toMatchObject({ id: identity.id });
     expect(service.unbindCurrent()).toBeUndefined();
@@ -857,12 +873,11 @@ describe('durable identity service', () => {
     expect(repository.listIdentities()).toMatchObject([{ id: identity.id }]);
     expect(repository.findBindings()).toEqual([]);
     repository.close();
-    service.close();
   });
 
   it('resolves only currently active names and direct pane targets', () => {
     const test = fixture();
-    const service = createIdentityService(test);
+    const service = createTestService(test);
     service.bindCurrent('resolvable');
     expect(service.resolveActive('resolvable')).toMatchObject({ identity: { name: 'resolvable' } });
     expect(service.resolveActive('%1')).toMatchObject({ binding: { paneId: '%1' } });
@@ -870,6 +885,5 @@ describe('durable identity service', () => {
     expect(() => service.bindPane('%99', 'missing-pane')).toThrow(
       "Pane target '%99' was not found."
     );
-    service.close();
   });
 });

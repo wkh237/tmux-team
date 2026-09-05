@@ -21,6 +21,15 @@ function context(service: RoleService, json = true): Context & { output: unknown
     ui,
     config: {} as Context['config'],
     tmux: {} as Context['tmux'],
+    identityService: {
+      bindCurrent: vi.fn(),
+      bindPane: vi.fn(),
+      unbindCurrent: vi.fn(),
+      currentIdentity: vi.fn(),
+      activeIdentities: vi.fn(() => []),
+      resolveActive: vi.fn(),
+      reconcile: vi.fn(),
+    },
     paths: {} as Context['paths'],
     roleService: service,
     exit: ((code: number) => {

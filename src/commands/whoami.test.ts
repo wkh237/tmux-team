@@ -1,20 +1,43 @@
 import { describe, expect, it, vi } from 'vitest';
 import { cmdWhoami } from './whoami.js';
 import { cmdUnbind } from './unbind.js';
-import type { ActiveRegistration } from '../domain/types.js';
-import type { Context } from '../types.js';
+import type { Context, IdentityService } from '../types.js';
 
-function context(registrations: ActiveRegistration[] = [], json = false): Context {
-  const tmux: Context['tmux'] = {
-    send: vi.fn(),
-    capture: vi.fn(),
-    listPanes: vi.fn(() => []),
-    getCurrentPaneId: vi.fn(() => '%1'),
-    resolvePaneTarget: vi.fn((target: string) => target),
-    setPaneTitle: vi.fn(),
-    listGlobalIdentities: vi.fn(() => registrations),
-    setGlobalIdentity: vi.fn(),
-    clearGlobalIdentity: vi.fn(() => true),
+function identity(name = 'alice') {
+  return {
+    id: `${name}-id`,
+    name,
+    canonicalName: name,
+    createdAt: 'created',
+    updatedAt: 'updated',
+  };
+}
+
+function context(json = false): Context {
+  const current = { identity: identity() };
+  const identityService: IdentityService = {
+    bindCurrent: vi.fn(),
+    bindPane: vi.fn(),
+    unbindCurrent: vi.fn(() => identity()),
+    currentIdentity: vi.fn(() => ({
+      ...current,
+      binding: {
+        id: 'binding-id',
+        identityId: 'alice-id',
+        transport: 'tmux' as const,
+        paneId: '%1',
+        serverId: 'server',
+        socketPath: '/tmp/tmux.sock',
+        serverPid: 1,
+        serverStartTime: 'now',
+        panePid: 1,
+        boundAt: 'now',
+        lastVerifiedAt: 'now',
+      },
+    })),
+    activeIdentities: vi.fn(() => []),
+    resolveActive: vi.fn(),
+    reconcile: vi.fn(),
   };
   return {
     argv: [],
@@ -39,14 +62,16 @@ function context(registrations: ActiveRegistration[] = [], json = false): Contex
         pasteEnterDelayMs: 0,
       },
     },
-    tmux,
-    paths: {
-      globalDir: '',
-      globalConfig: '',
-      localConfig: '',
-      stateFile: '',
-      databaseFile: '',
+    tmux: {
+      send: vi.fn(),
+      capture: vi.fn(),
+      listPanes: vi.fn(() => []),
+      getCurrentPaneId: vi.fn(() => '%1'),
+      resolvePaneTarget: vi.fn(),
+      setPaneTitle: vi.fn(),
     },
+    identityService,
+    paths: { globalDir: '', globalConfig: '', localConfig: '', stateFile: '', databaseFile: '' },
     exit: ((code: number) => {
       throw Object.assign(new Error(`exit(${code})`), { exitCode: code });
     }) as Context['exit'],
@@ -54,92 +79,80 @@ function context(registrations: ActiveRegistration[] = [], json = false): Contex
 }
 
 describe('whoami and unbind', () => {
-  it('reports bound identity as JSON', () => {
-    const ctx = context([{ name: 'alice', canonicalName: 'alice', paneId: '%1' }], true);
+  it.each([cmdWhoami, cmdUnbind])(
+    'fails closed without required wiring instead of using raw markers',
+    (handler) => {
+      const ctx = context(true);
+      const legacyRead = vi.fn(() => [{ name: 'alice', canonicalName: 'alice', paneId: '%1' }]);
+      const legacyClear = vi.fn(() => true);
+      Object.assign(ctx.tmux, {
+        listGlobalIdentities: legacyRead,
+        clearGlobalIdentity: legacyClear,
+      });
+      Object.defineProperty(ctx, 'identityService', { value: undefined });
+      expect(() => handler(ctx)).toThrow();
+      expect(legacyRead).not.toHaveBeenCalled();
+      expect(legacyClear).not.toHaveBeenCalled();
+      expect(ctx.ui.json).not.toHaveBeenCalled();
+    }
+  );
+  it('reports the durable current identity as JSON', () => {
+    const ctx = context(true);
     cmdWhoami(ctx);
     expect(ctx.ui.json).toHaveBeenCalledWith({ bound: true, name: 'alice', pane: '%1' });
   });
 
-  it('reports bound identity in concise human output', () => {
-    const ctx = context([{ name: 'alice', canonicalName: 'alice', paneId: '%1' }]);
+  it('reports the durable current identity in concise human output', () => {
+    const ctx = context();
     cmdWhoami(ctx);
     expect(ctx.ui.info).toHaveBeenCalledWith("Bound identity 'alice' on pane %1");
   });
 
-  it('reports an unbound pane successfully', () => {
-    const ctx = context([], true);
-    cmdWhoami(ctx);
-    expect(ctx.ui.json).toHaveBeenCalledWith({ bound: false, pane: '%1' });
-  });
-
   it('reports an unbound pane in concise human output', () => {
     const ctx = context();
+    (ctx.identityService.currentIdentity as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
     cmdWhoami(ctx);
     expect(ctx.ui.info).toHaveBeenCalledWith('Pane %1 is unbound.');
   });
 
-  it('unbinds only the current pane', () => {
-    const ctx = context([
-      { name: 'alice', canonicalName: 'alice', paneId: '%1' },
-      { name: 'bob', canonicalName: 'bob', paneId: '%2' },
-    ]);
-    cmdUnbind(ctx);
-    expect(ctx.tmux.clearGlobalIdentity).toHaveBeenCalledWith('%1');
+  it('reports an unbound pane without reading tmux metadata', () => {
+    const ctx = context(true);
+    (ctx.identityService.currentIdentity as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+    cmdWhoami(ctx);
+    expect(ctx.ui.json).toHaveBeenCalledWith({ bound: false, pane: '%1' });
   });
 
-  it('returns exact JSON for successful unbind', () => {
-    const ctx = context([{ name: 'alice', canonicalName: 'alice', paneId: '%1' }], true);
+  it('unbinds through the durable identity service', () => {
+    const ctx = context(true);
     cmdUnbind(ctx);
+    expect(ctx.identityService.unbindCurrent).toHaveBeenCalledOnce();
     expect(ctx.ui.json).toHaveBeenCalledWith({ unbound: true, name: 'alice', pane: '%1' });
   });
 
-  it('returns UNBOUND_PANE without mutation when repeated', () => {
-    const ctx = context([], true);
-    (ctx.tmux.clearGlobalIdentity as ReturnType<typeof vi.fn>).mockReturnValue(false);
+  it('maps an unbound durable result', () => {
+    const ctx = context(true);
+    (ctx.identityService.unbindCurrent as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
     expect(() => cmdUnbind(ctx)).toThrow('exit(1)');
     expect(ctx.ui.json).toHaveBeenCalledWith({
       error: { code: 'UNBOUND_PANE', message: 'Pane has no active global name.' },
     });
   });
 
-  it('preserves UNBOUND_PANE when the durable identity service finds no active binding', () => {
-    const ctx = context([], true);
-    ctx.identityService = {
-      bindCurrent: vi.fn(),
-      bindPane: vi.fn(),
-      unbindCurrent: vi.fn(() => undefined),
-      currentIdentity: vi.fn(),
-      activeIdentities: vi.fn(() => []),
-      resolveActive: vi.fn(),
-      reconcile: vi.fn(),
-      close: vi.fn(),
-    };
-
-    expect(() => cmdUnbind(ctx)).toThrow('exit(1)');
-    expect(ctx.identityService.unbindCurrent).toHaveBeenCalledOnce();
-    expect(ctx.ui.json).toHaveBeenCalledWith({
-      error: { code: 'UNBOUND_PANE', message: 'Pane has no active global name.' },
-    });
-  });
-
-  it('returns a pane-not-found error when outside tmux', () => {
-    const ctx = context([], true);
+  it('rejects the caller before opening identity state', () => {
+    const ctx = context(true);
     (ctx.tmux.getCurrentPaneId as ReturnType<typeof vi.fn>).mockReturnValue(null);
     expect(() => cmdWhoami(ctx)).toThrow('exit(3)');
-    expect(ctx.ui.json).toHaveBeenCalledWith({
-      error: { code: 'PANE_NOT_FOUND', message: 'Not running inside a resolvable tmux pane.' },
-    });
+    expect(ctx.identityService.currentIdentity).not.toHaveBeenCalled();
   });
 
-  it('rejects the caller before constructing the durable identity service', () => {
-    const ctx = context([], true);
+  it('does not open the required service getter before caller validation', () => {
+    const ctx = context(true);
     (ctx.tmux.getCurrentPaneId as ReturnType<typeof vi.fn>).mockReturnValue(null);
-    const identityService = vi.fn(() => {
+    const getter = vi.fn(() => {
       throw new Error('identity service must remain unopened');
     });
-    Object.defineProperty(ctx, 'identityService', { configurable: true, get: identityService });
-
+    Object.defineProperty(ctx, 'identityService', { configurable: true, get: getter });
     expect(() => cmdWhoami(ctx)).toThrow('exit(3)');
-    expect(identityService).not.toHaveBeenCalled();
+    expect(getter).not.toHaveBeenCalled();
   });
 });

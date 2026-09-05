@@ -161,6 +161,14 @@ tmux server removes the stale binding on reconciliation without deleting the
 identity record; the same name can be bound again later with its original
 identity ID.
 
+Identity creation commits separately from binding publication. Once created,
+an identity is never deleted by a failed bind. Trying a valid new name on an
+occupied pane returns `PANE_ALREADY_BOUND` (exit 5), preserves the existing
+binding, and leaves the new identity offline. It cannot receive `talk` by name,
+but explicit role/preamble access works. Retrying on an available pane reuses
+its UUID and profiles. Invalid names and panes missing at preflight create no
+identity. There is no automatic garbage collection or identity deletion command.
+
 Names are unique across tmux servers that share the same local TMT database,
 but active discovery and `talk`/`check` routing remain scoped to the current
 server. A routine read reconciles only that server's socket; it does not

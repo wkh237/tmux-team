@@ -2,7 +2,7 @@ import { Command, CommanderError } from 'commander';
 import { isPaneTarget } from '../domain/names.js';
 import type { Flags } from '../types.js';
 import type { IdentitySelector } from '../identity-context.js';
-import type { RoleRequest } from '../commands/role.js';
+import type { RoleRequest } from './requests.js';
 export type { IdentitySelector } from '../identity-context.js';
 
 export type ParsedInvocation =

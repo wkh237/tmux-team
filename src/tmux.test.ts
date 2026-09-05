@@ -384,107 +384,18 @@ describe('createTmux', () => {
         '{"version":1,"globalIdentity":{"name":"Alice","canonicalName":"alice"}}\n'
       );
 
-      expect(createTmux().listGlobalIdentities()).toEqual([
-        { name: 'Alice', canonicalName: 'alice', paneId: '%1' },
+      expect(createTmux().listPanes()).toMatchObject([
+        {
+          id: '%1',
+          target: 'main:2.0',
+          cwd: '/repo',
+          command: 'node',
+          metadata: { version: 1, globalIdentity: { name: 'Alice', canonicalName: 'alice' } },
+        },
       ]);
       expect(mockedExecFileSync).toHaveBeenCalledWith(
         'tmux',
         ['show-options', '-p', '-t', '%1', '-v', '@tmux-team.agent'],
-        expect.any(Object)
-      );
-    });
-
-    it('lists global identities independently of workspace metadata', () => {
-      mockedExecSync.mockReturnValue(
-        '%1\tmain:1.0\t/repo-a\tcodex\t{"version":1,"globalIdentity":{"name":"Alice","canonicalName":"alice"}}\n%2\tmain:2.0\t/repo-b\tzsh\t{"version":1}\n'
-      );
-      const tmux = createTmux();
-      expect(tmux.listGlobalIdentities()).toEqual([
-        { name: 'Alice', canonicalName: 'alice', paneId: '%1' },
-      ]);
-    });
-
-    it('ignores malformed global identity metadata', () => {
-      mockedExecSync.mockReturnValue(
-        '%1\tmain:1.0\t/repo\tzsh\t{"version":1,"globalIdentity":{"name":42}}\n'
-      );
-      expect(createTmux().listGlobalIdentities()).toEqual([]);
-    });
-
-    it('writes and clears global identity metadata without touching workspace entries', () => {
-      mockedExecFileSync.mockReturnValueOnce(
-        '{"version":1,"workspaces":{"/repo":{"name":"legacy"}},"teams":{"egp":{"name":"codex"}},"future":{"flag":true},"globalIdentity":{"name":"Old","canonicalName":"old"}}'
-      );
-      const tmux = createTmux();
-      tmux.setGlobalIdentity('%9', 'Alice');
-      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
-        'tmux',
-        [
-          'set-option',
-          '-p',
-          '-t',
-          '%9',
-          '@tmux-team.agent',
-          JSON.stringify({
-            version: 1,
-            workspaces: { '/repo': { name: 'legacy' } },
-            teams: { egp: { name: 'codex' } },
-            future: { flag: true },
-            globalIdentity: { name: 'Alice', canonicalName: 'alice' },
-          }),
-        ],
-        expect.any(Object)
-      );
-
-      mockedExecFileSync.mockReset();
-      mockedExecFileSync.mockReturnValueOnce(
-        '{"version":1,"workspaces":{"/repo":{"name":"legacy"}},"teams":{"egp":{"name":"codex"}},"future":{"flag":true},"globalIdentity":{"name":"Alice","canonicalName":"alice"}}'
-      );
-      expect(tmux.clearGlobalIdentity('%9')).toBe(true);
-      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
-        'tmux',
-        [
-          'set-option',
-          '-p',
-          '-t',
-          '%9',
-          '@tmux-team.agent',
-          JSON.stringify({
-            version: 1,
-            workspaces: { '/repo': { name: 'legacy' } },
-            teams: { egp: { name: 'codex' } },
-            future: { flag: true },
-          }),
-        ],
-        expect.any(Object)
-      );
-
-      mockedExecFileSync.mockReset();
-      mockedExecFileSync.mockReturnValueOnce(
-        '{"version":1,"future":{"flag":true},"globalIdentity":{"name":"Alice","canonicalName":"alice"}}'
-      );
-      expect(tmux.clearGlobalIdentity('%9')).toBe(true);
-      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
-        'tmux',
-        [
-          'set-option',
-          '-p',
-          '-t',
-          '%9',
-          '@tmux-team.agent',
-          JSON.stringify({ version: 1, future: { flag: true } }),
-        ],
-        expect.any(Object)
-      );
-
-      mockedExecFileSync.mockReset();
-      mockedExecFileSync.mockReturnValueOnce(
-        '{"version":1,"globalIdentity":{"name":"Alice","canonicalName":"alice"}}'
-      );
-      expect(tmux.clearGlobalIdentity('%9')).toBe(true);
-      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
-        'tmux',
-        ['set-option', '-p', '-u', '-t', '%9', '@tmux-team.agent'],
         expect.any(Object)
       );
     });
@@ -550,6 +461,129 @@ describe('createTmux', () => {
         );
       }
     );
+
+    it('preserves opaque metadata through durable replacement and matching clear', () => {
+      const identity: DurableIdentity = {
+        id: 'identity-1',
+        name: 'Alice',
+        canonicalName: 'alice',
+        createdAt: 'created',
+        updatedAt: 'updated',
+      };
+      const binding: TmuxBinding = {
+        id: 'binding-1',
+        identityId: identity.id,
+        transport: 'tmux',
+        paneId: '%9',
+        serverId: 'server-1',
+        socketPath: '/tmp/tmux.sock',
+        serverPid: 321,
+        serverStartTime: 'started',
+        panePid: 654,
+        boundAt: 'bound',
+        lastVerifiedAt: 'verified',
+      };
+      const original = {
+        version: 1,
+        workspaces: { '/repo': { name: 'legacy' } },
+        teams: { egp: { name: 'codex' } },
+        future: { flag: true },
+        globalIdentity: { name: 'Old' },
+      };
+      mockedExecFileSync.mockReturnValueOnce(JSON.stringify(original));
+      const tmux = createTmux();
+      tmux.setDurableIdentity!('%9', identity, binding);
+      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
+        'tmux',
+        [
+          'set-option',
+          '-p',
+          '-t',
+          '%9',
+          '@tmux-team.agent',
+          JSON.stringify({
+            ...original,
+            globalIdentity: {
+              name: 'Alice',
+              canonicalName: 'alice',
+              identityId: 'identity-1',
+              bindingId: 'binding-1',
+              serverId: 'server-1',
+              panePid: 654,
+            },
+          }),
+        ],
+        expect.any(Object)
+      );
+
+      mockedExecFileSync.mockReset();
+      mockedExecFileSync.mockReturnValueOnce(
+        JSON.stringify({
+          ...original,
+          globalIdentity: {
+            name: 'Alice',
+            canonicalName: 'alice',
+            identityId: 'identity-1',
+            bindingId: 'binding-1',
+            serverId: 'server-1',
+            panePid: 654,
+          },
+        })
+      );
+      expect(tmux.clearDurableIdentity!('%9', 'binding-1')).toBe(true);
+      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
+        'tmux',
+        [
+          'set-option',
+          '-p',
+          '-t',
+          '%9',
+          '@tmux-team.agent',
+          JSON.stringify({
+            version: 1,
+            workspaces: original.workspaces,
+            teams: original.teams,
+            future: original.future,
+          }),
+        ],
+        expect.any(Object)
+      );
+    });
+
+    it('preserves an unknown-only sibling when clearing a matching durable binding', () => {
+      mockedExecFileSync.mockReturnValueOnce(
+        JSON.stringify({
+          version: 1,
+          future: { flag: true },
+          globalIdentity: { name: 'Alice', bindingId: 'binding-1' },
+        })
+      );
+      expect(createTmux().clearDurableIdentity!('%9', 'binding-1')).toBe(true);
+      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
+        'tmux',
+        [
+          'set-option',
+          '-p',
+          '-t',
+          '%9',
+          '@tmux-team.agent',
+          JSON.stringify({ version: 1, future: { flag: true } }),
+        ],
+        expect.any(Object)
+      );
+    });
+
+    it('clears the durable marker from an otherwise empty metadata envelope', () => {
+      mockedExecFileSync.mockReturnValueOnce(
+        JSON.stringify({ version: 1, globalIdentity: { name: 'Alice', bindingId: 'binding-1' } })
+      );
+      expect(createTmux().clearDurableIdentity!('%9', 'binding-1')).toBe(true);
+      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
+        'tmux',
+        ['set-option', '-p', '-u', '-t', '%9', '@tmux-team.agent'],
+        expect.any(Object)
+      );
+    });
 
     it('fails closed when durable metadata cannot be read', () => {
       mockedExecFileSync.mockImplementationOnce(() => {

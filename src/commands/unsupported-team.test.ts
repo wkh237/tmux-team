@@ -17,6 +17,15 @@ function context(json: boolean): Context {
     },
     config: {} as Context['config'],
     tmux: {} as Context['tmux'],
+    identityService: {
+      bindCurrent: vi.fn(),
+      bindPane: vi.fn(),
+      unbindCurrent: vi.fn(),
+      currentIdentity: vi.fn(),
+      activeIdentities: vi.fn(() => []),
+      resolveActive: vi.fn(),
+      reconcile: vi.fn(),
+    },
     paths: {} as Context['paths'],
     exit: ((code: number) => {
       const error = new Error(`exit(${code})`) as Error & { exitCode: number };
