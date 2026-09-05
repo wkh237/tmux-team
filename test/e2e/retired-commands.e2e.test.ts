@@ -71,9 +71,10 @@ function expectUnknownCommandHuman(result: { code: number; stdout: string; stder
 
 function expectUnknownCommandJson(result: { code: number; stdout: string; stderr: string }): void {
   expect(result.code).toBe(1);
-  expect(result.stdout).toBe('');
-  expect(() => JSON.parse(result.stderr)).not.toThrow();
-  expect(JSON.parse(result.stderr)).toEqual({ error: expect.stringMatching(/unknown command/i) });
+  expect(result.stderr).toBe('');
+  expect(JSON.parse(result.stdout)).toEqual({
+    error: { code: 'USAGE_ERROR', message: expect.stringMatching(/unknown command/i) },
+  });
 }
 
 function expectRetiredNamesAndFlagsAbsent(output: string, shell?: 'bash' | 'zsh'): void {

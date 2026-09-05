@@ -1105,7 +1105,67 @@ describe('cmdTalk - --wait mode', () => {
     expect(ui.jsonOutput).toHaveLength(1);
     const output = ui.jsonOutput[0] as Record<string, unknown>;
     expect(output.status).toBe('timeout');
-    expect(output.error).toContain('Timed out');
+    expect(output.error).toEqual({
+      code: 'TIMEOUT',
+      message: expect.stringContaining('Timed out'),
+    });
+  });
+
+  it('wakes a long poll on SIGINT, releases once, and cleans up wait resources', async () => {
+    vi.useFakeTimers();
+    const tmux = createMockTmux();
+    const ui = createMockUI();
+    const paths = createTestPaths(testDir);
+    const base = requestFixture(paths.databaseFile).service;
+    const releaseWait = vi.fn(base.releaseWait);
+    const requestService: RequestService = { ...base, releaseWait };
+    const listenerCount = process.listenerCount('SIGINT');
+    const ctx = createContext({
+      tmux,
+      ui,
+      paths,
+      requestService,
+      flags: { wait: true, timeout: 30 },
+      config: {
+        defaults: {
+          timeout: 30,
+          pollInterval: 60,
+          captureLines: 100,
+          maxCaptureLines: 2000,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
+        },
+      },
+    });
+
+    let pending: Promise<void> | undefined;
+    try {
+      pending = cmdTalk(ctx, 'claude', 'Hello');
+      await Promise.resolve();
+
+      expect(tmux.sends).toHaveLength(1);
+      expect(process.listenerCount('SIGINT')).toBe(listenerCount + 1);
+      process.emit('SIGINT');
+
+      await expect(pending).rejects.toMatchObject({ exitCode: ExitCodes.ERROR });
+      expect(releaseWait).toHaveBeenCalledOnce();
+      expect(requestService.listAttempts()).toHaveLength(1);
+      expect(requestService.listAttempts()[0]).toMatchObject({
+        status: 'sent',
+        waitActive: false,
+      });
+      expect(ui.errors).toEqual(['Interrupted.']);
+      expect(process.listenerCount('SIGINT')).toBe(listenerCount);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      // Keep a failed setup assertion from leaving the command suspended on its
+      // intentionally long fake poll timer or retaining the process listener.
+      if (pending && process.listenerCount('SIGINT') > listenerCount) {
+        process.emit('SIGINT');
+        await pending.catch(() => undefined);
+      }
+      vi.useRealTimers();
+    }
   });
 
   it('isolates response using end marker in scrollback', async () => {

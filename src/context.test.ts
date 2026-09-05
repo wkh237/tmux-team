@@ -141,6 +141,33 @@ describe('createContext', () => {
     expect(exitSpy).toHaveBeenCalledWith(2);
   });
 
+  it('uses injected output and exit ownership without terminating the process', async () => {
+    vi.resetModules();
+    const ui: UI = {
+      info: vi.fn(),
+      success: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+      table: vi.fn(),
+      json: vi.fn(),
+    };
+    const injectedExit = vi.fn((code: number): never => {
+      throw new Error(`injected exit(${code})`);
+    });
+    const { createContext } = await import('./context.js');
+    const ctx = createContext({
+      argv: [],
+      flags: { json: false, verbose: false },
+      capability: 'none',
+      ui,
+      exit: injectedExit,
+    });
+
+    expect(ctx.ui).toBe(ui);
+    expect(() => ctx.exit(7)).toThrow('injected exit(7)');
+    expect(injectedExit).toHaveBeenCalledWith(7);
+  });
+
   it('does not construct tmux for a no-resource capability', async () => {
     vi.resetModules();
     const createTmux = vi.fn(() => {

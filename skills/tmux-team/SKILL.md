@@ -25,6 +25,24 @@ can coexist with cropped content; increasing `check` lines cannot recover text
 that the agent never rendered. No durable structured response channel is
 implied by this transport safety behavior.
 
+## JSON results and failures
+
+With `--json`, parse the entire stdout as one JSON document. Errors contain
+`error.code` and `error.message`; stderr is reserved for optional diagnostics.
+Check the exit status too: missing targets use 3, timeout 4, and conflicts 5.
+Successful commands without a detailed result return `{ok:true}`.
+
+The v5 alpha timeout contract now uses
+`error: {code: "TIMEOUT", message: "..."}` instead of a string. It retains
+`status: "timeout"`, correlation fields and nullable `partialResponse`.
+Timeout and interruption do not cancel recipient work. A `CLEANUP_ERROR`
+after successful work does not mean its effects were undone; inspect before
+retrying. Existing delivery-uncertainty guidance still applies.
+
+`help`, `version`, `completion` and `learn` are text-only and reject
+`--json` with `JSON_UNSUPPORTED`; run them without that flag. `upgrade`
+also rejects JSON mode because it streams installer output.
+
 ## Identity preambles
 
 Preambles are separate from role profiles and belong to existing durable global

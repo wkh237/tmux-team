@@ -23,6 +23,11 @@ function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+type PollWait = {
+  readonly timer: ReturnType<typeof setTimeout>;
+  readonly wake: () => void;
+};
+
 function failSend(ctx: Context, pane: string, error: unknown): never {
   if (error instanceof TmuxDeliveryError) {
     const detail = {
@@ -541,11 +546,31 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
   let lastOutput = '';
   let lastOutputChangeAt = Date.now();
 
+  let interrupted = false;
+  let pollWait: PollWait | undefined;
   const onSigint = (): void => {
+    interrupted = true;
+    pollWait?.wake();
+  };
+
+  const waitForPoll = (delayMs: number): Promise<void> =>
+    new Promise((resolve) => {
+      let timer: ReturnType<typeof setTimeout>;
+      const finish = (): void => {
+        if (!pollWait || pollWait.timer !== timer) return;
+        pollWait = undefined;
+        clearTimeout(timer);
+        resolve();
+      };
+      timer = setTimeout(finish, delayMs);
+      pollWait = { timer, wake: finish };
+    });
+
+  const handleInterrupt = (): never => {
     releaseWait(true);
     if (!flags.json) process.stdout.write('\n');
     ui.error('Interrupted.');
-    exit(ExitCodes.ERROR);
+    return exit(ExitCodes.ERROR);
   };
 
   process.once('SIGINT', onSigint);
@@ -570,6 +595,8 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
     settle('sent', true);
 
     while (true) {
+      if (interrupted) handleInterrupt();
+
       const elapsedSeconds = (Date.now() - startedAt) / 1000;
       if (elapsedSeconds >= timeoutSeconds) {
         // Capture partial response on timeout
@@ -597,7 +624,10 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
             pane,
             ...(identity && { identity }),
             status: 'timeout',
-            error: `Timed out waiting for ${agentName} after ${Math.floor(timeoutSeconds)}s`,
+            error: {
+              code: 'TIMEOUT',
+              message: `Timed out waiting for ${agentName} after ${Math.floor(timeoutSeconds)}s`,
+            },
             requestId,
             nonce: waitNonce,
             endMarker: waitEndMarker,
@@ -630,7 +660,8 @@ export async function cmdTalk(ctx: Context, target: string, message: string): Pr
         }
       }
 
-      await sleepMs(pollIntervalSeconds * 1000);
+      await waitForPoll(pollIntervalSeconds * 1000);
+      if (interrupted) handleInterrupt();
 
       let output = '';
       try {
