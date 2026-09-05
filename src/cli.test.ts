@@ -194,7 +194,7 @@ describe('cli', () => {
 
   it('prints JSON error when --json and a command throws', async () => {
     vi.resetModules();
-    process.argv = ['node', 'cli', 'remove', 'some-agent', '--json']; // will throw in our mocked cmdRemove
+    process.argv = ['node', 'cli', 'role', 'show', '--json']; // will throw in our mocked cmdRole
 
     const ctx = makeStubContext();
     ctx.flags.json = true;
@@ -202,8 +202,8 @@ describe('cli', () => {
       createContext: () => ctx,
       ExitCodes: { SUCCESS: 0, ERROR: 1 },
     }));
-    vi.doMock('./commands/remove.js', () => ({
-      cmdRemove: () => {
+    vi.doMock('./commands/role.js', () => ({
+      cmdRole: () => {
         throw new Error('boom');
       },
     }));
@@ -424,24 +424,6 @@ describe('cli', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(ctx.ui.error).toHaveBeenCalledWith(`Usage: tmux-team ${command}`);
     expect(exitSpy).toHaveBeenCalledWith(1);
-  });
-
-  it('routes update command with --pane and --remark flags', async () => {
-    vi.resetModules();
-    process.argv = ['node', 'cli', 'update', 'codex', '--pane', '2.0', '--remark', 'updated'];
-
-    const ctx = makeStubContext();
-    const updateSpy = vi.fn();
-    vi.doMock('./context.js', () => ({
-      createContext: () => ctx,
-      ExitCodes: { SUCCESS: 0, ERROR: 1 },
-    }));
-    vi.doMock('./commands/update.js', () => ({ cmdUpdate: updateSpy }));
-
-    await import('./cli.js');
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(updateSpy).toHaveBeenCalledWith(ctx, 'codex', { pane: '2.0', remark: 'updated' });
   });
 
   it('routes init command', async () => {
@@ -667,44 +649,6 @@ describe('cli', () => {
     expect(checkSpy).toHaveBeenCalledWith(ctx, 'claude', 50);
   });
 
-  it('routes update command with --pane= syntax', async () => {
-    vi.resetModules();
-    process.argv = ['node', 'cli', 'update', 'claude', '--pane=2.0'];
-
-    const ctx = makeStubContext();
-    const updateSpy = vi.fn();
-    vi.doMock('./context.js', () => ({
-      createContext: () => ctx,
-      ExitCodes: { SUCCESS: 0, ERROR: 1 },
-    }));
-    vi.doMock('./commands/update.js', () => ({ cmdUpdate: updateSpy }));
-    vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
-
-    await import('./cli.js');
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(updateSpy).toHaveBeenCalledWith(ctx, 'claude', { pane: '2.0' });
-  });
-
-  it('routes update command with --remark= syntax', async () => {
-    vi.resetModules();
-    process.argv = ['node', 'cli', 'update', 'claude', '--remark=new remark'];
-
-    const ctx = makeStubContext();
-    const updateSpy = vi.fn();
-    vi.doMock('./context.js', () => ({
-      createContext: () => ctx,
-      ExitCodes: { SUCCESS: 0, ERROR: 1 },
-    }));
-    vi.doMock('./commands/update.js', () => ({ cmdUpdate: updateSpy }));
-    vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
-
-    await import('./cli.js');
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(updateSpy).toHaveBeenCalledWith(ctx, 'claude', { remark: 'new remark' });
-  });
-
   it('errors on talk with missing arguments', async () => {
     vi.resetModules();
     process.argv = ['node', 'cli', 'talk', 'claude']; // missing message
@@ -726,42 +670,6 @@ describe('cli', () => {
   it('errors on add with missing arguments', async () => {
     vi.resetModules();
     process.argv = ['node', 'cli', 'add', 'claude']; // missing pane
-
-    const ctx = makeStubContext();
-    vi.doMock('./context.js', () => ({
-      createContext: () => ctx,
-      ExitCodes: { SUCCESS: 0, ERROR: 1 },
-    }));
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
-
-    await import('./cli.js');
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(ctx.ui.error).toHaveBeenCalled();
-    expect(exitSpy).toHaveBeenCalledWith(1);
-  });
-
-  it('errors on update with missing arguments', async () => {
-    vi.resetModules();
-    process.argv = ['node', 'cli', 'update']; // missing name
-
-    const ctx = makeStubContext();
-    vi.doMock('./context.js', () => ({
-      createContext: () => ctx,
-      ExitCodes: { SUCCESS: 0, ERROR: 1 },
-    }));
-    const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => {}) as any);
-
-    await import('./cli.js');
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(ctx.ui.error).toHaveBeenCalled();
-    expect(exitSpy).toHaveBeenCalledWith(1);
-  });
-
-  it('errors on remove with missing arguments', async () => {
-    vi.resetModules();
-    process.argv = ['node', 'cli', 'remove']; // missing name
 
     const ctx = makeStubContext();
     vi.doMock('./context.js', () => ({

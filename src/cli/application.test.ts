@@ -5,8 +5,6 @@ const handlers = {
   cmdInit: vi.fn(),
   cmdList: vi.fn(),
   cmdAdd: vi.fn(),
-  cmdUpdate: vi.fn(),
-  cmdRemove: vi.fn(),
   cmdTalk: vi.fn(),
   cmdCheck: vi.fn(),
   cmdConfig: vi.fn(),
@@ -14,7 +12,6 @@ const handlers = {
   cmdInstall: vi.fn(),
   cmdLearn: vi.fn(),
   cmdThis: vi.fn(),
-  cmdMigrate: vi.fn(),
   cmdName: vi.fn(),
   cmdUpgrade: vi.fn(),
   cmdWhoami: vi.fn(),
@@ -25,8 +22,6 @@ const handlers = {
 vi.mock('../commands/init.js', () => ({ cmdInit: handlers.cmdInit }));
 vi.mock('../commands/list.js', () => ({ cmdList: handlers.cmdList }));
 vi.mock('../commands/add.js', () => ({ cmdAdd: handlers.cmdAdd }));
-vi.mock('../commands/update.js', () => ({ cmdUpdate: handlers.cmdUpdate }));
-vi.mock('../commands/remove.js', () => ({ cmdRemove: handlers.cmdRemove }));
 vi.mock('../commands/talk.js', () => ({ cmdTalk: handlers.cmdTalk }));
 vi.mock('../commands/check.js', () => ({ cmdCheck: handlers.cmdCheck }));
 vi.mock('../commands/config.js', () => ({ cmdConfig: handlers.cmdConfig }));
@@ -34,7 +29,6 @@ vi.mock('../commands/preamble.js', () => ({ cmdPreamble: handlers.cmdPreamble })
 vi.mock('../commands/install.js', () => ({ cmdInstall: handlers.cmdInstall }));
 vi.mock('../commands/learn.js', () => ({ cmdLearn: handlers.cmdLearn }));
 vi.mock('../commands/this.js', () => ({ cmdThis: handlers.cmdThis }));
-vi.mock('../commands/migrate.js', () => ({ cmdMigrate: handlers.cmdMigrate }));
 vi.mock('../commands/name.js', () => ({ cmdName: handlers.cmdName }));
 vi.mock('../commands/upgrade.js', () => ({ cmdUpgrade: handlers.cmdUpgrade }));
 vi.mock('../commands/whoami.js', () => ({ cmdWhoami: handlers.cmdWhoami }));
@@ -60,9 +54,6 @@ describe('application dispatcher', () => {
       ['init', {}],
       ['list', { target }],
       ['add', { pane: '1.0', name: 'claude' }],
-      ['update', { name: 'claude', options: { remark: 'new' } }],
-      ['remove', { name: 'claude' }],
-      ['migrate', { dryRun: true, cleanup: false }],
       ['this', { name: 'claude' }],
       ['name', { name: 'claude' }],
       ['whoami', {}],

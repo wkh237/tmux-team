@@ -2,8 +2,6 @@ import type { Context } from '../types.js';
 import { cmdInit } from '../commands/init.js';
 import { cmdList } from '../commands/list.js';
 import { cmdAdd } from '../commands/add.js';
-import { cmdUpdate } from '../commands/update.js';
-import { cmdRemove } from '../commands/remove.js';
 import { cmdTalk } from '../commands/talk.js';
 import { cmdCheck } from '../commands/check.js';
 import { cmdConfig } from '../commands/config.js';
@@ -11,7 +9,6 @@ import { cmdPreamble } from '../commands/preamble.js';
 import { cmdInstall } from '../commands/install.js';
 import { cmdLearn } from '../commands/learn.js';
 import { cmdThis } from '../commands/this.js';
-import { cmdMigrate } from '../commands/migrate.js';
 import { cmdName } from '../commands/name.js';
 import { cmdUpgrade } from '../commands/upgrade.js';
 import { cmdWhoami } from '../commands/whoami.js';
@@ -36,12 +33,6 @@ export async function dispatchCommand(ctx: Context, parsed: ParsedArgs): Promise
       return request.target ? cmdList(ctx, request.target.value) : cmdList(ctx);
     case 'add':
       return cmdAdd(ctx, request.pane, request.name);
-    case 'update':
-      return cmdUpdate(ctx, request.name, request.options);
-    case 'remove':
-      return cmdRemove(ctx, request.name);
-    case 'migrate':
-      return cmdMigrate(ctx, request);
     case 'this':
       return cmdThis(ctx, request.name);
     case 'name':

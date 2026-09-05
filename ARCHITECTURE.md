@@ -45,8 +45,12 @@ Remove obsolete compatibility paths through bounded, tested changes rather
 than adding fallbacks. Do not delete existing user files as part of code
 removal. Preserve supported product behavior, including the `this` alias,
 coding-agent `!` shell-mode protection, and durable identities/profiles.
-Workspace registry consumers and optional service fallbacks still exist pending
-TMT-27/TMT-28; their presence is tracked debt, not a compatibility commitment.
+The legacy `update`, `remove`/`rm`, and `migrate` commands and their handlers
+are removed. The shared parser rejects them before lazy resources are accessed;
+they do not delete or migrate user data. Preamble-related workspace registry
+consumers and optional service fallbacks still exist pending TMT-27/TMT-28;
+their presence is tracked debt, not a compatibility commitment. `init` and
+local `$config` settings remain supported in this staged removal.
 
 ## Current module map
 
@@ -127,7 +131,7 @@ a gap is resolved; do not leave a permanent exception or label a proposal as shi
 | Some current-pane commands can fall back to an ambient pane outside a caller session; role selection guards this separately.                             | [TMT-21](https://linear.app/tigerpig-dev/issue/TMT-21)                                                                                                                 |
 | Numeric/flag validation needs hardening.                                                                                                                 | [TMT-22](https://linear.app/tigerpig-dev/issue/TMT-22)                                                                                                                 |
 | Message adaptation/fallback and JSON wait/counter updates have safety/concurrency gaps.                                                                  | [TMT-24](https://linear.app/tigerpig-dev/issue/TMT-24), [TMT-25](https://linear.app/tigerpig-dev/issue/TMT-25)                                                         |
-| JSON/process error boundaries are inconsistent; update/remove still act on legacy registries.                                                            | [TMT-26](https://linear.app/tigerpig-dev/issue/TMT-26), [TMT-27](https://linear.app/tigerpig-dev/issue/TMT-27)                                                         |
+| JSON/process error boundaries are inconsistent; preamble/config still consume workspace registries after command retirement.                             | [TMT-26](https://linear.app/tigerpig-dev/issue/TMT-26), [TMT-27](https://linear.app/tigerpig-dev/issue/TMT-27)                                                         |
 | Optional identity-service fallbacks, broad contracts and concrete repository coupling remain. The parser also imports a command-owned role request type. | [TMT-28](https://linear.app/tigerpig-dev/issue/TMT-28)                                                                                                                 |
 | Shipped skill/help inventories drift; packed verification does not yet prove application migrations.                                                     | [TMT-29](https://linear.app/tigerpig-dev/issue/TMT-29)                                                                                                                 |
 | Non-tmux identity management, memory and durable inbox are future capabilities, not installed APIs.                                                      | [TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30), [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16) |

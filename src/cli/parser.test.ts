@@ -44,7 +44,7 @@ describe('declarative CLI parser', () => {
     });
   });
 
-  it('supports nested command schemas and typed update options', () => {
+  it('supports nested command schemas', () => {
     const config = parseArgs(['config', 'set', 'mode', 'wait', '--global']);
     expect(config.invocation).toMatchObject({
       kind: 'config',
@@ -52,13 +52,6 @@ describe('declarative CLI parser', () => {
       key: 'mode',
       value: 'wait',
       global: true,
-    });
-
-    const update = parseArgs(['update', 'claude', '--pane=2.0', '--remark', 'new']);
-    expect(update.invocation).toMatchObject({
-      kind: 'update',
-      name: 'claude',
-      options: { pane: '2.0', remark: 'new' },
     });
   });
 
@@ -81,12 +74,7 @@ describe('declarative CLI parser', () => {
     expect(() => parseArgs(['config', 'show', 'extra'])).toThrow(CliParseError);
   });
 
-  it('parses every nested mutation and preserves literal terminator values', () => {
-    expect(parseArgs(['migrate', '--dry-run', '--cleanup']).invocation).toEqual({
-      kind: 'migrate',
-      dryRun: true,
-      cleanup: true,
-    });
+  it('parses nested mutations and preserves literal terminator values', () => {
     expect(parseArgs(['preamble', 'show', 'gemini']).invocation).toEqual({
       kind: 'preamble',
       operation: 'show',
@@ -122,7 +110,41 @@ describe('declarative CLI parser', () => {
     expect(parseArgs(['config']).metadata).toMatchObject({ capability: 'storage' });
     expect(parseArgs(['send', 'claude', 'hello']).metadata.commandPath).toEqual(['send']);
     expect(parseArgs(['ls']).invocation).toEqual({ kind: 'list' });
-    expect(parseArgs(['rm', 'claude']).invocation).toEqual({ kind: 'remove', name: 'claude' });
+  });
+
+  it.each([
+    {
+      args: ['update', 'claude', '--pane', '2.0', '--remark', 'new'],
+      command: 'update',
+      json: false,
+    },
+    { args: ['--json', 'remove', 'claude'], command: 'remove', json: true },
+    { args: ['rm', 'claude'], command: 'rm', json: false },
+    { args: ['migrate', '--dry-run', '--cleanup'], command: 'migrate', json: false },
+  ])('rejects retired command $command before dispatch', ({ args, command, json }) => {
+    try {
+      parseArgs(args);
+      throw new Error('expected parse failure');
+    } catch (error) {
+      expect(error).toMatchObject({
+        name: 'CliParseError',
+        flags: { json },
+      });
+      expect((error as Error).message).toBe(
+        `Unknown command: ${command}. Run 'tmux-team help' for usage.`
+      );
+    }
+  });
+
+  it('preserves retired command words as talk data', () => {
+    expect(parseArgs(['talk', 'claude', 'update remove migrate']).invocation).toMatchObject({
+      kind: 'talk',
+      message: 'update remove migrate',
+    });
+    expect(parseArgs(['talk', 'claude', '--', 'update remove migrate']).invocation).toMatchObject({
+      kind: 'talk',
+      message: 'update remove migrate',
+    });
   });
 
   it('returns structured parse failures for invalid values and unknown options', () => {

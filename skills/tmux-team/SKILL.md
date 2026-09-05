@@ -49,6 +49,10 @@ identities. Use `name`, `this`, or `add` explicitly to bind such a pane. Invalid
 metadata is not active presence; do not delete durable data or old files to
 repair it. Direct pane targeting remains separate from identity discovery.
 
+V5 does not support `update`, `remove`/`rm`, or `migrate`. Use explicit binding
+commands above; `unbind` only detaches the current pane and retains its durable
+identity/profile. Do not delete old user files as a migration workaround.
+
 `talk` sends text to another pane and can cause external input there. Only use
 it when the user has requested that communication or the surrounding task
 clearly authorizes it; do not infer permission for unrelated changes. Use

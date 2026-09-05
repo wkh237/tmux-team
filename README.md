@@ -114,7 +114,6 @@ tmux display-message -p '#{pane_id}'
 | `talk <target> "msg"`                        | Send a message to a global name or pane target              |
 | `check <target> [lines]`                     | Read output from a global name or pane target               |
 | `list [target]`                              | List active identities, or one target's pane status         |
-| `migrate [--dry-run] [--cleanup]`            | Move legacy `tmux-team.json` entries into tmux metadata     |
 | `learn`                                      | Show the educational guide                                  |
 
 `list` also has the `ls` alias. With no target it shows all active global
@@ -282,21 +281,21 @@ Control how often it is injected with `preambleEvery`:
 tmt config set preambleEvery 3
 ```
 
-## Legacy migration
+## Retired registry commands
 
-Versions before v4 stored registrations in a project-local
-`tmux-team.json`. `tmt migrate` can copy those legacy entries into tmux pane
-metadata:
+V5 no longer supports `update`, `remove` (or `rm`), or `migrate`, including
+its former `--cleanup` option. These commands return an unknown-command error
+without changing files, pane metadata, or durable identities. Old user files
+are not automatically migrated or deleted.
 
-```bash
-tmt migrate --dry-run     # preview what would move
-tmt migrate               # move entries into tmux metadata
-tmt migrate --cleanup     # also remove migrated entries from the JSON file
-```
+Use `name`/`this` or `add` to bind a durable identity, and `unbind` to detach
+the current pane without deleting its identity or role profile. No replacement
+durable-identity deletion or rename command is introduced.
 
-The JSON file is retained only as a compatibility path for older projects and
-settings. New identity bindings use tmux pane metadata and are global across
-folders.
+Local `$config` settings and the existing preamble feature still use
+`tmux-team.json`/workspace metadata where applicable. Their remaining registry
+dependencies are tracked separately; command retirement does not migrate
+preambles into role profiles.
 
 ## Using /team in Claude Code
 

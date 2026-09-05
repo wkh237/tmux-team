@@ -12,10 +12,6 @@ export function getRegistryScope(ctx: Context): RegistryScope {
   };
 }
 
-export function scopeLabel(scope: RegistryScope): string {
-  return `workspace ${scope.workspaceRoot}`;
-}
-
 export function registrationFromEntry(name: string, entry?: PaneEntry): AgentRegistration {
   return {
     name,

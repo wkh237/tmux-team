@@ -53,9 +53,6 @@ ${colors.yellow('COMMANDS')}
   ${colors.green('name')} <global-name>       Bind the current pane identity
   ${colors.green('whoami')}                   Show the current pane identity
   ${colors.green('unbind')}                   Remove the current pane identity
-  ${colors.green('update')} <name> [options]     Update an agent's config
-  ${colors.green('remove')} <name>               Remove an agent
-  ${colors.green('migrate')} [--dry-run]          Copy legacy JSON registry to tmux metadata
   ${colors.green('install')} [claude|codex|gemini|all] Install/refresh agent skills
   ${colors.green('upgrade')}                     Upgrade tmux-team (links update automatically)
   ${colors.green('init')}                        Create empty tmux-team.json
