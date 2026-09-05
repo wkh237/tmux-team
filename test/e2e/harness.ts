@@ -21,6 +21,8 @@ export interface MockEvent {
   nonce?: string;
   mode?: string;
   pid?: number;
+  response?: string;
+  responseLength?: number;
 }
 
 export interface MockPane {
@@ -106,7 +108,7 @@ export class E2EFixture {
 
   async start(
     options: {
-      mode?: 'respond' | 'silent' | 'malformed';
+      mode?: 'respond' | 'silent' | 'malformed' | 'virtualized';
       delayMs?: number;
       metadataBarrier?: MetadataBarrierOptions;
     } = {}
@@ -661,7 +663,7 @@ exit ${'$'}status
 export async function withE2EFixture<T>(
   callback: (fixture: E2EFixture) => Promise<T> | T,
   options: {
-    mode?: 'respond' | 'silent' | 'malformed';
+    mode?: 'respond' | 'silent' | 'malformed' | 'virtualized';
     delayMs?: number;
     globalDir?: string;
     metadataBarrier?: MetadataBarrierOptions;
