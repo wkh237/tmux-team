@@ -1,4 +1,3 @@
-import type { ActiveRegistration } from './domain/types.js';
 import type { DurableIdentity, RoleProfile, TmuxBinding } from './domain/identity.js';
 import type { PreambleService } from './preamble-service.js';
 
@@ -101,9 +100,6 @@ export interface Tmux {
   getCurrentPaneId: () => string | null;
   resolvePaneTarget: (target: string) => string | null;
   setPaneTitle: (paneId: string, title: string) => void;
-  listGlobalIdentities: () => ActiveRegistration[];
-  setGlobalIdentity: (paneId: string, name: string) => void;
-  clearGlobalIdentity: (paneId: string) => boolean;
   getEndpointSnapshot?: (options?: TmuxOperationOptions) => TmuxEndpointSnapshot;
   setDurableIdentity?: (
     paneId: string,
@@ -156,7 +152,6 @@ export interface IdentityService {
     target: string
   ): { identity: DurableIdentity; binding: TmuxBinding; pane: PaneInfo } | undefined;
   reconcile(): void;
-  close(): void;
 }
 
 export interface RoleService {
@@ -188,7 +183,7 @@ export interface Context {
   tmux: Tmux;
   paths: Paths;
   exit: (code: number) => never;
-  identityService?: IdentityService;
+  identityService: IdentityService;
   preambleService?: PreambleService;
   roleService?: RoleService;
   dispose?: () => void;

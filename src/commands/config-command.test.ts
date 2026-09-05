@@ -57,9 +57,6 @@ function createCtx(
     getCurrentPaneId: vi.fn(() => null),
     resolvePaneTarget: vi.fn((target: string) => target),
     setPaneTitle: vi.fn(),
-    listGlobalIdentities: vi.fn(() => []),
-    setGlobalIdentity: vi.fn(),
-    clearGlobalIdentity: vi.fn(() => false),
   };
   return {
     argv: [],
@@ -67,6 +64,15 @@ function createCtx(
     ui: createMockUI(),
     config,
     tmux,
+    identityService: {
+      bindCurrent: vi.fn(),
+      bindPane: vi.fn(),
+      unbindCurrent: vi.fn(),
+      currentIdentity: vi.fn(),
+      activeIdentities: vi.fn(() => []),
+      resolveActive: vi.fn(),
+      reconcile: vi.fn(),
+    },
     paths,
     exit: ((code: number) => {
       const err = new Error(`exit(${code})`);

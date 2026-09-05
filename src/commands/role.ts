@@ -2,21 +2,9 @@ import type { Context, RoleResult } from '../types.js';
 import { ExitCodes } from '../exits.js';
 import { readRoleFile, RoleFileError } from '../role-content.js';
 import { RoleContentError } from '../domain/role.js';
-import { IdentitySelectionError, type IdentitySelector } from '../identity-context.js';
+import { IdentitySelectionError } from '../identity-context.js';
 import { IdentityServiceError } from '../identity-service.js';
-
-type RoleTarget = {
-  readonly kind: 'role';
-  readonly selector?: IdentitySelector;
-};
-
-export type RoleRequest = RoleTarget &
-  (
-    | { readonly operation: 'show' }
-    | { readonly operation: 'clear' }
-    | { readonly operation: 'set'; readonly content: string; readonly file?: never }
-    | { readonly operation: 'set'; readonly file: string; readonly content?: never }
-  );
+import type { RoleRequest } from '../cli/requests.js';
 
 function printResult(ctx: Context, result: RoleResult, operation: RoleRequest['operation']): void {
   const value = result;

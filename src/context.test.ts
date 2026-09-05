@@ -46,9 +46,6 @@ describe('createContext', () => {
       getCurrentPaneId: vi.fn(() => null),
       resolvePaneTarget: vi.fn((target: string) => target),
       setPaneTitle: vi.fn(),
-      listGlobalIdentities: vi.fn(() => []),
-      setGlobalIdentity: vi.fn(),
-      clearGlobalIdentity: vi.fn(() => false),
     };
 
     const loadConfig = vi.fn(() => config);
@@ -100,9 +97,6 @@ describe('createContext', () => {
       getCurrentPaneId: vi.fn(() => null),
       resolvePaneTarget: vi.fn((target: string) => target),
       setPaneTitle: vi.fn(),
-      listGlobalIdentities: vi.fn(() => []),
-      setGlobalIdentity: vi.fn(),
-      clearGlobalIdentity: vi.fn(() => false),
     };
 
     const loadConfig = vi.fn(() => config);
@@ -186,16 +180,16 @@ describe('createContext', () => {
     expect(repository.close).toHaveBeenCalledOnce();
   });
 
-  it('disposes an opened identity service without eagerly opening it', async () => {
+  it('disposes the shared repository without eagerly opening it', async () => {
     vi.resetModules();
-    const close = vi.fn();
+    const repository = { close: vi.fn() };
     const createTmux = vi.fn(() => ({}));
     vi.doMock('./tmux.js', () => ({ createTmux }));
     vi.doMock('./identity-service.js', () => ({
-      createIdentityService: vi.fn(() => ({ close })),
+      createIdentityService: vi.fn(() => ({})),
     }));
     vi.doMock('./storage/identity-repository.js', () => ({
-      openIdentityRepository: vi.fn(() => ({ close: vi.fn() })),
+      openIdentityRepository: vi.fn(() => repository),
     }));
     const { createContext } = await import('./context.js');
     const ctx = createContext({
@@ -207,19 +201,19 @@ describe('createContext', () => {
     const service = ctx.identityService;
     expect(createTmux).toHaveBeenCalledOnce();
     ctx.dispose?.();
-    expect(close).toHaveBeenCalledOnce();
+    expect(repository.close).toHaveBeenCalledOnce();
     expect(service).toBeDefined();
   });
 
-  it('disposes an opened identity service before an explicit process exit', async () => {
+  it('disposes the shared repository before an explicit process exit', async () => {
     vi.resetModules();
-    const close = vi.fn();
+    const repository = { close: vi.fn() };
     vi.doMock('./tmux.js', () => ({ createTmux: () => ({}) }));
     vi.doMock('./identity-service.js', () => ({
-      createIdentityService: vi.fn(() => ({ close })),
+      createIdentityService: vi.fn(() => ({})),
     }));
     vi.doMock('./storage/identity-repository.js', () => ({
-      openIdentityRepository: vi.fn(() => ({ close: vi.fn() })),
+      openIdentityRepository: vi.fn(() => repository),
     }));
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       throw new Error(`exit(${code})`);
@@ -233,7 +227,7 @@ describe('createContext', () => {
 
     expect(ctx.identityService).toBeDefined();
     expect(() => ctx.exit(5)).toThrow('exit(5)');
-    expect(close).toHaveBeenCalledOnce();
+    expect(repository.close).toHaveBeenCalledOnce();
     expect(exitSpy).toHaveBeenCalledWith(5);
   });
 
@@ -301,18 +295,22 @@ describe('createContext', () => {
     ctx.dispose!();
   });
 
-  it('shares one repository between services and closes it even if service cleanup fails', async () => {
+  it('shares one repository between services and closes it exactly once', async () => {
     vi.resetModules();
+    const createPreambleService = vi.fn(() => ({ list: vi.fn(() => []) }));
+    vi.doMock('./preamble-service.js', () => ({ createPreambleService }));
     vi.stubEnv('TMUX_PANE', '%1');
-    const repository = { findRole: vi.fn(() => undefined), close: vi.fn() };
+    const repository = {
+      findRole: vi.fn(() => undefined),
+      close: vi.fn(() => {
+        throw new Error('repository cleanup failed');
+      }),
+    };
     const openIdentityRepository = vi.fn(() => repository);
     vi.doMock('./storage/identity-repository.js', () => ({ openIdentityRepository }));
     const identity = { id: 'id', name: 'Alice', canonicalName: 'alice' };
     const service = {
       currentIdentity: vi.fn(() => ({ identity })),
-      close: vi.fn(() => {
-        throw new Error('service cleanup failed');
-      }),
     };
     const createIdentityService = vi.fn(() => service);
     vi.doMock('./identity-service.js', () => ({ createIdentityService }));
@@ -326,11 +324,70 @@ describe('createContext', () => {
       capability: 'storage',
     });
     expect(ctx.roleService!.show()).toEqual({ identity, role: null });
+    expect(ctx.preambleService).toBeDefined();
+    expect(createPreambleService).toHaveBeenCalledWith({ repository });
     expect(ctx.identityService).toBe(service);
     expect(createIdentityService).toHaveBeenCalledWith(expect.objectContaining({ repository }));
     expect(openIdentityRepository).toHaveBeenCalledOnce();
-    expect(() => ctx.dispose!()).toThrow('service cleanup failed');
+    expect(() => ctx.dispose!()).toThrow('repository cleanup failed');
     expect(repository.close).toHaveBeenCalledOnce();
     expect(() => ctx.dispose!()).not.toThrow();
+    expect(repository.close).toHaveBeenCalledOnce();
+  });
+
+  it('does not reopen resources after disposal', async () => {
+    vi.resetModules();
+    const identity = { id: 'id', name: 'Alice', canonicalName: 'alice' };
+    const repository = {
+      findByCanonicalName: vi.fn(() => identity),
+      findRole: vi.fn(() => undefined),
+      close: vi.fn(),
+    };
+    const openIdentityRepository = vi.fn(() => repository);
+    vi.doMock('./storage/identity-repository.js', () => ({ openIdentityRepository }));
+    vi.doMock('./tmux.js', () => ({
+      createTmux: vi.fn(() => ({ getCurrentPaneId: vi.fn(() => null) })),
+    }));
+    const { createContext } = await import('./context.js');
+    const ctx = createContext({
+      argv: [],
+      flags: { json: false, verbose: false },
+      capability: 'storage',
+    });
+    const role = ctx.roleService!;
+    expect(role.show({ value: 'Alice', kind: 'identity', explicit: true })).toEqual({
+      identity,
+      role: null,
+    });
+    expect(openIdentityRepository).toHaveBeenCalledOnce();
+    ctx.dispose!();
+    expect(() => role.show({ value: 'Alice', kind: 'identity', explicit: true })).toThrow(
+      'Context is disposed.'
+    );
+    expect(() => ctx.identityService).toThrow('Context is disposed.');
+    expect(openIdentityRepository).toHaveBeenCalledOnce();
+    expect(repository.close).toHaveBeenCalledOnce();
+  });
+
+  it('closes storage if identity service construction fails', async () => {
+    vi.resetModules();
+    const repository = { close: vi.fn() };
+    const openIdentityRepository = vi.fn(() => repository);
+    vi.doMock('./storage/identity-repository.js', () => ({ openIdentityRepository }));
+    vi.doMock('./identity-service.js', () => ({
+      createIdentityService: vi.fn(() => {
+        throw new Error('service construction failed');
+      }),
+    }));
+    vi.doMock('./tmux.js', () => ({ createTmux: vi.fn(() => ({})) }));
+    const { createContext } = await import('./context.js');
+    const ctx = createContext({
+      argv: [],
+      flags: { json: false, verbose: false },
+      capability: 'none',
+    });
+    expect(() => ctx.identityService).toThrow('service construction failed');
+    ctx.dispose!();
+    expect(repository.close).toHaveBeenCalledOnce();
   });
 });

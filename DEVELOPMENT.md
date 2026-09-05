@@ -86,8 +86,12 @@ authorizes its matching tests, not unrelated expansion of the E2E foundation.
 | Cross-layer or release-facing changes   | `pnpm check` plus the applicable behavioral and packed-install checks               |
 
 CI must be checked on the current commit before an authorized merge. The
-repository does not automate semantic architecture validation; reviewer
-ownership and the architecture-impact record are the enforcement mechanism.
+focused `src/architecture.test.ts` checks direct literal imports/re-exports for
+command/service storage independence, parser/command separation, and pure domain
+dependencies using the existing TypeScript AST. It runs with the unit suite and
+tests forbidden examples as well as repository files. It does not prove semantic
+architecture correctness; primary review and the architecture-impact record
+remain required.
 
 `docs:format:check` covers the architecture, policy, conventions, development
 guide, repository skills and PR template. It uses `.gitignore` as its ignore

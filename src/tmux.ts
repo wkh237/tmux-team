@@ -13,7 +13,6 @@ import type {
   TmuxEndpointSnapshot,
   TmuxOperationOptions,
 } from './types.js';
-import { normalizeName } from './domain/service.js';
 import { sendTmuxMessage } from './tmux-message.js';
 
 const AGENT_METADATA_OPTION = '@tmux-team.agent';
@@ -402,37 +401,6 @@ export function createTmux(): Tmux {
       return callerPaneId();
     },
 
-    listGlobalIdentities() {
-      return this.listPanes().flatMap((pane) => {
-        const identity = pane.metadata?.globalIdentity;
-        if (!identity || typeof identity.name !== 'string') return [];
-        return [
-          {
-            name: identity.name,
-            canonicalName:
-              typeof identity.canonicalName === 'string' && identity.canonicalName
-                ? identity.canonicalName
-                : normalizeName(identity.name),
-            paneId: pane.id,
-          },
-        ];
-      });
-    },
-
-    setGlobalIdentity(paneId: string, name: string): void {
-      const metadata = readPaneMetadata(paneId);
-      metadata.globalIdentity = { name, canonicalName: normalizeName(name) };
-      writePaneMetadata(paneId, metadata);
-    },
-
-    clearGlobalIdentity(paneId: string): boolean {
-      const metadata = readPaneMetadata(paneId);
-      if (!metadata.globalIdentity) return false;
-      delete metadata.globalIdentity;
-      writePaneMetadata(paneId, metadata);
-      return true;
-    },
-
     getEndpointSnapshot(options) {
       return readEndpointSnapshot(options);
     },
@@ -540,10 +508,6 @@ function readPaneMetadataStrict(
     }
   );
   return safeParseMetadata(output) ?? emptyMetadata();
-}
-
-function readPaneMetadata(paneId: string): PaneAgentMetadata {
-  return tryReadPaneMetadata(paneId) ?? emptyMetadata();
 }
 
 function hasMetadata(metadata: PaneAgentMetadata): boolean {

@@ -46,17 +46,6 @@ function createMockTmux(): Tmux & {
       return target;
     },
     setPaneTitle() {},
-    listGlobalIdentities() {
-      return [
-        { name: 'claude', canonicalName: 'claude', paneId: '1.0' },
-        { name: 'codex', canonicalName: 'codex', paneId: '1.1' },
-        { name: 'gemini', canonicalName: 'gemini', paneId: '1.2' },
-      ];
-    },
-    setGlobalIdentity() {},
-    clearGlobalIdentity() {
-      return false;
-    },
   };
   return mock;
 }
@@ -74,6 +63,32 @@ function createMockUI(): UI & { errors: string[]; warnings: string[]; jsonOutput
     json: (data: unknown) => mock.jsonOutput.push(data),
   };
   return mock;
+}
+
+function activeIdentity(name: string, paneId: string) {
+  return {
+    identity: {
+      id: `identity-${name}`,
+      name,
+      canonicalName: name,
+      createdAt: 'now',
+      updatedAt: 'now',
+    },
+    binding: {
+      id: `binding-${name}`,
+      identityId: `identity-${name}`,
+      transport: 'tmux' as const,
+      paneId,
+      serverId: 's',
+      socketPath: '/s',
+      serverPid: 1,
+      serverStartTime: 'now',
+      panePid: 1,
+      boundAt: 'now',
+      lastVerifiedAt: 'now',
+    },
+    pane: { id: paneId, command: name, suggestedName: name },
+  };
 }
 
 function createTestPaths(testDir: string): Paths {
@@ -185,12 +200,24 @@ function createContext(
   };
   const flags: Flags = { json: false, verbose: false, ...overrides.flags };
   const tmux = overrides.tmux || createMockTmux();
+  const identityService = {
+    bindCurrent: vi.fn(),
+    bindPane: vi.fn(),
+    unbindCurrent: vi.fn(),
+    currentIdentity: vi.fn(),
+    activeIdentities: vi.fn(() =>
+      ['claude', 'codex', 'gemini'].map((name, index) => activeIdentity(name, `1.${index}`))
+    ),
+    resolveActive: vi.fn(),
+    reconcile: vi.fn(),
+  };
   return {
     argv: [],
     flags,
     ui: overrides.ui || createMockUI(),
     config,
     tmux,
+    identityService,
     preambleService: overrides.preambleService || createMockPreambleService(),
     paths: overrides.paths || createTestPaths('/tmp/test'),
     exit: ((code: number) => {
@@ -442,6 +469,24 @@ describe('buildMessage (via cmdTalk)', () => {
 });
 
 describe('cmdTalk - basic send', () => {
+  it.each(['claude', '%9'])(
+    'does not send target %s without required identity wiring',
+    async (target) => {
+      for (const wait of [false, true]) {
+        const tmux = createMockTmux();
+        const legacyRead = vi.fn(() => [{ name: 'claude', canonicalName: 'claude', paneId: '%9' }]);
+        Object.assign(tmux, { listGlobalIdentities: legacyRead });
+        const ctx = createContext({ tmux, flags: { wait }, paths: createTestPaths(testDir) });
+        Object.defineProperty(ctx, 'identityService', { value: undefined });
+        await expect(cmdTalk(ctx, target, 'must not send')).rejects.toThrow(
+          'Identity service is required'
+        );
+        expect(legacyRead).not.toHaveBeenCalled();
+        expect(tmux.sends).toEqual([]);
+        expect(fs.existsSync(ctx.paths.stateFile)).toBe(false);
+      }
+    }
+  );
   let testDir: string;
   const originalEnv = { ...process.env };
 
@@ -487,11 +532,15 @@ describe('cmdTalk - basic send', () => {
 
   it('sends to a bound all identity as one pane', async () => {
     const tmux = createMockTmux();
-    tmux.listGlobalIdentities = () => [{ name: 'all', canonicalName: 'all', paneId: '1.9' }];
     const ctx = createContext({
       tmux,
       paths: createTestPaths(testDir),
     });
+    (ctx.identityService.activeIdentities as ReturnType<typeof vi.fn>).mockReturnValue([
+      {
+        ...activeIdentity('all', '1.9'),
+      },
+    ]);
 
     await cmdTalk(ctx, 'all', 'Hello');
 

@@ -3,7 +3,8 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import type { ActiveRegistration } from '../domain/types.js';
-import type { Context, Flags, Paths, ResolvedConfig, Tmux, UI } from '../types.js';
+import type { Context, Flags, IdentityService, Paths, ResolvedConfig, Tmux, UI } from '../types.js';
+import { IdentityServiceError } from '../identity-service.js';
 import { ExitCodes } from '../exits.js';
 import { IdentitySelectionError } from '../identity-context.js';
 
@@ -49,9 +50,32 @@ function createMockTmux(): Tmux {
     getCurrentPaneId: vi.fn(() => null),
     resolvePaneTarget: vi.fn((target: string) => target),
     setPaneTitle: vi.fn(),
-    listGlobalIdentities: vi.fn(() => []),
-    setGlobalIdentity: vi.fn(),
-    clearGlobalIdentity: vi.fn(() => false),
+  };
+}
+
+function activeIdentity(entry: ActiveRegistration) {
+  return {
+    identity: {
+      id: `${entry.canonicalName}-id`,
+      name: entry.name,
+      canonicalName: entry.canonicalName,
+      createdAt: 'now',
+      updatedAt: 'now',
+    },
+    binding: {
+      id: `${entry.canonicalName}-binding`,
+      identityId: `${entry.canonicalName}-id`,
+      transport: 'tmux' as const,
+      paneId: entry.paneId,
+      serverId: 'server',
+      socketPath: '/tmp/tmux.sock',
+      serverPid: 1,
+      serverStartTime: 'now',
+      panePid: 1,
+      boundAt: 'now',
+      lastVerifiedAt: 'now',
+    },
+    pane: { id: entry.paneId, command: '', suggestedName: null },
   };
 }
 
@@ -87,13 +111,35 @@ function createCtx(
   const flags: Flags = { json: false, verbose: false, ...overrides?.flags } as Flags;
   const ui = createMockUI();
   const tmux = createMockTmux();
-  tmux.listGlobalIdentities = vi.fn(() => overrides?.identities ?? []);
+  const registrations = overrides?.identities ?? [];
+  const identityService: IdentityService = {
+    bindCurrent: vi.fn((name: string) => ({
+      id: 'identity-id',
+      name,
+      canonicalName: name.toLowerCase(),
+      createdAt: 'now',
+      updatedAt: 'now',
+    })),
+    bindPane: vi.fn((_pane: string, name: string) => ({
+      id: 'identity-id',
+      name,
+      canonicalName: name.toLowerCase(),
+      createdAt: 'now',
+      updatedAt: 'now',
+    })),
+    unbindCurrent: vi.fn(),
+    currentIdentity: vi.fn(),
+    activeIdentities: vi.fn(() => registrations.map(activeIdentity)),
+    resolveActive: vi.fn(),
+    reconcile: vi.fn(),
+  };
   return {
     argv: [],
     flags,
     ui,
     config: baseConfig,
     tmux,
+    identityService,
     paths,
     ...(overrides?.preambleService && { preambleService: overrides.preambleService }),
     exit: ((code: number) => {
@@ -132,6 +178,22 @@ function mockPreambleService(): NonNullable<Context['preambleService']> {
 }
 
 describe('basic commands', () => {
+  it.each(['alice', '%9'])(
+    'fails closed for list/check target %s when required identity wiring is absent',
+    (target) => {
+      for (const handler of [cmdList, cmdCheck]) {
+        const ctx = createCtx(testDir);
+        const legacyRead = vi.fn(() => [{ name: 'alice', canonicalName: 'alice', paneId: '%9' }]);
+        Object.assign(ctx.tmux, { listGlobalIdentities: legacyRead });
+        // Simulate an invalid JavaScript caller; the TypeScript Context requires this service.
+        Object.defineProperty(ctx, 'identityService', { value: undefined });
+        expect(() => handler(ctx, target)).toThrow('Identity service is required');
+        expect(legacyRead).not.toHaveBeenCalled();
+        expect(ctx.tmux.capture).not.toHaveBeenCalled();
+        expect(ctx.tmux.send).not.toHaveBeenCalled();
+      }
+    }
+  );
   let testDir = '';
 
   beforeEach(() => {
@@ -161,15 +223,21 @@ describe('basic commands', () => {
     expect((ctx.ui as any).jsonCalls[0]).toMatchObject({ created: ctx.paths.localConfig });
   });
 
-  it('cmdAdd writes global identity metadata', () => {
+  it('cmdAdd delegates binding to the durable identity service', () => {
     const ctx = createCtx(testDir);
     cmdAdd(ctx, '1.1', 'codex');
-    expect(ctx.tmux.setGlobalIdentity).toHaveBeenCalledWith('1.1', 'codex');
+    expect(ctx.identityService.bindPane).toHaveBeenCalledWith('1.1', 'codex');
   });
 
-  it('cmdAdd errors if agent exists', () => {
+  it('cmdAdd maps a durable service conflict', () => {
     const ctx = createCtx(testDir, {
       identities: [{ name: 'codex', canonicalName: 'codex', paneId: '1.1' }],
+    });
+    (ctx.identityService.bindPane as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new IdentityServiceError(
+        'PANE_ALREADY_BOUND',
+        'Pane is already bound to another name.'
+      );
     });
     expect(() => cmdAdd(ctx, '1.1', 'other')).toThrow(`exit(${ExitCodes.CONFLICT})`);
   });
@@ -188,14 +256,14 @@ describe('basic commands', () => {
       },
     ]);
     expect(ctx.tmux.resolvePaneTarget).not.toHaveBeenCalled();
-    expect(ctx.tmux.setGlobalIdentity).not.toHaveBeenCalled();
+    expect(ctx.identityService.bindPane).not.toHaveBeenCalled();
   });
 
   it('cmdThis registers current pane with given name', () => {
     const ctx = createCtx(testDir);
     (ctx.tmux.getCurrentPaneId as ReturnType<typeof vi.fn>).mockReturnValue('%5');
     cmdThis(ctx, 'myagent');
-    expect(ctx.tmux.setGlobalIdentity).toHaveBeenCalledWith('%5', 'myagent');
+    expect(ctx.identityService.bindCurrent).toHaveBeenCalledWith('myagent');
   });
 
   it('cmdThis errors when not in tmux', () => {
@@ -244,10 +312,13 @@ describe('basic commands', () => {
 
   it('cmdList joins one pane snapshot into the v5 identity schema', () => {
     const ctx = createCtx(testDir, { flags: { json: true } });
-    ctx.tmux.listGlobalIdentities = vi.fn(() => [
+    const identities = [
       { name: 'Zed', canonicalName: 'zed', paneId: '%2' },
       { name: 'Alice', canonicalName: 'alice', paneId: '%1' },
-    ]);
+    ];
+    (ctx.identityService.activeIdentities as ReturnType<typeof vi.fn>).mockReturnValue(
+      identities.map(activeIdentity)
+    );
     ctx.tmux.listPanes = vi.fn(() => [
       { id: '%1', target: 'main:1.0', cwd: '/repo', command: 'claude', suggestedName: 'claude' },
       { id: '%2', target: 'main:1.1', cwd: '/tmp', command: 'zsh', suggestedName: null },
@@ -283,7 +354,7 @@ describe('basic commands', () => {
   it('cmdList resolves an unnamed direct pane without legacy fallback', () => {
     const ctx = createCtx(testDir, { flags: { json: true } });
     ctx.tmux.resolvePaneTarget = vi.fn(() => '%9');
-    ctx.tmux.listGlobalIdentities = vi.fn(() => []);
+    (ctx.identityService.activeIdentities as ReturnType<typeof vi.fn>).mockReturnValue([]);
     ctx.tmux.listPanes = vi.fn(() => [
       { id: '%9', target: 'main:9.0', cwd: '/tmp', command: 'zsh', suggestedName: null },
     ]);

@@ -2,13 +2,18 @@
 
 import { isPaneTarget, normalizeName } from './domain/names.js';
 import type { ActiveRegistration } from './domain/types.js';
-import type { Tmux } from './types.js';
 
 export interface ResolvedTarget {
   readonly input: string;
   readonly paneId: string;
   readonly identity?: ActiveRegistration;
   readonly kind: 'pane' | 'identity';
+}
+
+/** The minimum capability needed to resolve a user-facing pane or identity target. */
+export interface TargetResolverPort {
+  readonly resolvePaneTarget: (target: string) => string | null;
+  readonly listGlobalIdentities: () => ActiveRegistration[];
 }
 
 export type TargetResolutionErrorCode = 'PANE_NOT_FOUND' | 'NAME_NOT_FOUND';
@@ -27,9 +32,9 @@ export type TargetResolution =
  * intentional: a stale pane target must never be interpreted as an identity
  * name, even if a registration happens to use the same text in old metadata.
  */
-export function resolveTarget(tmux: Tmux, input: string): TargetResolution {
+export function resolveTarget(resolver: TargetResolverPort, input: string): TargetResolution {
   if (isPaneTarget(input)) {
-    const paneId = tmux.resolvePaneTarget(input);
+    const paneId = resolver.resolvePaneTarget(input);
     if (!paneId) {
       return {
         ok: false,
@@ -39,7 +44,7 @@ export function resolveTarget(tmux: Tmux, input: string): TargetResolution {
         },
       };
     }
-    const identity = tmux
+    const identity = resolver
       .listGlobalIdentities()
       .filter((entry) => entry.paneId === paneId)
       .sort(
@@ -55,7 +60,7 @@ export function resolveTarget(tmux: Tmux, input: string): TargetResolution {
   }
 
   const canonical = normalizeName(input);
-  const identity = tmux
+  const identity = resolver
     .listGlobalIdentities()
     .filter(
       (entry) =>
@@ -87,8 +92,8 @@ export function resolveTarget(tmux: Tmux, input: string): TargetResolution {
   };
 }
 
-export function sortedGlobalIdentities(tmux: Tmux): ActiveRegistration[] {
-  return [...tmux.listGlobalIdentities()].sort(
+export function sortedGlobalIdentities(resolver: TargetResolverPort): ActiveRegistration[] {
+  return [...resolver.listGlobalIdentities()].sort(
     (a, b) =>
       normalizeName(a.canonicalName || a.name).localeCompare(
         normalizeName(b.canonicalName || b.name)

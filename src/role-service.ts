@@ -1,17 +1,19 @@
-import type { DurableIdentity } from './domain/identity.js';
+import type { DurableIdentity, RoleProfile } from './domain/identity.js';
 import {
   requireDurableIdentity,
   type DurableIdentityContext,
   type IdentitySelector,
 } from './identity-context.js';
 import { normalizeRoleContent } from './domain/role.js';
-import type { IdentityRepository } from './storage/identity-repository.js';
 import type { RoleResult, RoleService } from './types.js';
 
-export type RoleRepository = Pick<
-  IdentityRepository,
-  'findByCanonicalName' | 'findRole' | 'setRole' | 'clearRole'
->;
+/** Application-owned persistence port for optional durable role profiles. */
+export interface RoleRepository {
+  findByCanonicalName(canonicalName: string): DurableIdentity | undefined;
+  findRole(identityId: string): RoleProfile | undefined;
+  setRole(identityId: string, content: string): RoleProfile;
+  clearRole(identityId: string): null;
+}
 
 export interface RoleServiceOptions {
   readonly repository: RoleRepository;
