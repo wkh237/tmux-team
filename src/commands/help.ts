@@ -57,7 +57,7 @@ ${colors.yellow('COMMANDS')}
   ${colors.green('upgrade')}                     Upgrade tmux-team (links update automatically)
   ${colors.green('init')}                        Create empty tmux-team.json
   ${colors.green('config')} [show|set|clear]     View/modify settings
-  ${colors.green('preamble')} [show|set|clear]   Manage legacy workspace preambles
+  ${colors.green('preamble')} [show|set|clear]   Manage durable identity preambles
   ${colors.green('role')} <show|set|clear>      Manage durable identity role profiles
   ${colors.green('completion')}                  Output shell completion script
   ${colors.green('learn')}                       Show educational guide
@@ -107,8 +107,8 @@ ${colors.yellow('EXAMPLES')}${
   tmt upgrade
 
 ${colors.yellow('CONFIG')}
-  Runtime: active global identities in tmux pane metadata
-  Local:  ./tmux-team.json (legacy registry + settings override)
+  Runtime: durable identities in SQLite, with live tmux bindings
+  Local:  ./tmux-team.json (settings override; other fields remain opaque)
   Global: ~/.config/tmux-team/config.json (settings)
 
 ${colors.yellow('CHANGE MODE')}

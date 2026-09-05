@@ -30,8 +30,6 @@ describe('createContext', () => {
         preambleEvery: 3,
         pasteEnterDelayMs: 500,
       },
-      agents: {},
-      paneRegistry: {},
     };
     const ui: UI = {
       info: vi.fn(),
@@ -48,20 +46,19 @@ describe('createContext', () => {
       getCurrentPaneId: vi.fn(() => null),
       resolvePaneTarget: vi.fn((target: string) => target),
       setPaneTitle: vi.fn(),
-      getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
-      setAgentRegistration: vi.fn(),
-      clearAgentRegistration: vi.fn(() => false),
       listGlobalIdentities: vi.fn(() => []),
       setGlobalIdentity: vi.fn(),
       clearGlobalIdentity: vi.fn(() => false),
     };
 
+    const loadConfig = vi.fn(() => config);
     vi.doMock('./config.js', () => ({
       resolvePaths: () => paths,
-      loadConfig: () => config,
+      loadConfig,
     }));
     vi.doMock('./ui.js', () => ({ createUI: () => ui }));
-    vi.doMock('./tmux.js', () => ({ createTmux: () => tmux }));
+    const createTmux = vi.fn(() => tmux);
+    vi.doMock('./tmux.js', () => ({ createTmux }));
 
     const { createContext } = await import('./context.js');
     const ctx = createContext({ argv: ['a'], flags: { json: false, verbose: false }, cwd: '/p' });
@@ -71,9 +68,10 @@ describe('createContext', () => {
     expect(ctx.config).toEqual(config);
     expect(ctx.ui).toBe(ui);
     expect(ctx.tmux).toBe(tmux);
+    expect(loadConfig).toHaveBeenCalledWith(paths);
   });
 
-  it('loads legacy settings through the workspace registry', async () => {
+  it('loads storage settings without constructing a runtime registry', async () => {
     vi.resetModules();
 
     const paths: Paths = {
@@ -82,7 +80,6 @@ describe('createContext', () => {
       localConfig: '/repo/tmux-team.json',
       stateFile: '/g/state.json',
       databaseFile: '/g/tmux-team.db',
-      workspaceRoot: '/repo',
     };
     const config: ResolvedConfig = {
       mode: 'polling',
@@ -95,8 +92,6 @@ describe('createContext', () => {
         preambleEvery: 3,
         pasteEnterDelayMs: 500,
       },
-      agents: {},
-      paneRegistry: {},
     };
     const tmux: Tmux = {
       send: vi.fn(),
@@ -105,17 +100,15 @@ describe('createContext', () => {
       getCurrentPaneId: vi.fn(() => null),
       resolvePaneTarget: vi.fn((target: string) => target),
       setPaneTitle: vi.fn(),
-      getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
-      setAgentRegistration: vi.fn(),
-      clearAgentRegistration: vi.fn(() => false),
       listGlobalIdentities: vi.fn(() => []),
       setGlobalIdentity: vi.fn(),
       clearGlobalIdentity: vi.fn(() => false),
     };
 
+    const loadConfig = vi.fn(() => config);
     vi.doMock('./config.js', () => ({
       resolvePaths: () => paths,
-      loadConfig: () => config,
+      loadConfig,
     }));
     vi.doMock('./ui.js', () => ({
       createUI: () => ({
@@ -127,16 +120,19 @@ describe('createContext', () => {
         json: vi.fn(),
       }),
     }));
-    vi.doMock('./tmux.js', () => ({ createTmux: () => tmux }));
+    const createTmux = vi.fn(() => tmux);
+    vi.doMock('./tmux.js', () => ({ createTmux }));
 
     const { createContext } = await import('./context.js');
-    const ctx = createContext({ argv: [], flags: { json: false, verbose: false } });
-
-    expect(ctx.registryScope).toEqual({ type: 'workspace', workspaceRoot: '/repo' });
-    expect(tmux.getAgentRegistry).toHaveBeenCalledWith({
-      type: 'workspace',
-      workspaceRoot: '/repo',
+    const ctx = createContext({
+      argv: [],
+      flags: { json: false, verbose: false },
+      capability: 'storage',
     });
+
+    expect(ctx.config).toEqual(config);
+    expect(loadConfig).toHaveBeenCalledWith(paths);
+    expect(createTmux).not.toHaveBeenCalled();
   });
 
   it('ctx.exit calls process.exit', async () => {
@@ -165,6 +161,29 @@ describe('createContext', () => {
     });
     expect(createTmux).not.toHaveBeenCalled();
     expect(ctx.paths.globalConfig).toBeTypeOf('string');
+  });
+
+  it('lazily wires the preamble service to the shared identity repository', async () => {
+    vi.resetModules();
+    const repository = { close: vi.fn() };
+    const openIdentityRepository = vi.fn(() => repository);
+    const preambleService = { show: vi.fn(), set: vi.fn(), clear: vi.fn(), list: vi.fn() };
+    const createPreambleService = vi.fn(() => preambleService);
+    vi.doMock('./storage/identity-repository.js', () => ({ openIdentityRepository }));
+    vi.doMock('./preamble-service.js', () => ({ createPreambleService }));
+
+    const { createContext } = await import('./context.js');
+    const ctx = createContext({
+      argv: [],
+      flags: { json: false, verbose: false },
+      capability: 'storage',
+    });
+    expect(createPreambleService).not.toHaveBeenCalled();
+    expect(ctx.preambleService).toBe(preambleService);
+    expect(createPreambleService).toHaveBeenCalledWith({ repository });
+    expect(openIdentityRepository).toHaveBeenCalledOnce();
+    ctx.dispose?.();
+    expect(repository.close).toHaveBeenCalledOnce();
   });
 
   it('disposes an opened identity service without eagerly opening it', async () => {

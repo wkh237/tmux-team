@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
 import type { DurableIdentity, RoleProfile, TmuxBinding } from '../domain/identity.js';
+import type { PreambleProfile, StoredPreambleResult } from '../domain/preamble.js';
 import { openStorageWithDatabase } from './sqlite-adapter.js';
 import { StorageError } from './errors.js';
 import type { StorageLocation } from './ports.js';
@@ -20,6 +21,10 @@ export interface IdentityRepository {
   findRole(identityId: string): RoleProfile | undefined;
   setRole(identityId: string, content: string): RoleProfile;
   clearRole(identityId: string): null;
+  findPreamble(identityId: string): PreambleProfile | undefined;
+  setPreamble(identityId: string, content: string): PreambleProfile;
+  clearPreamble(identityId: string): boolean;
+  listPreambles(): StoredPreambleResult[];
   close(): void;
 }
 
@@ -46,6 +51,11 @@ type BindingRow = {
 };
 
 type RoleRow = { content: string; updated_at: string };
+type PreambleRow = { content: string; updated_at: string };
+type PreambleResultRow = IdentityRow & {
+  content: string;
+  preamble_updated_at: string;
+};
 
 function identity(row: IdentityRow): DurableIdentity {
   return {
@@ -177,9 +187,9 @@ export function openIdentityRepository(location: StorageLocation): IdentityRepos
     removeIdentityIfUnbound(id) {
       requireOpen()
         .prepare(
-          'DELETE FROM identities WHERE id = ? AND NOT EXISTS (SELECT 1 FROM bindings WHERE identity_id = ?) AND NOT EXISTS (SELECT 1 FROM role_profiles WHERE identity_id = ?)'
+          'DELETE FROM identities WHERE id = ? AND NOT EXISTS (SELECT 1 FROM bindings WHERE identity_id = ?) AND NOT EXISTS (SELECT 1 FROM role_profiles WHERE identity_id = ?) AND NOT EXISTS (SELECT 1 FROM identity_preambles WHERE identity_id = ?)'
         )
-        .run(id, id, id);
+        .run(id, id, id, id);
     },
     findRole(identityId) {
       const row = requireOpen()
@@ -206,6 +216,45 @@ export function openIdentityRepository(location: StorageLocation): IdentityRepos
         return null;
       });
       return clear.immediate();
+    },
+    findPreamble(identityId) {
+      const row = requireOpen()
+        .prepare('SELECT content, updated_at FROM identity_preambles WHERE identity_id = ?')
+        .get(identityId) as PreambleRow | undefined;
+      return row ? { content: row.content, updatedAt: row.updated_at } : undefined;
+    },
+    setPreamble(identityId, content) {
+      const write = requireOpen().transaction(() => {
+        const now = new Date().toISOString();
+        requireOpen()
+          .prepare(
+            'INSERT INTO identity_preambles (identity_id, content, updated_at) VALUES (?, ?, ?) ' +
+              'ON CONFLICT(identity_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at'
+          )
+          .run(identityId, content, now);
+        return { content, updatedAt: now };
+      });
+      return write.immediate();
+    },
+    clearPreamble(identityId) {
+      const result = requireOpen()
+        .prepare('DELETE FROM identity_preambles WHERE identity_id = ?')
+        .run(identityId);
+      return result.changes > 0;
+    },
+    listPreambles() {
+      const rows = requireOpen()
+        .prepare(
+          'SELECT i.id, i.name, i.canonical_name, i.created_at, i.updated_at, p.content, ' +
+            'p.updated_at AS preamble_updated_at ' +
+            'FROM identities AS i INNER JOIN identity_preambles AS p ON p.identity_id = i.id ' +
+            'ORDER BY i.canonical_name'
+        )
+        .all() as PreambleResultRow[];
+      return rows.map((row) => ({
+        identity: identity(row),
+        preamble: { content: row.content, updatedAt: row.preamble_updated_at },
+      }));
     },
     close() {
       if (closed) return;

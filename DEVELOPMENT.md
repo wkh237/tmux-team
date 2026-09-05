@@ -58,6 +58,11 @@ transport, pane movement, and fixture cleanup. Failures include the
 container/Vitest output, and each fixture kills its private server and removes
 its temporary state.
 
+The publication race scenario observes the CLI process tree's open database
+descriptors through Linux `/proc` before releasing the writer barrier. This
+proves storage entry without assuming that a read invokes tmux before SQLite;
+it is a Docker-only test oracle, not a production synchronization hook.
+
 - Static/code-quality checks (unit and Docker suites are separate):
 
 ```bash

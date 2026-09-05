@@ -2,7 +2,7 @@ import type { ActiveRegistration } from './domain/types.js';
 import type { DurableIdentity } from './domain/identity.js';
 import { normalizeName } from './domain/names.js';
 
-/** A parsed target. `explicit` is true only when --identity was used. */
+/** A parsed target. `explicit` marks an identity-only selection (for example --identity). */
 export interface IdentitySelector {
   readonly value: string;
   readonly kind: 'identity' | 'pane';

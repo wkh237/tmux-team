@@ -91,6 +91,57 @@ function writerIsLocked(fixture: E2EFixture): boolean {
   }
 }
 
+function isEnoent(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
+}
+
+/**
+ * The Docker E2E image is Linux. A CLI wrapper owns the returned PID and
+ * spawns the actual Node process, so walk its /proc child tree and inspect
+ * open descriptors instead of relying on a tmux-first progress hook.
+ */
+function processTreeHasOpenFile(rootPid: number, file: string): boolean {
+  const target = path.resolve(file);
+  const pending = [rootPid];
+  const visited = new Set<number>();
+
+  while (pending.length > 0) {
+    const pid = pending.pop();
+    if (pid === undefined || visited.has(pid)) continue;
+    visited.add(pid);
+
+    let children: string;
+    try {
+      children = fs.readFileSync(`/proc/${pid}/task/${pid}/children`, 'utf8');
+    } catch (error) {
+      if (isEnoent(error)) continue;
+      throw error;
+    }
+    for (const value of children.trim().split(/\s+/)) {
+      if (value) pending.push(Number(value));
+    }
+
+    let descriptors: string[];
+    try {
+      descriptors = fs.readdirSync(`/proc/${pid}/fd`);
+    } catch (error) {
+      if (isEnoent(error)) continue;
+      throw error;
+    }
+    for (const descriptor of descriptors) {
+      let opened: string;
+      try {
+        opened = fs.readlinkSync(`/proc/${pid}/fd/${descriptor}`);
+      } catch (error) {
+        if (isEnoent(error)) continue;
+        throw error;
+      }
+      if (opened === target) return true;
+    }
+  }
+  return false;
+}
+
 function json<T>(result: CliResult<T>): T {
   expect(result.stderr, result.stdout).toBe('');
   expect(result.json, result.stdout).toBeDefined();
@@ -144,15 +195,24 @@ describe.sequential('crash-safe identity publication', () => {
         expect(durableCounts(fixture)).toMatchObject({ bindings: 0, profiles: 0 });
         expect(writerIsLocked(fixture)).toBe(true);
 
-        const observerProgress = path.join(fixture.root, 'observer-started');
-        const observer = fixture.runCliProcess<IdentityList>(['--json', 'list'], {
-          progressFile: observerProgress,
-        });
-        await fixture.waitFor(
-          () => fs.existsSync(observerProgress),
-          900,
-          'observer to invoke tmux'
+        let observerSettled = false;
+        const observer = fixture.runCliProcess<IdentityList>(['--json', 'list']);
+        void observer.result.then(
+          () => {
+            observerSettled = true;
+          },
+          () => {
+            observerSettled = true;
+          }
         );
+        await fixture.waitFor(
+          () => !observerSettled && processTreeHasOpenFile(observer.pid, databaseFile(fixture)),
+          900,
+          'observer to open SQLite while publication is locked'
+        );
+        expect(observerSettled).toBe(false);
+        expect(writerIsLocked(fixture)).toBe(true);
+        expect(durableCounts(fixture)).toMatchObject({ bindings: 0 });
 
         fixture.releaseMetadataBarrier();
         await waitForSuccess(binder);

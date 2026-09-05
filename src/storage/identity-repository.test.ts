@@ -1,8 +1,13 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { DurableIdentity } from '../domain/identity.js';
+import type { PreambleProfile } from '../domain/preamble.js';
 import { openIdentityRepository } from './identity-repository.js';
+import { CURRENT_MIGRATIONS } from './migrations.js';
+import { openStorageWithMigrations } from './sqlite-adapter.js';
 
 const directories: string[] = [];
 
@@ -144,6 +149,111 @@ describe('identity repository contract', () => {
       expect(reopened.findByCanonicalName('owner')).toEqual(identity);
     } finally {
       reopened.close();
+    }
+  });
+
+  it('stores, lists, replaces, clears, and retains preambles on unbound identities', () => {
+    const repository = openIdentityRepository(databasePath());
+    try {
+      const first = repository.createIdentity('Zulu', 'zulu');
+      const second = repository.createIdentity('Alpha', 'alpha');
+
+      expect(repository.findPreamble(first.id)).toBeUndefined();
+      const initial = repository.setPreamble(first.id, 'first');
+      expect(initial).toMatchObject({ content: 'first', updatedAt: expect.any(String) });
+      const replacement = repository.setPreamble(first.id, 'replacement');
+      expect(repository.findPreamble(first.id)).toEqual(replacement);
+      repository.setPreamble(second.id, 'second');
+
+      expect(repository.listPreambles()).toEqual([
+        { identity: second, preamble: { content: 'second', updatedAt: expect.any(String) } },
+        { identity: first, preamble: replacement },
+      ]);
+      expect(repository.clearPreamble(first.id)).toBe(true);
+      expect(repository.clearPreamble(first.id)).toBe(false);
+      expect(repository.findPreamble(first.id)).toBeUndefined();
+      expect(() => repository.setPreamble('missing-id', 'orphan')).toThrow();
+
+      repository.removeIdentityIfUnbound(second.id);
+      expect(repository.findByCanonicalName('alpha')).toEqual(second);
+      repository.clearPreamble(second.id);
+      repository.removeIdentityIfUnbound(second.id);
+      expect(repository.findByCanonicalName('alpha')).toBeUndefined();
+    } finally {
+      repository.close();
+    }
+  });
+
+  it('upgrades a v2 database and retains identities, roles, and preambles across reopen', () => {
+    const file = databasePath();
+    const location = { globalDir: path.dirname(file), databaseFile: file };
+    const storage = openStorageWithMigrations(location, CURRENT_MIGRATIONS.slice(0, 2));
+    storage.close();
+
+    const database = new Database(file);
+    try {
+      database
+        .prepare(
+          'INSERT INTO identities (id, name, canonical_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)'
+        )
+        .run('identity-1', 'Migrated', 'migrated', 'created', 'updated');
+      database
+        .prepare('INSERT INTO role_profiles (identity_id, content, updated_at) VALUES (?, ?, ?)')
+        .run('identity-1', 'role survives', 'role-updated');
+    } finally {
+      database.close();
+    }
+
+    const repository = openIdentityRepository(file);
+    let identity: DurableIdentity | undefined;
+    let preamble!: PreambleProfile;
+    try {
+      identity = repository.findByCanonicalName('migrated');
+      expect(identity).toEqual({
+        id: 'identity-1',
+        name: 'Migrated',
+        canonicalName: 'migrated',
+        createdAt: 'created',
+        updatedAt: 'updated',
+      });
+      expect(repository.findRole('identity-1')).toEqual({
+        content: 'role survives',
+        updatedAt: 'role-updated',
+      });
+      preamble = repository.setPreamble('identity-1', 'preamble survives');
+    } finally {
+      repository.close();
+    }
+
+    const reopened = openIdentityRepository(file);
+    try {
+      expect(reopened.findPreamble('identity-1')).toEqual(preamble);
+      expect(reopened.listPreambles()).toEqual([{ identity, preamble }]);
+    } finally {
+      reopened.close();
+    }
+
+    const verification = new Database(file, { readonly: true });
+    try {
+      expect(verification.prepare('SELECT MAX(version) AS version FROM _migrations').get()).toEqual(
+        {
+          version: 3,
+        }
+      );
+      expect(
+        verification
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'identity_preambles'"
+          )
+          .get()
+      ).toEqual({ name: 'identity_preambles' });
+      expect(verification.prepare('PRAGMA foreign_key_list(identity_preambles)').all()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ table: 'identities', from: 'identity_id', to: 'id' }),
+        ])
+      );
+    } finally {
+      verification.close();
     }
   });
 });

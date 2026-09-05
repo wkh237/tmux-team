@@ -20,7 +20,7 @@ _tmux-team() {
     'unbind:Remove the current pane identity'
     'install:Install agent skills'
     'upgrade:Upgrade tmux-team and refresh skills'
-    'init:Create empty legacy tmux-team.json'
+    'init:Create empty tmux-team.json'
     'completion:Output shell completion script'
     'config:View or modify settings'
     'preamble:Manage identity preambles'

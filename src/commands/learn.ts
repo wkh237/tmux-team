@@ -52,18 +52,18 @@ ${colors.yellow('PRACTICAL EXAMPLES')}
 
 ${colors.yellow('GLOBAL IDENTITIES')}
 
-  Identity bindings live in active tmux pane metadata and work across folders:
+  SQLite owns durable identities; active bindings require verified tmux evidence:
 
   ${colors.cyan('tmux-team name codex')}        Bind the current pane
   ${colors.cyan('tmux-team add %2 gemini')}     Bind another pane by stable ID
 
   Find your pane ID: ${colors.cyan('tmux display-message -p "#{pane_id}"')}
-  ${colors.dim('Legacy registry commands are retired; local settings and preamble compatibility remain.')}
+  ${colors.dim('Legacy registry commands are retired; local settings and durable identity preambles remain.')}
   ${colors.dim('tmux-team is CLI-only; there is no daemon to run.')}
 
 ${colors.yellow('BEST PRACTICES')}
 
-  1. ${colors.green('Use --wait for important tasks')} - ensures complete response
+  1. ${colors.green('Use --wait for correlated completion')} - captured response text is best-effort
   2. ${colors.green('Be explicit')} - tell agents exactly what you need
   3. ${colors.green('Set timeout appropriately')} - complex tasks need more time
   4. ${colors.green('Use stable pane IDs in scripts')} - avoid ambiguous locators

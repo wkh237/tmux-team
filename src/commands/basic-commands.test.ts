@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import type { ActiveRegistration } from '../domain/types.js';
 import type { Context, Flags, Paths, ResolvedConfig, Tmux, UI } from '../types.js';
 import { ExitCodes } from '../exits.js';
+import { IdentitySelectionError } from '../identity-context.js';
 
 import { cmdInit } from './init.js';
 import { cmdAdd } from './add.js';
@@ -47,9 +49,6 @@ function createMockTmux(): Tmux {
     getCurrentPaneId: vi.fn(() => null),
     resolvePaneTarget: vi.fn((target: string) => target),
     setPaneTitle: vi.fn(),
-    getAgentRegistry: vi.fn(() => ({ paneRegistry: {}, agents: {} })),
-    setAgentRegistration: vi.fn(),
-    clearAgentRegistration: vi.fn(() => false),
     listGlobalIdentities: vi.fn(() => []),
     setGlobalIdentity: vi.fn(),
     clearGlobalIdentity: vi.fn(() => false),
@@ -58,7 +57,12 @@ function createMockTmux(): Tmux {
 
 function createCtx(
   testDir: string,
-  overrides?: Partial<{ flags: Partial<Flags>; config: Partial<ResolvedConfig> }>
+  overrides?: Partial<{
+    flags: Partial<Flags>;
+    config: Partial<ResolvedConfig>;
+    identities: ActiveRegistration[];
+    preambleService: NonNullable<Context['preambleService']>;
+  }>
 ): Context {
   const paths: Paths = {
     globalDir: testDir,
@@ -78,20 +82,12 @@ function createCtx(
       preambleEvery: 3,
       pasteEnterDelayMs: 500,
     },
-    agents: {},
-    paneRegistry: {},
     ...overrides?.config,
   };
   const flags: Flags = { json: false, verbose: false, ...overrides?.flags } as Flags;
   const ui = createMockUI();
   const tmux = createMockTmux();
-  tmux.listGlobalIdentities = vi.fn(() =>
-    Object.entries(baseConfig.paneRegistry).map(([name, entry]) => ({
-      name,
-      canonicalName: name.toLowerCase(),
-      paneId: entry.pane,
-    }))
-  );
+  tmux.listGlobalIdentities = vi.fn(() => overrides?.identities ?? []);
   return {
     argv: [],
     flags,
@@ -99,11 +95,39 @@ function createCtx(
     config: baseConfig,
     tmux,
     paths,
+    ...(overrides?.preambleService && { preambleService: overrides.preambleService }),
     exit: ((code: number) => {
       const err = new Error(`exit(${code})`);
       (err as Error & { exitCode: number }).exitCode = code;
       throw err;
     }) as any,
+  };
+}
+
+function mockPreambleService(): NonNullable<Context['preambleService']> {
+  const identity = {
+    id: 'identity-claude',
+    name: 'claude',
+    canonicalName: 'claude',
+    createdAt: 'created',
+    updatedAt: 'updated',
+  };
+  let content: string | undefined;
+  return {
+    show: vi.fn(() => ({
+      identity,
+      preamble: content ? { content, updatedAt: 'now' } : null,
+    })),
+    set: vi.fn((_name: string, next: string) => {
+      content = next;
+      return { identity, preamble: { content, updatedAt: 'now' } };
+    }),
+    clear: vi.fn(() => {
+      const cleared = content !== undefined;
+      content = undefined;
+      return { identity, preamble: null, cleared };
+    }),
+    list: vi.fn(() => (content ? [{ identity, preamble: { content, updatedAt: 'now' } }] : [])),
   };
 }
 
@@ -144,11 +168,9 @@ describe('basic commands', () => {
   });
 
   it('cmdAdd errors if agent exists', () => {
-    const ctx = createCtx(testDir, { config: { paneRegistry: { codex: { pane: '1.1' } } } });
-    fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({ codex: { pane: '1.1' } }, null, 2));
-    (ctx.tmux.listGlobalIdentities as ReturnType<typeof vi.fn>).mockReturnValue([
-      { name: 'codex', canonicalName: 'codex', paneId: '1.1' },
-    ]);
+    const ctx = createCtx(testDir, {
+      identities: [{ name: 'codex', canonicalName: 'codex', paneId: '1.1' }],
+    });
     expect(() => cmdAdd(ctx, '1.1', 'other')).toThrow(`exit(${ExitCodes.CONFLICT})`);
   });
 
@@ -198,10 +220,26 @@ describe('basic commands', () => {
   it('cmdList outputs JSON when --json', () => {
     const ctx = createCtx(testDir, {
       flags: { json: true },
-      config: { paneRegistry: { claude: { pane: '1.0', remark: 'main' } } },
+      identities: [{ name: 'claude', canonicalName: 'claude', paneId: '%1' }],
     });
+    ctx.tmux.listPanes = vi.fn(() => [
+      { id: '%1', target: 'main:1.0', cwd: '/repo', command: 'claude', suggestedName: 'claude' },
+    ]);
     cmdList(ctx);
-    expect((ctx.ui as any).jsonCalls.length).toBe(1);
+    expect((ctx.ui as any).jsonCalls).toEqual([
+      {
+        identities: [
+          {
+            name: 'claude',
+            canonicalName: 'claude',
+            pane: '%1',
+            target: 'main:1.0',
+            cwd: '/repo',
+            command: 'claude',
+          },
+        ],
+      },
+    ]);
   });
 
   it('cmdList joins one pane snapshot into the v5 identity schema', () => {
@@ -269,20 +307,20 @@ describe('basic commands', () => {
 
   it('cmdList prints table when agents exist', () => {
     const ctx = createCtx(testDir, {
-      config: { paneRegistry: { claude: { pane: '1.0', remark: 'main' } } },
+      identities: [{ name: 'claude', canonicalName: 'claude', paneId: '%1' }],
     });
     cmdList(ctx);
     expect(ctx.ui.table).toHaveBeenCalled();
   });
 
-  it('cmdList shows dash for missing remark', () => {
+  it('cmdList shows dashes for missing pane metadata', () => {
     const ctx = createCtx(testDir, {
-      config: { paneRegistry: { claude: { pane: '1.0' } } }, // no remark
+      identities: [{ name: 'claude', canonicalName: 'claude', paneId: '%1' }],
     });
+    ctx.tmux.listPanes = vi.fn(() => [{ id: '%1', command: '', suggestedName: null }]);
     cmdList(ctx);
     expect(ctx.ui.table).toHaveBeenCalled();
     const tableCall = (ctx.ui.table as ReturnType<typeof vi.fn>).mock.calls[0];
-    // Third column should be '-' for missing remark
     expect(tableCall[1][0][2]).toBe('-');
   });
 
@@ -296,7 +334,7 @@ describe('basic commands', () => {
 
   it('cmdCheck captures pane output', () => {
     const ctx = createCtx(testDir, {
-      config: { paneRegistry: { claude: { pane: '1.0' } } },
+      identities: [{ name: 'claude', canonicalName: 'claude', paneId: '1.0' }],
     });
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     cmdCheck(ctx, 'claude', 10);
@@ -311,7 +349,7 @@ describe('basic commands', () => {
 
   it('cmdCheck errors when tmux capture fails', () => {
     const ctx = createCtx(testDir, {
-      config: { paneRegistry: { claude: { pane: '1.0' } } },
+      identities: [{ name: 'claude', canonicalName: 'claude', paneId: '1.0' }],
     });
     (ctx.tmux.capture as ReturnType<typeof vi.fn>).mockImplementation(() => {
       throw new Error('tmux not running');
@@ -323,7 +361,7 @@ describe('basic commands', () => {
   it('cmdCheck outputs JSON when --json', () => {
     const ctx = createCtx(testDir, {
       flags: { json: true },
-      config: { paneRegistry: { claude: { pane: '1.0' } } },
+      identities: [{ name: 'claude', canonicalName: 'claude', paneId: '1.0' }],
     });
     cmdCheck(ctx, 'claude', 5);
     expect((ctx.ui as any).jsonCalls.length).toBe(1);
@@ -332,11 +370,8 @@ describe('basic commands', () => {
   it('cmdCheck JSON includes the stable identity fields', () => {
     const ctx = createCtx(testDir, {
       flags: { json: true },
-      config: { paneRegistry: { claude: { pane: '%1' } } },
+      identities: [{ name: 'Claude', canonicalName: 'claude', paneId: '%1' }],
     });
-    ctx.tmux.listGlobalIdentities = vi.fn(() => [
-      { name: 'Claude', canonicalName: 'claude', paneId: '%1' },
-    ]);
     ctx.tmux.capture = vi.fn(() => 'response');
 
     cmdCheck(ctx, 'claude', 5);
@@ -352,38 +387,36 @@ describe('basic commands', () => {
     ]);
   });
 
-  it('cmdPreamble set/show/clear updates local config', () => {
-    const ctx = createCtx(testDir, {
-      config: { paneRegistry: { claude: { pane: '1.0' } }, agents: { claude: {} } },
-    });
-    fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({ claude: { pane: '1.0' } }, null, 2));
+  it('cmdPreamble set/show/clear uses the durable preamble service', () => {
+    const preambleService = mockPreambleService();
+    const ctx = createCtx(testDir, { preambleService });
 
     cmdPreamble(ctx, preambleRequest('set', { agent: 'claude', preamble: 'Be concise' }));
-    let saved = JSON.parse(fs.readFileSync(ctx.paths.localConfig, 'utf-8'));
-    expect(saved.claude.preamble).toBe('Be concise');
+    expect(preambleService.set).toHaveBeenCalledWith('claude', 'Be concise');
 
-    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    // show will read from ctx.config.agents; update it to reflect loadConfig behavior
-    ctx.config.agents.claude = { preamble: 'Be concise' };
     cmdPreamble(ctx, preambleRequest('show', { agent: 'claude' }));
-    expect(logSpy).toHaveBeenCalled();
+    expect(ctx.ui.info).toHaveBeenCalledWith('Preamble for claude:\nBe concise');
 
     cmdPreamble(ctx, preambleRequest('clear', { agent: 'claude' }));
-    saved = JSON.parse(fs.readFileSync(ctx.paths.localConfig, 'utf-8'));
-    expect(saved.claude.preamble).toBeUndefined();
+    expect(preambleService.clear).toHaveBeenCalledWith('claude');
   });
 
   it('cmdPreamble set errors when agent missing', () => {
-    const ctx = createCtx(testDir);
-    fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({}, null, 2));
+    const preambleService = mockPreambleService();
+    preambleService.set = vi.fn(() => {
+      throw new IdentitySelectionError('NAME_NOT_FOUND', 'Identity was not found.');
+    });
+    const ctx = createCtx(testDir, { preambleService });
     expect(() =>
       cmdPreamble(ctx, preambleRequest('set', { agent: 'nope', preamble: 'x' }))
-    ).toThrow(`exit(${ExitCodes.ERROR})`);
+    ).toThrow(`exit(${ExitCodes.NAME_NOT_FOUND})`);
   });
 
   it('cmdPreamble clear returns not_set when missing', () => {
-    const ctx = createCtx(testDir, { flags: { json: true } });
-    fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({ claude: { pane: '1.0' } }, null, 2));
+    const ctx = createCtx(testDir, {
+      flags: { json: true },
+      preambleService: mockPreambleService(),
+    });
     cmdPreamble(ctx, preambleRequest('clear', { agent: 'claude' }));
     const out = (ctx.ui as any).jsonCalls[0] as any;
     expect(out.status).toBe('not_set');

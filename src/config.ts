@@ -7,12 +7,10 @@ import path from 'path';
 import os from 'os';
 import type {
   GlobalConfig,
-  LocalConfig,
   LocalConfigFile,
   LocalSettings,
   ResolvedConfig,
   Paths,
-  TmuxRegistry,
 } from './types.js';
 
 const CONFIG_FILENAME = 'config.json';
@@ -104,33 +102,10 @@ function findUpward(filename: string, startDir: string): string | null {
   }
 }
 
-/**
- * Resolve the workspace scope used for default registrations.
- *
- * Prefer the nearest Git root so commands run from subdirectories share the
- * same workspace. Fall back to cwd for non-Git folders.
- */
-export function resolveWorkspaceRoot(cwd: string = process.cwd()): string {
-  let dir = path.resolve(cwd);
-  while (true) {
-    const gitPath = path.join(dir, '.git');
-    if (fs.existsSync(gitPath)) {
-      return dir;
-    }
-    const parent = path.dirname(dir);
-    if (parent === dir) {
-      return path.resolve(cwd);
-    }
-    dir = parent;
-  }
-}
-
 export function resolvePaths(cwd: string = process.cwd()): Paths {
   const globalDir = resolveGlobalDir();
-  const workspaceRoot = resolveWorkspaceRoot(cwd);
 
-  // Search up for the legacy local config. Team-scoped path routing was
-  // removed in v5; old team/workspace metadata remains untouched.
+  // Search up for the settings file; old identity entries remain opaque.
   const localConfigPath =
     findUpward(LOCAL_CONFIG_FILENAME, cwd) ?? path.join(cwd, LOCAL_CONFIG_FILENAME);
 
@@ -140,7 +115,6 @@ export function resolvePaths(cwd: string = process.cwd()): Paths {
     localConfig: localConfigPath,
     stateFile: path.join(globalDir, STATE_FILENAME),
     databaseFile: path.join(globalDir, DATABASE_FILENAME),
-    workspaceRoot,
   };
 }
 
@@ -175,14 +149,11 @@ function loadJsonFile<T>(filePath: string): T | null {
  *
  * Note: CLI flags are applied by the caller after this function returns.
  */
-export function loadConfig(paths: Paths, tmuxRegistry?: TmuxRegistry): ResolvedConfig {
+export function loadConfig(paths: Paths): ResolvedConfig {
   // Start with defaults
   const config: ResolvedConfig = {
     ...DEFAULT_CONFIG,
     defaults: { ...DEFAULT_CONFIG.defaults },
-    agents: {},
-    paneRegistry: {},
-    registrySource: 'none',
   };
 
   // Merge global config (mode, preambleMode, defaults only)
@@ -195,13 +166,11 @@ export function loadConfig(paths: Paths, tmuxRegistry?: TmuxRegistry): ResolvedC
     }
   }
 
-  // Load local config (legacy pane registry + optional settings + agent config).
-  // Runtime agent registration now prefers tmux pane metadata; local pane entries
-  // remain as a compatibility fallback when no tmux metadata exists for the scope.
+  // Load local settings. Other local JSON fields remain opaque and are never
+  // imported into runtime identity or preamble state.
   const localConfigFile = loadJsonFile<LocalConfigFile>(paths.localConfig);
   if (localConfigFile) {
-    // Extract local settings if present
-    const { $config: localSettings, ...paneEntries } = localConfigFile;
+    const localSettings = localConfigFile.$config;
 
     // Merge local settings (override global)
     if (localSettings) {
@@ -214,34 +183,6 @@ export function loadConfig(paths: Paths, tmuxRegistry?: TmuxRegistry): ResolvedC
         config.defaults.pasteEnterDelayMs = localSettings.pasteEnterDelayMs;
       }
     }
-
-    // Build pane registry and agents config from local entries
-    for (const [agentName, entry] of Object.entries(paneEntries)) {
-      const paneEntry = entry as LocalConfig[string];
-
-      // Add to pane registry if has valid pane field
-      if (paneEntry.pane) {
-        config.paneRegistry[agentName] = paneEntry;
-        config.registrySource = 'legacy';
-      }
-
-      // Build agents config from preamble/deny fields
-      const hasPreamble = Object.prototype.hasOwnProperty.call(paneEntry, 'preamble');
-      const hasDeny = Object.prototype.hasOwnProperty.call(paneEntry, 'deny');
-
-      if (hasPreamble || hasDeny) {
-        config.agents[agentName] = {
-          ...(hasPreamble && { preamble: paneEntry.preamble }),
-          ...(hasDeny && { deny: paneEntry.deny }),
-        };
-      }
-    }
-  }
-
-  if (tmuxRegistry && Object.keys(tmuxRegistry.paneRegistry).length > 0) {
-    config.paneRegistry = { ...config.paneRegistry, ...tmuxRegistry.paneRegistry };
-    config.agents = { ...config.agents, ...tmuxRegistry.agents };
-    config.registrySource = 'tmux';
   }
 
   return config;
