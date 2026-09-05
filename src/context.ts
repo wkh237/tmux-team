@@ -11,6 +11,7 @@ import { createIdentityService } from './identity-service.js';
 import { openIdentityRepository, type IdentityRepository } from './storage/identity-repository.js';
 import { createRoleService, type RoleRepository } from './role-service.js';
 import { createPreambleService } from './preamble-service.js';
+import { createRequestService } from './request-service.js';
 
 export interface CreateContextOptions {
   argv: string[];
@@ -32,6 +33,7 @@ export function createContext(options: CreateContextOptions): Context {
   let preambleService: Context['preambleService'] | undefined;
   let identityRepository: IdentityRepository | undefined;
   let roleService: Context['roleService'] | undefined;
+  let requestService: Context['requestService'] | undefined;
   let disposed = false;
   const assertActive = (): void => {
     if (disposed) throw new Error('Context is disposed.');
@@ -87,6 +89,11 @@ export function createContext(options: CreateContextOptions): Context {
     preambleService ??= createPreambleService({ repository: getIdentityRepository() });
     return preambleService;
   };
+  const getRequestService = (): NonNullable<Context['requestService']> => {
+    assertActive();
+    requestService ??= createRequestService({ repository: getIdentityRepository() });
+    return requestService;
+  };
   const dispose = (): void => {
     if (disposed) return;
     disposed = true;
@@ -95,6 +102,7 @@ export function createContext(options: CreateContextOptions): Context {
     preambleService = undefined;
     identityRepository = undefined;
     roleService = undefined;
+    requestService = undefined;
     repository?.close();
   };
 
@@ -114,6 +122,7 @@ export function createContext(options: CreateContextOptions): Context {
     tmux: { enumerable: true, get: getTmux },
     identityService: { enumerable: true, get: getIdentityService },
     preambleService: { enumerable: true, get: getPreambleService },
+    requestService: { enumerable: true, get: getRequestService },
     roleService: { enumerable: true, get: getRoleService },
   });
   // Preserve the established full-context behavior. Lightweight capabilities

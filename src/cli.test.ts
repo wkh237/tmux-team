@@ -1,6 +1,30 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Context } from './types.js';
 
+const unusedRequestService: Context['requestService'] = {
+  prepare() {
+    throw new Error('Unexpected request service access.');
+  },
+  beginSend() {
+    throw new Error('Unexpected request service access.');
+  },
+  settle() {
+    throw new Error('Unexpected request service access.');
+  },
+  releaseWait() {
+    throw new Error('Unexpected request service access.');
+  },
+  cleanup() {
+    throw new Error('Unexpected request service access.');
+  },
+  getAttempt() {
+    throw new Error('Unexpected request service access.');
+  },
+  listAttempts() {
+    throw new Error('Unexpected request service access.');
+  },
+};
+
 function makeStubContext(): Context {
   return {
     argv: [],
@@ -42,6 +66,7 @@ function makeStubContext(): Context {
       resolveActive: vi.fn(),
       reconcile: vi.fn(),
     },
+    requestService: unusedRequestService,
     paths: {
       globalDir: '/g',
       globalConfig: '/g/c.json',

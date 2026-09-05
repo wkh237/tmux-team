@@ -140,6 +140,9 @@ function createCtx(
     config: baseConfig,
     tmux,
     identityService,
+    get requestService(): Context['requestService'] {
+      throw new Error('Unexpected request service access.');
+    },
     paths,
     ...(overrides?.preambleService && { preambleService: overrides.preambleService }),
     exit: ((code: number) => {

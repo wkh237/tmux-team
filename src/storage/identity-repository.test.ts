@@ -233,7 +233,7 @@ describe('identity repository contract', () => {
     try {
       expect(verification.prepare('SELECT MAX(version) AS version FROM _migrations').get()).toEqual(
         {
-          version: 3,
+          version: 4,
         }
       );
       expect(

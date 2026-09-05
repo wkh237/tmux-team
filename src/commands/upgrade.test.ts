@@ -24,6 +24,9 @@ function context(json = false): Context {
       resolveActive: vi.fn(),
       reconcile: vi.fn(),
     },
+    get requestService(): Context['requestService'] {
+      throw new Error('Unexpected request service access.');
+    },
     paths: {
       globalDir: '/tmp/tmt',
       globalConfig: '',

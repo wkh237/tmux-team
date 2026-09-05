@@ -180,6 +180,63 @@ describe('createContext', () => {
     expect(repository.close).toHaveBeenCalledOnce();
   });
 
+  it('lazily wires request state to the same repository and lifecycle', async () => {
+    vi.resetModules();
+    const repository = { close: vi.fn() };
+    const openIdentityRepository = vi.fn(() => repository);
+    const requestService = {
+      prepare: vi.fn(),
+      beginSend: vi.fn(),
+      settle: vi.fn(),
+      releaseWait: vi.fn(),
+      cleanup: vi.fn(),
+      getAttempt: vi.fn(),
+      listAttempts: vi.fn(),
+    };
+    const createRequestService = vi.fn(() => requestService);
+    vi.doMock('./storage/identity-repository.js', () => ({ openIdentityRepository }));
+    vi.doMock('./request-service.js', () => ({ createRequestService }));
+
+    const { createContext } = await import('./context.js');
+    const ctx = createContext({
+      argv: [],
+      flags: { json: false, verbose: false },
+      capability: 'storage',
+    });
+
+    expect(createRequestService).not.toHaveBeenCalled();
+    expect(ctx.requestService).toBe(requestService);
+    expect(createRequestService).toHaveBeenCalledWith({ repository });
+    expect(openIdentityRepository).toHaveBeenCalledOnce();
+    ctx.dispose?.();
+    expect(repository.close).toHaveBeenCalledOnce();
+    expect(() => ctx.requestService).toThrow('Context is disposed.');
+    expect(createRequestService).toHaveBeenCalledOnce();
+  });
+
+  it('closes storage when request service construction fails', async () => {
+    vi.resetModules();
+    const repository = { close: vi.fn() };
+    const openIdentityRepository = vi.fn(() => repository);
+    vi.doMock('./storage/identity-repository.js', () => ({ openIdentityRepository }));
+    vi.doMock('./request-service.js', () => ({
+      createRequestService: vi.fn(() => {
+        throw new Error('request service construction failed');
+      }),
+    }));
+
+    const { createContext } = await import('./context.js');
+    const ctx = createContext({
+      argv: [],
+      flags: { json: false, verbose: false },
+      capability: 'storage',
+    });
+    expect(() => ctx.requestService).toThrow('request service construction failed');
+    ctx.dispose?.();
+    expect(openIdentityRepository).toHaveBeenCalledOnce();
+    expect(repository.close).toHaveBeenCalledOnce();
+  });
+
   it('disposes the shared repository without eagerly opening it', async () => {
     vi.resetModules();
     const repository = { close: vi.fn() };

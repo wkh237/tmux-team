@@ -30,6 +30,9 @@ function context(service: RoleService, json = true): Context & { output: unknown
       resolveActive: vi.fn(),
       reconcile: vi.fn(),
     },
+    get requestService(): Context['requestService'] {
+      throw new Error('Unexpected request service access.');
+    },
     paths: {} as Context['paths'],
     roleService: service,
     exit: ((code: number) => {

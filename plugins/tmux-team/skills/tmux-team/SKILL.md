@@ -52,9 +52,18 @@ Use `clear`, not blank `set`. Content is limited to 65,536 UTF-8 bytes.
 `talk` uses the resolved identity's preamble for both names and bound pane
 targets; unnamed panes get none. Role text is never injected automatically.
 `--no-preamble`, disabled `preambleMode`, or `preambleEvery 0` skips injection.
-Frequency N applies on eligible attempts 1, 1+N, ...; counters are still
-best-effort JSON, not a concurrent delivery guarantee. The SQLite cutover starts
-a new identity-ID cadence; old name-keyed counters are not imported.
+Frequency N uses transactional SQLite reservations at effective counts 1, 1+N,
+... for each identity. Sent, uncertain, and pending attempts consume a slot;
+proven unsent attempts refund only future decisions. Overlapping failures can
+therefore differ from exact successful-send spacing; already prepared messages
+never change. The SQLite cadence starts fresh; old JSON state is ignored and
+left untouched.
+
+Concurrent waits retain separate request records and remain advisory, not a
+single-flight lock. Timeout or interruption ends only that waiter; it does not
+cancel the recipient or undo sent cadence. `REQUEST_STATE_ERROR` (exit 1) can
+occur after possible delivery: follow its inspection guidance, never infer that
+retrying is safe. SQLite bookkeeping does not fix terminal response truncation.
 
 Old JSON/workspace-metadata preambles are ignored, not migrated or deleted.
 Reapply intended text explicitly with `preamble set`. Preamble changes persist

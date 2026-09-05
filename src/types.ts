@@ -1,5 +1,6 @@
 import type { DurableIdentity, RoleProfile, TmuxBinding } from './domain/identity.js';
 import type { PreambleService } from './preamble-service.js';
+import type { RequestService } from './request-service.js';
 
 // ─────────────────────────────────────────────────────────────
 // Shared TypeScript interfaces for tmux-team
@@ -185,6 +186,7 @@ export interface Context {
   exit: (code: number) => never;
   identityService: IdentityService;
   preambleService?: PreambleService;
+  requestService: RequestService;
   roleService?: RoleService;
   dispose?: () => void;
 }

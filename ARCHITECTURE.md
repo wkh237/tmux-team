@@ -25,7 +25,8 @@ identity memory, or durable inbox. Adding a command does not imply those feature
   collisions use bounded read-only probing; uncertainty is not evidence of death.
 - Global identity and preamble content are independent of working directory.
   Workspace `$config` still supplies local settings; old registration fields
-  are ignored. JSON request/counter state remains pending transactional replacement.
+  are ignored. Request/cadence state uses the same local SQLite connection;
+  legacy JSON request state is ignored and left untouched.
 - Role documents are stored data, not executable instructions or automatically
   injected preambles. Explicit durable role access works without tmux; implicit
   access requires verified caller identity.
@@ -53,11 +54,15 @@ lookup failure stops preparation rather than silently omitting the prefix.
 The `[SYSTEM: ...]` prefix is ordinary delivered text, not an authenticated
 provider system-message channel.
 
-Existing mode/every settings remain. Eligible attempts use identity-ID-keyed
-JSON cadence at 1, 1+N, ...; disabled/no-content/N=0 paths do not advance it.
-Set, clear and rebind do not reset cadence. No old name-keyed counter import or
-deletion occurs, so the cutover begins a fresh cadence. Failed sends can still
-consume an attempt and concurrent JSON updates can race: TMT-25 owns that gap.
+Existing mode/every settings remain. Eligible attempts reserve identity-ID-keyed
+SQLite cadence at effective counts 1, 1+N, ...; disabled/no-content/N=0 paths
+do not advance it. Set, clear and rebind do not reset cadence. No old JSON
+counter import or deletion occurs, so this cutover begins a fresh cadence.
+Reservations include pending, sent and uncertain attempts; only proven unsent
+attempts refund the effective count for future decisions. Already prepared
+payloads are immutable. Reservation order is deterministic under transactions,
+but overlapping failures do not promise exact successful-send spacing. That
+would require serializing transport, which is not introduced.
 
 Legacy registry adapters and configuration imports are removed. Local settings
 editing preserves unknown JSON keys; ordinary preamble operations never rewrite
@@ -75,8 +80,9 @@ a matching end marker is not proof of a complete, isolated response body.
 `check` is a diagnostic pane snapshot, not correlated response retrieval.
 The [request/response decision document](REQUEST-RESPONSE.md) records TMT-35's
 source evidence, capability limits and staged proposal. Its structured service
-is not shipped: current marker behavior, JSON bookkeeping and CLI grammar remain
-unchanged until their bounded implementation issues land. Keep this distinction
+has only its transactional bookkeeping foundation shipped: marker behavior and
+CLI grammar remain unchanged, and final-body storage/retrieval is still deferred.
+Keep this distinction
 and the document's verification status current as those slices are delivered.
 
 ## Message delivery and uncertainty
@@ -92,9 +98,9 @@ Once paste or literal input has been invoked, failures are uncertain and cannot
 trigger replay or another Enter. The narrow message-delivery error contract
 carries the failed stage without coupling commands to the concrete tmux adapter.
 Both wait and non-wait `talk` map it to `DELIVERY_UNCERTAIN` (exit 1), with
-inspection guidance; successful result shapes remain unchanged. Request-ID
-guarded JSON cleanup remains, but its concurrency limitations are not repaired
-by transport typing.
+inspection guidance; successful result shapes remain unchanged. Exact-attempt
+SQLite cleanup never changes another waiter or refunds a sent/uncertain attempt.
+Transport typing alone does not supply complete response-body correlation.
 
 Transport subprocesses have a one-second timeout, SIGKILL termination and a
 64 KiB output bound. Argv-based capture has a one-second timeout and 4 MiB output
@@ -102,6 +108,37 @@ bound; overflow/failure does not return a successful partial capture. These
 bounds are separate from configured Enter delay and response timeout. Temporary
 buffer cleanup targets only the operation's unique buffer and cannot change
 the delivery outcome. There is no exactly-once agent-processing guarantee.
+
+## Transactional live request state
+
+The request application service owns preparation, transport state, waiter
+release and preamble reservation policy through a narrow repository port.
+The concrete request adapter composes over Context's existing SQLite connection;
+it does not open a second handle. Migration 4 adds attempt metadata and persistent
+identity cadence totals. Neither prompts nor response bodies are stored here.
+
+Each invocation receives an immutable request/attempt identity and records full
+server ID, socket, server PID/start time, pane ID and pane PID. An endpoint is
+not a display name or `%pane_id` alone. Multiple waits on the same endpoint
+retain independent rows; the overlap warning is advisory and `--force` only
+suppresses that warning. This is bookkeeping isolation, not transport
+serialization or proof that terminal-captured responses cannot interleave.
+
+Preparation and marking `sending` commit in separate short transactions before
+the external effect; no request transaction spans tmux, capture or polling.
+Successful transport becomes `sent`. Stageful and generic unknown send failures
+are conservatively `uncertain`. Only evidence of no input, including an expired
+still-prepared attempt, permits a refund. An expired prepared attempt cannot
+later start sending; an expired sending attempt becomes uncertain. Conditional
+settlement/refund is idempotent and cannot mutate another request.
+
+Wait release does not cancel recipient work or alter delivery outcome. Expiry is
+at least one hour and extends for configured send/wait budgets. Opportunistic
+cleanup prunes terminal metadata after 24 hours while keeping cadence totals.
+This policy is not future final-response retention. A failure before reservation
+or begin-send stops input; a post-send persistence failure cannot safely imply
+non-delivery. Commands report `REQUEST_STATE_ERROR` with inspection guidance
+when appropriate. There is no automatic retry, daemon or inbox in this slice.
 
 ## Caller context
 
@@ -220,7 +257,8 @@ are not a complete semantic dependency or dynamically computed-import analysis.
 | [src/tmux-message.ts](src/tmux-message.ts), [src/message-delivery.ts](src/message-delivery.ts)                                           | Stageful protected input and shared submission policy; narrow delivery uncertainty contract consumed by commands without importing the tmux implementation.             |
 | [src/role-content.ts](src/role-content.ts)                                                                                               | Bounded role file reading/UTF-8 decoding; pure role and preamble normalization share `domain/text-content.ts`.                                                          |
 | [src/preamble-service.ts](src/preamble-service.ts)                                                                                       | Explicit durable-name preamble CRUD/list and its narrow repository contract. Context composes the existing SQLite connection.                                           |
-| [src/config.ts](src/config.ts), [src/state.ts](src/state.ts)                                                                             | Path/settings resolution and JSON request/counter state. Legacy registration fields are not loaded as runtime configuration. JSON state is not transactional storage.   |
+| [src/config.ts](src/config.ts)                                                                                                           | Path/settings resolution. Legacy registration fields and request JSON are not runtime authorities.                                                                      |
+| [src/request-service.ts](src/request-service.ts), [src/storage/request-repository.ts](src/storage/request-repository.ts)                 | Application-owned live request/cadence policy and its composed SQL adapter. Context owns the shared connection.                                                         |
 | [src/ui.ts](src/ui.ts), [src/exits.ts](src/exits.ts)                                                                                     | Presentation helpers and exit-code registry; do not invent conflicting mappings.                                                                                        |
 | [src/commands/install.ts](src/commands/install.ts), [src/update-check.ts](src/update-check.ts), [skills/](skills/), [plugins/](plugins/) | User-facing integrations, instructions and updates. These differ from repository developer skills in `.agents/skills/`.                                                 |
 | [test/e2e/](test/e2e/), [scripts/](scripts/), [.github/workflows/ci.yml](.github/workflows/ci.yml)                                       | Docker fixtures/scenarios, orchestration/pack verification and CI. Unit tests are colocated with source; concurrency workers currently also live in `src/`.             |
@@ -278,13 +316,13 @@ These links identify owners of unresolved work, not permission to widen an
 unrelated PR. Update this section and the current map in the delivering PR when
 a gap is resolved; do not leave a permanent exception or label a proposal as shipped.
 
-| Gap                                                                                                                                | Owning issue                                                                                                                                                                                                                   |
-| ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Numeric/flag validation needs hardening.                                                                                           | [TMT-22](https://linear.app/tigerpig-dev/issue/TMT-22)                                                                                                                                                                         |
-| JSON wait/counter updates still have concurrency gaps; terminal completion/extraction cannot guarantee a complete correlated body. | [TMT-25](https://linear.app/tigerpig-dev/issue/TMT-25), [TMT-35](https://linear.app/tigerpig-dev/issue/TMT-35), [TMT-36](https://linear.app/tigerpig-dev/issue/TMT-36), [TMT-37](https://linear.app/tigerpig-dev/issue/TMT-37) |
-| JSON/process error boundaries remain inconsistent outside the bounded preamble and transport mappings.                             | [TMT-26](https://linear.app/tigerpig-dev/issue/TMT-26)                                                                                                                                                                         |
-| Shipped skill/help inventories drift; packed verification does not yet prove application migrations.                               | [TMT-29](https://linear.app/tigerpig-dev/issue/TMT-29)                                                                                                                                                                         |
-| Non-tmux identity management, memory and durable inbox are future capabilities, not installed APIs.                                | [TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30), [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16)                                                         |
+| Gap                                                                                                                          | Owning issue                                                                                                                                                           |
+| ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Numeric/flag validation needs hardening.                                                                                     | [TMT-22](https://linear.app/tigerpig-dev/issue/TMT-22)                                                                                                                 |
+| Terminal completion/extraction cannot guarantee a complete correlated body; transactional bookkeeping does not resolve this. | [TMT-36](https://linear.app/tigerpig-dev/issue/TMT-36), [TMT-37](https://linear.app/tigerpig-dev/issue/TMT-37)                                                         |
+| JSON/process error boundaries remain inconsistent outside the bounded preamble and transport mappings.                       | [TMT-26](https://linear.app/tigerpig-dev/issue/TMT-26)                                                                                                                 |
+| Shipped skill/help inventories drift; packed verification does not yet prove application migrations.                         | [TMT-29](https://linear.app/tigerpig-dev/issue/TMT-29)                                                                                                                 |
+| Non-tmux identity management, memory and durable inbox are future capabilities, not installed APIs.                          | [TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30), [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16) |
 
 ## Maintenance contract
 
