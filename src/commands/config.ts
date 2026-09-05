@@ -13,7 +13,7 @@ import {
   clearLocalSettings,
 } from '../config.js';
 
-type EnumConfigKey = 'mode' | 'preambleMode';
+type EnumConfigKey = 'preambleMode';
 type NumericConfigKey = 'preambleEvery' | 'pasteEnterDelayMs';
 type ConfigKey = EnumConfigKey | NumericConfigKey;
 
@@ -25,12 +25,11 @@ export interface ConfigRequest {
   readonly global: boolean;
 }
 
-const ENUM_KEYS: EnumConfigKey[] = ['mode', 'preambleMode'];
+const ENUM_KEYS: EnumConfigKey[] = ['preambleMode'];
 const NUMERIC_KEYS: NumericConfigKey[] = ['preambleEvery', 'pasteEnterDelayMs'];
 const VALID_KEYS: ConfigKey[] = [...ENUM_KEYS, ...NUMERIC_KEYS];
 
 const VALID_VALUES: Record<EnumConfigKey, string[]> = {
-  mode: ['polling', 'wait'],
   preambleMode: ['always', 'disabled'],
 };
 
@@ -61,14 +60,12 @@ function showConfig(ctx: Context): void {
   if (ctx.flags.json) {
     ctx.ui.json({
       resolved: {
-        mode: ctx.config.mode,
         preambleMode: ctx.config.preambleMode,
         preambleEvery: ctx.config.defaults.preambleEvery,
         pasteEnterDelayMs: ctx.config.defaults.pasteEnterDelayMs,
         defaults: ctx.config.defaults,
       },
       sources: {
-        mode: localSettings?.mode ? 'local' : globalConfig.mode ? 'global' : 'default',
         preambleMode: localSettings?.preambleMode
           ? 'local'
           : globalConfig.preambleMode
@@ -96,7 +93,6 @@ function showConfig(ctx: Context): void {
   }
 
   // Determine sources
-  const modeSource = localSettings?.mode ? '(local)' : globalConfig.mode ? '(global)' : '(default)';
   const preambleSource = localSettings?.preambleMode
     ? '(local)'
     : globalConfig.preambleMode
@@ -119,7 +115,6 @@ function showConfig(ctx: Context): void {
   ctx.ui.table(
     ['Key', 'Value', 'Source'],
     [
-      ['mode', ctx.config.mode, modeSource],
       ['preambleMode', ctx.config.preambleMode, preambleSource],
       ['preambleEvery', String(ctx.config.defaults.preambleEvery), preambleEverySource],
       ['pasteEnterDelayMs', String(ctx.config.defaults.pasteEnterDelayMs), pasteEnterDelaySource],
@@ -167,9 +162,7 @@ function setConfig(ctx: Context, key: string, value: string, global: boolean): v
   if (global) {
     // Set in global config
     const globalConfig = loadGlobalConfig(ctx.paths);
-    if (key === 'mode') {
-      globalConfig.mode = value as 'polling' | 'wait';
-    } else if (key === 'preambleMode') {
+    if (key === 'preambleMode') {
       globalConfig.preambleMode = value as 'always' | 'disabled';
     } else if (key === 'preambleEvery') {
       if (!globalConfig.defaults) {
@@ -177,7 +170,6 @@ function setConfig(ctx: Context, key: string, value: string, global: boolean): v
           timeout: 180,
           pollInterval: 1,
           captureLines: 100,
-          maxCaptureLines: 2000,
           preambleEvery: parseInt(value, 10),
           pasteEnterDelayMs: 500,
         };
@@ -190,7 +182,6 @@ function setConfig(ctx: Context, key: string, value: string, global: boolean): v
           timeout: 180,
           pollInterval: 1,
           captureLines: 100,
-          maxCaptureLines: 2000,
           preambleEvery: 3,
           pasteEnterDelayMs: parseInt(value, 10),
         };
@@ -202,9 +193,7 @@ function setConfig(ctx: Context, key: string, value: string, global: boolean): v
     ctx.ui.success(`Set ${key}=${value} in global config`);
   } else {
     // Set in local config
-    if (key === 'mode') {
-      updateLocalSettings(ctx.paths, { mode: value as 'polling' | 'wait' });
-    } else if (key === 'preambleMode') {
+    if (key === 'preambleMode') {
       updateLocalSettings(ctx.paths, { preambleMode: value as 'always' | 'disabled' });
     } else if (key === 'preambleEvery') {
       updateLocalSettings(ctx.paths, { preambleEvery: parseInt(value, 10) });
@@ -220,7 +209,10 @@ function setConfig(ctx: Context, key: string, value: string, global: boolean): v
  */
 function clearConfig(ctx: Context, key?: string): void {
   if (key) {
-    if (!isValidKey(key)) {
+    // mode is an obsolete local-only key. It may be explicitly removed, but
+    // it is not part of the runtime or config set/show surface anymore.
+    const isObsoleteMode = key === 'mode';
+    if (!isObsoleteMode && !isValidKey(key)) {
       ctx.ui.error(`Invalid key: ${key}. Valid keys: ${VALID_KEYS.join(', ')}`);
       ctx.exit(ExitCodes.ERROR);
     }
@@ -228,7 +220,7 @@ function clearConfig(ctx: Context, key?: string): void {
     // Clear specific key from local settings
     const localConfigFile = loadLocalConfigFile(ctx.paths);
     if (localConfigFile.$config) {
-      delete localConfigFile.$config[key];
+      delete (localConfigFile.$config as unknown as Record<string, unknown>)[key];
       // Remove $config if empty
       if (Object.keys(localConfigFile.$config).length === 0) {
         delete localConfigFile.$config;

@@ -83,11 +83,9 @@ tmt reply <request-id> --receipt <receipt> --stdin < response.md
 tmt result <request-id> --json
 ```
 
-Use exactly one input source and the receipt supplied by TMT. Do not invent a
-receipt, guess the latest request, or infer a pane. In this release, `talk`
-still uses marker-based terminal capture and does not generate receipts;
-TMT-39 owns receipt generation and durable completion. There is no `--detach`
-or default durable-wait behavior yet. A successful submission means the
+Use exactly one input source and the request ID/receipt supplied by `talk`,
+including detached requests. Do not invent a receipt, guess the latest
+request, or infer a pane. A successful submission means the
 result was delivered, not that the task succeeded; summarize only afterward.
 
 An identical retry for the same request and attempt keeps the original
@@ -110,6 +108,16 @@ With `--json`, unavailable output is
 
 tmux-team is CLI-only: each invocation exits after its operation and no daemon
 or background service is required.
+
+Talk waits for a complete durable final by default, with a 180-second timeout
+unless `defaults.timeout` is configured. `--timeout` accepts positive seconds
+or ms/s suffixes, at most 24 hours. Use `--detach` instead of explicit timeout
+to return a request ID after sending; retrieve it with `result` later.
+Timeout/interruption never cancels work or permits automatic resend. Terminal
+markers, idle output and summaries are not completion signals; `check` is only
+diagnostic. Same-pane input serialization and exactly-once processing are not
+guaranteed. `--wait` is retired, `--lines` is for check, and stored mode values
+are inert. `config clear mode` removes only the obsolete local key.
 
 ## Claude Code
 
@@ -149,7 +157,7 @@ cp skills/codex/SKILL.md ~/.agents/skills/tmux-team/SKILL.md
 
 ```bash
 # Explicit invocation
-$tmt talk codex "Review this PR" --wait
+$tmt talk codex "Review this PR" --json
 
 # Implicit - Codex auto-selects when you mention other agents
 "Ask the codex agent to review the authentication code"

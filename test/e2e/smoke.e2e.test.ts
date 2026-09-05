@@ -2,6 +2,13 @@ import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { E2EFixture, withE2EFixture } from './harness.js';
 
+interface TalkResult {
+  status?: string;
+  requestId?: string;
+  response?: string;
+  error?: { code: string };
+}
+
 describe.sequential('Docker/Vitest tmux foundation smoke scenarios', () => {
   it('propagates real CLI stdout, stderr, and exit codes', async () => {
     await withE2EFixture(async (fixture) => {
@@ -19,59 +26,69 @@ describe.sequential('Docker/Vitest tmux foundation smoke scenarios', () => {
     });
   });
 
-  it('transports deterministic mock-agent input/output through real tmux', async () => {
+  it('transports a durable request and records request, submission, and summary through real tmux', async () => {
     await withE2EFixture(async (fixture) => {
       expect(fixture.serverIsRunning()).toBe(true);
       expect(fixture.tmux(['list-panes', '-a']).trim()).toContain(fixture.pane);
 
-      const nonce = 'foundation123';
-      fixture.sendMockInput([
-        'hello from the foundation',
-        '',
-        `When done, output exactly: RESPONSE-END-xxxx (where xxxx = ${nonce})`,
+      const message = 'hello from the foundation';
+      const result = await fixture.runJsonCli<TalkResult>([
+        'talk',
+        fixture.pane,
+        message,
+        '--no-preamble',
+        '--timeout',
+        '5',
       ]);
-      const output = await fixture.waitForCapture(
-        (capture) =>
-          capture.includes('mock-agent response: hello from the foundation') &&
-          capture.includes(`RESPONSE-END-${nonce}`)
+      expect(result.code).toBe(0);
+      expect(result.json).toMatchObject({
+        status: 'completed',
+        response: `mock-agent response: ${message}`,
+      });
+      const request = await fixture.waitForEvent(
+        (event) => event.event === 'request' && event.requestId === result.json?.requestId
       );
-      await fixture.waitForEvent((event) => event.event === 'response' && event.nonce === nonce);
-
+      const submitted = await fixture.waitForEvent(
+        (event) => event.event === 'submitted' && event.requestId === result.json?.requestId
+      );
+      const summary = await fixture.waitForEvent(
+        (event) => event.event === 'summary' && event.requestId === result.json?.requestId
+      );
+      expect(request.message).toBe(message);
+      expect(submitted.body).toBe(result.json?.response);
+      expect(summary.message).toBe(message);
       const events = fixture.events();
-      expect(events[0]).toEqual({
-        event: 'ready',
-        mode: 'respond',
-        pid: fixture.panePid,
-      });
-      expect(events).toContainEqual({
-        event: 'request',
-        message: 'hello from the foundation',
-        nonce,
-        mode: 'respond',
-        pid: fixture.panePid,
-      });
-      expect(events).toContainEqual({
-        event: 'response',
-        message: 'hello from the foundation',
-        nonce,
-        mode: 'respond',
-        pid: fixture.panePid,
-      });
-      expect(output).toContain('mock-agent response: hello from the foundation');
+      const requestIndex = events.findIndex(
+        (event) => event.event === 'request' && event.requestId === result.json?.requestId
+      );
+      const submittedIndex = events.findIndex(
+        (event) => event.event === 'submitted' && event.requestId === result.json?.requestId
+      );
+      const summaryIndex = events.findIndex(
+        (event) => event.event === 'summary' && event.requestId === result.json?.requestId
+      );
+      expect(requestIndex).toBeGreaterThanOrEqual(0);
+      expect(submittedIndex).toBeGreaterThan(requestIndex);
+      expect(summaryIndex).toBeGreaterThan(submittedIndex);
     });
   });
 
   it('records a silent mock-agent lifecycle without fabricating a response', async () => {
     await withE2EFixture(
       async (fixture) => {
-        const nonce = 'silent123';
-        fixture.sendMockInput([
+        const result = await fixture.runJsonCli<TalkResult>([
+          'talk',
+          fixture.pane,
           'silent request',
-          '',
-          `When done, output exactly: RESPONSE-END-xxxx (where xxxx = ${nonce})`,
+          '--no-preamble',
+          '--timeout',
+          '1',
         ]);
-        await fixture.waitForEvent((event) => event.event === 'silent' && event.nonce === nonce);
-
+        expect(result.code).toBe(4);
+        expect(result.json).toMatchObject({ status: 'timeout', error: { code: 'TIMEOUT' } });
+        await fixture.waitForEvent(
+          (event) => event.event === 'silent' && event.requestId === result.json?.requestId
+        );
         const events = fixture.events();
         expect(events.map((event) => event.event)).toEqual(['ready', 'request', 'silent']);
         expect(fixture.capture()).not.toContain('mock-agent response: silent request');
@@ -83,20 +100,23 @@ describe.sequential('Docker/Vitest tmux foundation smoke scenarios', () => {
   it('records malformed output separately from a valid response', async () => {
     await withE2EFixture(
       async (fixture) => {
-        const nonce = 'malformed123';
-        fixture.sendMockInput([
+        const process = fixture.runCliProcess<TalkResult>([
+          '--json',
+          'talk',
+          fixture.pane,
           'malformed request',
-          '',
-          `When done, output exactly: RESPONSE-END-xxxx (where xxxx = ${nonce})`,
+          '--no-preamble',
+          '--timeout',
+          '1',
         ]);
-        const output = await fixture.waitForCapture((capture) =>
-          capture.includes('mock-agent malformed response: malformed request')
-        );
-        await fixture.waitForEvent((event) => event.event === 'malformed' && event.nonce === nonce);
-
+        const malformed = await fixture.waitForEvent((event) => event.event === 'malformed');
+        const result = await process.result;
+        expect(result.code).toBe(4);
+        expect(result.json).toMatchObject({ status: 'timeout', error: { code: 'TIMEOUT' } });
         const events = fixture.events();
         expect(events.map((event) => event.event)).toEqual(['ready', 'request', 'malformed']);
-        expect(output).not.toContain(`RESPONSE-END-${nonce}`);
+        expect(malformed.message).toBe('malformed request');
+        expect(fixture.capture()).not.toContain('RESPONSE-END-');
       },
       { mode: 'malformed' }
     );

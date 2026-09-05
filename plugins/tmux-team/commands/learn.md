@@ -15,7 +15,8 @@ Each agent runs in its own tmux pane. When you want to talk to another agent:
 
 1. Your message is pasted via a tmux buffer
 2. tmux-team waits briefly, then sends Enter to submit
-3. You read their response by capturing their pane output
+3. The recipient submits its complete final through `tmt reply`
+4. Talk returns that retained body; `check` is a diagnostic snapshot only
 
 ## Essential Commands
 
@@ -24,7 +25,7 @@ Each agent runs in its own tmux pane. When you want to talk to another agent:
 tmt list
 
 # Send and wait for response (recommended); use a name or pane target
-tmt talk <target> "<message>" --wait
+tmt talk <target> "<message>" --json
 
 # Inspect output by name or pane target
 tmt check <target> 100
@@ -35,20 +36,20 @@ tmt check <target> 100
 ### Quick question to another agent
 
 ```bash
-tmt talk codex "What's the status of the authentication refactor?" --wait
+tmt talk codex "What's the status of the authentication refactor?" --json
 # Response is returned directly
 ```
 
-### Delegate a task with longer timeout and more output
+### Delegate a task with a longer timeout
 
 ```bash
-tmt talk codex "Please implement the login form. Reply when done." --wait --timeout 300 --lines 200
+tmt talk codex "Please implement the login form. Reply when done." --timeout 300 --json
 ```
 
 ### Address a named identity
 
 ```bash
-tmt talk codex "Sync: PR #123 was merged, please pull latest" --wait
+tmt talk codex "Sync: PR #123 was merged, please pull latest" --json
 ```
 
 The name `all` is an ordinary identity, not a special destination. To address
@@ -71,17 +72,24 @@ tmt config set pasteEnterDelayMs 500
 
 To find your pane ID, run: tmux display-message -p '#{pane_id}'
 
-## If --wait Times Out
+## Waiting and retrieving results
 
-If the agent takes longer than expected, --wait will timeout. Use the check command to retrieve the response later:
+Talk waits for a durable final by default, with 180 seconds unless configured.
+Use positive seconds or ms/s suffixes, at most 24 hours, for `--timeout`.
+Use `--detach` instead of explicit timeout to return a request ID after sending.
+On timeout, preserve that ID and retrieve the result later:
 
 ```bash
-# Check for response after timeout (default 100 lines)
-tmt check <target>
-
-# Check with more lines for long responses
-tmt check <target> 200
+tmt result <request-id> --json
+tmt check <target> 200  # diagnostics only
 ```
+
+`--wait` is retired; `--lines` belongs to check, not talk. Stored mode settings
+are inert; `config clear mode` removes only that local obsolete key. Timeout
+or interruption never cancels work or makes a resend safe. Transport/Enter
+time counts after preparation/delay but cannot be interrupted mid-operation.
+Markers, idle output and summaries never complete a request without a reply.
+Same-pane input serialization and exactly-once processing are not guaranteed.
 
 ## Durable result replies
 
@@ -93,10 +101,9 @@ tmt reply <request-id> --receipt <receipt> --stdin < response.md
 tmt result <request-id> --json
 ```
 
-Use exactly one input source and never manufacture a receipt, select the latest
-request, or infer a pane. `talk` is still marker-based in this release and
-does not generate receipts; TMT-39 owns receipt generation and durable
-completion. There is no `--detach` behavior yet. Submission confirms result
+Use exactly one input source and the exact request ID/receipt from the received
+talk instruction, including detached requests. Never manufacture a receipt,
+select the latest request, or infer a pane. Submission confirms result
 delivery, not task success; summarize only after a successful submission.
 
 An identical retry keeps the original submission timestamp; a different body
@@ -117,11 +124,11 @@ and conflicts exit 5. JSON unavailable output is
 
 ## Best Practices
 
-1. Use `--wait` for synchronous request/response; use `check` after timeout
+1. Submit the full reply before giving a brief truthful work/tests/blockers summary
 2. **Be explicit** - Tell the other agent exactly what you need and how to respond
 3. **Set timeout appropriately** - Use --timeout 300 for complex tasks
-4. **Use --lines for long responses** - Default is 100 lines, increase for verbose output
-5. **If timeout occurs** - Use "tmux-team check <target> [lines]" to retrieve the response
+4. **Use result for complete output** - Never reconstruct results from terminal capture
+5. **If timeout occurs** - Use `tmt result <request-id> --json`; do not automatically resend
 6. **Use stable pane IDs in scripts** - `tmt add` resolves window-style targets to `%pane_id`
 
 ## Your Next Step

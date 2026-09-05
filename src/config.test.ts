@@ -202,7 +202,6 @@ describe('loadConfig', () => {
   it('returns default config when no config files exist', () => {
     const config = loadConfig(mockPaths);
 
-    expect(config.mode).toBe('wait');
     expect(config.preambleMode).toBe('always');
     expect(config.defaults.timeout).toBe(180);
     expect(config.defaults.pollInterval).toBe(1);
@@ -210,11 +209,11 @@ describe('loadConfig', () => {
     expect(config.defaults.pasteEnterDelayMs).toBe(500);
   });
 
-  it('loads and merges global config (mode, preambleMode, defaults only)', () => {
+  it('loads runtime settings while leaving obsolete mode and extraction keys opaque', () => {
     const globalConfig = {
-      mode: 'wait',
       preambleMode: 'disabled',
-      defaults: { timeout: 120 },
+      mode: 'wait',
+      defaults: { timeout: 120, maxCaptureLines: 999 },
     };
 
     vi.mocked(fs.existsSync).mockImplementation((p) => p === mockPaths.globalConfig);
@@ -222,9 +221,9 @@ describe('loadConfig', () => {
 
     const config = loadConfig(mockPaths);
 
-    expect(config.mode).toBe('wait');
     expect(config.preambleMode).toBe('disabled');
     expect(config.defaults.timeout).toBe(120);
+    expect(config.defaults).not.toHaveProperty('maxCaptureLines');
     expect(config.defaults.pollInterval).toBe(1); // Default preserved
   });
 
@@ -266,7 +265,7 @@ describe('loadConfig', () => {
     });
 
     const config = loadConfig(mockPaths);
-    expect(config.mode).toBe('wait');
+    expect(config).not.toHaveProperty('mode');
     expect(config.defaults.preambleEvery).toBe(5);
     expect(config).not.toHaveProperty('agents');
     expect(config).not.toHaveProperty('paneRegistry');

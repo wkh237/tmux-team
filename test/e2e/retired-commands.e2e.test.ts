@@ -178,7 +178,7 @@ describe.sequential('retired legacy registry commands', () => {
         identity: { name: string };
         status: string;
         response: string;
-      }>(['talk', 'SharedIdentity', '--wait', '--timeout', '10', '--', message]);
+      }>(['talk', 'SharedIdentity', '--timeout', '10', '--', message]);
       expect(result.code).toBe(0);
       expect(result.json).toMatchObject({
         pane: fixture.pane,
@@ -189,7 +189,7 @@ describe.sequential('retired legacy registry commands', () => {
 
       await fixture.waitForEvent(
         (event) =>
-          event.event === 'response' && event.pid === fixture.panePid && event.message === message
+          event.event === 'submitted' && event.pid === fixture.panePid && event.message === message
       );
       const events = fixture.events();
       expect(
@@ -201,7 +201,7 @@ describe.sequential('retired legacy registry commands', () => {
       expect(
         events.some(
           (event) =>
-            (event.event === 'request' || event.event === 'response') &&
+            (event.event === 'request' || event.event === 'submitted') &&
             event.pid === peer.pid &&
             event.message === message
         )

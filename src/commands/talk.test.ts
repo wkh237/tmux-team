@@ -1,104 +1,83 @@
-// ─────────────────────────────────────────────────────────────
-// Talk Command Tests - --delay, --wait, preambles, nonce detection
-// ─────────────────────────────────────────────────────────────
-
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
-import type { Context, Tmux, UI, Paths, ResolvedConfig, Flags } from '../types.js';
-import type { RequestService, RequestSettlement } from '../request-service.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import Database from 'better-sqlite3';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import type { Context, Flags, Paths, ResolvedConfig, Tmux, UI } from '../types.js';
+import type {
+  RequestEndpoint,
+  RequestService,
+  RequestAttemptRecord,
+  RequestSettlement,
+} from '../request-service.js';
 import { createRequestService } from '../request-service.js';
 import { openIdentityRepository, type IdentityRepository } from '../storage/identity-repository.js';
 import { ExitCodes } from '../exits.js';
 import { TmuxDeliveryError } from '../message-delivery.js';
+import { decodeReplyReceipt } from '../reply-receipt.js';
 import { cmdTalk } from './talk.js';
 
-// ─────────────────────────────────────────────────────────────
-// Constants
-// ─────────────────────────────────────────────────────────────
+const ENDPOINT = {
+  serverId: 'server-test',
+  socketPath: '/tmp/tmt-test',
+  serverPid: 123,
+  serverStartTime: 'test-start',
+  paneId: '%1',
+  panePid: 456,
+} as const;
 
-// Regex to extract nonce from instruction (new format: "where xxxx = <nonce>")
-const INSTRUCTION_NONCE_REGEX = /where xxxx = ([a-f0-9]+)/;
-
-// ─────────────────────────────────────────────────────────────
-// Test utilities
-// ─────────────────────────────────────────────────────────────
-
-function createMockTmux(): Tmux & {
-  sends: Array<{ pane: string; message: string }>;
-  captureReturn: string;
-} {
-  const mock = {
-    sends: [] as Array<{ pane: string; message: string }>,
-    captureReturn: '',
-    send(pane: string, message: string) {
-      mock.sends.push({ pane, message });
-    },
-    capture(_pane: string, _lines: number) {
-      return mock.captureReturn;
-    },
-    listPanes() {
-      return [];
-    },
-    getCurrentPaneId() {
-      return null;
-    },
-    resolvePaneTarget(target: string) {
-      return target;
-    },
-    setPaneTitle() {},
-    getEndpointSnapshot() {
-      return {
-        server: {
-          serverId: 'server-test',
-          socketPath: '/tmp/tmt-test',
-          serverPid: 123,
-          serverStartTime: 'test-start',
-        },
-        panes: ['1.0', '1.1', '1.2', '1.9', '%9'].map((id) => ({
-          id,
-          command: 'test-agent',
-          panePid: 456,
-          suggestedName: null,
-        })),
-      };
-    },
-  };
-  return mock;
+type SentMessage = { pane: string; message: string };
+interface MockTmux extends Tmux {
+  readonly sends: SentMessage[];
+  readonly captureCalls: number;
 }
-
 interface RequestFixture {
   readonly repository: IdentityRepository;
   readonly service: RequestService;
   readonly identityIds: ReadonlyMap<string, string>;
 }
+interface TestUI extends UI {
+  readonly errors: string[];
+  readonly warnings: string[];
+  readonly jsonOutput: unknown[];
+}
 
-const requestFixtures = new Map<string, RequestFixture>();
-const ownedTempDirs = new Set<string>();
+const fixtures = new Map<string, RequestFixture>();
+const temporaryDirectories = new Set<string>();
 
-function createOwnedTempDir(prefix: string): string {
+function temporaryDirectory(prefix: string): string {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  ownedTempDirs.add(directory);
+  temporaryDirectories.add(directory);
   return directory;
 }
 
+function closeFixtures(): void {
+  for (const fixture of fixtures.values()) fixture.repository.close();
+  fixtures.clear();
+  for (const directory of temporaryDirectories)
+    fs.rmSync(directory, { recursive: true, force: true });
+  temporaryDirectories.clear();
+}
+afterEach(closeFixtures);
+
 function requestFixture(databaseFile: string): RequestFixture {
-  const existing = requestFixtures.get(databaseFile);
+  const existing = fixtures.get(databaseFile);
   if (existing) return existing;
   const repository = openIdentityRepository(databaseFile);
   try {
     const identityIds = new Map<string, string>();
     for (const name of ['claude', 'codex', 'gemini', 'all']) {
-      const existingIdentity = repository.findByCanonicalName(name);
-      identityIds.set(name, (existingIdentity ?? repository.createIdentity(name, name)).id);
+      const identity =
+        repository.findByCanonicalName(name) ?? repository.createIdentity(name, name);
+      identityIds.set(name, identity.id);
     }
     const fixture = {
       repository,
       service: createRequestService({ repository }),
       identityIds,
     };
-    requestFixtures.set(databaseFile, fixture);
+    fixtures.set(databaseFile, fixture);
     return fixture;
   } catch (error) {
     repository.close();
@@ -106,30 +85,21 @@ function requestFixture(databaseFile: string): RequestFixture {
   }
 }
 
-function closeRequestFixtures(): void {
-  for (const fixture of requestFixtures.values()) fixture.repository.close();
-  requestFixtures.clear();
-  for (const directory of ownedTempDirs) {
-    if (fs.existsSync(directory)) fs.rmSync(directory, { recursive: true, force: true });
-  }
-  ownedTempDirs.clear();
-}
-
-afterEach(closeRequestFixtures);
-
-function createMockUI(): UI & { errors: string[]; warnings: string[]; jsonOutput: unknown[] } {
-  const mock = {
-    errors: [] as string[],
-    warnings: [] as string[],
-    jsonOutput: [] as unknown[],
+function createUI(): TestUI {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+  const jsonOutput: unknown[] = [];
+  return {
+    errors,
+    warnings,
+    jsonOutput,
     info: vi.fn(),
     success: vi.fn(),
-    warn: (msg: string) => mock.warnings.push(msg),
-    error: (msg: string) => mock.errors.push(msg),
+    warn: (message: string) => warnings.push(message),
+    error: (message: string) => errors.push(message),
     table: vi.fn(),
-    json: (data: unknown) => mock.jsonOutput.push(data),
+    json: (value: unknown) => jsonOutput.push(value),
   };
-  return mock;
 }
 
 function activeIdentity(name: string, paneId: string) {
@@ -146,11 +116,11 @@ function activeIdentity(name: string, paneId: string) {
       identityId: `identity-${name}`,
       transport: 'tmux' as const,
       paneId,
-      serverId: 's',
-      socketPath: '/s',
-      serverPid: 1,
-      serverStartTime: 'now',
-      panePid: 1,
+      serverId: ENDPOINT.serverId,
+      socketPath: ENDPOINT.socketPath,
+      serverPid: ENDPOINT.serverPid,
+      serverStartTime: ENDPOINT.serverStartTime,
+      panePid: ENDPOINT.panePid,
       boundAt: 'now',
       lastVerifiedAt: 'now',
     },
@@ -158,82 +128,85 @@ function activeIdentity(name: string, paneId: string) {
   };
 }
 
-function createTestPaths(testDir: string): Paths {
+function createMockTmux(options: { readonly onSend?: (message: string) => void } = {}): MockTmux {
+  const sends: SentMessage[] = [];
+  let captureCalls = 0;
   return {
-    globalDir: testDir,
-    globalConfig: path.join(testDir, 'config.json'),
-    localConfig: path.join(testDir, 'tmux-team.json'),
-    stateFile: path.join(testDir, 'state.json'),
-    databaseFile: path.join(testDir, 'tmux-team.db'),
+    sends,
+    get captureCalls() {
+      return captureCalls;
+    },
+    send(pane, message) {
+      sends.push({ pane, message });
+      options.onSend?.(message);
+    },
+    capture() {
+      captureCalls += 1;
+      throw new Error('terminal capture is not a durable completion oracle');
+    },
+    listPanes: () => [],
+    getCurrentPaneId: () => null,
+    resolvePaneTarget: (target: string) => target,
+    setPaneTitle: () => undefined,
+    getEndpointSnapshot: () => ({
+      server: {
+        serverId: ENDPOINT.serverId,
+        socketPath: ENDPOINT.socketPath,
+        serverPid: ENDPOINT.serverPid,
+        serverStartTime: ENDPOINT.serverStartTime,
+      },
+      panes: [
+        { id: '%1', command: 'claude', panePid: ENDPOINT.panePid, suggestedName: 'claude' },
+        { id: '%2', command: 'codex', panePid: 457, suggestedName: 'codex' },
+        { id: '%3', command: 'gemini', panePid: 458, suggestedName: 'gemini' },
+        { id: '%9', command: 'test-agent', panePid: 459, suggestedName: null },
+      ],
+    }),
   };
 }
 
-function createDefaultConfig(): ResolvedConfig {
+function createPaths(root: string): Paths {
   return {
-    mode: 'polling',
+    globalDir: root,
+    globalConfig: path.join(root, 'config.json'),
+    localConfig: path.join(root, 'tmux-team.json'),
+    stateFile: path.join(root, 'state.json'),
+    databaseFile: path.join(root, 'tmux-team.db'),
+  };
+}
+
+function createConfig(overrides: Partial<ResolvedConfig['defaults']> = {}): ResolvedConfig {
+  return {
     preambleMode: 'always',
     defaults: {
-      timeout: 60,
-      pollInterval: 0.1, // Fast polling for tests
+      timeout: 180,
+      pollInterval: 0.001,
       captureLines: 100,
-      maxCaptureLines: 2000,
       preambleEvery: 3,
-      pasteEnterDelayMs: 500,
+      pasteEnterDelayMs: 0,
+      ...overrides,
     },
   };
 }
 
-function createMockPreambleService(content?: string): NonNullable<Context['preambleService']> {
-  const identities = new Map([
-    [
-      'claude',
+function createPreambleService(content = 'Be concise'): NonNullable<Context['preambleService']> {
+  const identities = new Map(
+    ['claude', 'codex', 'gemini', 'all'].map((name) => [
+      name,
       {
-        id: 'identity-claude',
-        name: 'claude',
-        canonicalName: 'claude',
+        id: `identity-${name}`,
+        name,
+        canonicalName: name,
         createdAt: 'now',
         updatedAt: 'now',
       },
-    ],
-    [
-      'codex',
-      {
-        id: 'identity-codex',
-        name: 'codex',
-        canonicalName: 'codex',
-        createdAt: 'now',
-        updatedAt: 'now',
-      },
-    ],
-    [
-      'gemini',
-      {
-        id: 'identity-gemini',
-        name: 'gemini',
-        canonicalName: 'gemini',
-        createdAt: 'now',
-        updatedAt: 'now',
-      },
-    ],
-    [
-      'all',
-      {
-        id: 'identity-all',
-        name: 'all',
-        canonicalName: 'all',
-        createdAt: 'now',
-        updatedAt: 'now',
-      },
-    ],
-  ]);
+    ])
+  );
   return {
     show: vi.fn((name: string) => {
       const identity = identities.get(name);
       if (!identity) throw new Error(`Unknown identity: ${name}`);
-      return {
-        identity,
-        preamble: content ? { content, updatedAt: 'now' } : null,
-      };
+      return { identity, preamble: content ? { content, updatedAt: 'now' } : null };
     }),
     set: vi.fn(),
     clear: vi.fn(),
@@ -242,1779 +215,879 @@ function createMockPreambleService(content?: string): NonNullable<Context['pream
 }
 
 function createContext(
+  root: string,
   overrides: Partial<{
     tmux: Tmux;
-    ui: UI;
-    config: Partial<Omit<ResolvedConfig, 'defaults'>> & {
-      defaults?: Partial<ResolvedConfig['defaults']>;
-    };
+    ui: TestUI;
+    config: ResolvedConfig;
     flags: Partial<Flags>;
-    paths: Paths;
     preambleService: NonNullable<Context['preambleService']>;
     requestService: RequestService;
-  }>
+    identities: string[];
+  }> = {}
 ): Context {
-  const exitError = new Error('exit called');
-  (exitError as Error & { exitCode?: number }).exitCode = 0;
-
-  const baseConfig = createDefaultConfig();
-  const config = {
-    ...baseConfig,
-    ...overrides.config,
-    defaults: {
-      ...baseConfig.defaults,
-      ...overrides.config?.defaults,
-    },
-  };
-  const flags: Flags = { json: false, verbose: false, ...overrides.flags };
-  const tmux = overrides.tmux || createMockTmux();
-  const paths = overrides.paths || createTestPaths(createOwnedTempDir('talk-default-'));
-  const requestFixtureValue = requestFixture(paths.databaseFile);
-  const sourcePreambleService = overrides.preambleService || createMockPreambleService();
+  const paths = createPaths(root);
+  const fixture = requestFixture(paths.databaseFile);
+  const sourcePreamble = overrides.preambleService ?? createPreambleService();
   const preambleService: NonNullable<Context['preambleService']> = {
-    ...sourcePreambleService,
+    ...sourcePreamble,
     show(name: string) {
-      const result = sourcePreambleService.show(name);
-      const identityId = requestFixtureValue.identityIds.get(name);
-      if (!identityId) return result;
-      return { ...result, identity: { ...result.identity, id: identityId } };
+      const result = sourcePreamble.show(name);
+      const identityId = fixture.identityIds.get(name);
+      return identityId ? { ...result, identity: { ...result.identity, id: identityId } } : result;
     },
-  };
-  const identityService = {
-    bindCurrent: vi.fn(),
-    bindPane: vi.fn(),
-    unbindCurrent: vi.fn(),
-    currentIdentity: vi.fn(),
-    activeIdentities: vi.fn(() =>
-      ['claude', 'codex', 'gemini'].map((name, index) => activeIdentity(name, `1.${index}`))
-    ),
-    resolveActive: vi.fn(),
-    reconcile: vi.fn(),
   };
   return {
     argv: [],
-    flags,
-    ui: overrides.ui || createMockUI(),
-    config,
-    tmux,
-    identityService,
+    flags: { json: true, verbose: false, ...overrides.flags } as Flags,
+    ui: overrides.ui ?? createUI(),
+    config: overrides.config ?? createConfig(),
+    tmux: overrides.tmux ?? createMockTmux(),
+    identityService: {
+      bindCurrent: vi.fn(),
+      bindPane: vi.fn(),
+      unbindCurrent: vi.fn(),
+      currentIdentity: vi.fn(),
+      activeIdentities: vi.fn(() =>
+        (overrides.identities ?? ['claude', 'codex', 'gemini']).map((name, index) =>
+          activeIdentity(name, `%${index + 1}`)
+        )
+      ),
+      resolveActive: vi.fn(),
+      reconcile: vi.fn(),
+    },
     preambleService,
-    requestService: overrides.requestService || requestFixtureValue.service,
+    requestService: overrides.requestService ?? fixture.service,
     paths,
-    exit: ((code: number) => {
-      const err = new Error(`exit(${code})`);
-      (err as Error & { exitCode: number }).exitCode = code;
-      throw err;
-    }) as (code: number) => never,
+    exit: ((code: number): never => {
+      throw Object.assign(new Error(`exit(${code})`), { exitCode: code });
+    }) as Context['exit'],
   };
 }
 
-// ─────────────────────────────────────────────────────────────
-// Tests
-// ─────────────────────────────────────────────────────────────
+function onlyAttempt(service: RequestService): RequestAttemptRecord {
+  const records = service.listAttempts();
+  if (records.length !== 1) throw new Error(`Expected one attempt, found ${records.length}.`);
+  return records[0]!;
+}
 
-describe('buildMessage (via cmdTalk)', () => {
-  let testDir: string;
+function attemptFromInstruction(service: RequestService, message: string): RequestAttemptRecord {
+  const requestId = message.match(/^request-id=([^\n]+)$/m)?.[1];
+  const encodedReceipt = message.match(/^receipt=([^\n]+)$/m)?.[1];
+  if (!requestId || !encodedReceipt) throw new Error('Durable receipt instruction is incomplete.');
+  const receipt = decodeReplyReceipt(encodedReceipt, requestId);
+  const attempt = service.getAttempt(receipt.attemptId);
+  if (!attempt) throw new Error(`Attempt '${receipt.attemptId}' was not persisted.`);
+  return attempt;
+}
 
-  beforeEach(() => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'talk-test-'));
+function endpointOf(attempt: RequestAttemptRecord): RequestEndpoint {
+  return {
+    serverId: attempt.serverId,
+    socketPath: attempt.socketPath,
+    serverPid: attempt.serverPid,
+    serverStartTime: attempt.serverStartTime,
+    paneId: attempt.paneId,
+    panePid: attempt.panePid,
+  };
+}
+
+function submitFor(service: RequestService, attempt: RequestAttemptRecord, body: string): void {
+  service.submitResponse({
+    requestId: attempt.requestId,
+    attemptId: attempt.attemptId,
+    endpoint: endpointOf(attempt),
+    body,
   });
+}
 
-  afterEach(() => {
-    closeRequestFixtures();
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
-  });
-
-  it('returns original message when preambleMode is disabled', async () => {
-    const tmux = createMockTmux();
-    const ctx = createContext({
-      tmux,
-      paths: createTestPaths(testDir),
-      config: { preambleMode: 'disabled' },
-    });
-
-    await cmdTalk(ctx, 'claude', 'Hello');
-
-    expect(tmux.sends).toHaveLength(1);
-    expect(tmux.sends[0].message).toBe('Hello');
-  });
-
-  it('returns original message when --no-preamble flag is set', async () => {
-    const tmux = createMockTmux();
-    const ctx = createContext({
-      tmux,
-      paths: createTestPaths(testDir),
-      flags: { noPreamble: true },
-      config: { preambleMode: 'always' },
-      preambleService: createMockPreambleService('Be brief'),
-    });
-
-    await cmdTalk(ctx, 'claude', 'Hello');
-
-    expect(tmux.sends).toHaveLength(1);
-    expect(tmux.sends[0].message).toBe('Hello');
-  });
-
-  it('returns original message when agent has no preamble', async () => {
-    const tmux = createMockTmux();
-    const preambleService = createMockPreambleService();
-    const paths = createTestPaths(testDir);
-    const ctx = createContext({
-      tmux,
-      paths,
-      config: { preambleMode: 'always' },
-      preambleService,
-    });
-
-    await cmdTalk(ctx, 'claude', 'Hello');
-
-    expect(tmux.sends).toHaveLength(1);
-    expect(tmux.sends[0].message).toBe('Hello');
-    expect(preambleService.show).toHaveBeenCalledWith('claude');
-    expect(fs.existsSync(paths.stateFile)).toBe(false);
-  });
-
-  it('prepends [SYSTEM: preamble] when preambleMode is always', async () => {
-    const tmux = createMockTmux();
-    const ctx = createContext({
-      tmux,
-      paths: createTestPaths(testDir),
-      config: {
-        preambleMode: 'always',
-      },
-      preambleService: createMockPreambleService('Be helpful and concise'),
-    });
-
-    await cmdTalk(ctx, 'claude', 'Hello');
-
-    expect(tmux.sends).toHaveLength(1);
-    expect(tmux.sends[0].message).toContain('[SYSTEM: Be helpful and concise]');
-    expect(tmux.sends[0].message).toContain('Hello');
-  });
-
-  it('formats preamble as [SYSTEM: <preamble>]\\n\\n<message>', async () => {
-    const tmux = createMockTmux();
-    const ctx = createContext({
-      tmux,
-      paths: createTestPaths(testDir),
-      config: {
-        preambleMode: 'always',
-      },
-      preambleService: createMockPreambleService('Test preamble'),
-    });
-
-    await cmdTalk(ctx, 'claude', 'Test message');
-
-    expect(tmux.sends[0].message).toBe('[SYSTEM: Test preamble]\n\nTest message');
-  });
-
-  it('injects preamble based on preambleEvery config (every N messages)', async () => {
-    const paths = createTestPaths(testDir);
-    fs.mkdirSync(paths.globalDir, { recursive: true });
-
-    const config = {
-      preambleMode: 'always' as const,
-      defaults: {
-        timeout: 60,
-        pollInterval: 0.1,
-        captureLines: 100,
-        maxCaptureLines: 2000,
-        preambleEvery: 3,
-        pasteEnterDelayMs: 500,
-      },
+function stateSnapshot(root: string): {
+  attempts: unknown[];
+  responses: unknown[];
+  cadence: unknown[];
+} {
+  const database = new Database(createPaths(root).databaseFile, { readonly: true });
+  try {
+    return {
+      attempts: database.prepare('SELECT * FROM request_attempts ORDER BY attempt_id').all(),
+      responses: database.prepare('SELECT * FROM request_responses ORDER BY request_id').all(),
+      cadence: database.prepare('SELECT * FROM preamble_counters ORDER BY identity_id').all(),
     };
-
-    // Message 1: should include preamble (first message)
-    const tmux1 = createMockTmux();
-    await cmdTalk(
-      createContext({
-        tmux: tmux1,
-        paths,
-        config,
-        preambleService: createMockPreambleService('Be brief'),
-      }),
-      'claude',
-      'Hello 1'
-    );
-    expect(tmux1.sends[0].message).toContain('[SYSTEM: Be brief]');
-
-    // Message 2: should NOT include preamble
-    const tmux2 = createMockTmux();
-    await cmdTalk(
-      createContext({
-        tmux: tmux2,
-        paths,
-        config,
-        preambleService: createMockPreambleService('Be brief'),
-      }),
-      'claude',
-      'Hello 2'
-    );
-    expect(tmux2.sends[0].message).toBe('Hello 2');
-
-    // Message 3: should NOT include preamble
-    const tmux3 = createMockTmux();
-    await cmdTalk(
-      createContext({
-        tmux: tmux3,
-        paths,
-        config,
-        preambleService: createMockPreambleService('Be brief'),
-      }),
-      'claude',
-      'Hello 3'
-    );
-    expect(tmux3.sends[0].message).toBe('Hello 3');
-
-    // Message 4: should include preamble (4 - 1 = 3, divisible by 3)
-    const tmux4 = createMockTmux();
-    await cmdTalk(
-      createContext({
-        tmux: tmux4,
-        paths,
-        config,
-        preambleService: createMockPreambleService('Be brief'),
-      }),
-      'claude',
-      'Hello 4'
-    );
-    expect(tmux4.sends[0].message).toContain('[SYSTEM: Be brief]');
-  });
-
-  it('injects preamble every time when preambleEvery is 1', async () => {
-    const paths = createTestPaths(testDir);
-    fs.mkdirSync(paths.globalDir, { recursive: true });
-
-    const config = {
-      preambleMode: 'always' as const,
-      defaults: {
-        timeout: 60,
-        pollInterval: 0.1,
-        captureLines: 100,
-        maxCaptureLines: 2000,
-        preambleEvery: 1,
-        pasteEnterDelayMs: 500,
-      },
-    };
-
-    // All messages should include preamble
-    for (let i = 0; i < 3; i++) {
-      const tmux = createMockTmux();
-      await cmdTalk(
-        createContext({
-          tmux,
-          paths,
-          config,
-          preambleService: createMockPreambleService('Be brief'),
-        }),
-        'claude',
-        `Hello ${i}`
-      );
-      expect(tmux.sends[0].message).toContain('[SYSTEM: Be brief]');
-    }
-  });
-
-  it('never injects preamble when preambleEvery is 0', async () => {
-    const paths = createTestPaths(testDir);
-    fs.mkdirSync(paths.globalDir, { recursive: true });
-
-    const config = {
-      preambleMode: 'always' as const,
-      defaults: {
-        timeout: 60,
-        pollInterval: 0.1,
-        captureLines: 100,
-        maxCaptureLines: 2000,
-        preambleEvery: 0,
-        pasteEnterDelayMs: 500,
-      },
-    };
-
-    // No messages should include preamble
-    for (let i = 0; i < 3; i++) {
-      const tmux = createMockTmux();
-      await cmdTalk(
-        createContext({
-          tmux,
-          paths,
-          config,
-          preambleService: createMockPreambleService('Be brief'),
-        }),
-        'claude',
-        `Hello ${i}`
-      );
-      expect(tmux.sends[0].message).toBe(`Hello ${i}`);
-    }
-  });
-});
-
-describe('cmdTalk - basic send', () => {
-  it.each(['claude', '%9'])(
-    'does not send target %s without required identity wiring',
-    async (target) => {
-      for (const wait of [false, true]) {
-        const tmux = createMockTmux();
-        const legacyRead = vi.fn(() => [{ name: 'claude', canonicalName: 'claude', paneId: '%9' }]);
-        Object.assign(tmux, { listGlobalIdentities: legacyRead });
-        const ctx = createContext({ tmux, flags: { wait }, paths: createTestPaths(testDir) });
-        Object.defineProperty(ctx, 'identityService', { value: undefined });
-        await expect(cmdTalk(ctx, target, 'must not send')).rejects.toThrow(
-          'Identity service is required'
-        );
-        expect(legacyRead).not.toHaveBeenCalled();
-        expect(tmux.sends).toEqual([]);
-        expect(fs.existsSync(ctx.paths.stateFile)).toBe(false);
-      }
-    }
-  );
-  let testDir: string;
-  const originalEnv = { ...process.env };
-
-  beforeEach(() => {
-    // Disable pane detection in tests
-    delete process.env.TMUX;
-    delete process.env.TMT_AGENT_NAME;
-    delete process.env.TMUX_TEAM_ACTOR;
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'talk-test-'));
-  });
-
-  afterEach(() => {
-    closeRequestFixtures();
-    process.env = { ...originalEnv };
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
-  });
-
-  it('sends message to specified agent pane', async () => {
-    const tmux = createMockTmux();
-    const ctx = createContext({ tmux, paths: createTestPaths(testDir) });
-
-    await cmdTalk(ctx, 'claude', 'Hello Claude');
-
-    expect(tmux.sends).toHaveLength(1);
-    expect(tmux.sends[0].pane).toBe('1.0');
-    expect(tmux.sends[0].message).toBe('Hello Claude');
-  });
-
-  it('treats all as an ordinary identity and reports it when inactive', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-    });
-
-    await expect(cmdTalk(ctx, 'all', 'Hello')).rejects.toThrow(`exit(${ExitCodes.NAME_NOT_FOUND})`);
-    expect(ui.jsonOutput).toEqual([]);
-    expect(ui.errors).toContain("Identity 'all' is not active.");
-  });
-
-  it('sends to a bound all identity as one pane', async () => {
-    const tmux = createMockTmux();
-    const ctx = createContext({
-      tmux,
-      paths: createTestPaths(testDir),
-    });
-    (ctx.identityService.activeIdentities as ReturnType<typeof vi.fn>).mockReturnValue([
-      {
-        ...activeIdentity('all', '1.9'),
-      },
-    ]);
-
-    await cmdTalk(ctx, 'all', 'Hello');
-
-    expect(tmux.sends).toHaveLength(1);
-    expect(tmux.sends[0].pane).toBe('1.9');
-  });
-
-  it('returns a structured error when tmux.send fails', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-    tmux.send = () => {
-      throw new Error('tmux error');
-    };
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-      flags: { json: true },
-    });
-
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(ui.jsonOutput).toEqual([
-      {
-        error: {
-          code: 'ERROR',
-          message: 'Failed to send to pane 1.0. Is tmux running?',
-          suggestion: 'Delivery may have occurred; inspect the target pane before retrying.',
-        },
-      },
-    ]);
-  });
-
-  it('returns one structured uncertainty envelope for a typed send failure', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-    tmux.send = () => {
-      throw new TmuxDeliveryError('paste');
-    };
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-      flags: { json: true },
-    });
-
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(ui.jsonOutput).toEqual([
-      {
-        error: {
-          code: 'DELIVERY_UNCERTAIN',
-          message: 'Message delivery is uncertain during paste.',
-          stage: 'paste',
-          suggestion: 'Inspect the target pane before retrying.',
-        },
-      },
-    ]);
-    expect(ui.jsonOutput).toHaveLength(1);
-  });
-
-  it('shows an actionable inspection hint for human uncertainty output', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-    tmux.send = () => {
-      throw new TmuxDeliveryError('literal');
-    };
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-    });
-
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(ui.errors).toEqual([
-      'Message delivery is uncertain during literal. Inspect the target pane before retrying.',
-    ]);
-    expect(ui.jsonOutput).toEqual([]);
-  });
-
-  it.each([
-    ['non-wait', { wait: false }],
-    ['wait', { wait: true, timeout: 0.5 }],
-  ] as const)(
-    'fails named %s talk before transport when the preamble service is absent',
-    async (_mode, flags) => {
-      const tmux = createMockTmux();
-      const ui = createMockUI();
-      const ctx = createContext({
-        tmux,
-        ui,
-        paths: createTestPaths(testDir),
-        flags: { ...flags, json: true },
-      });
-      delete ctx.preambleService;
-
-      await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
-      expect(tmux.sends).toHaveLength(0);
-      expect(ui.jsonOutput).toEqual([
-        { error: { code: 'PREAMBLE_ERROR', message: 'Preamble service is unavailable.' } },
-      ]);
-    }
-  );
-
-  it.each([
-    ['non-wait', { wait: false }],
-    ['wait', { wait: true, timeout: 0.5 }],
-  ] as const)('maps %s preamble lookup failures before transport', async (_mode, flags) => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-    const paths = createTestPaths(testDir);
-    const preambleService = createMockPreambleService('Be brief');
-    preambleService.show = vi.fn(() => {
-      throw new Error('preamble database unavailable');
-    });
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths,
-      flags: { ...flags, json: true },
-      preambleService,
-    });
-
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(tmux.sends).toHaveLength(0);
-    expect(ui.jsonOutput).toEqual([
-      { error: { code: 'PREAMBLE_ERROR', message: 'preamble database unavailable' } },
-    ]);
-    expect(fs.existsSync(paths.stateFile)).toBe(false);
-  });
-
-  it.each([
-    ['disabled', { preambleMode: 'disabled' as const }],
-    ['zero cadence', { defaults: { preambleEvery: 0 } }],
-  ] as const)(
-    'does not require preamble service when %s disables lookup',
-    async (_mode, config) => {
-      const tmux = createMockTmux();
-      const ctx = createContext({ tmux, paths: createTestPaths(testDir), config });
-      delete ctx.preambleService;
-
-      await cmdTalk(ctx, 'claude', 'Hello');
-      expect(tmux.sends).toHaveLength(1);
-      expect(tmux.sends[0].message).toBe('Hello');
-    }
-  );
-
-  it('preserves exclamation marks for gemini agent', async () => {
-    const tmux = createMockTmux();
-    const ctx = createContext({ tmux, paths: createTestPaths(testDir) });
-
-    await cmdTalk(ctx, 'gemini', 'Hello! This is exciting!');
-
-    expect(tmux.sends).toHaveLength(1);
-    expect(tmux.sends[0].message).toBe('Hello! This is exciting!');
-  });
-
-  it('exits with error for unknown agent', async () => {
-    const ui = createMockUI();
-    const ctx = createContext({ ui, paths: createTestPaths(testDir) });
-
-    await expect(cmdTalk(ctx, 'unknown', 'Hello')).rejects.toThrow('exit(3)');
-
-    expect(ui.errors).toHaveLength(1);
-    expect(ui.errors[0]).toContain("Identity 'unknown' is not active.");
-  });
-
-  it('outputs JSON when --json flag is set', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-      flags: { json: true },
-    });
-
-    await cmdTalk(ctx, 'claude', 'Hello');
-
-    expect(ui.jsonOutput).toHaveLength(1);
-    expect(ui.jsonOutput[0]).toMatchObject({
-      target: 'claude',
-      pane: '1.0',
-      status: 'sent',
-    });
-  });
-});
-
-describe('cmdTalk - --delay flag', () => {
-  let testDir: string;
-
-  beforeEach(() => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'talk-test-'));
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    closeRequestFixtures();
-    vi.useRealTimers();
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
-  });
-
-  it('waits specified seconds before sending', async () => {
-    const tmux = createMockTmux();
-    const ctx = createContext({
-      tmux,
-      paths: createTestPaths(testDir),
-      flags: { delay: 2 },
-    });
-
-    const promise = cmdTalk(ctx, 'claude', 'Hello');
-
-    // Before delay, no message sent
-    expect(tmux.sends).toHaveLength(0);
-
-    // Advance time
-    await vi.advanceTimersByTimeAsync(2000);
-    await promise;
-
-    expect(tmux.sends).toHaveLength(1);
-  });
-});
-
-describe('cmdTalk - --wait mode', () => {
-  let testDir: string;
-
-  beforeEach(() => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'talk-test-'));
-  });
-
-  afterEach(() => {
-    closeRequestFixtures();
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
-  });
-
-  // Helper: generate mock capture output with proper marker structure
-  // New protocol: instruction shows format with placeholder "xxxx" then actual nonce
-  // Include the instruction line so extraction can anchor to it for clean output
-  function mockCompleteResponse(nonce: string, response: string): string {
-    const instruction = `When done, output exactly: RESPONSE-END-xxxx (where xxxx = ${nonce})`;
-    const endMarker = `RESPONSE-END-${nonce}`;
-    // Simulate: scrollback, user message with instruction, agent response, marker
-    return `Some scrollback content\nUser message here\n\n${instruction}\n${response}\n${endMarker}`;
+  } finally {
+    database.close();
   }
+}
 
-  it.each([
-    [
-      'generic',
-      () => new Error('tmux error'),
-      {
-        code: 'ERROR',
-        message: 'Failed to send to pane 1.0. Is tmux running?',
-        suggestion: 'Delivery may have occurred; inspect the target pane before retrying.',
-      },
-    ],
-    [
-      'typed',
-      () => new TmuxDeliveryError('submit'),
-      {
-        code: 'DELIVERY_UNCERTAIN',
-        message: 'Message delivery is uncertain during submit.',
-        stage: 'submit',
-        suggestion: 'Inspect the target pane before retrying.',
-      },
-    ],
-  ] as const)(
-    'maps %s send failure once in wait mode and releases only its waiter',
-    async (_kind, makeError, expected) => {
-      const tmux = createMockTmux();
-      const ui = createMockUI();
-      tmux.send = () => {
-        throw makeError();
-      };
-      const paths = createTestPaths(testDir);
-      const requestService = requestFixture(paths.databaseFile).service;
-      const unrelated = requestService.prepare({
-        requestId: 'other-request',
-        nonce: 'other',
-        endpoint: {
-          serverId: 'server-test',
-          socketPath: '/tmp/tmt-test',
-          serverPid: 123,
-          serverStartTime: 'test-start',
-          paneId: '1.1',
-          panePid: 456,
+describe('cmdTalk durable completion', () => {
+  it('sends an exact receipt instruction and returns the durable body without capture', async () => {
+    const root = temporaryDirectory('tmt-talk-success-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const body = '\ufefffirst\r\n\u0000日本語 😀\r\nRESPONSE-END-fake\n  ';
+    const tmux = createMockTmux({
+      onSend: (message) =>
+        submitFor(fixture.service, attemptFromInstruction(fixture.service, message), body),
+    });
+    const ctx = createContext(root, { tmux });
+    await cmdTalk(ctx, 'claude', 'Hello!');
+    const attempt = onlyAttempt(fixture.service);
+    expect((ctx.ui as TestUI).jsonOutput).toEqual([
+      expect.objectContaining({
+        status: 'completed',
+        requestId: attempt.requestId,
+        response: body,
+        bodyBytes: Buffer.byteLength(body),
+        submittedAtMs: expect.any(Number),
+      }),
+    ]);
+    expect(tmux.captureCalls).toBe(0);
+    expect(tmux.sends[0]?.message).toContain(attempt.requestId);
+    expect(tmux.sends[0]?.message).toContain('tmt reply');
+    expect(tmux.sends[0]?.message).toContain('--receipt');
+    expect(tmux.sends[0]?.message).toContain('--file');
+    expect(tmux.sends[0]?.message).toContain('--stdin');
+    expect(tmux.sends[0]?.message).toContain('body-limit-bytes=1048576');
+    const receipt = tmux.sends[0]?.message.match(/^receipt=([^\n]+)$/m)?.[1];
+    expect(receipt).toBeTruthy();
+    expect(decodeReplyReceipt(receipt!, attempt.requestId)).toMatchObject({
+      version: 1,
+      requestId: attempt.requestId,
+      attemptId: attempt.attemptId,
+      endpoint: ENDPOINT,
+    });
+    expect(stateSnapshot(root).responses).toHaveLength(1);
+  });
+
+  it('supports detach by recording sent state without polling or result output', async () => {
+    const root = temporaryDirectory('tmt-talk-detach-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const tmux = createMockTmux();
+    const ctx = createContext(root, { tmux, flags: { detach: true } });
+    await cmdTalk(ctx, 'claude', 'Hello');
+    const attempt = onlyAttempt(fixture.service);
+    expect((ctx.ui as TestUI).jsonOutput).toEqual([
+      expect.objectContaining({
+        status: 'sent',
+        requestId: attempt.requestId,
+        target: 'claude',
+        pane: '%1',
+      }),
+    ]);
+    expect(tmux.captureCalls).toBe(0);
+    expect(stateSnapshot(root).responses).toEqual([]);
+    expect(attempt.status).toBe('sent');
+    expect(attempt.waitActive).toBe(false);
+  });
+
+  it('does not poll request results in detach mode', async () => {
+    const root = temporaryDirectory('tmt-talk-detach-no-poll-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const getResponse = vi.fn(() => undefined);
+    const service = { ...fixture.service, getResponse } as RequestService;
+    const ctx = createContext(root, {
+      requestService: service,
+      tmux: createMockTmux(),
+      flags: { detach: true },
+    });
+    await cmdTalk(ctx, 'claude', 'Hello');
+    expect(getResponse).not.toHaveBeenCalled();
+  });
+
+  it('warns about an overlapping waiter only for human output and suppresses it with force', async () => {
+    const root = temporaryDirectory('tmt-talk-overlap-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const existing = fixture.service.prepare({
+      requestId: 'existing-request',
+      endpoint: ENDPOINT,
+      wait: true,
+      expiresAtMs: Date.now() + 60 * 60 * 1000,
+    });
+    fixture.service.beginSend(existing.attemptId);
+
+    const warningUI = createUI();
+    const warningTmux = createMockTmux({
+      onSend: (message) =>
+        submitFor(fixture.service, attemptFromInstruction(fixture.service, message), 'ok'),
+    });
+    const warningCtx = createContext(root, {
+      tmux: warningTmux,
+      ui: warningUI,
+      flags: { json: false },
+    });
+    await cmdTalk(warningCtx, 'claude', 'Hello');
+    expect(warningUI.warnings.join('\n')).toContain('existing-request');
+
+    const forceUI = createUI();
+    const forceTmux = createMockTmux({
+      onSend: (message) =>
+        submitFor(fixture.service, attemptFromInstruction(fixture.service, message), 'ok'),
+    });
+    const forceCtx = createContext(root, {
+      tmux: forceTmux,
+      ui: forceUI,
+      flags: { json: false, force: true },
+    });
+    await cmdTalk(forceCtx, 'claude', 'Hello');
+    expect(forceUI.warnings).toEqual([]);
+  });
+
+  it('does not emit overlap warnings in JSON mode', async () => {
+    const root = temporaryDirectory('tmt-talk-overlap-json-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const existing = fixture.service.prepare({
+      requestId: 'existing-json-request',
+      endpoint: ENDPOINT,
+      wait: true,
+      expiresAtMs: Date.now() + 60 * 60 * 1000,
+    });
+    fixture.service.beginSend(existing.attemptId);
+    const ui = createUI();
+    const tmux = createMockTmux({
+      onSend: (message) =>
+        submitFor(fixture.service, attemptFromInstruction(fixture.service, message), 'ok'),
+    });
+    const ctx = createContext(root, { tmux, ui, flags: { json: true } });
+    await cmdTalk(ctx, 'claude', 'Hello');
+    expect(ui.warnings).toEqual([]);
+    expect(ui.jsonOutput).toHaveLength(1);
+  });
+
+  it('reports human detach and completion summaries through UI with request inspection guidance', async () => {
+    for (const detach of [true, false]) {
+      const root = temporaryDirectory(`tmt-talk-human-${detach ? 'detach' : 'completed'}-`);
+      const fixture = requestFixture(createPaths(root).databaseFile);
+      const ui = createUI();
+      const tmux = createMockTmux({
+        onSend: (message) => {
+          if (!detach)
+            submitFor(
+              fixture.service,
+              attemptFromInstruction(fixture.service, message),
+              'human result'
+            );
         },
-        wait: true,
-        expiresAtMs: Date.now() + 60_000,
       });
-      const ctx = createContext({
+      const ctx = createContext(root, {
         tmux,
         ui,
-        paths,
-        flags: { wait: true, json: true, timeout: 0.5 },
-        config: {
-          defaults: {
-            timeout: 0.5,
-            pollInterval: 0.01,
-            captureLines: 100,
-            maxCaptureLines: 2000,
-            preambleEvery: 3,
-            pasteEnterDelayMs: 500,
-          },
-        },
-        requestService,
+        flags: { json: false, ...(detach ? { detach: true } : {}) },
       });
-      ctx.exit = (code: number) => {
-        expect(code).toBe(ExitCodes.ERROR);
-        const attempts = requestService.listAttempts();
-        expect(
-          attempts.find((attempt) => attempt.requestId === unrelated.requestId)?.waitActive
-        ).toBe(true);
-        throw new Error(`exit(${code})`);
-      };
-
-      await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
-      expect(ui.jsonOutput).toEqual([{ error: expected }]);
-      expect(ui.jsonOutput).toHaveLength(1);
-      const failed = requestService
-        .listAttempts()
-        .find((attempt) => attempt.requestId !== unrelated.requestId);
-      expect(failed?.status).toBe('uncertain');
-      expect(failed?.waitActive).toBe(false);
-    }
-  );
-
-  it('does not clear a newer pane request after an uncertain send', async () => {
-    const paths = createTestPaths(testDir);
-    const tmux = createMockTmux();
-    const requestService = requestFixture(paths.databaseFile).service;
-    let replacement: ReturnType<RequestService['prepare']> | undefined;
-    tmux.send = () => {
-      const attempt = requestService.listAttempts()[0];
-      expect(attempt?.requestId).not.toBe('newer-request');
-      replacement = requestService.prepare({
-        requestId: 'newer-request',
-        nonce: 'newer',
-        endpoint: {
-          serverId: 'server-test',
-          socketPath: '/tmp/tmt-test',
-          serverPid: 123,
-          serverStartTime: 'test-start',
-          paneId: '1.0',
-          panePid: 456,
-        },
-        wait: true,
-        expiresAtMs: Date.now() + 60_000,
-      });
-      throw new TmuxDeliveryError('paste');
-    };
-    const ctx = createContext({ tmux, paths, requestService, flags: { wait: true, json: true } });
-    ctx.exit = (code: number) => {
-      expect(code).toBe(ExitCodes.ERROR);
-      expect(replacement).toBeDefined();
-      expect(requestService.getAttempt(replacement!.attemptId)?.waitActive).toBe(true);
-      throw new Error(`exit(${code})`);
-    };
-
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(requestService.getAttempt(replacement!.attemptId)?.waitActive).toBe(true);
-  });
-
-  it('appends nonce instruction to message', async () => {
-    const tmux = createMockTmux();
-    // Set up capture to return the nonce marker immediately
-    let captureCount = 0;
-    tmux.capture = () => {
-      captureCount++;
-      if (captureCount === 1) return ''; // Baseline
-      // Extract nonce from instruction and return agent response with marker
-      const sent = tmux.sends[0]?.message || '';
-      const match = sent.match(INSTRUCTION_NONCE_REGEX);
-      return match ? mockCompleteResponse(match[1], 'Response here') : '';
-    };
-
-    const ctx = createContext({
-      tmux,
-      paths: createTestPaths(testDir),
-      flags: { wait: true, timeout: 0.5 },
-      config: {
-        defaults: {
-          timeout: 0.5,
-          pollInterval: 0.01,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-      },
-    });
-
-    await cmdTalk(ctx, 'claude', 'Hello');
-
-    expect(tmux.sends).toHaveLength(1);
-    // New protocol: instruction shows format with placeholder, then actual nonce
-    expect(tmux.sends[0].message).toContain('output exactly: RESPONSE-END-xxxx');
-    expect(tmux.sends[0].message).toContain('where xxxx =');
-    // Should NOT contain the literal marker format (marker appears only in agent response)
-    expect(tmux.sends[0].message).not.toMatch(/^RESPONSE-END-[a-f0-9]+$/m);
-  });
-
-  it('detects nonce marker and extracts response', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-
-    let captureCount = 0;
-
-    tmux.capture = () => {
-      captureCount++;
-      if (captureCount === 1) return 'baseline content';
-      // Extract nonce from instruction and return agent response with marker
-      const sent = tmux.sends[0]?.message || '';
-      const match = sent.match(INSTRUCTION_NONCE_REGEX);
-      if (match) {
-        return mockCompleteResponse(match[1], 'Agent response here');
-      }
-      return 'baseline content';
-    };
-
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 0.5 },
-      config: {
-        defaults: {
-          timeout: 0.5,
-          pollInterval: 0.01,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-      },
-    });
-
-    await cmdTalk(ctx, 'claude', 'Hello');
-
-    expect(ui.jsonOutput).toHaveLength(1);
-    const output = ui.jsonOutput[0] as Record<string, unknown>;
-    expect(output.status).toBe('completed');
-    expect(output.response).toEqual(expect.stringContaining('Agent response here'));
-  });
-
-  it('returns timeout error with correct exit code', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-
-    // Capture never returns the marker
-    tmux.capture = () => 'no marker here';
-
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 0.1 },
-      config: {
-        defaults: {
-          timeout: 0.1,
-          pollInterval: 0.02,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-      },
-    });
-
-    try {
       await cmdTalk(ctx, 'claude', 'Hello');
-      expect.fail('Should have thrown');
-    } catch (err) {
-      const error = err as Error & { exitCode: number };
-      expect(error.exitCode).toBe(ExitCodes.TIMEOUT);
+      const requestId = onlyAttempt(fixture.service).requestId;
+      expect(ui.info).toHaveBeenCalledWith(expect.stringContaining(requestId));
+      expect(ui.info).toHaveBeenCalledWith(expect.stringContaining('result'));
     }
+  });
 
-    expect(ui.jsonOutput).toHaveLength(1);
-    const output = ui.jsonOutput[0] as Record<string, unknown>;
-    expect(output.status).toBe('timeout');
-    expect(output.error).toEqual({
-      code: 'TIMEOUT',
-      message: expect.stringContaining('Timed out'),
+  it('reports a human timeout with request correlation and result inspection guidance', async () => {
+    const root = temporaryDirectory('tmt-talk-human-timeout-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const ui = createUI();
+    const ctx = createContext(root, {
+      tmux: createMockTmux(),
+      ui,
+      flags: { json: false, timeout: 0.01 },
+      config: createConfig({ pollInterval: 0.001 }),
+    });
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+      exitCode: ExitCodes.TIMEOUT,
+    });
+    const requestId = onlyAttempt(fixture.service).requestId;
+    expect(ui.errors.join('\n')).toContain(requestId);
+    expect(ui.errors.join('\n')).toContain('result');
+  });
+
+  it('preserves preamble injection, cadence reservation, and target identity', async () => {
+    const root = temporaryDirectory('tmt-talk-preamble-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const tmux = createMockTmux({
+      onSend: (message) =>
+        submitFor(fixture.service, attemptFromInstruction(fixture.service, message), 'ok'),
+    });
+    const ctx = createContext(root, { tmux });
+    await cmdTalk(ctx, 'claude', 'Hello');
+    expect(tmux.sends).toHaveLength(1);
+    expect(tmux.sends[0]?.pane).toBe('%1');
+    expect(tmux.sends[0]?.message).toContain('[SYSTEM: Be concise]');
+    const snapshot = stateSnapshot(root);
+    expect(snapshot.cadence).toHaveLength(1);
+    expect(snapshot.attempts[0]).toMatchObject({
+      pane_id: '%1',
+      cadence_reserved: 1,
+      wait_active: 0,
     });
   });
 
-  it('wakes a long poll on SIGINT, releases once, and cleans up wait resources', async () => {
-    vi.useFakeTimers();
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-    const paths = createTestPaths(testDir);
-    const base = requestFixture(paths.databaseFile).service;
-    const releaseWait = vi.fn(base.releaseWait);
-    const requestService: RequestService = { ...base, releaseWait };
-    const listenerCount = process.listenerCount('SIGINT');
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths,
-      requestService,
-      flags: { wait: true, timeout: 30 },
-      config: {
-        defaults: {
-          timeout: 30,
-          pollInterval: 60,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
+  it.each([
+    { every: 1, expected: [true, true, true, true] },
+    { every: 3, expected: [true, false, false, true] },
+  ])('reserves repeated preambles at cadence N=$every', async ({ every, expected }) => {
+    const root = temporaryDirectory(`tmt-talk-cadence-${every}-`);
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const tmux = createMockTmux({
+      onSend: (message) =>
+        submitFor(fixture.service, attemptFromInstruction(fixture.service, message), 'ok'),
+    });
+    for (let index = 0; index < expected.length; index += 1) {
+      const ctx = createContext(root, {
+        tmux,
+        config: createConfig({ preambleEvery: every }),
+      });
+      await cmdTalk(ctx, 'claude', `message-${index}`);
+      expect(tmux.sends[index]?.message.includes('[SYSTEM: Be concise]')).toBe(expected[index]);
+    }
+    const snapshot = stateSnapshot(root);
+    expect(snapshot.cadence).toHaveLength(1);
+    expect(snapshot.cadence[0]).toMatchObject({ reserved_count: expected.length });
+  });
+
+  it('normalizes identity names, injects for a bound direct pane, and skips unbound panes', async () => {
+    const namedRoot = temporaryDirectory('tmt-talk-case-name-');
+    const namedFixture = requestFixture(createPaths(namedRoot).databaseFile);
+    const namedPreamble = createPreambleService();
+    const namedTmux = createMockTmux({
+      onSend: (message) =>
+        submitFor(
+          namedFixture.service,
+          attemptFromInstruction(namedFixture.service, message),
+          'ok'
+        ),
+    });
+    const namedCtx = createContext(namedRoot, {
+      tmux: namedTmux,
+      preambleService: namedPreamble,
+    });
+    await cmdTalk(namedCtx, 'Claude', 'Hello');
+    expect(namedPreamble.show).toHaveBeenCalledWith('claude');
+    expect(namedTmux.sends[0]?.message).toContain('[SYSTEM: Be concise]');
+
+    const boundRoot = temporaryDirectory('tmt-talk-bound-pane-');
+    const boundFixture = requestFixture(createPaths(boundRoot).databaseFile);
+    const boundPreamble = createPreambleService();
+    const boundTmux = createMockTmux({
+      onSend: (message) =>
+        submitFor(
+          boundFixture.service,
+          attemptFromInstruction(boundFixture.service, message),
+          'ok'
+        ),
+    });
+    const boundCtx = createContext(boundRoot, {
+      tmux: boundTmux,
+      preambleService: boundPreamble,
+    });
+    await cmdTalk(boundCtx, '%1', 'Hello');
+    expect(boundPreamble.show).toHaveBeenCalledWith('claude');
+    expect(boundTmux.sends[0]?.message).toContain('[SYSTEM: Be concise]');
+
+    const unboundRoot = temporaryDirectory('tmt-talk-unbound-pane-');
+    const unboundFixture = requestFixture(createPaths(unboundRoot).databaseFile);
+    const unboundPreamble = createPreambleService();
+    const unboundTmux = createMockTmux({
+      onSend: (message) =>
+        submitFor(
+          unboundFixture.service,
+          attemptFromInstruction(unboundFixture.service, message),
+          'ok'
+        ),
+    });
+    const unboundCtx = createContext(unboundRoot, {
+      tmux: unboundTmux,
+      preambleService: unboundPreamble,
+    });
+    await cmdTalk(unboundCtx, '%9', 'Hello');
+    expect(unboundPreamble.show).not.toHaveBeenCalled();
+    expect(unboundTmux.sends[0]?.message).not.toContain('[SYSTEM:');
+  });
+
+  it('does not look up or reserve a preamble when disabled, no-preamble is set, or cadence is zero', async () => {
+    for (const variant of [
+      { preambleMode: 'disabled' as const },
+      { flags: { noPreamble: true } },
+      { config: { preambleEvery: 0 } },
+    ]) {
+      const root = temporaryDirectory('tmt-talk-no-preamble-');
+      const fixture = requestFixture(createPaths(root).databaseFile);
+      const preambleService = createPreambleService();
+      const tmux = createMockTmux({
+        onSend: (message) =>
+          submitFor(fixture.service, attemptFromInstruction(fixture.service, message), 'ok'),
+      });
+      const ctx = createContext(root, {
+        tmux,
+        preambleService,
+        flags: variant.flags,
+        config: {
+          ...createConfig(variant.config),
+          ...(variant.preambleMode ? { preambleMode: variant.preambleMode } : {}),
         },
+      });
+      await cmdTalk(ctx, 'claude', 'Hello');
+      expect(preambleService.show).not.toHaveBeenCalled();
+      expect(stateSnapshot(root).cadence).toEqual([]);
+      expect(tmux.sends[0]?.message).toMatch(/^Hello\n\n\[TMT-DURABLE-REPLY v1 BEGIN\]/);
+    }
+  });
+
+  it('does not create cadence state when no-preamble delivery fails before transport', async () => {
+    const root = temporaryDirectory('tmt-talk-no-preamble-refund-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const service = {
+      ...fixture.service,
+      beginSend: vi.fn(() => {
+        throw new Error('begin send failed');
+      }),
+    } as RequestService;
+    const ctx = createContext(root, {
+      requestService: service,
+      flags: { noPreamble: true },
+      tmux: createMockTmux(),
+    });
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+      exitCode: ExitCodes.ERROR,
+    });
+    expect(stateSnapshot(root).cadence).toEqual([]);
+    expect(stateSnapshot(root).responses).toEqual([]);
+  });
+
+  it('keeps literal exclamation source text at the command boundary', async () => {
+    const root = temporaryDirectory('tmt-talk-bang-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const tmux = createMockTmux({
+      onSend: (message) =>
+        submitFor(fixture.service, attemptFromInstruction(fixture.service, message), 'ok'),
+    });
+    const ctx = createContext(root, { tmux, flags: { noPreamble: true } });
+    await cmdTalk(ctx, '%9', 'if (!ready) Hello!');
+    expect(tmux.sends[0]?.message).toContain('if (!ready) Hello!');
+  });
+
+  it('applies delay before transport and starts the observer deadline afterwards', async () => {
+    const root = temporaryDirectory('tmt-talk-delay-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const sleeps: number[] = [];
+    let clock = 1_000;
+    const tmux = createMockTmux({
+      onSend: (message) =>
+        submitFor(
+          fixture.service,
+          attemptFromInstruction(fixture.service, message),
+          'delayed result'
+        ),
+    });
+    const ctx = createContext(root, { tmux, flags: { delay: 2, timeout: 1 } });
+    await cmdTalk(ctx, 'claude', 'Hello', {
+      now: () => clock,
+      sleep: async (milliseconds) => {
+        sleeps.push(milliseconds);
+        clock += milliseconds;
       },
     });
+    expect(sleeps).toEqual([2_000]);
+    expect(tmux.sends).toHaveLength(1);
+    expect(onlyAttempt(fixture.service).status).toBe('sent');
+  });
 
-    let pending: Promise<void> | undefined;
+  it.each([
+    { name: 'zero timeout', flags: { timeout: 0 } },
+    { name: 'infinite timeout', flags: { timeout: Infinity } },
+    { name: 'negative delay', flags: { delay: -1 } },
+    { name: 'non-finite delay', flags: { delay: Number.NaN } },
+    { name: 'infinite delay', flags: { delay: Infinity } },
+    { name: 'zero poll interval', config: { pollInterval: 0 } },
+    { name: 'non-finite poll interval', config: { pollInterval: Number.NaN } },
+    { name: 'non-finite enter delay', config: { pasteEnterDelayMs: Number.NaN } },
+  ])('rejects invalid $name before send or request preparation', async ({ flags, config }) => {
+    const root = temporaryDirectory('tmt-talk-invalid-timing-');
+    requestFixture(createPaths(root).databaseFile);
+    const tmux = createMockTmux();
+    const ctx = createContext(root, {
+      tmux,
+      flags,
+      config: createConfig(config),
+    });
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+      exitCode: ExitCodes.ERROR,
+    });
+    expect(tmux.sends).toEqual([]);
+    expect(stateSnapshot(root).attempts).toEqual([]);
+    expect(stateSnapshot(root).responses).toEqual([]);
+  });
+
+  it('refunds a definitely-unsent begin failure without sending or mutating state', async () => {
+    const root = temporaryDirectory('tmt-talk-refund-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const service = {
+      ...fixture.service,
+      beginSend: vi.fn(() => {
+        throw new Error('state write failed');
+      }),
+    } as RequestService;
+    const tmux = createMockTmux();
+    const ctx = createContext(root, { tmux, requestService: service });
+    const before = stateSnapshot(root);
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+      exitCode: ExitCodes.ERROR,
+    });
+    expect(tmux.sends).toHaveLength(0);
+    expect(stateSnapshot(root).responses).toEqual(before.responses);
+    expect(stateSnapshot(root).cadence).toEqual([expect.objectContaining({ reserved_count: 0 })]);
+    expect((ctx.ui as TestUI).jsonOutput).toEqual([
+      expect.objectContaining({
+        error: expect.objectContaining({ code: 'REQUEST_STATE_ERROR' }),
+      }),
+    ]);
+  });
+
+  it('records typed transport uncertainty, releases the waiter, and never replays', async () => {
+    const root = temporaryDirectory('tmt-talk-uncertain-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const tmux = createMockTmux();
+    tmux.send = vi.fn(() => {
+      throw new TmuxDeliveryError('paste');
+    });
+    const ctx = createContext(root, { tmux });
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+      exitCode: ExitCodes.ERROR,
+    });
+    expect(tmux.send).toHaveBeenCalledTimes(1);
+    const attempt = onlyAttempt(fixture.service);
+    expect(attempt.status).toBe('uncertain');
+    expect(attempt.waitActive).toBe(false);
+    expect((ctx.ui as TestUI).jsonOutput).toEqual([
+      expect.objectContaining({
+        error: expect.objectContaining({ code: 'DELIVERY_UNCERTAIN', stage: 'paste' }),
+      }),
+    ]);
+  });
+
+  it('returns a correlated timeout without capture fields and leaves the late result available', async () => {
+    const root = temporaryDirectory('tmt-talk-timeout-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const tmux = createMockTmux();
+    const ctx = createContext(root, {
+      tmux,
+      flags: { timeout: 0.01 },
+      config: createConfig({ pollInterval: 0.001 }),
+    });
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+      exitCode: ExitCodes.TIMEOUT,
+    });
+    const timeout = (ctx.ui as TestUI).jsonOutput[0] as Record<string, unknown>;
+    expect(timeout).toMatchObject({
+      status: 'timeout',
+      requestId: expect.any(String),
+      error: { code: 'TIMEOUT' },
+    });
+    for (const forbidden of ['partialResponse', 'nonce', 'endMarker', 'truncated'])
+      expect(timeout).not.toHaveProperty(forbidden);
+    const attempt = onlyAttempt(fixture.service);
+    expect(attempt.waitActive).toBe(false);
+    expect(attempt.status).toBe('sent');
+    submitFor(fixture.service, attempt, 'late durable response');
+    expect(fixture.service.getResponse(attempt.requestId)?.body).toBe('late durable response');
+  });
+
+  it('interrupts only its waiter, emits a correlated error, and leaves no response', async () => {
+    vi.useFakeTimers();
+    const root = temporaryDirectory('tmt-talk-interrupt-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    let interrupted = false;
+    const ctx = createContext(root, {
+      tmux: createMockTmux(),
+      flags: { timeout: 1 },
+      config: createConfig({ pollInterval: 0.1 }),
+    });
+    const listenersBefore = process.listenerCount('SIGINT');
     try {
-      pending = cmdTalk(ctx, 'claude', 'Hello');
-      await Promise.resolve();
-
-      expect(tmux.sends).toHaveLength(1);
-      expect(process.listenerCount('SIGINT')).toBe(listenerCount + 1);
-      process.emit('SIGINT');
-
-      await expect(pending).rejects.toMatchObject({ exitCode: ExitCodes.ERROR });
-      expect(releaseWait).toHaveBeenCalledOnce();
-      expect(requestService.listAttempts()).toHaveLength(1);
-      expect(requestService.listAttempts()[0]).toMatchObject({
-        status: 'sent',
-        waitActive: false,
+      await expect(
+        cmdTalk(ctx, 'claude', 'Hello', {
+          now: () => 50_000,
+          sleep: async () => {
+            if (!interrupted) {
+              interrupted = true;
+              process.emit('SIGINT');
+            }
+          },
+        })
+      ).rejects.toMatchObject({ exitCode: ExitCodes.ERROR });
+      const output = (ctx.ui as TestUI).jsonOutput[0] as Record<string, unknown>;
+      const attempt = onlyAttempt(fixture.service);
+      expect(output).toMatchObject({
+        requestId: attempt.requestId,
+        error: { code: 'INTERRUPTED' },
       });
-      expect(ui.errors).toEqual(['Interrupted.']);
-      expect(process.listenerCount('SIGINT')).toBe(listenerCount);
+      expect(attempt.waitActive).toBe(false);
+      expect(fixture.service.getResponse(attempt.requestId)).toBeUndefined();
+      expect(process.listenerCount('SIGINT')).toBe(listenersBefore);
       expect(vi.getTimerCount()).toBe(0);
     } finally {
-      // Keep a failed setup assertion from leaving the command suspended on its
-      // intentionally long fake poll timer or retaining the process listener.
-      if (pending && process.listenerCount('SIGINT') > listenerCount) {
-        process.emit('SIGINT');
-        await pending.catch(() => undefined);
-      }
       vi.useRealTimers();
     }
   });
 
-  it('isolates response using end marker in scrollback', async () => {
+  it('uses monotonic equality as a timeout boundary and never reads after the deadline', async () => {
+    const root = temporaryDirectory('tmt-talk-clock-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
     const tmux = createMockTmux();
-    const ui = createMockUI();
-
-    const oldContent = 'Previous conversation\nOld content here';
-
-    tmux.capture = () => {
-      // Simulate scrollback with old content, then agent response with marker
-      const sent = tmux.sends[0]?.message || '';
-      const nonceMatch = sent.match(INSTRUCTION_NONCE_REGEX);
-      if (nonceMatch) {
-        const endMarker = `RESPONSE-END-${nonceMatch[1]}`;
-        // Only ONE marker from agent
-        return `${oldContent}\nNew response content\n\n${endMarker}`;
-      }
-      return oldContent;
-    };
-
-    const ctx = createContext({
+    const getResponse = vi.fn(() => undefined);
+    const service = { ...fixture.service, getResponse } as RequestService;
+    let clock = 1_000;
+    const ctx = createContext(root, {
       tmux,
+      requestService: service,
+      flags: { timeout: 0.01 },
+      config: createConfig({ pollInterval: 0.001 }),
+    });
+    const promise = cmdTalk(ctx, 'claude', 'Hello', {
+      now: () => clock,
+      sleep: async () => {
+        clock = 1_010;
+      },
+    });
+    await expect(promise).rejects.toMatchObject({ exitCode: ExitCodes.TIMEOUT });
+    expect(getResponse).toHaveBeenCalledTimes(1);
+    expect(tmux.captureCalls).toBe(0);
+    expect(onlyAttempt(fixture.service).waitActive).toBe(false);
+  });
+
+  it('cleans the real pending poll timer and SIGINT listener, while retaining late replies', async () => {
+    vi.useFakeTimers();
+    const root = temporaryDirectory('tmt-talk-real-interrupt-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const ui = createUI();
+    const listenersBefore = process.listenerCount('SIGINT');
+    const ctx = createContext(root, {
+      tmux: createMockTmux(),
       ui,
-      paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 0.5 },
-      config: {
-        defaults: {
-          timeout: 0.5,
-          pollInterval: 0.01,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-      },
+      flags: { timeout: 60 },
+      config: createConfig({ pollInterval: 10 }),
     });
-
-    await cmdTalk(ctx, 'claude', 'Hello');
-
-    const output = ui.jsonOutput[0] as Record<string, unknown>;
-    expect(output.status).toBe('completed');
-    // Response should contain the actual response content
-    expect(output.response).toContain('New response content');
-  });
-
-  it('clears active request on completion', async () => {
-    const tmux = createMockTmux();
-    let captureCount = 0;
-
-    tmux.capture = () => {
-      captureCount++;
-      if (captureCount === 1) return '';
-      const sent = tmux.sends[0]?.message || '';
-      const match = sent.match(INSTRUCTION_NONCE_REGEX);
-      return match ? mockCompleteResponse(match[1], 'Done') : '';
-    };
-
-    const paths = createTestPaths(testDir);
-    const ctx = createContext({
-      tmux,
-      paths,
-      flags: { wait: true, timeout: 0.5 },
-      config: {
-        defaults: {
-          timeout: 0.5,
-          pollInterval: 0.01,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-      },
-    });
-
-    await cmdTalk(ctx, 'claude', 'Hello');
-
-    // Check state file is cleaned up
-    if (fs.existsSync(paths.stateFile)) {
-      const state = JSON.parse(fs.readFileSync(paths.stateFile, 'utf-8'));
-      expect(state.requests.claude).toBeUndefined();
-    }
-  });
-
-  it('clears active request on timeout', async () => {
-    const tmux = createMockTmux();
-    tmux.capture = () => 'no marker';
-
-    const paths = createTestPaths(testDir);
-    const ctx = createContext({
-      tmux,
-      paths,
-      flags: { wait: true, timeout: 0.05 },
-      config: {
-        defaults: {
-          timeout: 0.05,
-          pollInterval: 0.01,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-      },
-    });
-
     try {
-      await cmdTalk(ctx, 'claude', 'Hello');
-    } catch {
-      // Expected timeout
-    }
-
-    // Check state file is cleaned up
-    if (fs.existsSync(paths.stateFile)) {
-      const state = JSON.parse(fs.readFileSync(paths.stateFile, 'utf-8'));
-      expect(state.requests.claude).toBeUndefined();
-    }
-  });
-});
-
-describe('cmdTalk - errors and JSON output', () => {
-  it('errors when target agent is not found', async () => {
-    const ctx = createContext({});
-    await expect(cmdTalk(ctx, 'nope', 'hi')).rejects.toMatchObject({
-      exitCode: ExitCodes.PANE_NOT_FOUND,
-    });
-    expect((ctx.ui as any).errors.join('\n')).toContain("Identity 'nope' is not active.");
-  });
-
-  it('outputs JSON in non-wait mode', async () => {
-    const ctx = createContext({
-      flags: { json: true },
-    });
-    await cmdTalk(ctx, 'claude', 'hello');
-    const out = (ctx.ui as any).jsonOutput[0] as any;
-    expect(out).toMatchObject({ target: 'claude', pane: '1.0', status: 'sent' });
-  });
-});
-
-describe('cmdTalk - nonce collision handling', () => {
-  let testDir: string;
-
-  beforeEach(() => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'talk-test-'));
-  });
-
-  afterEach(() => {
-    closeRequestFixtures();
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
+      const pending = cmdTalk(ctx, 'claude', 'Hello');
+      await Promise.resolve();
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+      process.emit('SIGINT');
+      await expect(pending).rejects.toMatchObject({ exitCode: ExitCodes.ERROR });
+      expect(process.listenerCount('SIGINT')).toBe(listenersBefore);
+      expect(vi.getTimerCount()).toBe(0);
+      const attempt = onlyAttempt(fixture.service);
+      expect(attempt.waitActive).toBe(false);
+      submitFor(fixture.service, attempt, 'late after interrupt');
+      expect(fixture.service.getResponse(attempt.requestId)?.body).toBe('late after interrupt');
+    } finally {
+      vi.useRealTimers();
     }
   });
 
-  it('ignores old markers in scrollback that do not match current nonce', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-
-    let captureCount = 0;
-    const oldEndMarker = 'RESPONSE-END-0000'; // Old marker from previous request
-
-    tmux.capture = () => {
-      captureCount++;
-      // Scrollback includes OLD markers from a previous request
-      if (captureCount === 1) {
-        return `Old question\nOld response\n${oldEndMarker}`;
-      }
-      // New capture still has old markers but agent hasn't responded yet
-      if (captureCount === 2) {
-        return `Old question\nOld response\n${oldEndMarker}`;
-      }
-      // Finally, new end marker appears from agent
-      const sent = tmux.sends[0]?.message || '';
-      const nonceMatch = sent.match(INSTRUCTION_NONCE_REGEX);
-      if (nonceMatch) {
-        const newEndMarker = `RESPONSE-END-${nonceMatch[1]}`;
-        // Old markers in scrollback + new response + agent's end marker
-        return `Old question\nOld response\n${oldEndMarker}\nNew response\n\n${newEndMarker}`;
-      }
-      return `Old question\nOld response\n${oldEndMarker}`;
-    };
-
-    const ctx = createContext({
+  it('includes synchronous send time in the observer timeout budget', async () => {
+    const root = temporaryDirectory('tmt-talk-transport-overrun-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    let clock = 10_000;
+    const tmux = createMockTmux({ onSend: () => (clock += 20) });
+    const ctx = createContext(root, {
       tmux,
-      ui,
-      paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 0.5 },
-      config: {
-        defaults: {
-          timeout: 0.5,
-          pollInterval: 0.01,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-      },
+      flags: { timeout: 0.01 },
+      config: createConfig({ pollInterval: 0.001 }),
     });
-
-    await cmdTalk(ctx, 'claude', 'Hello');
-
-    const output = ui.jsonOutput[0] as Record<string, unknown>;
-    expect(output.status).toBe('completed');
-    // The key behavior: old markers with different nonce don't trigger completion
-    // We waited for the NEW marker with correct nonce before completing
-    // Note: With new protocol, response includes N lines before marker (may include scrollback)
-    expect(output.response as string).toContain('New response');
-    // Verify we polled multiple times (waiting for correct marker, not triggered by old one)
-    expect(captureCount).toBeGreaterThan(2);
-  });
-});
-
-describe('cmdTalk - JSON output contract', () => {
-  let testDir: string;
-
-  beforeEach(() => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'talk-test-'));
+    await expect(
+      cmdTalk(ctx, 'claude', 'Hello', { now: () => clock, sleep: async () => undefined })
+    ).rejects.toMatchObject({ exitCode: ExitCodes.TIMEOUT });
+    expect(tmux.captureCalls).toBe(0);
+    expect(onlyAttempt(fixture.service).waitActive).toBe(false);
   });
 
-  afterEach(() => {
-    closeRequestFixtures();
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
-  });
-
-  it('includes required fields in success response', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-
-    tmux.capture = () => {
-      const sent = tmux.sends[0]?.message || '';
-      const nonceMatch = sent.match(INSTRUCTION_NONCE_REGEX);
-      if (nonceMatch) {
-        return mockCompleteResponse(nonceMatch[1], 'Response');
-      }
-      return '';
-    };
-
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 0.5 },
-      config: {
-        defaults: {
-          timeout: 0.5,
-          pollInterval: 0.01,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-      },
-    });
-
-    await cmdTalk(ctx, 'claude', 'Hello');
-
-    const output = ui.jsonOutput[0] as Record<string, unknown>;
-    expect(output).toHaveProperty('target', 'claude');
-    expect(output).toHaveProperty('pane', '1.0');
-    expect(output).toHaveProperty('status', 'completed');
-    expect(output).toHaveProperty('requestId');
-    expect(output).toHaveProperty('nonce');
-    expect(output).toHaveProperty('endMarker');
-    expect(output).toHaveProperty('response');
-  });
-
-  // Helper moved to describe scope for JSON output tests
-  // Include instruction line for proper extraction anchoring
-  function mockCompleteResponse(nonce: string, response: string): string {
-    const instruction = `When done, output exactly: RESPONSE-END-xxxx (where xxxx = ${nonce})`;
-    const endMarker = `RESPONSE-END-${nonce}`;
-    return `Some scrollback\n${instruction}\n${response}\n${endMarker}`;
-  }
-
-  it('includes required fields in timeout response', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-    tmux.capture = () => 'no marker';
-
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 0.05 },
-      config: {
-        defaults: {
-          timeout: 0.05,
-          pollInterval: 0.01,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-      },
-    });
-
-    try {
-      await cmdTalk(ctx, 'claude', 'Hello');
-    } catch {
-      // Expected
-    }
-
-    const output = ui.jsonOutput[0] as Record<string, unknown>;
-    expect(output).toHaveProperty('target', 'claude');
-    expect(output).toHaveProperty('pane', '1.0');
-    expect(output).toHaveProperty('status', 'timeout');
-    expect(output).toHaveProperty('error');
-    expect(output).toHaveProperty('requestId');
-    expect(output).toHaveProperty('nonce');
-    expect(output).toHaveProperty('endMarker');
-  });
-
-  it('captures partialResponse on timeout even when no marker visible', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-
-    // Agent is writing but hasn't printed any marker yet
-    // New behavior: we capture the last N lines as partial response
-    tmux.capture = () => {
-      return `This is partial content\nStill writing...`;
-    };
-
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 0.05 },
-      config: {
-        defaults: {
-          timeout: 0.05,
-          pollInterval: 0.01,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-      },
-    });
-
-    try {
-      await cmdTalk(ctx, 'claude', 'Hello');
-    } catch {
-      // Expected timeout
-    }
-
-    const output = ui.jsonOutput[0] as Record<string, unknown>;
-    expect(output).toHaveProperty('status', 'timeout');
-    // Fallback: capture last N lines as partial response
-    expect(output.partialResponse).toContain('This is partial content');
-    expect(output.partialResponse).toContain('Still writing...');
-  });
-
-  it('returns scrollback as partialResponse when no instruction visible', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-
-    // Capture shows scrollback but no instruction marker
-    // Fallback returns last N lines
-    tmux.capture = () => 'random scrollback content';
-
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 0.05 },
-      config: {
-        defaults: {
-          timeout: 0.05,
-          pollInterval: 0.01,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-      },
-    });
-
-    try {
-      await cmdTalk(ctx, 'claude', 'Hello');
-    } catch {
-      // Expected timeout
-    }
-
-    const output = ui.jsonOutput[0] as Record<string, unknown>;
-    expect(output).toHaveProperty('status', 'timeout');
-    // Fallback captures last N lines even without instruction visible
-    expect(output.partialResponse).toBe('random scrollback content');
-  });
-});
-
-// ─────────────────────────────────────────────────────────────
-// End Marker Tests - comprehensive coverage for the simplified marker system
-// ─────────────────────────────────────────────────────────────
-
-describe('cmdTalk - end marker detection', () => {
-  let testDir: string;
-
-  beforeEach(() => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'talk-test-'));
-  });
-
-  afterEach(() => {
-    closeRequestFixtures();
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
-  });
-
-  // Helper: generate mock capture output with proper marker structure
-  // Include instruction line for proper extraction anchoring
-  function mockResponse(nonce: string, response: string): string {
-    const instruction = `When done, output exactly: RESPONSE-END-xxxx (where xxxx = ${nonce})`;
-    const endMarker = `RESPONSE-END-${nonce}`;
-    return `Some scrollback\n${instruction}\n${response}\n${endMarker}`;
-  }
-
-  it('includes end marker instruction in sent message (not literal marker)', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-
-    // Return complete response immediately
-    tmux.capture = () => {
-      const sent = tmux.sends[0]?.message || '';
-      // Extract nonce from instruction (looks for RESPONSE-END-xxxx pattern)
-      const nonceMatch = sent.match(INSTRUCTION_NONCE_REGEX);
-      if (nonceMatch) {
-        return mockResponse(nonceMatch[1], 'Response');
-      }
-      return '';
-    };
-
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 0.5 },
-      config: {
-        defaults: {
-          timeout: 0.5,
-          pollInterval: 0.01,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-      },
-    });
-
-    await cmdTalk(ctx, 'claude', 'Test message');
-
-    const sent = tmux.sends[0].message;
-    // New protocol: instruction shows format with placeholder, then actual nonce
-    expect(sent).toContain('output exactly: RESPONSE-END-xxxx');
-    expect(sent).toContain('where xxxx =');
-    // Should NOT contain the literal marker format (marker appears only in agent response)
-    expect(sent).not.toMatch(/^RESPONSE-END-[a-f0-9]+$/m);
-  });
-
-  it('extracts response before end marker', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-
-    tmux.capture = () => {
-      const sent = tmux.sends[0]?.message || '';
-      // Extract nonce from instruction
-      const nonceMatch = sent.match(INSTRUCTION_NONCE_REGEX);
-      if (nonceMatch) {
-        const endMarker = `RESPONSE-END-${nonceMatch[1]}`;
-        // Simulate scrollback with old content, then agent's response with marker
-        return `Old garbage\nMore old stuff\nThis is the actual response\n\n${endMarker}\nContent after marker`;
-      }
-      return 'Old garbage\nMore old stuff';
-    };
-
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 0.5 },
-      config: {
-        defaults: {
-          timeout: 0.5,
-          pollInterval: 0.01,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-      },
-    });
-
-    await cmdTalk(ctx, 'claude', 'Test');
-
-    const output = ui.jsonOutput[0] as Record<string, unknown>;
-    expect(output.status).toBe('completed');
-    expect(output.response).toContain('actual response');
-  });
-
-  it('handles multiline responses correctly', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-
-    const multilineResponse = `Line 1 of response
-Line 2 of response
-Line 3 with special chars: <>&"'
-Line 4 final`;
-
-    tmux.capture = () => {
-      const sent = tmux.sends[0]?.message || '';
-      // Extract nonce from instruction
-      const nonceMatch = sent.match(INSTRUCTION_NONCE_REGEX);
-      if (nonceMatch) {
-        return mockResponse(nonceMatch[1], multilineResponse);
-      }
-      return '';
-    };
-
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 0.5 },
-      config: {
-        defaults: {
-          timeout: 0.5,
-          pollInterval: 0.01,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-      },
-    });
-
-    await cmdTalk(ctx, 'claude', 'Test');
-
-    const output = ui.jsonOutput[0] as Record<string, unknown>;
-    expect(output.response).toContain('Line 1 of response');
-    expect(output.response).toContain('Line 4 final');
-  });
-
-  it('handles empty response before marker', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-
-    tmux.capture = () => {
-      const sent = tmux.sends[0]?.message || '';
-      // Extract nonce from instruction
-      const nonceMatch = sent.match(INSTRUCTION_NONCE_REGEX);
-      if (nonceMatch) {
-        const endMarker = `RESPONSE-END-${nonceMatch[1]}`;
-        // Agent printed end marker immediately with no content before it
-        return `${endMarker}`;
-      }
-      return '';
-    };
-
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 0.5 },
-      config: {
-        defaults: {
-          timeout: 0.5,
-          pollInterval: 0.01,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-      },
-    });
-
-    await cmdTalk(ctx, 'claude', 'Test');
-
-    const output = ui.jsonOutput[0] as Record<string, unknown>;
-    expect(output.status).toBe('completed');
-    expect(typeof output.response).toBe('string');
-  });
-
-  it('waits until marker appears (not triggered while agent is thinking)', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-
-    let captureCount = 0;
-    tmux.capture = () => {
-      captureCount++;
-      const sent = tmux.sends[0]?.message || '';
-      // Extract nonce from instruction
-      const nonceMatch = sent.match(INSTRUCTION_NONCE_REGEX);
-      if (nonceMatch) {
-        const endMarker = `RESPONSE-END-${nonceMatch[1]}`;
-        if (captureCount < 3) {
-          // No marker yet - agent is still thinking
-          return `Agent is still thinking...`;
-        }
-        // Finally, agent prints marker
-        return `Actual response\n${endMarker}`;
-      }
-      return '';
-    };
-
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 0.5 },
-      config: {
-        defaults: {
-          timeout: 0.5,
-          pollInterval: 0.01,
-          captureLines: 100,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-      },
-    });
-
-    await cmdTalk(ctx, 'claude', 'Test');
-
-    // Should have polled multiple times before detecting completion
-    expect(captureCount).toBeGreaterThanOrEqual(3);
-    const output = ui.jsonOutput[0] as Record<string, unknown>;
-    expect(output.status).toBe('completed');
-    expect(output.response).toContain('Actual response');
-  });
-
-  it('handles large scrollback with marker at end', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-
-    // Simulate 100+ lines of scrollback
-    const lotsOfContent = Array.from({ length: 150 }, (_, i) => `Line ${i}`).join('\n');
-
-    tmux.capture = () => {
-      const sent = tmux.sends[0]?.message || '';
-      // Extract nonce from instruction
-      const nonceMatch = sent.match(INSTRUCTION_NONCE_REGEX);
-      if (nonceMatch) {
-        const endMarker = `RESPONSE-END-${nonceMatch[1]}`;
-        // ONE marker only - from agent response
-        return `${lotsOfContent}\nThe actual response\n\n${endMarker}`;
-      }
-      return lotsOfContent;
-    };
-
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: createTestPaths(testDir),
-      flags: { wait: true, json: true, timeout: 0.5 },
-      config: {
-        defaults: {
-          timeout: 0.5,
-          pollInterval: 0.01,
-          captureLines: 200,
-          maxCaptureLines: 2000,
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-        },
-      },
-    });
-
-    await cmdTalk(ctx, 'claude', 'Test');
-
-    const output = ui.jsonOutput[0] as Record<string, unknown>;
-    expect(output.status).toBe('completed');
-    expect(output.response).toContain('actual response');
-  });
-});
-
-describe('cmdTalk - request state lifecycle', () => {
-  it('fails closed before transport when request preparation cannot persist', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-    const stateDir = createOwnedTempDir('talk-state-test-');
-    const statePaths = createTestPaths(stateDir);
-    const requestService = requestFixture(statePaths.databaseFile).service;
-    requestService.prepare = vi.fn(() => {
-      throw new Error('database unavailable');
-    });
-    const ctx = createContext({
-      tmux,
-      ui,
-      requestService,
-      paths: statePaths,
-      flags: { json: true },
-    });
-
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(tmux.sends).toHaveLength(0);
-    expect(ui.jsonOutput).toEqual([
-      {
-        error: {
-          code: 'REQUEST_STATE_ERROR',
-          message:
-            'Request state could not be persisted before transport; no message was sent. Fix the request state database before retrying.',
-          suggestion: 'Fix the request state database before retrying.',
-        },
-      },
-    ]);
-  });
-
-  it('fails closed when the wait timing budget is not finite', async () => {
-    const tmux = createMockTmux();
-    const ui = createMockUI();
-    const stateDir = createOwnedTempDir('talk-state-test-');
-    const statePaths = createTestPaths(stateDir);
-    const ctx = createContext({
-      tmux,
-      ui,
-      paths: statePaths,
-      flags: { wait: true, json: true, timeout: Number.POSITIVE_INFINITY },
-    });
-
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(tmux.sends).toHaveLength(0);
-    expect(ui.jsonOutput[0]).toMatchObject({
-      error: expect.objectContaining({ code: 'REQUEST_STATE_ERROR' }),
-    });
-  });
-
-  it('records uncertainty and never replays after a possible transport failure', async () => {
-    const tmux = createMockTmux();
-    const stateDir = createOwnedTempDir('talk-state-test-');
-    const statePaths = createTestPaths(stateDir);
-    const requestService = requestFixture(statePaths.databaseFile).service;
-    let sendAttempts = 0;
-    tmux.send = () => {
-      sendAttempts += 1;
-      throw new Error('submit failed');
-    };
-    const ctx = createContext({
-      tmux,
-      requestService,
-      paths: statePaths,
-      flags: { json: true },
-    });
-
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(sendAttempts).toBe(1);
-    expect(requestService.listAttempts()).toHaveLength(1);
-    expect(requestService.listAttempts()[0]?.status).toBe('uncertain');
-  });
-
-  it('reports state uncertainty after transport and releases a waiter before exit', async () => {
-    const tmux = createMockTmux();
-    const stateDir = createOwnedTempDir('talk-state-test-');
-    const statePaths = createTestPaths(stateDir);
-    const base = requestFixture(statePaths.databaseFile).service;
-    const releaseWait = vi.fn(base.releaseWait);
+  it('correlates a settle failure after delivery without replaying the request', async () => {
+    const root = temporaryDirectory('tmt-talk-settle-failure-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
     const settle = vi.fn((attemptId: string, outcome: RequestSettlement) => {
-      if (outcome === 'sent') throw new Error('settle failed');
-      base.settle(attemptId, outcome);
+      if (outcome === 'sent') throw new Error('settle persistence failed after delivery');
+      return fixture.service.settle(attemptId, outcome);
     });
-    const requestService: RequestService = { ...base, releaseWait, settle };
-    const ui = createMockUI();
-    const ctx = createContext({
-      tmux,
-      ui,
-      requestService,
-      paths: statePaths,
-      flags: { wait: true, json: true },
+    const service = { ...fixture.service, settle } as RequestService;
+    const tmux = createMockTmux({
+      onSend: (message) =>
+        submitFor(fixture.service, attemptFromInstruction(fixture.service, message), 'delivered'),
     });
+    const ctx = createContext(root, { tmux, requestService: service });
 
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(tmux.sends).toHaveLength(1);
-    expect(releaseWait).toHaveBeenCalledOnce();
-    expect(ui.jsonOutput[0]).toMatchObject({
-      error: expect.objectContaining({ code: 'REQUEST_STATE_ERROR' }),
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+      exitCode: ExitCodes.ERROR,
     });
-  });
-
-  it('refunds a begin-send failure and allows the next preamble reservation', async () => {
-    const stateDir = createOwnedTempDir('talk-state-test-');
-    const statePaths = createTestPaths(stateDir);
-    const base = requestFixture(statePaths.databaseFile).service;
-    let failBegin = true;
-    const beginSend = vi.fn((attemptId: string) => {
-      if (failBegin) {
-        failBegin = false;
-        throw new Error('begin failed');
-      }
-      base.beginSend(attemptId);
-    });
-    const requestService: RequestService = { ...base, beginSend };
-    const firstTmux = createMockTmux();
-    const firstCtx = createContext({
-      tmux: firstTmux,
-      requestService,
-      paths: statePaths,
-      preambleService: createMockPreambleService('Be brief'),
-      flags: { json: true },
-    });
-
-    await expect(cmdTalk(firstCtx, 'claude', 'First')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(firstTmux.sends).toHaveLength(0);
-    expect(requestService.listAttempts()[0]).toMatchObject({
-      status: 'definitely_failed',
-      cadenceReserved: false,
-      waitActive: false,
-    });
-
-    const secondTmux = createMockTmux();
-    const secondCtx = createContext({
-      tmux: secondTmux,
-      requestService,
-      paths: statePaths,
-      preambleService: createMockPreambleService('Be brief'),
-      flags: { json: true },
-    });
-    await cmdTalk(secondCtx, 'claude', 'Second');
-
-    expect(secondTmux.sends[0]?.message).toContain('[SYSTEM: Be brief]');
-    expect(beginSend).toHaveBeenCalledTimes(2);
-    // Attempts created in the same millisecond sort by UUID, not invocation order.
-    const secondAttemptId = beginSend.mock.calls[1]![0];
-    expect(requestService.getAttempt(secondAttemptId)).toMatchObject({
-      status: 'sent',
-      injectPreamble: true,
-      cadenceReserved: true,
-    });
-  });
-
-  it('releases a sent waiter when capture fails unexpectedly', async () => {
-    const stateDir = createOwnedTempDir('talk-state-test-');
-    const statePaths = createTestPaths(stateDir);
-    const base = requestFixture(statePaths.databaseFile).service;
-    const releaseWait = vi.fn(base.releaseWait);
-    const requestService: RequestService = { ...base, releaseWait };
-    const tmux = createMockTmux();
-    tmux.capture = () => {
-      throw new Error('capture failed');
+    const attempt = onlyAttempt(fixture.service);
+    const output = (ctx.ui as TestUI).jsonOutput[0] as {
+      requestId: string;
+      error: { code: string; suggestion: string };
     };
-    const ui = createMockUI();
-    const ctx = createContext({
+    expect(output).toMatchObject({
+      requestId: attempt.requestId,
+      error: {
+        code: 'REQUEST_STATE_ERROR',
+        suggestion: expect.stringContaining(attempt.requestId),
+      },
+    });
+    expect(tmux.sends).toHaveLength(1);
+    expect(fixture.service.getResponse(attempt.requestId)?.body).toBe('delivered');
+    expect(settle).toHaveBeenCalledWith(attempt.attemptId, 'sent');
+  });
+
+  it('correlates a response-read failure after delivery without replaying the request', async () => {
+    const root = temporaryDirectory('tmt-talk-read-failure-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const getResponse = vi.fn(() => {
+      throw new Error('response read failed after delivery');
+    });
+    const service = { ...fixture.service, getResponse } as RequestService;
+    const tmux = createMockTmux({
+      onSend: (message) =>
+        submitFor(fixture.service, attemptFromInstruction(fixture.service, message), 'delivered'),
+    });
+    const ctx = createContext(root, {
       tmux,
-      ui,
-      requestService,
-      paths: statePaths,
-      flags: { wait: true, json: true, timeout: 0.5 },
+      requestService: service,
+      config: createConfig({ pollInterval: 0.001 }),
     });
 
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
-    expect(releaseWait).toHaveBeenCalledOnce();
-    expect(requestService.listAttempts()[0]).toMatchObject({ status: 'sent', waitActive: false });
-    expect(ui.jsonOutput).toEqual([
-      { error: { code: 'ERROR', message: 'Failed to capture pane 1.0. Is tmux running?' } },
-    ]);
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+      exitCode: ExitCodes.ERROR,
+    });
+    const attempt = onlyAttempt(fixture.service);
+    expect((ctx.ui as TestUI).jsonOutput[0]).toMatchObject({
+      requestId: attempt.requestId,
+      error: {
+        code: 'REQUEST_STATE_ERROR',
+        message: expect.stringContaining('read'),
+        suggestion: expect.stringContaining(attempt.requestId),
+      },
+    });
+    expect(tmux.sends).toHaveLength(1);
+    expect(getResponse).toHaveBeenCalledTimes(1);
+    expect(fixture.service.getResponse(attempt.requestId)?.body).toBe('delivered');
+  });
+
+  it('correlates waiter-release failure after delivery without replaying the request', async () => {
+    const root = temporaryDirectory('tmt-talk-release-failure-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const releaseWait = vi.fn(() => {
+      throw new Error('waiter release failed after delivery');
+    });
+    const service = { ...fixture.service, releaseWait } as RequestService;
+    const tmux = createMockTmux({
+      onSend: (message) =>
+        submitFor(fixture.service, attemptFromInstruction(fixture.service, message), 'delivered'),
+    });
+    const ctx = createContext(root, { tmux, requestService: service });
+
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+      exitCode: ExitCodes.ERROR,
+    });
+    const attempt = onlyAttempt(fixture.service);
+    expect((ctx.ui as TestUI).jsonOutput[0]).toMatchObject({
+      requestId: attempt.requestId,
+      error: {
+        code: 'REQUEST_STATE_ERROR',
+        suggestion: expect.stringContaining(attempt.requestId),
+      },
+    });
+    expect(tmux.sends).toHaveLength(1);
+    expect(releaseWait).toHaveBeenCalledTimes(1);
+    expect(fixture.service.getResponse(attempt.requestId)?.body).toBe('delivered');
+  });
+
+  it('rejects a response read that crosses the deadline and performs no second read', async () => {
+    const root = temporaryDirectory('tmt-talk-read-overrun-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    let clock = 20_000;
+    const getResponse = vi.fn((requestId: string) => {
+      const response = fixture.service.getResponse(requestId);
+      clock += 20;
+      return response;
+    });
+    const service = { ...fixture.service, getResponse } as RequestService;
+    const tmux = createMockTmux({
+      onSend: (message) =>
+        submitFor(fixture.service, attemptFromInstruction(fixture.service, message), 'crossed'),
+    });
+    const ctx = createContext(root, {
+      tmux,
+      requestService: service,
+      flags: { timeout: 0.01 },
+      config: createConfig({ pollInterval: 0.001 }),
+    });
+    await expect(
+      cmdTalk(ctx, 'claude', 'Hello', {
+        now: () => clock,
+        sleep: async () => undefined,
+      })
+    ).rejects.toMatchObject({ exitCode: ExitCodes.TIMEOUT });
+    expect(getResponse).toHaveBeenCalledTimes(1);
+    expect(fixture.service.getResponse(onlyAttempt(fixture.service).requestId)?.body).toBe(
+      'crossed'
+    );
+  });
+
+  it('fails closed when request preparation cannot persist and does not send', async () => {
+    const root = temporaryDirectory('tmt-talk-receipt-failure-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const service = {
+      ...fixture.service,
+      prepare: vi.fn(() => {
+        throw new Error('receipt persistence failed');
+      }),
+    } as RequestService;
+    const tmux = createMockTmux();
+    const ctx = createContext(root, { tmux, requestService: service });
+    const before = stateSnapshot(root);
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+      exitCode: ExitCodes.ERROR,
+    });
+    expect(tmux.sends).toHaveLength(0);
+    expect(stateSnapshot(root)).toEqual(before);
+  });
+
+  it('refunds the prepared cadence reservation when receipt construction fails', async () => {
+    const root = temporaryDirectory('tmt-talk-receipt-encode-failure-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const tmux = createMockTmux();
+    const requestId = 'x'.repeat(300) as ReturnType<typeof crypto.randomUUID>;
+    const uuid = vi.spyOn(crypto, 'randomUUID').mockReturnValue(requestId);
+    const ctx = createContext(root, { tmux });
+    try {
+      await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+        exitCode: ExitCodes.ERROR,
+      });
+      expect(tmux.sends).toHaveLength(0);
+      const attempt = onlyAttempt(fixture.service);
+      expect(attempt.status).toBe('definitely_failed');
+      expect(attempt.waitActive).toBe(false);
+      expect(stateSnapshot(root).responses).toEqual([]);
+      expect(stateSnapshot(root).cadence).toEqual([expect.objectContaining({ reserved_count: 0 })]);
+    } finally {
+      uuid.mockRestore();
+    }
+  });
+
+  it('releases only its waiter after an unexpected transport error', async () => {
+    const root = temporaryDirectory('tmt-talk-cleanup-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const prepared = fixture.service.prepare({
+      requestId: 'other-request',
+      endpoint: ENDPOINT,
+      wait: true,
+      expiresAtMs: Date.now() + 60 * 60 * 1000,
+    });
+    fixture.service.beginSend(prepared.attemptId);
+    const tmux = createMockTmux();
+    tmux.send = vi.fn(() => {
+      throw new Error('unexpected send failure');
+    });
+    const ctx = createContext(root, { tmux });
+    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+      exitCode: ExitCodes.ERROR,
+    });
+    expect(fixture.service.getAttempt(prepared.attemptId)?.waitActive).toBe(true);
+    const newAttempt = fixture.service
+      .listAttempts()
+      .find((attempt) => attempt.requestId !== 'other-request');
+    expect(newAttempt?.waitActive).toBe(false);
   });
 });

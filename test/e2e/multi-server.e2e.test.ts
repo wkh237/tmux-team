@@ -101,7 +101,6 @@ describe.sequential('global identities across isolated tmux servers', () => {
           'talk',
           'Local',
           message,
-          '--wait',
           '--timeout',
           '10',
         ])
@@ -110,7 +109,7 @@ describe.sequential('global identities across isolated tmux servers', () => {
       expect(talk.response).toContain(`mock-agent response: ${message}`);
       await a.waitForEvent(
         (event) =>
-          event.event === 'response' && event.pid === a.panePid && event.message === message
+          event.event === 'submitted' && event.pid === a.panePid && event.message === message
       );
       expect(b.events().filter((event) => event.event === 'request')).toEqual([]);
     });

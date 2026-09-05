@@ -56,8 +56,18 @@ describe('durable reply body input', () => {
     const close = vi.spyOn(fs, 'closeSync');
     try {
       expectInputError(() => readResponseFile(file), 'RESPONSE_INPUT_INVALID');
-      expect(close).toHaveBeenCalledTimes(1);
-      expect(() => fs.fstatSync(open.mock.results[0]!.value as number)).toThrow(/EBADF/);
+      const openIndex = open.mock.calls.findIndex(([openedPath]) => openedPath === file);
+      expect(openIndex).toBeGreaterThanOrEqual(0);
+      const openedFd = open.mock.results[openIndex]?.value as number;
+      const closeIndex = close.mock.calls.findIndex(([closedFd]) => closedFd === openedFd);
+      // This exact-FD assertion is the regression guard: omitting native closeSync
+      // cannot satisfy it, while a later worker reusing the number cannot create a
+      // false EBADF result.
+      expect(closeIndex).toBeGreaterThanOrEqual(0);
+      expect(close.mock.results[closeIndex]).toMatchObject({
+        type: 'return',
+        value: undefined,
+      });
     } finally {
       open.mockRestore();
       close.mockRestore();

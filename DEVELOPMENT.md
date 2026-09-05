@@ -100,14 +100,25 @@ Test-support infrastructure is excluded from production coverage, like worker
 fixtures; this does not exclude the request service, domain rules or SQL adapter.
 Final-response tests use real temporary SQLite and an injected clock for exact
 submission/retention boundaries, plus independent processes for writer races.
-They do not imply the live CLI already consumes durable replies; TMT-37 owns that
-integration and its exact-body Docker/mock-agent acceptance scenarios.
+The live CLI consumes this same service; Docker/mock-agent scenarios verify
+request correlation and exact-body retrieval across the real CLI/tmux boundary.
 
 Reply adapter verification additionally exercises the real CLI in an isolated
 home and SQLite database, including file/stdin decoding, exact result text,
 idempotent retry across invocations and rejection without partial finalization.
 Input tests cover EOF, byte/deadline limits and listener/descriptor cleanup.
-These storage-only checks do not substitute for TMT-39's live tmux cutover tests.
+These storage-only checks do not substitute for live tmux cutover tests. The
+mock agent invokes the public reply CLI and logs request/submission/summary
+events; the virtualized-body test compares the exact complete response against
+an independent oracle even when terminal capture has only its tail. State
+oracles verify independent request IDs, immutable finals and waiter cleanup.
+Monotonic observer tests cover transport/read overruns and deadline equality;
+terminal markers or idle output must not produce completion.
+Reply-order scenarios release per-request gates after observing causal events,
+not elapsed sleeps. Fixture teardown stops producers before discovering active
+reply child groups, and verifies group absence even after a mock is forcibly
+killed. A stopped public reply child makes that cleanup regression observable
+instead of relying on EOF to let the child exit naturally.
 
 `docs:format:check` covers the architecture, policy, conventions, development
 guide, repository skills and PR template. It uses `.gitignore` as its ignore

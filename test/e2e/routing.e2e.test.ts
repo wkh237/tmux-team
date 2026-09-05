@@ -89,7 +89,7 @@ describe.sequential('global identity and runtime routing', () => {
         identity: IdentitySummary;
         status: string;
         response: string;
-      }>(['talk', normalizedTarget, alphaMessage, '--wait', '--timeout', '10'], {
+      }>(['talk', normalizedTarget, alphaMessage, '--timeout', '10'], {
         cwd: callerWorkspace,
       });
       expect(alphaTalk.code).toBe(0);
@@ -102,7 +102,7 @@ describe.sequential('global identity and runtime routing', () => {
       expect(alphaTalk.json?.response).toContain(`mock-agent response: ${alphaMessage}`);
       await fixture.waitForEvent(
         (event) =>
-          event.event === 'response' && event.pid === alpha.pid && event.message === alphaMessage
+          event.event === 'submitted' && event.pid === alpha.pid && event.message === alphaMessage
       );
       expect(
         fixture
@@ -119,7 +119,7 @@ describe.sequential('global identity and runtime routing', () => {
         pane: string;
         identity: IdentitySummary;
         status: string;
-      }>(['talk', 'all', allMessage, '--wait', '--timeout', '10'], { cwd: callerWorkspace });
+      }>(['talk', 'all', allMessage, '--timeout', '10'], { cwd: callerWorkspace });
       expect(allTalk).toMatchObject({
         code: 0,
         json: {
@@ -131,7 +131,7 @@ describe.sequential('global identity and runtime routing', () => {
       });
       await fixture.waitForEvent(
         (event) =>
-          event.event === 'response' && event.pid === all.pid && event.message === allMessage
+          event.event === 'submitted' && event.pid === all.pid && event.message === allMessage
       );
       expect(
         fixture
@@ -148,7 +148,7 @@ describe.sequential('global identity and runtime routing', () => {
         target: string;
         pane: string;
         status: string;
-      }>(['talk', directTarget, directMessage, '--wait', '--timeout', '10'], {
+      }>(['talk', directTarget, directMessage, '--timeout', '10'], {
         cwd: callerWorkspace,
       });
       expect(directTalk).toMatchObject({
@@ -158,7 +158,7 @@ describe.sequential('global identity and runtime routing', () => {
       expect(directTalk.json).not.toHaveProperty('identity');
       await fixture.waitForEvent(
         (event) =>
-          event.event === 'response' &&
+          event.event === 'submitted' &&
           event.pid === fixture.panePid &&
           event.message === directMessage
       );
@@ -179,7 +179,7 @@ describe.sequential('global identity and runtime routing', () => {
           lines: 25,
         },
       });
-      expect(checked.json?.output).toContain(`mock-agent response: ${alphaMessage}`);
+      expect(checked.json?.output).toContain(`mock-agent summary: ${alphaMessage}`);
 
       const focused = await fixture.runJsonCli<{
         target: string;

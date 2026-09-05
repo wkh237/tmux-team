@@ -49,7 +49,6 @@ describe.sequential('durable role profiles', () => {
         'talk',
         'Alice',
         'profile-not-injected',
-        '--wait',
         '--timeout',
         '5',
       ]);

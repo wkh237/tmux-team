@@ -2,18 +2,18 @@
 
 Status: historical research based on `cecaec7` (2026-09-05), with the accepted
 direction and TMT-36 service contract maintained below. The shared final-response
-service and explicit reply/result adapters are implemented; the default live
-`talk` cutover remains TMT-39 under TMT-37. No provider integration, daemon,
+service, explicit reply/result adapters and default durable `talk` are implemented
+through TMT-36/38/39 under TMT-37. No provider integration, daemon,
 inbox or memory feature is supplied here.
 
-## Accepted direction (2026-09-05; CLI integration not yet shipped)
+## Accepted direction and implemented CLI contract
 
 The [accepted design](https://linear.app/tigerpig-dev/document/accepted-design-durable-replies-automatic-completion-and-human-21745047ee15)
 supersedes the earlier opt-in proposal below. TMT-36 adds immutable full replies
 to the existing request service; TMT-37 changes the CLI to wait for a durable
 reply by default, with bounded `--timeout` and explicit `--detach`, retiring
-`--wait` and the polling/wait mode switch. The default-wait change remains a
-proposal, not installed behavior. Explicit `reply`/`result` adapters are described
+`--wait` and the polling/wait mode switch. The default-wait change is implemented
+by TMT-39. Explicit `reply`/`result` adapters are described
 below. Terminal capture and `check` must not be treated as authoritative durable
 completion or full-body retrieval.
 
@@ -81,8 +81,8 @@ tmt result <request-id> [--json]
 The receipt is an explicit version-1 base64url envelope of request ID, attempt ID
 and the complete six-field endpoint. Its encoded length is at most 8192 characters.
 It is not authentication. The recipient must use the supplied receipt, not infer
-the latest request from a pane. Current `talk` does not supply one yet; TMT-39
-owns generation and delivery. No receipt is included in routine result/ack output.
+the latest request from a pane. `talk` supplies it in the recipient instruction,
+including detached requests. No receipt is included in routine result/ack output.
 
 Files must resolve to regular files; symlinks are followed, and descriptors are
 closed after bounded reads. Explicit stdin requires EOF within five seconds.
@@ -103,6 +103,44 @@ truthful short user summary only after successful submission. Submission means
 the result was delivered, not that the requested task succeeded. Summary failure
 does not undo or justify repeating an accepted final.
 
+### TMT-39 live durable completion
+
+`talk <target> <message> [--timeout <time> | --detach] [--json]` waits for the
+shared service's complete final by default. It no longer captures or cleans
+terminal output to determine completion. `send` follows the same semantics.
+The recipient must cooperate by invoking reply; idle output, fake markers,
+process exit and human summaries do not complete a request.
+
+Timeout defaults to 180 seconds unless configured, accepts finite positive
+seconds or ms/s suffixes, and is bounded to 24 hours. Explicit timeout and
+detach are mutually exclusive. The monotonic deadline starts immediately before
+beginSend/transport, after delay/preparation/receipt encoding. Checks before and
+after each synchronous response read treat equality or crossing as timeout;
+there is no final post-deadline read. Poll sleeps are bounded by remaining time.
+Synchronous transport/Enter time counts, but cannot be cancelled mid-operation.
+Timeout/interruption only releases the observer; late results remain retrievable.
+
+Detached JSON is `{status:"sent",requestId,target,pane,identity?}`. Completed
+talk returns `status:"completed"`, the same correlation and exact `response`,
+`bodyBytes`, `submittedAtMs`. Timeout uses `status:"timeout"`, request/target/pane
+correlation and `error:{code:"TIMEOUT",message}` (exit 4), without partialResponse,
+nonce, endMarker or truncated. Delivery/state uncertainty remains nonzero and
+retains inspection correlation, never automatic resend. Failure during receipt
+construction before beginSend refunds a proven-unsent reservation.
+
+`--wait` is rejected with migration guidance; talk rejects `--lines` while check
+retains it. Stored mode/maxCaptureLines values are inert, not automatically
+rewritten; explicit local `config clear mode` deletes only that obsolete key.
+Historical migrations/nonce columns stay unchanged; new attempts omit nonce.
+
+The Docker peer submits through the real public reply CLI, logs causal
+request/submitted/summary or failure events, and retains a full-body oracle.
+Virtualized output exposes only its tail; acceptance requires exact complete
+talk/result equality, not a missing-interior characterization. Same-pane input
+serialization, exactly-once processing, inbox and remote authentication are
+still outside scope. User-installed skills teach full submission first, then
+a truthful work/tests/blockers summary; failed submission is never success.
+
 TMT-24 implementation update: transport now prevents replay after an input
 stage may have acted, preserves the same `!` protection on fallback, reports
 `DELIVERY_UNCERTAIN`, and bounds argv-based capture. The current implementation
@@ -111,7 +149,7 @@ longer present. At that baseline, request/response storage, instruction-boundary
 extraction and structured final-body delivery remained unresolved. See ARCHITECTURE.md for the
 maintained shipped transport boundary.
 
-## Current implementation map
+## Historical implementation map (research baseline, not current runtime)
 
 TMT-25 implementation update: request/attempt bookkeeping and identity cadence
 now share the existing SQLite connection through an application service.
@@ -120,8 +158,8 @@ cleanup, and short transactions outside tmux effects. Cadence uses reservations,
 not an exact ordering of successful concurrent sends. Old JSON state is ignored
 and preserved. The map and matrix below remain the historical research baseline;
 see ARCHITECTURE.md for the maintained shipped state. Final-body
-storage is implemented by TMT-36; TMT-37 live structured reply integration is
-still not shipped.
+storage is implemented by TMT-36; TMT-38/39 now implement TMT-37's live durable
+reply integration. The following marker/JSON-state descriptions are historical.
 
 `cmdTalk` resolves one target, then either sends and returns (`talk` without
 `--wait`) or creates a request ID, random nonce, and
@@ -261,9 +299,9 @@ provider integration test was run.
 - [Gemini headless CLI](https://geminicli.com/docs/cli/headless/): headless operation can provide response JSON or message chunks plus a result. TMT should consume a bounded final result, not invent a second chunk protocol.
 - [tmux manual](https://raw.githubusercontent.com/tmux/tmux/master/tmux.1): capture reads pane screen/history, while pipe-pane receives program output. A pane supports one pipe command at a time. Neither supplies semantic request ownership; neither can recover text never rendered or emitted. Correlation alone also cannot restore missing text.
 
-## User-observable contract: current versus proposal
+## Historical user-observable contract: research baseline versus proposal
 
-Current behavior is observable as `status: sent` for non-wait sends,
+At the research baseline, behavior was observable as `status: sent` for non-wait sends,
 `status: completed` with `requestId`, `nonce`, `endMarker`, and `response` for
 marker-detected waits, and `status: timeout` with optional `partialResponse`.
 Human output also prints a response extracted from the pane.
@@ -278,9 +316,9 @@ this document does not commit to them.
 
 ## Verification matrix
 
-### Research diagnostic, not a delivered channel
+### Historical research diagnostic, now replaced by full-body acceptance
 
-`test/e2e/response-integrity.e2e.test.ts` exercises the real CLI against the
+Before TMT-39, `test/e2e/response-integrity.e2e.test.ts` exercised the real CLI against the
 existing private-server fixture in `virtualized` mock mode. The mock constructs
 a full 202-line plain-text body, renders only its last three lines and the
 completion marker, then records the full body in its causal event. The scenario
@@ -314,8 +352,8 @@ Implementation work should add deterministic tests for:
 - durable state preservation after failed finalization and cleanup after
   success, timeout, cancellation, and thrown errors.
 
-The E2E cases should assert JSON fields plus causal mock-agent events keyed by
-nonce and PID, not terminal echo alone. Use barriers and bounded polling rather
+The E2E cases now assert JSON fields plus causal mock-agent events keyed by
+request ID and PID, not terminal echo alone. Use barriers and bounded polling rather
 than fixed sleeps, and run the Docker suite twice when lifecycle/cleanup code
 changes. Provider-source adapters should use recorded fixtures and remain
 network-free; no actual provider integration result is claimed here.

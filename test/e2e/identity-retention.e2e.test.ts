@@ -122,31 +122,30 @@ describe.sequential('committed identity retention', () => {
 
       const message = 'retained identity can now receive';
       const output = success(
-        await fixture.runJsonCli<{ status: string; nonce: string }>([
+        await fixture.runJsonCli<{ status: string; requestId: string }>([
           'talk',
           'Retained',
           message,
-          '--wait',
           '--timeout',
           '8',
         ])
       );
       expect(output.status).toBe('completed');
-      expect(output.nonce).toMatch(/^[a-z0-9]+$/);
+      expect(output.requestId).toMatch(/^req_[0-9a-f-]+$/);
       // The mock records logical nonblank lines, not the empty separator line.
       const payload = `[SYSTEM: ${preamble}]\n${message}`;
       await fixture.waitForEvent(
         (event) =>
-          event.event === 'response' &&
+          event.event === 'submitted' &&
           event.pid === peer.pid &&
-          event.nonce === output.nonce &&
+          event.requestId === output.requestId &&
           event.message === payload
       );
-      const events = fixture.events().filter((event) => event.nonce === output.nonce);
+      const events = fixture.events().filter((event) => event.requestId === output.requestId);
       expect(events.filter((event) => event.event === 'request')).toMatchObject([
         { pid: peer.pid, message: payload },
       ]);
-      expect(events.filter((event) => event.event === 'response')).toMatchObject([
+      expect(events.filter((event) => event.event === 'submitted')).toMatchObject([
         { pid: peer.pid, message: payload },
       ]);
       expect(fixture.paneMetadata()).toBe(originalMetadata);

@@ -142,15 +142,19 @@ shows that pane's status. `talk` and `check` use the same target resolution.
 
 **Options for `talk`:**
 
-- `--timeout <seconds>` - Max wait time (default: 180s)
-- `--lines <number>` - Lines to capture from a response (default: 100)
-- `--wait` - Wait for a response before returning
+- `--timeout <time>` - Bound default durable waiting (default: 180s; positive, at most 24h)
+- `--detach` - Return a request ID after sending; mutually exclusive with explicit timeout
 - `--delay <seconds>` - Delay before sending
+
+`--wait` is retired. `--lines` belongs to diagnostic `check`, not `talk`.
+Time accepts seconds or ms/s suffixes. Stored mode and maxCaptureLines values
+are inert and preserved; `config clear mode` removes only the obsolete local key.
 
 ### Durable replies and results
 
-TMT-38 adds storage-only result adapters that work without tmux and can accept a
-late reply after a pane closes:
+Talk waits for a complete durable final by default. It sends an exact request
+ID/receipt to the recipient, who must submit a reply. The storage-only result
+adapters work without tmux and can accept a late reply after a pane closes:
 
 ```bash
 tmt reply <request-id> --receipt <receipt> --file response.md
@@ -160,10 +164,25 @@ tmt result <request-id> --json
 ```
 
 Use exactly one input source. The receipt must be supplied by TMT; do not
-manufacture one, look up the latest request, or infer a current pane. In this
-slice, `talk` still uses marker-based terminal capture and does not generate
-receipts; receipt generation and durable completion belong to TMT-39. There is
-no `--detach` or default durable-wait behavior yet.
+manufacture one, look up the latest request, or infer a current pane. Detached
+requests receive the same instructions. No reply means no durable final:
+terminal markers, idle output, summaries and process exit cannot complete talk.
+This is local storage access, not an inbox, listener or remote transport.
+
+```bash
+tmt talk reviewer "Review this patch" --timeout 300 --json
+tmt talk reviewer "Run the agreed tests" --detach --json
+tmt result <request-id> --json
+```
+
+Detach returns `{status:"sent",requestId,target,pane,identity?}`, not task success.
+Completed talk returns that correlation with `status:"completed"`, exact
+`response`, `bodyBytes` and `submittedAtMs`, matching result retrieval.
+The observer clock begins immediately before send after preparation/delay;
+transport/Enter time counts, but cannot be cancelled mid-operation. Equality
+with the deadline, or a response read crossing it, yields timeout; no final
+post-deadline read occurs. Late results remain retrievable. Do not resend
+merely because a caller timed out or was interrupted.
 
 Reply input preserves the complete valid UTF-8 body, including empty or
 whitespace text, BOM, NUL, CR/LF, Unicode, and marker-like text, up to 1 MiB.
@@ -255,15 +274,15 @@ tmt config set pasteEnterDelayMs 500
 
 Once paste or literal input may have reached a pane, TMT does not automatically
 replay it. A failed input/submission stage returns `DELIVERY_UNCERTAIN` (exit 1)
-in both wait and non-wait modes, with `error.stage` in JSON. Inspect the pane
+for both default wait and detach, with request ID and `error.stage` in JSON. Inspect the pane
 before deciding whether to retry; absent visible output does not prove that no
 work started. Successful submission does not promise exactly-once processing.
 Each transport/capture subprocess is bounded independently of the configured
 Enter delay and response wait timeout.
 
-Response waits still use best-effort terminal extraction: a completion marker
-does not guarantee a full body under virtual scrolling. `check` is a diagnostic
-snapshot, not durable response retrieval. See the
+Response waits retrieve exact durable bodies without terminal extraction or
+provider-specific cleanup. `check` is a diagnostic snapshot, not durable result
+retrieval. Same-pane input serialization is not guaranteed. See the
 [channel research and implementation plan](REQUEST-RESPONSE.md).
 
 ## Local SQLite storage
@@ -399,20 +418,20 @@ Each `talk` attempt records its own ID and complete tmux server/pane instance
 in SQLite, including direct unnamed panes. Concurrent waiters never replace
 one another's rows; an overlap warning is advisory, and `--force` only suppresses
 the warning. Cleanup affects only its own attempt. Transactions end before
-transport and capture, so a waiting agent does not hold the database writer lock.
+transport and polling, so a waiting agent does not hold the database writer lock.
 
 An attempt is prepared before transmission and marked sending immediately
 before invoking it. A crash after sending starts is uncertain, never permission
 to retry. Timeout or interruption releases the waiter, not the recipient's
 work. Expired prepared attempts can refund their reservations; expired sending
 attempts remain consumed as uncertain. Attempt metadata is pruned opportunistically
-after terminal retention; cadence totals persist. No prompt or response body is
-stored by this bookkeeping feature.
+after terminal retention; cadence totals persist. Prompts are not stored;
+complete final responses are stored separately by the shared request service.
 
 `REQUEST_STATE_ERROR` (exit 1) reports a bookkeeping failure. When delivery may
 already have occurred, inspect the pane before retrying; a failed state write
-does not mean the message was not sent. The existing terminal-marker response
-and truncation limitations remain unchanged.
+does not mean the message was not sent. Preserve its request ID to inspect
+the retained result; do not infer that retrying is safe.
 
 Old preambles in JSON or workspace metadata are ignored, not automatically
 imported or deleted. Reapply desired text using `preamble set`. A preamble lookup
@@ -433,11 +452,12 @@ the command boundary. `CLEANUP_ERROR` after successful work does not roll back
 its effects; inspect state before retrying. A cleanup failure alongside an
 existing command failure preserves that primary error and status.
 
-This v5 alpha intentionally changes the timeout `error` field from a string to
-`{ "code": "TIMEOUT", "message": "..." }`. The existing `status`, target,
-pane, identity when present, request ID, nonce, end marker and nullable
-`partialResponse` remain. Read `error.message` instead of treating `error` as
-text. Timeout and Ctrl+C release the waiter, not recipient work.
+Talk timeout returns `status:"timeout"`, request ID, target/pane correlation and
+`error:{code:"TIMEOUT",message:"..."}` (exit 4), without partialResponse,
+nonce, endMarker or truncated. Timeout and Ctrl+C release the waiter, not
+recipient work. Use `tmt result <request-id> --json` later. Failure replacement
+after a pending result preserves bounded request ID/target/pane inspection
+fields, not its raw response or receipt.
 
 `help`, `version`, `completion`, and `learn` remain text-only; combining them
 with `--json` returns `JSON_UNSUPPORTED` before output or effects. `upgrade`

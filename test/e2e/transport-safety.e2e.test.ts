@@ -3,7 +3,7 @@ import { E2EFixture, withE2EFixture } from './harness.js';
 import { requestAttempts } from './request-state-oracle.js';
 
 interface TalkResult {
-  nonce?: string;
+  requestId?: string;
   response?: string;
   status?: string;
 }
@@ -74,16 +74,15 @@ describe.sequential('TMT-24 safe transport', () => {
         'Normal',
         message,
         '--no-preamble',
-        '--wait',
         '--timeout',
         '8',
       ]);
       expect(normalTalk).toMatchObject({ code: 0, json: { status: 'completed' } });
       const normalResponse = await fixture.waitForEvent(
         (event) =>
-          event.event === 'response' &&
+          event.event === 'submitted' &&
           event.pid === normal.pid &&
-          event.nonce === normalTalk.json?.nonce
+          event.requestId === normalTalk.json?.requestId
       );
       expect(normalResponse.message).toBe(expected);
 
@@ -91,15 +90,15 @@ describe.sequential('TMT-24 safe transport', () => {
       fixture.tmux(['set-buffer', '-b', sentinel, '--', 'keep-this-buffer']);
       const traceStart = fixture.transportTrace().length;
       const fallbackTalk = await fixture.runJsonCli<TalkResult>(
-        ['talk', 'Fallback', message, '--no-preamble', '--wait', '--timeout', '8'],
+        ['talk', 'Fallback', message, '--no-preamble', '--timeout', '8'],
         { transportFault: { stage: 'set-buffer' } }
       );
       expect(fallbackTalk).toMatchObject({ code: 0, json: { status: 'completed' } });
       const fallbackResponse = await fixture.waitForEvent(
         (event) =>
-          event.event === 'response' &&
+          event.event === 'submitted' &&
           event.pid === fallback.pid &&
-          event.nonce === fallbackTalk.json?.nonce
+          event.requestId === fallbackTalk.json?.requestId
       );
       expect(fallbackResponse.message).toBe(expected);
       expect(showBuffer(fixture, sentinel)).toBe('keep-this-buffer');
@@ -120,12 +119,9 @@ describe.sequential('TMT-24 safe transport', () => {
     });
   }, 30_000);
 
-  it('reports uncertain paste and submit without replay in config-driven polling mode', async () => {
+  it('reports uncertain paste and submit without replay in explicit detach mode', async () => {
     await withE2EFixture(
       async (fixture) => {
-        const configured = await fixture.runJsonCli(['config', 'set', 'mode', 'polling']);
-        expect(configured.code).toBe(0);
-
         const literalPeer = await fixture.createMockPane('literal-fault');
         const pastePeer = await fixture.createMockPane('paste-fault');
         const submitPeer = await fixture.createMockPane('submit-fault');
@@ -137,7 +133,7 @@ describe.sequential('TMT-24 safe transport', () => {
         fixture.tmux(['set-buffer', '-b', literalSentinel, '--', 'keep-literal-buffer']);
         const literalTraceStart = fixture.transportTrace().length;
         const literal = await fixture.runJsonCli<TalkResult>(
-          ['talk', 'LiteralFault', 'Enter', '--no-preamble'],
+          ['talk', 'LiteralFault', 'Enter', '--no-preamble', '--detach'],
           { transportFault: { stage: 'set-buffer' } }
         );
         expect(literal).toMatchObject({ code: 0, json: { status: 'sent' } });
@@ -157,7 +153,7 @@ describe.sequential('TMT-24 safe transport', () => {
         fixture.tmux(['set-buffer', '-b', pasteSentinel, '--', 'keep-paste-buffer']);
         const pasteTraceStart = fixture.transportTrace().length;
         const paste = await fixture.runJsonCli<ErrorResult>(
-          ['talk', 'PasteFault', 'C-c', '--no-preamble'],
+          ['talk', 'PasteFault', 'C-c', '--no-preamble', '--detach'],
           { transportFault: { stage: 'paste' } }
         );
         expect(paste).toMatchObject({
@@ -190,7 +186,7 @@ describe.sequential('TMT-24 safe transport', () => {
         fixture.tmux(['set-buffer', '-b', submitSentinel, '--', 'keep-submit-buffer']);
         const submitTraceStart = fixture.transportTrace().length;
         const submit = await fixture.runJsonCli<ErrorResult>(
-          ['talk', 'SubmitFault', '--no-preamble', '--', '--leading-dash'],
+          ['talk', 'SubmitFault', '--no-preamble', '--detach', '--', '--leading-dash'],
           { transportFault: { stage: 'submit' } }
         );
         expect(submit).toMatchObject({
@@ -233,7 +229,7 @@ describe.sequential('TMT-24 safe transport', () => {
         expect((await fixture.runJsonCli(['add', peer.pane, 'WaitSubmitFault'])).code).toBe(0);
 
         const result = await fixture.runJsonCli<ErrorResult>(
-          ['talk', 'WaitSubmitFault', 'state cleanup', '--no-preamble', '--wait', '--timeout', '8'],
+          ['talk', 'WaitSubmitFault', 'state cleanup', '--no-preamble', '--timeout', '8'],
           { transportFault: { stage: 'submit' } }
         );
         expect(result).toMatchObject({

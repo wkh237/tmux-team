@@ -96,13 +96,11 @@ function createCtx(
     databaseFile: path.join(testDir, 'tmux-team.db'),
   };
   const baseConfig: ResolvedConfig = {
-    mode: 'polling',
     preambleMode: 'always',
     defaults: {
       timeout: 180,
       pollInterval: 1,
       captureLines: 100,
-      maxCaptureLines: 2000,
       preambleEvery: 3,
       pasteEnterDelayMs: 500,
     },
@@ -500,20 +498,26 @@ describe('basic commands', () => {
     const ctx = createCtx(testDir);
     fs.writeFileSync(ctx.paths.localConfig, JSON.stringify({}, null, 2));
 
-    cmdConfig(ctx, configRequest('set', { key: 'mode', value: 'wait', global: false }));
+    fs.writeFileSync(
+      ctx.paths.localConfig,
+      JSON.stringify({ $config: { mode: 'wait', preambleMode: 'disabled' } }, null, 2)
+    );
+    cmdConfig(ctx, configRequest('show'));
     const saved = JSON.parse(fs.readFileSync(ctx.paths.localConfig, 'utf-8'));
     expect(saved.$config.mode).toBe('wait');
 
     cmdConfig(ctx, configRequest('clear', { key: 'mode', global: false }));
     const saved2 = JSON.parse(fs.readFileSync(ctx.paths.localConfig, 'utf-8'));
     expect(saved2.$config?.mode).toBeUndefined();
+    expect(saved2.$config?.preambleMode).toBe('disabled');
   });
 
-  it('cmdConfig set supports --global', () => {
+  it('cmdConfig rejects obsolete global mode writes', () => {
     const ctx = createCtx(testDir);
-    cmdConfig(ctx, configRequest('set', { key: 'mode', value: 'wait', global: true }));
-    const saved = JSON.parse(fs.readFileSync(ctx.paths.globalConfig, 'utf-8'));
-    expect(saved.mode).toBe('wait');
+    expect(() =>
+      cmdConfig(ctx, configRequest('set', { key: 'mode', value: 'wait', global: true }))
+    ).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(fs.existsSync(ctx.paths.globalConfig)).toBe(false);
   });
 
   it('cmdConfig set errors when not enough args', () => {
@@ -558,7 +562,7 @@ describe('basic commands', () => {
       cmdConfig(ctx, configRequest('clear', { key: 'invalidkey', global: false }))
     ).toThrow(`exit(${ExitCodes.ERROR})`);
     expect(ctx.ui.error).toHaveBeenCalledWith(
-      'Invalid key: invalidkey. Valid keys: mode, preambleMode, preambleEvery, pasteEnterDelayMs'
+      'Invalid key: invalidkey. Valid keys: preambleMode, preambleEvery, pasteEnterDelayMs'
     );
   });
 
@@ -585,8 +589,8 @@ describe('basic commands', () => {
 
   it('cmdHelp/cmdLearn print output', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    cmdHelp({ mode: 'polling', showIntro: true });
-    cmdHelp({ mode: 'wait', timeout: 10 });
+    cmdHelp({ showIntro: true });
+    cmdHelp({ timeout: 10 });
     cmdLearn();
     const output = logSpy.mock.calls.join('\n');
     expect(output).toContain('add <pane-target> <global-name>');

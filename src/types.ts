@@ -23,19 +23,16 @@ export interface ConfigDefaults {
   timeout: number; // seconds
   pollInterval: number; // seconds
   captureLines: number;
-  maxCaptureLines: number; // max lines for final extraction (default: 2000)
   preambleEvery: number; // inject preamble every N messages (default: 3)
   pasteEnterDelayMs: number; // delay after paste before Enter (default: 500)
 }
 
 export interface GlobalConfig {
-  mode: 'polling' | 'wait';
   preambleMode: 'always' | 'disabled';
   defaults: ConfigDefaults;
 }
 
 export interface LocalSettings {
-  mode?: 'polling' | 'wait';
   preambleMode?: 'always' | 'disabled';
   preambleEvery?: number; // local override for preamble frequency
   pasteEnterDelayMs?: number; // local override for paste-enter delay
@@ -47,7 +44,6 @@ export interface LocalConfigFile {
 }
 
 export interface ResolvedConfig {
-  mode: 'polling' | 'wait';
   preambleMode: 'always' | 'disabled';
   defaults: ConfigDefaults;
 }
@@ -59,9 +55,9 @@ export interface Flags {
   config?: string;
   force?: boolean;
   delay?: number; // seconds
-  wait?: boolean;
+  detach?: boolean;
   timeout?: number; // seconds
-  lines?: number; // lines to capture before end marker
+  lines?: number; // lines to capture for check
   noPreamble?: boolean;
 }
 
@@ -167,13 +163,6 @@ export interface RoleService {
 export interface RoleResult {
   readonly identity: Pick<DurableIdentity, 'id' | 'name' | 'canonicalName'>;
   readonly role: RoleProfile | null;
-}
-
-export interface WaitResult {
-  requestId: string;
-  nonce: string;
-  endMarker: string;
-  response: string;
 }
 
 export interface Context {
