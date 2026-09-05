@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createIdentityService, identityAwareTmux } from './identity-service.js';
 import { IdentityServiceError } from './identity-service.js';
 import { openIdentityRepository } from './storage/identity-repository.js';
+import type { DurableIdentity, TmuxBinding } from './domain/identity.js';
 import type { PaneInfo, Paths, Tmux, TmuxEndpointSnapshot } from './types.js';
 
 const directories: string[] = [];
@@ -31,8 +32,10 @@ function fixture() {
     getCurrentPaneId: () => '%1',
     resolvePaneTarget: (target: string) => (target === '%1' ? '%1' : null),
     getEndpointSnapshot: () => snapshot,
-    setDurableIdentity: (_paneId: string, identity: any, binding: any) => {
-      pane.metadata = {
+    setDurableIdentity: (paneId: string, identity: DurableIdentity, binding: TmuxBinding) => {
+      const target = snapshot.panes.find((item) => item.id === paneId);
+      if (!target) throw new Error(`Unknown pane '${paneId}'.`);
+      target.metadata = {
         version: 1,
         globalIdentity: {
           name: identity.name,
@@ -44,8 +47,11 @@ function fixture() {
         },
       };
     },
-    clearDurableIdentity: () => {
-      pane.metadata = undefined;
+    clearDurableIdentity: (paneId: string) => {
+      const target = snapshot.panes.find((item) => item.id === paneId);
+      if (!target?.metadata?.globalIdentity) return false;
+      delete target.metadata.globalIdentity;
+      if (Object.keys(target.metadata).length === 1) target.metadata = undefined;
       return true;
     },
     listGlobalIdentities: () => [],
@@ -410,24 +416,162 @@ describe('durable identity service', () => {
     service.close();
   });
 
-  it('backfills name-only v5 metadata without changing the display name', () => {
+  it('does not backfill duplicate name-only v5 metadata or mutate it on repeated reads', () => {
     const test = fixture();
+    addSecondPane(test);
+    const second = test.tmux.getEndpointSnapshot!().panes.find((item) => item.id === '%2');
+    if (!second) throw new Error('Second pane fixture is missing.');
     test.pane.metadata = {
       version: 1,
       globalIdentity: { name: 'Legacy Agent', canonicalName: 'legacy agent' },
     };
+    second.metadata = {
+      version: 1,
+      globalIdentity: { name: 'Legacy Agent', canonicalName: 'legacy agent' },
+    };
+    const firstMetadata = JSON.stringify(test.pane.metadata);
+    const secondMetadata = JSON.stringify(second.metadata);
     const service = createIdentityService(test);
-    const active = service.activeIdentities();
-    expect(active).toMatchObject([
-      { identity: { name: 'Legacy Agent', canonicalName: 'legacy agent' } },
-    ]);
-    expect(test.pane.metadata?.globalIdentity).toMatchObject({
-      name: 'Legacy Agent',
-      identityId: expect.any(String),
-      bindingId: expect.any(String),
-      serverId: 'server-a',
-      panePid: 1234,
-    });
+    expect(service.activeIdentities()).toEqual([]);
+    expect(service.activeIdentities()).toEqual([]);
+
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    expect(repository.listIdentities()).toEqual([]);
+    expect(repository.findBindings()).toEqual([]);
+    repository.close();
+    expect(JSON.stringify(test.pane.metadata)).toBe(firstMetadata);
+    expect(JSON.stringify(second.metadata)).toBe(secondMetadata);
+    service.close();
+  });
+
+  it.each([
+    [
+      'missing identity ID',
+      (metadata: NonNullable<PaneInfo['metadata']>['globalIdentity']) => ({
+        ...metadata,
+        identityId: '',
+      }),
+    ],
+    [
+      'null name',
+      (metadata: NonNullable<PaneInfo['metadata']>['globalIdentity']) => ({
+        ...metadata,
+        name: null,
+      }),
+    ],
+    [
+      'numeric name',
+      (metadata: NonNullable<PaneInfo['metadata']>['globalIdentity']) => ({
+        ...metadata,
+        name: 42,
+      }),
+    ],
+    [
+      'control character name',
+      (metadata: NonNullable<PaneInfo['metadata']>['globalIdentity']) => ({
+        ...metadata,
+        name: 'Primary\u0001',
+      }),
+    ],
+    [
+      'pane-shaped name',
+      (metadata: NonNullable<PaneInfo['metadata']>['globalIdentity']) => ({
+        ...metadata,
+        name: '%1',
+      }),
+    ],
+    [
+      'wrong pane PID type',
+      (metadata: NonNullable<PaneInfo['metadata']>['globalIdentity']) => ({
+        ...metadata,
+        panePid: '1234',
+      }),
+    ],
+    [
+      'non-positive pane PID',
+      (metadata: NonNullable<PaneInfo['metadata']>['globalIdentity']) => ({
+        ...metadata,
+        panePid: 0,
+      }),
+    ],
+    [
+      'unsafe pane PID',
+      (metadata: NonNullable<PaneInfo['metadata']>['globalIdentity']) => ({
+        ...metadata,
+        panePid: Number.MAX_SAFE_INTEGER + 1,
+      }),
+    ],
+    [
+      'mismatched canonical name',
+      (metadata: NonNullable<PaneInfo['metadata']>['globalIdentity']) => ({
+        ...metadata,
+        canonicalName: 'other',
+      }),
+    ],
+    ['null global marker', () => null],
+  ] as const)('rejects %s durable metadata without affecting a healthy peer', (_label, mutate) => {
+    const test = fixture();
+    addSecondPane(test);
+    const service = createIdentityService(test);
+    const primary = service.bindCurrent('Primary');
+    service.bindPane('%2', 'Peer');
+
+    const roleRepository = openIdentityRepository(test.paths.databaseFile);
+    roleRepository.setRole(primary.id, 'Preserve this profile.');
+    roleRepository.close();
+
+    const primaryMetadata = test.pane.metadata;
+    if (!primaryMetadata?.globalIdentity) throw new Error('Primary metadata is missing.');
+    test.pane.metadata = {
+      ...primaryMetadata,
+      globalIdentity: mutate(primaryMetadata.globalIdentity) as NonNullable<
+        PaneInfo['metadata']
+      >['globalIdentity'],
+    };
+    const unchangedMetadata = JSON.stringify(test.pane.metadata);
+
+    expect(service.activeIdentities().map(({ identity }) => identity.name)).toEqual(['Peer']);
+    expect(service.activeIdentities().map(({ identity }) => identity.name)).toEqual(['Peer']);
+    expect(JSON.stringify(test.pane.metadata)).toBe(unchangedMetadata);
+
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    expect(repository.findBindings()).toMatchObject([{ paneId: '%2' }]);
+    expect(repository.listIdentities()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: primary.id, canonicalName: 'primary' }),
+        expect.objectContaining({ canonicalName: 'peer' }),
+      ])
+    );
+    expect(repository.findRole(primary.id)).toMatchObject({ content: 'Preserve this profile.' });
+    repository.close();
+    service.close();
+  });
+
+  it('rejects an unsupported durable metadata version while preserving identity and profile', () => {
+    const test = fixture();
+    addSecondPane(test);
+    const service = createIdentityService(test);
+    const primary = service.bindCurrent('Versioned');
+    service.bindPane('%2', 'Peer');
+
+    const roleRepository = openIdentityRepository(test.paths.databaseFile);
+    roleRepository.setRole(primary.id, 'Preserve this profile.');
+    roleRepository.close();
+
+    const primaryMetadata = test.pane.metadata;
+    if (!primaryMetadata) throw new Error('Primary metadata is missing.');
+    test.pane.metadata = { ...primaryMetadata, version: 2 } as unknown as PaneInfo['metadata'];
+    const unchangedMetadata = JSON.stringify(test.pane.metadata);
+
+    expect(service.activeIdentities().map(({ identity }) => identity.name)).toEqual(['Peer']);
+    expect(service.activeIdentities().map(({ identity }) => identity.name)).toEqual(['Peer']);
+    expect(JSON.stringify(test.pane.metadata)).toBe(unchangedMetadata);
+
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    expect(repository.findBindings()).toMatchObject([{ paneId: '%2' }]);
+    expect(repository.findByCanonicalName('versioned')).toEqual(primary);
+    expect(repository.findRole(primary.id)).toMatchObject({ content: 'Preserve this profile.' });
+    repository.close();
     service.close();
   });
 

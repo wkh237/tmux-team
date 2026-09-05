@@ -5,6 +5,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { execFileSync, execSync } from 'child_process';
 import { createTmux } from './tmux.js';
+import type { DurableIdentity, TmuxBinding } from './domain/identity.js';
 
 // Mock child_process
 vi.mock('child_process', () => ({
@@ -374,6 +375,68 @@ describe('createTmux', () => {
         expect.any(Object)
       );
     });
+
+    it.each([
+      ['name-only', { name: 'Old' }],
+      ['malformed', { name: null }],
+    ] as const)(
+      'preserves sibling metadata when replacing a %s global marker',
+      (_label, marker) => {
+        const original = {
+          version: 1,
+          workspaces: { '/repo': { name: 'legacy' } },
+          teams: { egp: { name: 'codex' } },
+          customPluginData: { source: 'external', values: ['keep'] },
+          globalIdentity: marker,
+        };
+        mockedExecFileSync.mockReturnValueOnce(JSON.stringify(original));
+        const identity: DurableIdentity = {
+          id: 'identity-1',
+          name: 'Alice',
+          canonicalName: 'alice',
+          createdAt: 'created',
+          updatedAt: 'updated',
+        };
+        const binding: TmuxBinding = {
+          id: 'binding-1',
+          identityId: identity.id,
+          transport: 'tmux',
+          paneId: '%9',
+          serverId: 'server-1',
+          socketPath: '/tmp/tmux.sock',
+          serverPid: 321,
+          serverStartTime: 'started',
+          panePid: 654,
+          boundAt: 'bound',
+          lastVerifiedAt: 'verified',
+        };
+
+        createTmux().setDurableIdentity!('%9', identity, binding);
+
+        expect(mockedExecFileSync).toHaveBeenLastCalledWith(
+          'tmux',
+          [
+            'set-option',
+            '-p',
+            '-t',
+            '%9',
+            '@tmux-team.agent',
+            JSON.stringify({
+              ...original,
+              globalIdentity: {
+                name: 'Alice',
+                canonicalName: 'alice',
+                identityId: 'identity-1',
+                bindingId: 'binding-1',
+                serverId: 'server-1',
+                panePid: 654,
+              },
+            }),
+          ],
+          expect.any(Object)
+        );
+      }
+    );
   });
 
   describe('getCurrentPaneId', () => {

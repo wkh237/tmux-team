@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
+import fs from 'node:fs';
 import path from 'node:path';
 import { E2EFixture, withE2EFixture, type CliResult, type MockPane } from './harness.js';
 
@@ -35,6 +36,41 @@ async function listIdentities(fixture: E2EFixture): Promise<IdentityListItem[]> 
 
 function metadata(fixture: E2EFixture, pane: MockPane): Record<string, unknown> {
   return JSON.parse(fixture.paneMetadata(pane.pane)) as Record<string, unknown>;
+}
+
+interface DurableState {
+  identities: Array<Record<string, unknown>>;
+  bindings: Array<Record<string, unknown>>;
+  profiles: Array<Record<string, unknown>>;
+}
+
+function durableState(fixture: E2EFixture): DurableState {
+  const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
+    readonly: true,
+  });
+  try {
+    return {
+      identities: database
+        .prepare('SELECT * FROM identities ORDER BY canonical_name')
+        .all() as Array<Record<string, unknown>>,
+      bindings: database.prepare('SELECT * FROM bindings ORDER BY identity_id').all() as Array<
+        Record<string, unknown>
+      >,
+      profiles: database.prepare('SELECT * FROM role_profiles ORDER BY identity_id').all() as Array<
+        Record<string, unknown>
+      >,
+    };
+  } finally {
+    database.close();
+  }
+}
+
+function withoutVerificationTimestamp(
+  bindings: Array<Record<string, unknown>>
+): Array<Record<string, unknown>> {
+  return bindings
+    .map(({ last_verified_at: _lastVerifiedAt, ...binding }) => binding)
+    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
 }
 
 function eventCount(
@@ -504,4 +540,232 @@ describe.sequential('global identity lifecycle', () => {
       afterRebind.close();
     });
   }, 30_000);
+
+  it('ignores old and malformed pane markers without backfilling, then supports explicit rebinding', async () => {
+    await withE2EFixture(async (fixture) => {
+      const oldPane = await fixture.createMockPane('legacy-marker');
+      const collidingOldPane = await fixture.createMockPane('legacy-collision');
+      const malformedPane = await fixture.createMockPane('malformed-marker');
+      const healthy = await fixture.runJsonCli<{ bound: true; name: string; pane: string }>([
+        'name',
+        'Healthy',
+      ]);
+      expect(healthy.code).toBe(0);
+      const profile = await fixture.runJsonCli(['role', 'set', 'Keep the healthy profile.']);
+      expect(profile.code).toBe(0);
+      const legacyPath = path.join(fixture.workspace, 'tmux-team.json');
+      const legacyBytes = '{\n  "legacy-file": {"pane": "%999", "remark": "keep"}\n}\n';
+      fs.writeFileSync(legacyPath, legacyBytes);
+
+      fixture.tmux([
+        'set-option',
+        '-p',
+        '-t',
+        oldPane.pane,
+        '@tmux-team.agent',
+        JSON.stringify({
+          version: 1,
+          globalIdentity: { name: 'LegacyOnly', canonicalName: 'legacyonly' },
+        }),
+      ]);
+      fixture.tmux([
+        'set-option',
+        '-p',
+        '-t',
+        collidingOldPane.pane,
+        '@tmux-team.agent',
+        JSON.stringify({
+          version: 1,
+          globalIdentity: { name: 'LEGACYONLY', canonicalName: 'legacyonly' },
+        }),
+      ]);
+      fixture.tmux([
+        'set-option',
+        '-p',
+        '-t',
+        malformedPane.pane,
+        '@tmux-team.agent',
+        JSON.stringify({ version: 1, globalIdentity: { name: 42, canonicalName: 'malformed' } }),
+      ]);
+
+      const oldMarkerBytes = fixture.paneMetadata(oldPane.pane);
+      const collidingOldMarkerBytes = fixture.paneMetadata(collidingOldPane.pane);
+      const malformedMarkerBytes = fixture.paneMetadata(malformedPane.pane);
+      const before = durableState(fixture);
+      expect(fs.readFileSync(legacyPath, 'utf8')).toBe(legacyBytes);
+
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const listed = await listIdentities(fixture);
+        expect(listed).toHaveLength(1);
+        expect(listed[0]).toMatchObject({
+          name: 'Healthy',
+          canonicalName: 'healthy',
+          pane: fixture.pane,
+          target: fixture.paneTarget(fixture.pane),
+          cwd: fixture.workspace,
+          command: 'node',
+        });
+        expect(fixture.paneMetadata(oldPane.pane)).toBe(oldMarkerBytes);
+        expect(fixture.paneMetadata(collidingOldPane.pane)).toBe(collidingOldMarkerBytes);
+        expect(fixture.paneMetadata(malformedPane.pane)).toBe(malformedMarkerBytes);
+        expect(fs.readFileSync(legacyPath, 'utf8')).toBe(legacyBytes);
+      }
+
+      const afterLists = durableState(fixture);
+      expect(afterLists.identities).toEqual(before.identities);
+      expect(withoutVerificationTimestamp(afterLists.bindings)).toEqual(
+        withoutVerificationTimestamp(before.bindings)
+      );
+      expect(afterLists.profiles).toEqual(before.profiles);
+
+      for (const [name, pid, message] of [
+        ['LegacyOnly', oldPane.pid, 'legacy-name-must-not-route'],
+        ['LEGACYONLY', collidingOldPane.pid, 'legacy-collision-must-not-route'],
+        ['Malformed', malformedPane.pid, 'malformed-marker-must-not-route'],
+      ] as const) {
+        const result = await fixture.runJsonCli<CommandError>(['talk', name, message]);
+        expect(result.code).toBe(3);
+        expect(json(result)).toMatchObject({ error: { code: 'NAME_NOT_FOUND' } });
+        expect(
+          fixture
+            .events()
+            .filter(
+              (event) =>
+                (event.event === 'request' || event.event === 'response') &&
+                event.pid === pid &&
+                event.message === message
+            )
+        ).toHaveLength(0);
+      }
+
+      await talkToIdentity(
+        fixture,
+        'Healthy',
+        fixture.panePid,
+        [oldPane.pid, collidingOldPane.pid, malformedPane.pid],
+        'healthy-causal-routing'
+      );
+
+      const explicit = await fixture.runJsonCli<{ bound: true; name: string; pane: string }>([
+        'add',
+        oldPane.pane,
+        'FreshExplicit',
+      ]);
+      expect(explicit.code).toBe(0);
+      expect(json(explicit)).toEqual({ bound: true, name: 'FreshExplicit', pane: oldPane.pane });
+      expect(fixture.paneMetadata(collidingOldPane.pane)).toBe(collidingOldMarkerBytes);
+      expect(fixture.paneMetadata(malformedPane.pane)).toBe(malformedMarkerBytes);
+      expect(fs.readFileSync(legacyPath, 'utf8')).toBe(legacyBytes);
+      await talkToIdentity(
+        fixture,
+        'FreshExplicit',
+        oldPane.pid,
+        [fixture.panePid, collidingOldPane.pid, malformedPane.pid],
+        'fresh-explicit-routing'
+      );
+    });
+  }, 45_000);
+
+  it('drops only a binding with malformed durable metadata while retaining its identity, profile, and healthy peer', async () => {
+    await withE2EFixture(async (fixture) => {
+      const affectedPane = await fixture.createMockPane('malformed-current');
+      const peerPane = await fixture.createMockPane('healthy-peer');
+      const healthy = await fixture.runJsonCli(['name', 'HealthyCurrent']);
+      expect(healthy.code).toBe(0);
+      expect((await fixture.runJsonCli(['role', 'set', 'Healthy current profile.'])).code).toBe(0);
+      const peer = await fixture.runJsonCli(['add', peerPane.pane, 'HealthyPeer']);
+      expect(peer.code).toBe(0);
+      expect(
+        (
+          await fixture.runJsonCli([
+            'role',
+            'set',
+            'Retain this peer profile.',
+            '--identity',
+            'HealthyPeer',
+          ])
+        ).code
+      ).toBe(0);
+      const affected = await fixture.runJsonCli(['add', affectedPane.pane, 'MalformedCurrent']);
+      expect(affected.code).toBe(0);
+      expect(
+        (
+          await fixture.runJsonCli([
+            'role',
+            'set',
+            'Retain this affected identity profile.',
+            '--identity',
+            'MalformedCurrent',
+          ])
+        ).code
+      ).toBe(0);
+      const affectedMetadataObject = metadata(fixture, affectedPane);
+      const affectedIdentityMetadata = affectedMetadataObject.globalIdentity as Record<
+        string,
+        unknown
+      >;
+      affectedIdentityMetadata.name = null;
+      fixture.tmux([
+        'set-option',
+        '-p',
+        '-t',
+        affectedPane.pane,
+        '@tmux-team.agent',
+        JSON.stringify(affectedMetadataObject),
+      ]);
+      const healthyMetadata = fixture.paneMetadata(fixture.pane);
+      const affectedMetadata = fixture.paneMetadata(affectedPane.pane);
+      const peerMetadata = fixture.paneMetadata(peerPane.pane);
+      const before = durableState(fixture);
+      const affectedIdentityId = before.identities.find(
+        (identity) => identity.canonical_name === 'malformedcurrent'
+      )?.id;
+      const expectedHealthyBindingIds = before.bindings
+        .filter((binding) => binding.identity_id !== affectedIdentityId)
+        .map((binding) => binding.identity_id);
+      expect(affectedIdentityId).toBeDefined();
+
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const listed = await listIdentities(fixture);
+        expect(listed.map(({ name }) => name)).toEqual(['HealthyCurrent', 'HealthyPeer']);
+        expect(fixture.paneMetadata(fixture.pane)).toBe(healthyMetadata);
+        expect(fixture.paneMetadata(affectedPane.pane)).toBe(affectedMetadata);
+        expect(fixture.paneMetadata(peerPane.pane)).toBe(peerMetadata);
+      }
+
+      const after = durableState(fixture);
+      expect(after.identities).toEqual(before.identities);
+      expect(after.profiles).toEqual(before.profiles);
+      expect(withoutVerificationTimestamp(after.bindings)).toEqual(
+        withoutVerificationTimestamp(before.bindings).filter(
+          (binding) => binding.identity_id !== affectedIdentityId
+        )
+      );
+      expect(after.bindings.map((binding) => binding.identity_id).sort()).toEqual(
+        expectedHealthyBindingIds.sort()
+      );
+
+      const affectedTalk = await fixture.runJsonCli<CommandError>([
+        'talk',
+        'MalformedCurrent',
+        'affected-must-not-route',
+      ]);
+      expect(affectedTalk.code).toBe(3);
+      expect(json(affectedTalk)).toMatchObject({ error: { code: 'NAME_NOT_FOUND' } });
+      await talkToIdentity(
+        fixture,
+        'HealthyCurrent',
+        fixture.panePid,
+        [peerPane.pid, affectedPane.pid],
+        'healthy-peer'
+      );
+      await talkToIdentity(
+        fixture,
+        'HealthyPeer',
+        peerPane.pid,
+        [fixture.panePid, affectedPane.pid],
+        'peer-healthy'
+      );
+    });
+  }, 45_000);
 });
