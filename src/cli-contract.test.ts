@@ -284,7 +284,11 @@ describe('real CLI process contract', () => {
           );
           for (const migration of CURRENT_MIGRATIONS)
             insert.run(migration.version, migration.name, '2026-01-01T00:00:00.000Z');
-          insert.run(5, 'future migration', '2026-01-01T00:00:00.000Z');
+          insert.run(
+            CURRENT_MIGRATIONS.at(-1)!.version + 1,
+            'future migration',
+            '2026-01-01T00:00:00.000Z'
+          );
         } finally {
           database.close();
         }

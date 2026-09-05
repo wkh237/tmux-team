@@ -1,25 +1,19 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, type ChildProcess } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { RequestAttemptRecord, RequestPreparation } from './request-service.js';
 import { openIdentityRepository } from './storage/identity-repository.js';
+import {
+  collectResults,
+  runWorker as spawnWorker,
+  stopWorkers,
+  waitForFiles,
+  workerMessage,
+  type WorkerHandle,
+} from './test-support/request-workers.js';
 
 const directories: string[] = [];
-const WORKER_TIMEOUT_MS = 10_000;
-
-interface WorkerResult {
-  readonly code: number | null;
-  readonly signal: NodeJS.Signals | null;
-  readonly output: string;
-}
-
-interface WorkerHandle {
-  readonly child: ChildProcess;
-  readonly result: Promise<WorkerResult>;
-  readonly variant: string;
-}
 
 interface WorkerMessage {
   readonly ok: boolean;
@@ -56,97 +50,7 @@ function runWorker(
   mode = 'prepare'
 ): WorkerHandle {
   const worker = path.join(process.cwd(), 'src/request-concurrency-worker.ts');
-  const child = spawn(
-    process.execPath,
-    ['--import', 'tsx', worker, database, barrier, identity, variant, mode],
-    { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'] }
-  );
-  let output = '';
-  child.stdout?.on('data', (chunk: Buffer) => (output += chunk.toString()));
-  child.stderr?.on('data', (chunk: Buffer) => (output += chunk.toString()));
-  const result = new Promise<WorkerResult>((resolve) => {
-    child.on('close', (code, signal) => resolve({ code, signal, output }));
-    child.on('error', (error) => (output += `${String(error)}\n`));
-  });
-  return { child, result, variant };
-}
-
-function workerExited(handle: WorkerHandle): boolean {
-  return handle.child.exitCode !== null || handle.child.signalCode !== null;
-}
-
-async function waitForFiles(
-  names: readonly string[],
-  handles: readonly WorkerHandle[]
-): Promise<void> {
-  const deadline = Date.now() + WORKER_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    if (names.every((name) => fs.existsSync(name))) return;
-    const exited = handles.find(
-      (handle) =>
-        workerExited(handle) &&
-        names.some((name) => path.basename(name).endsWith(`-${handle.variant}`))
-    );
-    if (exited) {
-      const result = await exited.result;
-      throw new Error(`Worker exited before its barrier: ${result.output}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error(`Timed out waiting for barriers: ${names.join(', ')}`);
-}
-
-async function collectResults(
-  handles: readonly WorkerHandle[],
-  timeoutMs = WORKER_TIMEOUT_MS
-): Promise<WorkerResult[]> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      Promise.all(handles.map((handle) => handle.result)),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error('Timed out waiting for worker processes.')),
-          timeoutMs
-        );
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
-async function stopWorkers(handles: readonly WorkerHandle[]): Promise<void> {
-  for (const handle of handles) {
-    if (!workerExited(handle)) handle.child.kill('SIGTERM');
-  }
-  try {
-    await collectResults(handles, 1_000);
-  } catch {
-    // Escalate any worker that did not honor the bounded graceful shutdown.
-  }
-  for (const handle of handles) {
-    if (!workerExited(handle)) handle.child.kill('SIGKILL');
-  }
-  try {
-    await collectResults(handles, 1_000);
-  } catch {
-    // The explicit survivor check below turns an incomplete cleanup into a test failure.
-  }
-  const survivors = handles.filter((handle) => !workerExited(handle));
-  if (survivors.length > 0) {
-    throw new Error(
-      `Workers survived termination: ${survivors.map((handle) => handle.variant).join(', ')}`
-    );
-  }
-}
-
-function workerMessage(result: WorkerResult): WorkerMessage {
-  if (result.code !== 0) throw new Error(`Worker failed (${result.signal}): ${result.output}`);
-  const lines = result.output.trim().split('\n');
-  const line = lines.at(-1);
-  if (!line) throw new Error('Worker produced no result.');
-  return JSON.parse(line) as WorkerMessage;
+  return spawnWorker(worker, [database, barrier, identity, variant, mode], variant, process.cwd());
 }
 
 afterEach(() => {
@@ -169,7 +73,7 @@ describe('request service multi-process races', () => {
       );
       fs.writeFileSync(path.join(fixture.barrier, 'go'), 'go');
       const results = await collectResults(handles);
-      const messages = results.map(workerMessage);
+      const messages = results.map((result) => workerMessage<WorkerMessage>(result));
       expect(messages.every((message) => message.ok)).toBe(true);
 
       const repository = openIdentityRepository(fixture.database);
@@ -204,7 +108,7 @@ describe('request service multi-process races', () => {
       );
       fs.writeFileSync(path.join(fixture.barrier, 'go'), 'go');
       const results = await collectResults(handles);
-      const messages = results.map(workerMessage);
+      const messages = results.map((result) => workerMessage<WorkerMessage>(result));
       expect(messages.every((message) => message.ok)).toBe(true);
       expect(messages.every((message) => message.prepared?.previousRequestId === undefined)).toBe(
         true
@@ -262,7 +166,9 @@ describe('request service multi-process races', () => {
       fs.writeFileSync(path.join(fixture.barrier, 'release-b'), 'release');
       await waitForFiles([path.join(fixture.barrier, 'released-b')], handles);
       const results = await collectResults(handles);
-      expect(results.map(workerMessage).every((message) => message.ok)).toBe(true);
+      expect(
+        results.map((result) => workerMessage<WorkerMessage>(result)).every((message) => message.ok)
+      ).toBe(true);
 
       const verification = openIdentityRepository(fixture.database);
       try {

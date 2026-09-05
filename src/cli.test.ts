@@ -23,6 +23,12 @@ const unusedRequestService: Context['requestService'] = {
   listAttempts() {
     throw new Error('Unexpected request service access.');
   },
+  submitResponse() {
+    throw new Error('Unexpected request service access.');
+  },
+  getResponse() {
+    throw new Error('Unexpected request service access.');
+  },
 };
 
 function makeStubContext(): Context {

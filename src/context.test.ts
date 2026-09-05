@@ -219,6 +219,8 @@ describe('createContext', () => {
       cleanup: vi.fn(),
       getAttempt: vi.fn(),
       listAttempts: vi.fn(),
+      submitResponse: vi.fn(),
+      getResponse: vi.fn(),
     };
     const createRequestService = vi.fn(() => requestService);
     vi.doMock('./storage/identity-repository.js', () => ({ openIdentityRepository }));

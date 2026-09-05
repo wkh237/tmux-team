@@ -130,7 +130,7 @@ describe('request repository', () => {
       repository.createAttempt(active);
       repository.createAttempt(prepared);
     });
-    repository.deleteRetained(100, 50);
+    repository.deleteRetained(100, 50, 50);
     expect(repository.findAttempt(value.attemptId)).toBeUndefined();
     expect(repository.findAttempt(recent.attemptId)).toBeDefined();
     expect(repository.findAttempt(active.attemptId)).toBeDefined();

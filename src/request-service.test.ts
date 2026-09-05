@@ -2,7 +2,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createRequestService, type RequestEndpoint } from './request-service.js';
+import {
+  createRequestService,
+  RESPONSE_ACCEPTANCE_WINDOW_MS,
+  type RequestEndpoint,
+} from './request-service.js';
 import { openIdentityRepository } from './storage/identity-repository.js';
 
 const directories: string[] = [];
@@ -381,7 +385,7 @@ describe('request service', () => {
       waitActive: false,
     });
 
-    nowMs += 24 * 60 * 60 * 1000 + 1;
+    nowMs += RESPONSE_ACCEPTANCE_WINDOW_MS + 1;
     service.cleanup();
     expect(service.getAttempt(prepared.attemptId)).toBeUndefined();
   });
