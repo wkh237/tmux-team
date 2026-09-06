@@ -7,6 +7,7 @@ import type { Context, Flags, IdentityService, Paths, ResolvedConfig, Tmux, UI }
 import { IdentityServiceError } from '../identity-service.js';
 import { ExitCodes } from '../exits.js';
 import { IdentitySelectionError } from '../identity-context.js';
+import { MAX_CAPTURE_LINES } from '../domain/interaction-limits.js';
 
 import { cmdInit } from './init.js';
 import { cmdAdd } from './add.js';
@@ -413,6 +414,61 @@ describe('basic commands', () => {
     cmdCheck(ctx, 'claude', 10);
     expect(ctx.tmux.capture).toHaveBeenCalledWith('1.0', 10);
     expect(logSpy).toHaveBeenCalled();
+  });
+
+  it('cmdCheck accepts the maximum capture count', () => {
+    const ctx = createCtx(testDir, {
+      flags: { json: true },
+      identities: [{ name: 'claude', canonicalName: 'claude', paneId: '1.0' }],
+    });
+    cmdCheck(ctx, 'claude', MAX_CAPTURE_LINES);
+    expect(ctx.tmux.capture).toHaveBeenCalledWith('1.0', MAX_CAPTURE_LINES);
+  });
+
+  it('cmdCheck accepts zero capture lines', () => {
+    const ctx = createCtx(testDir, {
+      flags: { json: true },
+      identities: [{ name: 'claude', canonicalName: 'claude', paneId: '1.0' }],
+    });
+    cmdCheck(ctx, 'claude', 0);
+    expect(ctx.tmux.capture).toHaveBeenCalledWith('1.0', 0);
+  });
+
+  it.each([
+    { label: 'explicit count', lines: MAX_CAPTURE_LINES + 1, config: undefined },
+    {
+      label: 'configured count',
+      lines: undefined,
+      config: {
+        defaults: {
+          timeout: 180,
+          pollInterval: 1,
+          captureLines: MAX_CAPTURE_LINES + 1,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
+        },
+      },
+    },
+  ])('cmdCheck rejects an invalid $label before target resolution', ({ lines, config }) => {
+    const ctx = createCtx(testDir, {
+      flags: { json: true },
+      config,
+      identities: [{ name: 'claude', canonicalName: 'claude', paneId: '1.0' }],
+    });
+
+    expect(() => cmdCheck(ctx, 'claude', lines)).toThrow(`exit(${ExitCodes.ERROR})`);
+    const jsonCalls = (ctx.ui as UI & { jsonCalls: unknown[] }).jsonCalls;
+    expect(jsonCalls).toEqual([
+      {
+        error: {
+          code: 'INVALID_CAPTURE_LINES',
+          message: `Capture lines must be an integer between 0 and ${MAX_CAPTURE_LINES}.`,
+        },
+      },
+    ]);
+    expect(ctx.identityService.activeIdentities).not.toHaveBeenCalled();
+    expect(ctx.tmux.resolvePaneTarget).not.toHaveBeenCalled();
+    expect(ctx.tmux.capture).not.toHaveBeenCalled();
   });
 
   it('cmdCheck errors when agent missing', () => {

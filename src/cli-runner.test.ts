@@ -78,6 +78,28 @@ describe('CLI runner lifecycle', () => {
     }
   });
 
+  it.each([
+    ['check', 'missing', '9'.repeat(400)],
+    ['read', 'missing', '--lines=2147483648'],
+    ['--lines', '2147483648', 'check', 'missing', '0'],
+    ['talk', 'missing', 'message', '--timeout', '86400.001s'],
+    ['talk', 'missing', 'message', '--delay', '2147483648ms'],
+  ])('rejects invalid numeric arguments before initialization: %j', async (...args) => {
+    const output = captureStdout();
+    const startup = vi.fn();
+    const dispatch = vi.fn();
+    try {
+      const { runCli, createContext } = await loadRunner({ startup, dispatch });
+      await expect(runCli(['--json', ...args])).resolves.toBe(1);
+      expect(document(output.chunks)).toMatchObject({ error: { code: 'USAGE_ERROR' } });
+      expect(createContext).not.toHaveBeenCalled();
+      expect(startup).not.toHaveBeenCalled();
+      expect(dispatch).not.toHaveBeenCalled();
+    } finally {
+      output.restore();
+    }
+  });
+
   it('disposes once when startup fails and emits an internal error', async () => {
     const output = captureStdout();
     let outputAtDisposal: string[] | undefined;

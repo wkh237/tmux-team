@@ -20,9 +20,11 @@ import { PreambleContentError } from '../domain/preamble.js';
 import { identityAwareTmux } from '../identity-service.js';
 import { TmuxDeliveryError } from '../message-delivery.js';
 import { buildDurableReplyInstruction } from '../talk-instruction.js';
-
-const MAX_OBSERVER_TIMEOUT_SECONDS = 24 * 60 * 60;
-const MAX_TIMER_DELAY_MS = 2_147_483_647;
+import {
+  isValidObserverTimeoutSeconds,
+  isValidPollIntervalSeconds,
+  isValidTimerDelayMs,
+} from '../domain/interaction-limits.js';
 
 export interface TalkRuntime {
   readonly now?: () => number;
@@ -186,18 +188,13 @@ function validateTiming(
   pollIntervalSeconds: number,
   enterDelayMs: number
 ): void {
-  if (
-    waitEnabled &&
-    (!Number.isFinite(timeoutSeconds) ||
-      timeoutSeconds <= 0 ||
-      timeoutSeconds > MAX_OBSERVER_TIMEOUT_SECONDS)
-  ) {
+  if (waitEnabled && !isValidObserverTimeoutSeconds(timeoutSeconds)) {
     throw new Error('Talk timeout must be finite, positive, and no greater than 24 hours.');
   }
-  if (waitEnabled && (!Number.isFinite(pollIntervalSeconds) || pollIntervalSeconds <= 0)) {
+  if (waitEnabled && !isValidPollIntervalSeconds(pollIntervalSeconds)) {
     throw new Error('The configured poll interval must be finite and positive.');
   }
-  if (!Number.isFinite(enterDelayMs) || enterDelayMs < 0 || enterDelayMs > MAX_TIMER_DELAY_MS) {
+  if (!isValidTimerDelayMs(enterDelayMs)) {
     throw new Error(
       'The configured paste-enter delay must be finite, non-negative, and within the timer limit.'
     );
@@ -206,11 +203,7 @@ function validateTiming(
 
 function validateDelay(delaySeconds: number | undefined): void {
   if (delaySeconds === undefined) return;
-  if (
-    !Number.isFinite(delaySeconds) ||
-    delaySeconds < 0 ||
-    delaySeconds * 1000 > MAX_TIMER_DELAY_MS
-  ) {
+  if (!isValidTimerDelayMs(delaySeconds * 1000)) {
     throw new Error('Talk delay must be finite, non-negative, and within the timer limit.');
   }
 }
