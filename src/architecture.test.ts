@@ -6,6 +6,19 @@ import { describe, expect, it } from 'vitest';
 
 const sourceRoot = path.dirname(fileURLToPath(import.meta.url));
 
+function declaredTypes(text: string): string[] {
+  const source = ts.createSourceFile('module.ts', text, ts.ScriptTarget.Latest, true);
+  const names: string[] = [];
+  const collect = (node: ts.Node): void => {
+    if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node)) {
+      names.push(node.name.text);
+    }
+    ts.forEachChild(node, collect);
+  };
+  collect(source);
+  return names;
+}
+
 function imports(text: string): string[] {
   const source = ts.createSourceFile('module.ts', text, ts.ScriptTarget.Latest, true);
   const values: string[] = [];
@@ -81,6 +94,32 @@ function productionFiles(directory: string): string[] {
 }
 
 describe('maintained application dependency boundaries', () => {
+  it('recognizes duplicate request declarations without treating imports or comments as owners', () => {
+    expect(declaredTypes('export interface ConfigRequest {}')).toEqual(['ConfigRequest']);
+    expect(declaredTypes('type PreambleRequest = { kind: "preamble" };')).toEqual([
+      'PreambleRequest',
+    ]);
+    expect(
+      declaredTypes(
+        'import type { ConfigRequest } from "./requests.js"; // type ConfigRequest = {}'
+      )
+    ).toEqual([]);
+  });
+
+  it('keeps shared CLI request declarations in their canonical module', () => {
+    const owner = path.join(sourceRoot, 'cli', 'requests.ts');
+    const ownedNames = new Set(declaredTypes(fs.readFileSync(owner, 'utf8')));
+    expect(ownedNames.size).toBeGreaterThan(0);
+    const duplicates = productionFiles(sourceRoot)
+      .filter((file) => file !== owner)
+      .flatMap((file) =>
+        declaredTypes(fs.readFileSync(file, 'utf8'))
+          .filter((name) => ownedNames.has(name))
+          .map((name) => `${path.relative(sourceRoot, file)}: ${name}`)
+      );
+    expect(duplicates).toEqual([]);
+  });
+
   it('detects static, re-export, dynamic, require and type-only storage dependencies', () => {
     const forms = [
       "import type { Repo } from '../storage/identity-repository.js';",

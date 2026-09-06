@@ -2,7 +2,13 @@ import { Command, CommanderError } from 'commander';
 import { isPaneTarget } from '../domain/names.js';
 import type { Flags } from '../types.js';
 import type { IdentitySelector } from '../identity-context.js';
-import type { ReplyRequest, ResultRequest, RoleRequest } from './requests.js';
+import type {
+  ConfigRequest,
+  PreambleRequest,
+  ReplyRequest,
+  ResultRequest,
+  RoleRequest,
+} from './requests.js';
 import { validateReplyRequestId } from '../reply-receipt.js';
 export type { IdentitySelector } from '../identity-context.js';
 
@@ -18,19 +24,8 @@ export type ParsedInvocation =
   | { readonly kind: 'this' | 'name'; readonly name: string }
   | { readonly kind: 'talk'; readonly target: IdentitySelector; readonly message: string }
   | { readonly kind: 'check'; readonly target: IdentitySelector; readonly lines?: number }
-  | {
-      readonly kind: 'config';
-      readonly operation: 'show' | 'set' | 'clear';
-      readonly key?: string;
-      readonly value?: string;
-      readonly global: boolean;
-    }
-  | {
-      readonly kind: 'preamble';
-      readonly operation: 'show' | 'set' | 'clear';
-      readonly agent?: string;
-      readonly preamble?: string;
-    }
+  | ConfigRequest
+  | PreambleRequest
   | ReplyRequest
   | ResultRequest
   | RoleRequest;

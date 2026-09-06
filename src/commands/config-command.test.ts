@@ -4,7 +4,8 @@ import os from 'os';
 import path from 'path';
 import type { Context, Flags, Paths, ResolvedConfig, Tmux, UI } from '../types.js';
 import { ExitCodes } from '../exits.js';
-import { cmdConfig, type ConfigRequest } from './config.js';
+import { cmdConfig } from './config.js';
+import type { ConfigRequest } from '../cli/requests.js';
 
 const configRequest = (
   operation: ConfigRequest['operation'],

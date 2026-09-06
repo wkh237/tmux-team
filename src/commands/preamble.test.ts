@@ -10,7 +10,8 @@ import type { DurableIdentity } from '../domain/identity.js';
 import { IdentitySelectionError } from '../identity-context.js';
 import { PreambleContentError } from '../domain/preamble.js';
 import { ExitCodes } from '../exits.js';
-import { cmdPreamble, type PreambleRequest } from './preamble.js';
+import { cmdPreamble } from './preamble.js';
+import type { PreambleRequest } from '../cli/requests.js';
 
 const identity: DurableIdentity = {
   id: 'identity-alice',
