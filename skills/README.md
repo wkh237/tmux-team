@@ -35,7 +35,9 @@ The easiest way to add tmux-team to Claude Code is via the plugin system:
 /plugin install tmux-team@tmux-team
 ```
 
-This gives you `/team` and `/learn` slash commands automatically.
+The existing plugin namespace exposes `/tmux-team:team`, `/tmux-team:learn`,
+and the `/tmux-team:tmux-team` skill. The standalone installer described below
+instead provides `/team`; it does not install a standalone `/learn` command.
 
 ## Quick Install
 
@@ -162,7 +164,8 @@ are inert. `config clear mode` removes only the obsolete local key.
 ## Claude Code
 
 Claude Code users should prefer the marketplace plugin above. It provides
-`/team` and `/learn`. See the [Claude plugin docs](https://code.claude.com/docs/en/discover-plugins)
+`/tmux-team:team`, `/tmux-team:learn`, and `/tmux-team:tmux-team`.
+See the [Claude plugin docs](https://code.claude.com/docs/en/discover-plugins)
 and [plugin reference](https://code.claude.com/docs/en/plugins-reference).
 
 ### Manual Install
@@ -211,4 +214,5 @@ location. See the [Gemini Agent Skills guide](https://github.com/google-gemini/g
 ## Verify Installation
 
 After installation, verify with `tmt list` or `tmt help`. For Claude, `/help`
-should show `/team`; Codex and Gemini discover the `tmux-team` skill natively.
+should show `/team` for standalone installation or `/tmux-team:team` for the
+marketplace plugin; Codex and Gemini discover the `tmux-team` skill natively.

@@ -477,6 +477,22 @@ unwritable output streams are outside the one-document guarantee.
 
 ## Bundled skill viewing and installation
 
+`skills/tmux-team/SKILL.md` owns shared agent-facing behavior. The fixed
+`scripts/skill-projections.mjs` transformation combines that body with provider
+frontmatter/invocation templates into the five committed standalone provider
+and plugin artifacts. Templates contain only provider-specific behavior, not
+another CLI policy. Check mode rejects missing or changed projections; write
+mode regenerates them. No runtime include loader, new manifest, namespace
+migration or installation-path change is introduced. Plugin-tree checks are
+separate from npm artifact validation. The educational learn guide points to
+the canonical viewer and grammar-backed help instead of owning another full
+command inventory.
+
+The ordered provider list and its derived type live in `skill-installation.ts`.
+Installer acceptance, install-all expansion and completion consume that owner;
+provider environment detection and Codex-specific backup rules remain installer
+policies. Command and option grammar still belongs to the parser.
+
 `learn --skill` emits the exact bundled universal `SKILL.md`, without startup
 checks, ANSI formatting, or an added newline. It is text-only and rejects JSON
 before effects. Plain `learn` remains the educational guide.
@@ -604,10 +620,10 @@ These links identify owners of unresolved work, not permission to widen an
 unrelated PR. Update this section and the current map in the delivering PR when
 a gap is resolved; do not leave a permanent exception or label a proposal as shipped.
 
-| Gap                                                                                                      | Owning issue                                                                                                                                                           |
-| -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Shipped skill/provider inventories drift; packed verification does not yet prove application migrations. | [TMT-29](https://linear.app/tigerpig-dev/issue/TMT-29)                                                                                                                 |
-| Non-tmux identity management, memory and durable inbox are future capabilities, not installed APIs.      | [TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30), [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16) |
+| Gap                                                                                                 | Owning issue                                                                                                                                                           |
+| --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Packed verification does not yet prove application migrations or exclude test-only artifacts.       | [TMT-53](https://linear.app/tigerpig-dev/issue/TMT-53), under [TMT-29](https://linear.app/tigerpig-dev/issue/TMT-29)                                                   |
+| Non-tmux identity management, memory and durable inbox are future capabilities, not installed APIs. | [TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30), [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16) |
 
 ## Maintenance contract
 

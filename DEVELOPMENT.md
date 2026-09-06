@@ -156,6 +156,28 @@ the existing CLI contract suites, rather than inheriting the one-second unit
 default. Keep child-process termination bounds and behavioral assertions intact;
 test-runner budgets are not production timeout policy.
 
+## Installed guidance source ownership
+
+Edit shared agent behavior in `skills/tmux-team/SKILL.md`. Provider-specific
+frontmatter and invocation text live in `scripts/skill-projection-templates/`;
+they must not duplicate shared CLI policy. Preserve standalone command behavior
+and plugin names unless an issue explicitly changes those contracts.
+
+Run `pnpm skills:generate` after changing either source, then `pnpm skills:check`.
+The fixed projections are committed, self-contained installation artifacts;
+users do not need a generation step or repository-relative includes. Do not
+edit derived provider/plugin files directly. `pnpm check` rejects drift, while
+tests exercise changed/missing projections, regeneration and wrapper retention.
+Check the repository plugin tree as well as npm-installed files: the plugin is
+not part of the npm artifact. `tmt learn --skill` remains an exact viewer of the
+canonical source; plain `learn` is a short educational guide, not another
+authoritative command inventory.
+
+Provider names and ordering belong to `src/skill-installation.ts`. Installation
+and completion consume that inventory; provider detection and legacy-backup
+policy remain in their existing adapters. Test derivation with an altered
+inventory, not only matching copies of the current provider names.
+
 ## Packed native-install verification
 
 The packed native-install check verifies release artifacts. It installs the actual

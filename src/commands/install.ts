@@ -17,13 +17,16 @@ import {
   getLegacyCodexDirectories,
   getSkillConfigs,
   hasBundledSkillSource,
+  isSkillAgent,
   isCorrectLink,
   packageRoot,
+  ALL_SKILL_TARGET,
+  SKILL_AGENTS,
   targetExists,
 } from '../skill-installation.js';
 import type { SkillAgent, SkillConfig } from '../skill-installation.js';
 
-export type InstallTarget = SkillAgent | 'all';
+export type InstallTarget = SkillAgent | typeof ALL_SKILL_TARGET;
 
 interface InstallResult {
   agent?: SkillAgent;
@@ -32,8 +35,6 @@ interface InstallResult {
   backup?: string;
   legacyBackups?: string[];
 }
-
-const SUPPORTED_AGENTS: InstallTarget[] = ['claude', 'codex', 'gemini', 'all'];
 
 function commandExists(command: string): boolean {
   const searchPath = process.env.PATH ?? '';
@@ -46,21 +47,26 @@ function commandExists(command: string): boolean {
   });
 }
 
+function environmentDetected(agent: SkillAgent, home: string): boolean {
+  switch (agent) {
+    case 'claude':
+      return fs.existsSync(path.join(home, '.claude')) || commandExists('claude');
+    case 'codex':
+      return (
+        fs.existsSync(path.join(home, '.agents')) ||
+        fs.existsSync(path.join(home, '.codex')) ||
+        fs.existsSync(getCodexHome()) ||
+        commandExists('codex')
+      );
+    case 'gemini':
+      return fs.existsSync(path.join(home, '.gemini')) || commandExists('gemini');
+  }
+}
+
 /** Detect installed agent environments without prompting the user. */
 export function detectEnvironment(): SkillAgent[] {
   const home = os.homedir();
-  const detected: SkillAgent[] = [];
-  if (fs.existsSync(path.join(home, '.claude')) || commandExists('claude')) detected.push('claude');
-  if (
-    fs.existsSync(path.join(home, '.agents')) ||
-    fs.existsSync(path.join(home, '.codex')) ||
-    fs.existsSync(getCodexHome()) ||
-    commandExists('codex')
-  ) {
-    detected.push('codex');
-  }
-  if (fs.existsSync(path.join(home, '.gemini')) || commandExists('gemini')) detected.push('gemini');
-  return detected;
+  return SKILL_AGENTS.filter((agent) => environmentDetected(agent, home));
 }
 
 /** Migrate pre-4.3 copied Codex skills without deleting user data. */
@@ -158,10 +164,11 @@ export async function cmdInstall(ctx: Context, agent?: string, directory?: strin
       ctx.exit(ExitCodes.ERROR);
     }
   }
-  const requested = agent?.toLowerCase() as InstallTarget | undefined;
-  if (requested && !SUPPORTED_AGENTS.includes(requested)) {
+  const requested = agent?.toLowerCase();
+  const requestedAgent = requested && isSkillAgent(requested) ? requested : undefined;
+  if (requested && requested !== ALL_SKILL_TARGET && requestedAgent === undefined) {
     ctx.ui.error(`Unknown agent: ${agent}`);
-    ctx.ui.info(`Supported agents: ${SUPPORTED_AGENTS.join(', ')}`);
+    ctx.ui.info(`Supported agents: ${[...SKILL_AGENTS, ALL_SKILL_TARGET].join(', ')}`);
     ctx.exit(ExitCodes.ERROR);
   }
 
@@ -171,8 +178,8 @@ export async function cmdInstall(ctx: Context, agent?: string, directory?: strin
       installed.push(installCustom(ctx, directory));
     } else {
       let agents: SkillAgent[];
-      if (requested === 'all') agents = ['claude', 'codex', 'gemini'];
-      else if (requested) agents = [requested];
+      if (requested === ALL_SKILL_TARGET) agents = [...SKILL_AGENTS];
+      else if (requestedAgent) agents = [requestedAgent];
       else {
         agents = detectEnvironment();
         // A clean machine gets the universal Open Agent Skill.

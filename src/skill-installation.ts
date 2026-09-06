@@ -3,7 +3,14 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export type SkillAgent = 'claude' | 'codex' | 'gemini';
+/** Ordered provider inventory shared by skill installation and completion. */
+export const SKILL_AGENTS = Object.freeze(['claude', 'codex', 'gemini'] as const);
+export type SkillAgent = (typeof SKILL_AGENTS)[number];
+export const ALL_SKILL_TARGET = 'all' as const;
+
+export function isSkillAgent(value: string): value is SkillAgent {
+  return (SKILL_AGENTS as readonly string[]).includes(value);
+}
 
 export interface SkillConfig {
   readonly source: string;

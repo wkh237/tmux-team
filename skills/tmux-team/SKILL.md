@@ -7,7 +7,13 @@ description: Communicate with other AI agents in tmux panes through the tmt CLI.
 
 Use `tmt` (the short alias for `tmux-team`) when the user asks you to communicate with another agent in a tmux pane.
 
+SQLite owns durable identities and profiles independently of the working
+directory. Active presence also requires matching live tmux binding metadata.
+
 ## Delivery safety
+
+Normal delivery pastes a tmux buffer, waits for the configured paste-to-Enter
+delay, then sends Enter to submit the message.
 
 `talk` converts ASCII `!` to fullwidth `！` on both normal and fallback input
 paths to protect coding-agent shell/bash-mode shortcuts. Line breaks are
@@ -131,6 +137,29 @@ cancelled mid-operation. A response read at or crossing the deadline is not
 accepted by that observer; it may still be retrieved with result afterward.
 Do not resend simply because a caller timed out or was interrupted.
 
+Craft clear, specific requests. After receiving a durable response, summarize
+the result for the user without treating submission alone as task success.
+
+## Role profiles
+
+Roles are stored profiles, not automatically injected instructions. Select an
+existing durable identity explicitly when working outside tmux:
+
+```bash
+tmt role show --identity reviewer --json
+tmt role set "Review correctness before style." --identity reviewer --json
+tmt role set --file role.md --identity reviewer --json
+tmt role clear --identity reviewer --json
+```
+
+Choose inline content or `--file`, not both. Omit `--identity` only when the
+caller has a verified live tmux identity; otherwise use explicit selection.
+Unknown names fail with `NAME_NOT_FOUND`; selecting a name does not create or
+bind it. An existing identity without a profile returns `role: null` in JSON.
+Clear removes only the profile, not the identity. Explicit access works while
+unbound and does not load unrelated configuration. Use `preamble` separately
+when text should be injected into messages; role edits never change it.
+
 ## Identity preambles
 
 Preambles are separate from role profiles and belong to existing durable global
@@ -239,6 +268,8 @@ it when the user has requested that communication or the surrounding task
 clearly authorizes it; do not infer permission for unrelated changes. Use
 `--timeout <time>` to bound the default wait, `--detach` to return a request ID
 after sending, and `--delay <seconds>` to delay sending.
+Avoid sending secrets or credentials to another pane. For a requested send
+delay, use `--delay` rather than introducing a separate shell sleep.
 
 Install integrations with `tmt install` (auto-detects supported agents) or `tmt install all --force` to refresh managed links. Upgrade the CLI with `tmt upgrade`; managed links automatically use the updated bundled skill. Run install when an integration is missing or has drifted.
 
@@ -251,6 +282,8 @@ a local override. Numeric writes require decimal digits only: no suffixes,
 fractions, signs, or whitespace. Zero disables preamble injection or removes
 the paste-to-Enter delay. Preamble frequency is bounded to a safe integer;
 paste delay is at most 2147483647 milliseconds.
+The default paste-to-Enter delay is 500 milliseconds; `config show` reports
+the effective value after global and local overrides.
 
 Invalid known fields in a loaded config return `CONFIG_ERROR` (exit 1) before
 talk/check effects, even when another layer would override them. Unknown and
