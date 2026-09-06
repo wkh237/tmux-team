@@ -14,6 +14,7 @@ import {
   ensureManagedLink,
   getCodexHome,
   getCustomSkillConfig,
+  getLegacyCodexDirectories,
   getSkillConfigs,
   hasBundledSkillSource,
   isCorrectLink,
@@ -62,24 +63,12 @@ export function detectEnvironment(): SkillAgent[] {
   return detected;
 }
 
-function legacyCodexDirectories(): string[] {
-  const home = os.homedir();
-  const candidates = [
-    path.join(getCodexHome(), 'skills', 'tmux-team'),
-    path.join(home, '.codex', 'skills', 'tmux-team'),
-  ];
-  const managedTarget = path.resolve(getSkillConfigs().codex.target);
-  return candidates.filter(
-    (candidate, index) =>
-      path.resolve(candidate) !== managedTarget &&
-      candidates.findIndex((other) => path.resolve(other) === path.resolve(candidate)) === index
-  );
-}
-
 /** Migrate pre-4.3 copied Codex skills without deleting user data. */
 export function migrateLegacyCodex(ctx: Context): string[] {
+  const home = os.homedir();
+  const codexHome = getCodexHome(home);
   const backups: string[] = [];
-  for (const legacy of legacyCodexDirectories()) {
+  for (const legacy of getLegacyCodexDirectories(home, codexHome)) {
     if (!targetExists(legacy)) continue;
     if (!ctx.flags.force) {
       ctx.ui.warn(

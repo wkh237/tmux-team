@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import fs from 'fs';
+import * as fs from 'node:fs';
 import os from 'os';
 import path from 'path';
 import type { Context, Flags, Paths, ResolvedConfig, Tmux, UI } from '../types.js';
@@ -92,6 +92,7 @@ describe('cmdInstall', () => {
     fs.rmSync(testDir, { recursive: true, force: true });
     fs.rmSync(homeDir, { recursive: true, force: true });
     vi.doUnmock('../skill-installation.js');
+    vi.doUnmock('node:fs');
     vi.restoreAllMocks();
   });
 
@@ -475,6 +476,111 @@ describe('cmdInstall', () => {
       'legacy'
     );
     expect(ctx.ui.info).toHaveBeenCalledWith(expect.stringContaining('recoverable backup'));
+  });
+
+  it('migrates an incomplete legacy Codex directory lacking SKILL.md with force', async () => {
+    vi.resetModules();
+    vi.doMock('node:os', () => ({
+      default: { homedir: () => homeDir },
+      homedir: () => homeDir,
+    }));
+    const legacy = path.join(homeDir, '.codex', 'skills', 'tmux-team');
+    fs.mkdirSync(legacy, { recursive: true });
+    fs.writeFileSync(path.join(legacy, 'custom-data.json'), '{"partial":true}');
+
+    const { inspectLocalDrift } = await import('../update-check.js');
+    const { packageRoot } = await import('../skill-installation.js');
+    const driftBefore = inspectLocalDrift({
+      home: homeDir,
+      root: packageRoot(),
+      codexHome: path.join(homeDir, '.codex'),
+    });
+    expect(driftBefore).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'legacy',
+          path: legacy,
+        }),
+      ])
+    );
+
+    const { cmdInstall } = await import('./install.js');
+    const ctxWithoutForce = createCtx(testDir);
+    await cmdInstall(ctxWithoutForce, 'codex');
+    expect(fs.existsSync(path.join(legacy, 'custom-data.json'))).toBe(true);
+    expect(ctxWithoutForce.ui.warn).toHaveBeenCalledWith(expect.stringContaining('--force'));
+
+    const ctxWithForce = createCtx(testDir, { flags: { force: true } });
+    await cmdInstall(ctxWithForce, 'codex');
+    expect(fs.existsSync(legacy)).toBe(false);
+    const backup = fs
+      .readdirSync(path.dirname(legacy))
+      .find((entry) => entry.startsWith('tmux-team.backup-'));
+    expect(backup).toBeDefined();
+    expect(
+      fs.readFileSync(path.join(path.dirname(legacy), backup!, 'custom-data.json'), 'utf8')
+    ).toBe('{"partial":true}');
+
+    const driftAfter = inspectLocalDrift({
+      home: homeDir,
+      root: packageRoot(),
+      codexHome: path.join(homeDir, '.codex'),
+    });
+    expect(driftAfter).toEqual([]);
+  });
+
+  it('honestly surfaces rename failures when backing up legacy copies', async () => {
+    vi.resetModules();
+    vi.doMock('node:os', () => ({
+      default: { homedir: () => homeDir },
+      homedir: () => homeDir,
+    }));
+    const legacy = path.join(homeDir, '.codex', 'skills', 'tmux-team');
+    fs.mkdirSync(legacy, { recursive: true });
+    fs.writeFileSync(path.join(legacy, 'SKILL.md'), 'legacy');
+
+    const renameSpy = vi.fn((_oldPath: string, _newPath: string) => {
+      const error = new Error('EACCES: permission denied') as Error & { code: string };
+      error.code = 'EACCES';
+      throw error;
+    });
+
+    vi.doMock('node:fs', async () => {
+      const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
+      return {
+        ...actual,
+        default: {
+          ...actual,
+          renameSync: renameSpy,
+        },
+        renameSync: renameSpy,
+      };
+    });
+
+    const { cmdInstall } = await import('./install.js');
+    const ctx = createCtx(testDir, { flags: { force: true } });
+    await expect(cmdInstall(ctx, 'codex')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
+
+    expect(renameSpy).toHaveBeenCalledTimes(1);
+    const [source, destination] = renameSpy.mock.calls[0];
+    expect(source).toBe(legacy);
+    expect(path.dirname(destination)).toBe(path.dirname(legacy));
+    expect(path.basename(destination)).toMatch(/^tmux-team\.backup-\d+$/);
+
+    // Original contents preserved
+    expect(fs.existsSync(path.join(legacy, 'SKILL.md'))).toBe(true);
+    expect(fs.readFileSync(path.join(legacy, 'SKILL.md'), 'utf8')).toBe('legacy');
+
+    // No backup directory created
+    const backups = fs
+      .readdirSync(path.dirname(legacy))
+      .filter((entry) => entry.startsWith('tmux-team.backup-'));
+    expect(backups).toHaveLength(0);
+
+    // No success or backup announcement
+    expect(ctx.ui.success).not.toHaveBeenCalled();
+    expect(ctx.ui.info).not.toHaveBeenCalled();
+    expect(ctx.ui.error).toHaveBeenCalledWith(expect.stringContaining('permission denied'));
   });
 
   it('reports unsupported platforms before touching the filesystem', async () => {
