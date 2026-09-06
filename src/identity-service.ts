@@ -124,6 +124,29 @@ function findPane(snapshot: TmuxEndpointSnapshot, paneId: string): PaneInfo | un
   return snapshot.panes.find((pane) => pane.id === paneId);
 }
 
+interface BindingEvidence {
+  readonly identity: DurableIdentity;
+  readonly pane: PaneInfo;
+}
+
+function verifiedBindingEvidence(
+  binding: TmuxBinding,
+  identity: DurableIdentity | undefined,
+  snapshot: TmuxEndpointSnapshot
+): BindingEvidence | undefined {
+  const pane = findPane(snapshot, binding.paneId);
+  if (
+    !identity ||
+    !pane ||
+    !serverMatches(binding, snapshot.server) ||
+    !paneMatches(binding, pane) ||
+    !metadataMatches(pane, identity, binding)
+  ) {
+    return undefined;
+  }
+  return { identity, pane };
+}
+
 function mapActive(
   repository: IdentityRepository,
   snapshot: TmuxEndpointSnapshot,
@@ -131,17 +154,8 @@ function mapActive(
 ): Array<{ identity: DurableIdentity; binding: TmuxBinding; pane: PaneInfo }> {
   const identities = new Map(repository.listIdentities().map((item) => [item.id, item]));
   return bindings.flatMap((binding) => {
-    const identity = identities.get(binding.identityId);
-    const pane = findPane(snapshot, binding.paneId);
-    if (
-      !identity ||
-      !pane ||
-      !serverMatches(binding, snapshot.server) ||
-      !paneMatches(binding, pane)
-    ) {
-      return [];
-    }
-    return metadataMatches(pane, identity, binding) ? [{ identity, binding, pane }] : [];
+    const evidence = verifiedBindingEvidence(binding, identities.get(binding.identityId), snapshot);
+    return evidence ? [{ identity: evidence.identity, binding, pane: evidence.pane }] : [];
   });
 }
 
@@ -262,15 +276,12 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
       // binding owned by another socket merely because its panes are absent
       // from this endpoint snapshot.
       if (binding.socketPath !== snapshot.server.socketPath) continue;
-      const identity = identities.get(binding.identityId);
-      const pane = findPane(snapshot, binding.paneId);
-      if (
-        !identity ||
-        !pane ||
-        !serverMatches(binding, snapshot.server) ||
-        !paneMatches(binding, pane) ||
-        !metadataMatches(pane, identity, binding)
-      ) {
+      const evidence = verifiedBindingEvidence(
+        binding,
+        identities.get(binding.identityId),
+        snapshot
+      );
+      if (!evidence) {
         repository.removeBinding(binding.id);
       } else {
         repository.touchBinding(binding.id, new Date().toISOString());

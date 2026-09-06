@@ -289,6 +289,13 @@ possible unused names for durable observation safety; no feature-table-specific
 deletion guards, automatic garbage collection or identity deletion API exist.
 Active discovery still requires a verified binding; explicit data access does not.
 
+Discovery and reconciliation use one local binding-evidence evaluator in
+`identity-service.ts`, composing identity/pane presence, server and process
+evidence, and durable metadata agreement. Reconciliation alone applies the
+foreign-socket preservation guard before evaluation; discovery still excludes
+bindings that do not match the current server. The shared predicate does not
+change publication, transaction, or routing policy.
+
 Binding publication, active reconciliation and unbind share the repository's
 SQLite immediate-transaction boundary. Authoritative endpoint snapshots are
 taken after acquiring the write lock, so a reconciler cannot prune a new
