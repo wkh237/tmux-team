@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { E2EFixture, withE2EFixture, type CliResult, type MockPane } from './harness.js';
+import { durableState } from './identity-state-oracle.js';
 
 interface Identity {
   name: string;
@@ -36,33 +37,6 @@ async function listIdentities(fixture: E2EFixture): Promise<IdentityListItem[]> 
 
 function metadata(fixture: E2EFixture, pane: MockPane): Record<string, unknown> {
   return JSON.parse(fixture.paneMetadata(pane.pane)) as Record<string, unknown>;
-}
-
-interface DurableState {
-  identities: Array<Record<string, unknown>>;
-  bindings: Array<Record<string, unknown>>;
-  profiles: Array<Record<string, unknown>>;
-}
-
-function durableState(fixture: E2EFixture): DurableState {
-  const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
-    readonly: true,
-  });
-  try {
-    return {
-      identities: database
-        .prepare('SELECT * FROM identities ORDER BY canonical_name')
-        .all() as Array<Record<string, unknown>>,
-      bindings: database.prepare('SELECT * FROM bindings ORDER BY identity_id').all() as Array<
-        Record<string, unknown>
-      >,
-      profiles: database.prepare('SELECT * FROM role_profiles ORDER BY identity_id').all() as Array<
-        Record<string, unknown>
-      >,
-    };
-  } finally {
-    database.close();
-  }
 }
 
 function withoutVerificationTimestamp(

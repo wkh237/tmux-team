@@ -154,13 +154,35 @@ async function main() {
 
   assertSchema(Database, paths.databaseFile, CURRENT_MIGRATIONS);
 
-  let identity;
-  const seedRepository = openIdentityRepository(paths.databaseFile);
-  try {
-    identity = seedRepository.createIdentity(IDENTITY_NAME, IDENTITY_CANONICAL_NAME);
-  } finally {
-    seedRepository.close();
-  }
+  const created = await runJson(
+    executable,
+    ['identity', 'create', IDENTITY_NAME, '--json'],
+    environment
+  );
+  assert.equal(created.created, true);
+  assert.equal(typeof created.identity.id, 'string');
+  assert.ok(created.identity.id.length > 0);
+  const identity = {
+    id: created.identity.id,
+    name: IDENTITY_NAME,
+    canonicalName: IDENTITY_CANONICAL_NAME,
+  };
+  assert.deepEqual(created, { identity, created: true });
+  assert.deepEqual(
+    await runJson(
+      executable,
+      ['identity', 'create', IDENTITY_CANONICAL_NAME, '--json'],
+      environment
+    ),
+    { identity, created: false }
+  );
+  assert.deepEqual(
+    await runJson(executable, ['identity', 'show', IDENTITY_CANONICAL_NAME, '--json'], environment),
+    { identity }
+  );
+  assert.deepEqual(await runJson(executable, ['identity', 'list', '--json'], environment), {
+    identities: [identity],
+  });
 
   const seededSnapshot = nativeSnapshot(Database, paths.databaseFile);
   assert.equal(seededSnapshot.identities.length, 1);
@@ -213,7 +235,13 @@ async function main() {
   assertRoleResult(roleAfterClear, identity, null);
   const reopenedRepository = openIdentityRepository(paths.databaseFile);
   try {
-    assert.deepEqual(reopenedRepository.listIdentities(), [identity]);
+    const storedIdentities = reopenedRepository.listIdentities();
+    assert.equal(storedIdentities.length, 1);
+    assert.deepEqual(storedIdentities[0], {
+      ...identity,
+      createdAt: seededSnapshot.identities[0].created_at,
+      updatedAt: seededSnapshot.identities[0].updated_at,
+    });
     assert.equal(reopenedRepository.findRole(identity.id), undefined);
   } finally {
     reopenedRepository.close();

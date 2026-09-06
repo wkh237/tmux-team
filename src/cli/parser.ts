@@ -4,6 +4,7 @@ import type { Flags } from '../types.js';
 import type { IdentitySelector } from '../identity-context.js';
 import type {
   ConfigRequest,
+  IdentityRequest,
   PreambleRequest,
   ReplyRequest,
   ResultRequest,
@@ -32,6 +33,7 @@ export type ParsedInvocation =
   | TalkRequest
   | { readonly kind: 'check'; readonly target: IdentitySelector; readonly lines?: number }
   | ConfigRequest
+  | IdentityRequest
   | PreambleRequest
   | ReplyRequest
   | ResultRequest
@@ -338,6 +340,7 @@ function capabilityFor(invocation: ParsedInvocation): ParsedMetadata['capability
     case 'learn':
       return 'none';
     case 'config':
+    case 'identity':
     case 'install':
       return 'storage';
     case 'preamble':
@@ -695,6 +698,28 @@ function setupProgram(capture: Capture): Command {
   preambleClear.action(function (agent: string) {
     action(this, { kind: 'preamble', operation: 'clear', agent });
   });
+  const identity = storageOnly(
+    program.command('identity').description('Create and discover durable identities')
+  );
+  identity.action(function () {
+    throw new CliParseError('Choose identity create, show, or list.');
+  });
+  for (const operation of ['create', 'show'] as const) {
+    const command = storageOnly(
+      identity
+        .command(operation)
+        .description(`${operation === 'create' ? 'Create' : 'Show'} a durable identity`)
+        .argument('<name>')
+    );
+    command.action(function (name: string) {
+      action(this, { kind: 'identity', operation, name });
+    });
+  }
+  storageOnly(identity.command('list').description('List all durable identities')).action(
+    function () {
+      action(this, { kind: 'identity', operation: 'list' });
+    }
+  );
   const role = register(
     program
       .command('role')

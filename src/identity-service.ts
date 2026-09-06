@@ -2,6 +2,7 @@ import { performance } from 'node:perf_hooks';
 import { validateName } from './domain/names.js';
 import type { DurableIdentity, TmuxBinding } from './domain/identity.js';
 import {
+  requireDurableIdentity,
   resolveDurableIdentity,
   IdentitySelectionError,
   type IdentitySelector,
@@ -17,6 +18,7 @@ import type {
   TmuxEndpointSnapshot,
   TmuxOperationOptions,
   TmuxServerEvidence,
+  IdentityCreationResult,
 } from './types.js';
 
 const PUBLICATION_TIMEOUT_MS = 3_000;
@@ -199,21 +201,17 @@ function mapActive(
   });
 }
 
-function createOrResolve(repository: IdentityRepository, name: string): DurableIdentity {
+function createOrResolve(repository: IdentityRepository, name: string): IdentityCreationResult {
   const valid = validateName(name);
   if (!valid.ok) throw new IdentityServiceError(valid.error.code, valid.error.message);
-  const existing = repository.findByCanonicalName(valid.value.canonicalName);
-  if (existing) return existing;
-  try {
-    return repository.createIdentity(valid.value.name, valid.value.canonicalName);
-  } catch (error) {
-    // A concurrent creator may win the canonical unique constraint.
-    const raced = repository.findByCanonicalName(valid.value.canonicalName);
-    if (raced) return raced;
-    throw new IdentityServiceError('RECONCILIATION_FAILED', 'Could not create durable identity.', {
-      cause: error,
-    });
-  }
+  return repository.withImmediateTransaction(() => {
+    const existing = repository.findByCanonicalName(valid.value.canonicalName);
+    if (existing) return { identity: existing, created: false };
+    return {
+      identity: repository.createIdentity(valid.value.name, valid.value.canonicalName),
+      created: true,
+    };
+  });
 }
 
 function paneEvidence(snapshot: TmuxEndpointSnapshot, paneId: string): PaneInfo {
@@ -352,7 +350,19 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
     // acquired below; this preflight prevents a missing pane from leaving a
     // newly-created identity behind.
     paneEvidence(endpointSnapshot(tmux), paneId);
-    const identity = createOrResolve(repository, name);
+    let identity: DurableIdentity;
+    try {
+      identity = createOrResolve(repository, name).identity;
+    } catch (error) {
+      if (error instanceof IdentityServiceError) throw error;
+      throw new IdentityServiceError(
+        'RECONCILIATION_FAILED',
+        'Could not create durable identity.',
+        {
+          cause: error,
+        }
+      );
+    }
     return coordinated((options) => {
       const snapshot = endpointSnapshot(tmux, options);
       const pane = paneEvidence(snapshot, paneId);
@@ -447,6 +457,23 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
   };
 
   return {
+    createIdentity(name) {
+      return createOrResolve(repository, name);
+    },
+    showIdentity(name) {
+      const valid = validateName(name);
+      if (!valid.ok) throw new IdentityServiceError(valid.error.code, valid.error.message);
+      return requireDurableIdentity(
+        {
+          findByCanonicalName: (canonicalName) => repository.findByCanonicalName(canonicalName),
+          currentIdentity: () => undefined,
+        },
+        { value: name, kind: 'identity', explicit: true }
+      );
+    },
+    listIdentities() {
+      return repository.listIdentities();
+    },
     bindCurrent(name) {
       const current = tmux.getCurrentPaneId();
       if (!current)

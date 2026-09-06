@@ -184,7 +184,8 @@ a truthful work/tests/blockers summary; failed submission is never success.
 
 This section is the canonical future design direction for a TMT Exchange (X).
 TMT-54's retention foundation and TMT-55's provenance/original context are
-implemented; identity-scoped attention below remains unshipped. The current `talk`,
+implemented. TMT-30 also supplies explicit storage-only identity create/show/list;
+identity-scoped attention below remains unshipped. The current `talk`,
 `reply`, `result`, and diagnostic `check`
 contracts above remain authoritative until bounded implementation issues land.
 
@@ -193,7 +194,10 @@ Planning and bounded follow-up ownership are tracked by [TMT-49](https://linear.
 [TMT-54](https://linear.app/tigerpig-dev/issue/TMT-54) and provenance/context in
 [TMT-55](https://linear.app/tigerpig-dev/issue/TMT-55),
 [TMT-51](https://linear.app/tigerpig-dev/issue/TMT-51) (attention), and
-[TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30) (identity bootstrap).
+[TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30) (implemented identity bootstrap).
+The same identity commands work inside and outside tmux, without implicit
+selection or automatic binding. Explicit talk attribution may use an existing
+identity even while another pane is bound to it; this is not authentication.
 
 X is a logical collaboration record that relates an originator's request, its
 delivery attempts, the recipient's one immutable final reply, and per-identity
@@ -347,7 +351,7 @@ scenarios for talk/reply/result correlation and late replies, and packed-skill
 verification when any shipped command guidance changes. Reuse the existing
 request worker harness and E2E fixture; do not add tests for unshipped commands
 to the installed skill. Foundation/configuration work (TMT-46/TMT-29) is complete.
-The remaining sequence is bounded identity and attention slices, minimal
+The remaining sequence is bounded attention, minimal
 MCP, then memory. Offline queue/lease work remains a separate future track.
 If pursued, an offline queue or lease is separate from X and is not an MCP
 prerequisite.

@@ -98,6 +98,12 @@ tests forbidden examples as well as repository files. It does not prove semantic
 architecture correctness; primary review and the architecture-impact record
 remain required.
 
+Runner routing tests keep one module import and reset stable context/handler
+mocks between cases. Do not rebuild the full dependency graph for each argument
+case with module-cache resets; reserve those for tests of module initialization
+itself. Keep parser and runner behavior real, and retain separate public CLI
+subprocess coverage rather than treating mocked routing as end-to-end evidence.
+
 Identity, request and response concurrency suites share bounded worker startup, barriers,
 result collection and termination in `src/test-support/request-workers.ts`.
 Scenario assertions stay in their owning test modules; process entrypoints live
@@ -108,6 +114,9 @@ forced termination through observable process absence, and exercise an unrelated
 working directory without adding dependencies to the fixture.
 Test-support infrastructure is excluded from production coverage, like worker
 fixtures; this does not exclude the request service, domain rules or SQL adapter.
+Identity E2E scenarios share `test/e2e/identity-state-oracle.ts` for read-only
+identity/binding/profile snapshots; request state has its separate existing
+oracle. Do not copy a snapshot implementation into each new lifecycle scenario.
 Final-response tests use real temporary SQLite and an injected clock for exact
 submission/retention boundaries, plus independent processes for writer races.
 The live CLI consumes this same service; Docker/mock-agent scenarios verify
@@ -216,8 +225,8 @@ is followed by application storage verification through the same packed CLI.
 `scripts/packed-storage-probe.mjs` runs with the installed package's TypeScript
 loader and imports only that package's runtime owners. Its first storage action
 is a missing-name role read through the public CLI. It compares the resulting
-migration history with the installed migration manifest, seeds only an identity
-through the existing repository, and verifies role writes/reads/clear across
+migration history with the installed migration manifest, creates and discovers
+an identity through the public identity CLI (including canonical idempotence), and verifies role writes/reads/clear across
 CLI processes. Repository read paths also exercise the remaining current tables.
 An incompatible future history must fail without erasing history or role data.
 Manifest equality alone does not prove schema behavior, nor does this smoke

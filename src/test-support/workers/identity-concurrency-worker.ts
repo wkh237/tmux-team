@@ -6,8 +6,9 @@ import { openIdentityRepository } from '../../storage/identity-repository.js';
 import type { PaneInfo, Tmux } from '../../types.js';
 import { waitForBarrier } from './barrier.js';
 
-const [databaseFile, barrierDirectory, variant] = process.argv.slice(2);
+const [databaseFile, barrierDirectory, variant, mode = 'bind'] = process.argv.slice(2);
 if (!databaseFile || !barrierDirectory || !variant) throw new Error('Invalid worker arguments.');
+if (mode !== 'bind' && mode !== 'create') throw new Error('Invalid worker mode.');
 
 const BARRIER_TIMEOUT_MS = 30_000;
 
@@ -49,8 +50,17 @@ waitForBarrier(path.join(barrierDirectory, 'go'), BARRIER_TIMEOUT_MS);
 const repository = openIdentityRepository(databaseFile);
 try {
   const service = createIdentityService({ tmux, repository });
-  const identity = service.bindCurrent(variant === 'a' ? 'Ａｌｉｃｅ' : 'alice');
-  process.stdout.write(JSON.stringify({ ok: true, id: identity.id }) + '\n');
+  // The fullwidth spelling and its ASCII equivalent share the NFKC key.
+  const name = variant === 'a' ? 'Ａｌｉｃｅ' : 'alice';
+  if (mode === 'create') {
+    const result = service.createIdentity(name);
+    process.stdout.write(
+      JSON.stringify({ ok: true, id: result.identity.id, created: result.created }) + '\n'
+    );
+  } else {
+    const identity = service.bindCurrent(name);
+    process.stdout.write(JSON.stringify({ ok: true, id: identity.id }) + '\n');
+  }
 } catch (error) {
   process.stdout.write(JSON.stringify({ ok: false, error: String(error) }) + '\n');
   process.exitCode = 1;

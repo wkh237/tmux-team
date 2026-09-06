@@ -22,6 +22,38 @@ const receipt = encodeReplyReceipt({
 });
 
 describe('declarative CLI parser', () => {
+  it('parses explicit durable identity operations as storage-only requests', () => {
+    for (const operation of ['create', 'show'] as const) {
+      const parsed = parseArgs(['identity', operation, 'Alice', '--json']);
+      expect(parsed.invocation).toEqual({ kind: 'identity', operation, name: 'Alice' });
+      expect(parsed.metadata.capability).toBe('storage');
+      expect(parsed.flags.json).toBe(true);
+    }
+    expect(parseArgs(['identity', 'list']).invocation).toEqual({
+      kind: 'identity',
+      operation: 'list',
+    });
+    expect(parseArgs(['identity', 'create', '--', '--json']).invocation).toEqual({
+      kind: 'identity',
+      operation: 'create',
+      name: '--json',
+    });
+  });
+
+  it.each([
+    ['identity'],
+    ['identity', 'create'],
+    ['identity', 'show'],
+    ['identity', 'list', 'Alice'],
+    ['identity', 'create', 'Alice', 'Bob'],
+    ['identity', 'list', '--identity', 'Alice'],
+    ['identity', 'create', 'Alice', '--force'],
+    ['--verbose', 'identity', 'list'],
+    ['identity', 'list', '--timeout', '1'],
+  ])('rejects incomplete or unrelated identity arguments: %j', (...args) => {
+    expect(() => parseArgs(args)).toThrow(CliParseError);
+  });
+
   it('parses global options independently of command position', () => {
     const parsed = parseArgs(['talk', 'claude', 'hello', '--timeout', '500ms']);
     expect(parsed.flags).toMatchObject({ timeout: 0.5 });

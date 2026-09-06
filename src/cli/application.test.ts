@@ -17,6 +17,7 @@ const handlers = {
   cmdWhoami: vi.fn(),
   cmdUnbind: vi.fn(),
   cmdRole: vi.fn(),
+  cmdIdentity: vi.fn(),
   cmdReply: vi.fn(),
   cmdResult: vi.fn(),
 };
@@ -36,6 +37,7 @@ vi.mock('../commands/upgrade.js', () => ({ cmdUpgrade: handlers.cmdUpgrade }));
 vi.mock('../commands/whoami.js', () => ({ cmdWhoami: handlers.cmdWhoami }));
 vi.mock('../commands/unbind.js', () => ({ cmdUnbind: handlers.cmdUnbind }));
 vi.mock('../commands/role.js', () => ({ cmdRole: handlers.cmdRole }));
+vi.mock('../commands/identity.js', () => ({ cmdIdentity: handlers.cmdIdentity }));
 vi.mock('../commands/reply.js', () => ({ cmdReply: handlers.cmdReply }));
 vi.mock('../commands/result.js', () => ({ cmdResult: handlers.cmdResult }));
 
@@ -67,6 +69,7 @@ describe('application dispatcher', () => {
       ['config', { operation: 'show', global: false }],
       ['preamble', { operation: 'show' }],
       ['role', { operation: 'show' }],
+      ['identity', { operation: 'create', name: 'Alice' }],
       ['reply', { requestId: 'request-1', receipt: 'receipt', file: '/tmp/reply.txt' }],
       ['result', { requestId: 'request-1' }],
       ['install', { target: 'codex' }],
@@ -95,6 +98,11 @@ describe('application dispatcher', () => {
       ctx,
       expect.objectContaining({ operation: 'show' })
     );
+    expect(handlers.cmdIdentity).toHaveBeenCalledWith(ctx, {
+      kind: 'identity',
+      operation: 'create',
+      name: 'Alice',
+    });
     expect(handlers.cmdReply).toHaveBeenCalledWith(
       ctx,
       expect.objectContaining({ kind: 'reply', requestId: 'request-1', file: '/tmp/reply.txt' })
