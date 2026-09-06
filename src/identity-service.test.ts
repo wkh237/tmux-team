@@ -77,22 +77,26 @@ function createTestService(test: ReturnType<typeof fixture>) {
   return createIdentityService({ tmux: test.tmux, repository });
 }
 
-function seedForeignBinding(test: ReturnType<typeof fixture>, name = 'Foreign') {
+function seedForeignBinding(
+  test: ReturnType<typeof fixture>,
+  name = 'Foreign',
+  pane?: { paneId?: string; panePid?: number }
+) {
   const repository = openIdentityRepository(test.paths.databaseFile);
+  repositories.push(repository);
   const identity = repository.createIdentity(name, name.toLowerCase());
   const binding = repository.createBinding({
     identityId: identity.id,
     transport: 'tmux',
-    paneId: '%foreign',
+    paneId: pane?.paneId ?? '%foreign',
     serverId: 'server-foreign',
     socketPath: '/tmp/tmt-foreign',
     serverPid: 999999,
     serverStartTime: 'foreign-start',
-    panePid: 8888,
+    panePid: pane?.panePid ?? 8888,
     boundAt: 'foreign-bound',
     lastVerifiedAt: 'foreign-verified',
   });
-  repository.close();
   return { identity, binding };
 }
 
@@ -354,6 +358,127 @@ describe('durable identity service', () => {
       panes: [{ ...test.pane }],
     });
     expect(service.activeIdentities()).toEqual([]);
+  });
+
+  it.each([
+    ['missing pane', (snapshot: TmuxEndpointSnapshot) => ({ ...snapshot, panes: [] })],
+    [
+      'different server ID',
+      (snapshot: TmuxEndpointSnapshot) => ({
+        ...snapshot,
+        server: { ...snapshot.server, serverId: 'server-restarted' },
+      }),
+    ],
+    [
+      'different server PID',
+      (snapshot: TmuxEndpointSnapshot) => ({
+        ...snapshot,
+        server: { ...snapshot.server, serverPid: snapshot.server.serverPid + 1 },
+      }),
+    ],
+    [
+      'different server start time',
+      (snapshot: TmuxEndpointSnapshot) => ({
+        ...snapshot,
+        server: { ...snapshot.server, serverStartTime: 'server-restarted' },
+      }),
+    ],
+    [
+      'different pane PID',
+      (snapshot: TmuxEndpointSnapshot) => ({
+        ...snapshot,
+        panes: snapshot.panes.map((pane) =>
+          pane.id === '%1' ? { ...pane, panePid: (pane.panePid ?? 0) + 1 } : pane
+        ),
+      }),
+    ],
+    [
+      'missing durable metadata',
+      (snapshot: TmuxEndpointSnapshot) => ({
+        ...snapshot,
+        panes: snapshot.panes.map((pane) =>
+          pane.id === '%1' ? { ...pane, metadata: undefined } : pane
+        ),
+      }),
+    ],
+    [
+      'mismatched durable metadata',
+      (snapshot: TmuxEndpointSnapshot) => ({
+        ...snapshot,
+        panes: snapshot.panes.map((pane) =>
+          pane.id === '%1' && pane.metadata?.globalIdentity
+            ? {
+                ...pane,
+                metadata: {
+                  ...pane.metadata,
+                  globalIdentity: { ...pane.metadata.globalIdentity, bindingId: 'other-binding' },
+                },
+              }
+            : pane
+        ),
+      }),
+    ],
+  ] as const)('reconciliation removes a binding with %s evidence', (_label, mutate) => {
+    const test = fixture();
+    const service = createTestService(test);
+    const identity = service.bindCurrent('evidence-check');
+    const profileRepository = openIdentityRepository(test.paths.databaseFile);
+    repositories.push(profileRepository);
+    profileRepository.setRole(identity.id, 'Retain this profile.');
+    test.setSnapshot(mutate(test.tmux.getEndpointSnapshot!()));
+
+    service.reconcile();
+
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    repositories.push(repository);
+    expect(repository.findBindings()).toEqual([]);
+    expect(repository.findByCanonicalName(identity.canonicalName)).toEqual(identity);
+    expect(repository.findRole(identity.id)).toMatchObject({ content: 'Retain this profile.' });
+  });
+
+  it('retains matching evidence and refreshes its verification timestamp', () => {
+    const test = fixture();
+    const service = createTestService(test);
+    const identity = service.bindCurrent('valid-evidence');
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    repositories.push(repository);
+    const binding = repository.findBindings()[0];
+    repository.touchBinding(binding.id, 'previous-verification');
+
+    service.reconcile();
+
+    const retained = repository.findBindings();
+    expect(retained).toHaveLength(1);
+    expect(retained[0]).toEqual({ ...binding, lastVerifiedAt: expect.any(String) });
+    expect(retained[0].lastVerifiedAt).not.toBe('previous-verification');
+    expect(service.activeIdentities()).toMatchObject([{ identity, binding: { id: binding.id } }]);
+  });
+
+  it('mapper rejects foreign-socket evidence without pruning the foreign binding', () => {
+    const test = fixture();
+    const foreign = seedForeignBinding(test, 'Foreign', {
+      paneId: '%1',
+      panePid: test.pane.panePid,
+    });
+    const { identity, binding } = foreign;
+    test.pane.metadata = {
+      version: 1,
+      globalIdentity: {
+        name: identity.name,
+        canonicalName: identity.canonicalName,
+        identityId: identity.id,
+        bindingId: binding.id,
+        serverId: binding.serverId,
+        panePid: binding.panePid,
+      },
+    };
+    const service = createTestService(test);
+
+    expect(service.activeIdentities()).toEqual([]);
+
+    const after = openIdentityRepository(test.paths.databaseFile);
+    repositories.push(after);
+    expect(after.findBindings()).toContainEqual(binding);
   });
 
   it('preserves a binding owned by another live socket while discovering only the current server', () => {
