@@ -631,16 +631,13 @@ unwritable output streams are outside the one-document guarantee.
 
 ## Bundled skill viewing and installation
 
-`skills/tmux-team/SKILL.md` owns shared agent-facing behavior. The fixed
-`scripts/skill-projections.mjs` transformation combines that body with provider
-frontmatter/invocation templates into the five committed standalone provider
-and plugin artifacts. Templates contain only provider-specific behavior, not
-another CLI policy. Check mode rejects missing or changed projections; write
-mode regenerates them. No runtime include loader, new manifest, namespace
-migration or installation-path change is introduced. Plugin-tree checks are
-separate from npm artifact validation. The educational learn guide points to
-the canonical viewer and grammar-backed help instead of owning another full
-command inventory.
+All providers install the single canonical `skills/tmux-team/SKILL.md` directory.
+Claude links it at `~/.claude/skills/tmux-team`; Codex and Gemini share
+`~/.agents/skills/tmux-team`. There are no generated provider copies, command
+wrappers, marketplace manifests or plugin assets. Native Claude skill invocation
+is `/tmux-team`, not a separately maintained slash-command contract.
+The educational learn guide points to the canonical viewer and grammar-backed
+help rather than owning another command inventory.
 
 The ordered provider list and its derived type live in `skill-installation.ts`.
 Installer acceptance, install-all expansion and completion consume that owner;
@@ -673,6 +670,16 @@ reload is implied. Links follow source updates at the same package path; reinsta
 explicitly after relocation. Automatic drift inspection covers known defaults only,
 and npm version checking is not an alpha-channel skill version tracker.
 
+The retired Claude command path is shared by installer and drift inspection.
+Default Claude installation preserves and warns about the old command; explicit
+force backs it up only after successful native skill installation. Broken old
+links remain observable. Custom installs never migrate provider defaults.
+Existing Claude plugin configuration and caches remain user-owned and untouched.
+Forced skill-target replacement stores collision-safe backups in the skills
+root's sibling `.tmt-skill-backups`, not among discoverable skill directories.
+This policy belongs to the shared link installer for native and custom targets;
+legacy command-file backups retain their existing adjacent-file behavior.
+
 The existing packed native verifier also invokes the packed viewer and default
 and custom installation in an isolated home. It verifies actual link contents,
 repeat no-op, unrelated sibling preservation and source-update visibility;
@@ -687,7 +694,8 @@ installed migration-manifest comparison is paired with repository/schema reads,
 and incompatible history must fail without resetting data. This is verification
 infrastructure, not another migration runner or application service. Test files
 and test-support workers are excluded from the package; runtime TypeScript and
-standalone skills remain distributed. Plugin projections remain repository-based.
+the canonical skill remains distributed. Retired command/plugin assets are rejected
+by the package inventory check rather than maintained as compatibility copies.
 
 ## Current module map
 
@@ -711,7 +719,7 @@ standalone skills remain distributed. Plugin projections remain repository-based
 | [src/config.ts](src/config.ts)                                                                                                                                             | Path/settings resolution. Legacy registration fields and request JSON are not runtime authorities.                                                                      |
 | [src/request-service.ts](src/request-service.ts), [src/storage/request-repository.ts](src/storage/request-repository.ts), [src/domain/response.ts](src/domain/response.ts) | Application-owned request/cadence/final-response policy, composed SQL adapter and exact-body validation. Context owns the shared connection.                            |
 | [src/ui.ts](src/ui.ts), [src/exits.ts](src/exits.ts)                                                                                                                       | Presentation helpers and exit-code registry; do not invent conflicting mappings.                                                                                        |
-| [src/commands/install.ts](src/commands/install.ts), [src/update-check.ts](src/update-check.ts), [skills/](skills/), [plugins/](plugins/)                                   | User-facing integrations, instructions and updates. These differ from repository developer skills in `.agents/skills/`.                                                 |
+| [src/commands/install.ts](src/commands/install.ts), [src/update-check.ts](src/update-check.ts), [skills/](skills/)                                                         | User-facing integrations, instructions and updates. These differ from repository developer skills in `.agents/skills/`.                                                 |
 | [test/e2e/](test/e2e/), [scripts/](scripts/), [.github/workflows/ci.yml](.github/workflows/ci.yml)                                                                         | Docker fixtures/scenarios, orchestration/pack verification and CI. Unit tests are colocated with source; concurrency entrypoints live in `src/test-support/workers/`.   |
 
 `src/commands/talk.ts` owns the bounded observer and existing request lifecycle

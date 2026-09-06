@@ -1,218 +1,76 @@
-# Agent Skills Installation
+# Agent skill installation
 
-The recommended setup is two commands:
+Install the CLI using the [README instructions](../README.md#v5-preview-installation),
+then run `tmt install`. No plugin, marketplace, or separate slash-command package
+is required. All providers use the same bundled [skill](tmux-team/SKILL.md).
 
-```bash
-npm install -g tmux-team
-tmt install
-```
-
-The npm `latest` channel remains the stable v4 release. This source tree is the
-v5 alpha line (`5.0.0-alpha.1`), but `@alpha` is not claimed to be published.
-Tags, GitHub Releases, npm publishing, and npm dist-tags remain separate
-release operations.
-
-`tmt install` auto-detects Claude Code, Codex, and Gemini CLI. It manages a
-symlink at `~/.agents/skills/tmux-team` for Codex and Gemini, and installs the
-Claude command where needed. Repeating it is idempotent; unmanaged paths are
-only backed up and replaced with `--force`.
-
-Managed links use new bundled files as soon as the npm package is updated, so
-`tmt upgrade` updates both the CLI and linked skills. Re-run `tmt install` only
-to add or repair an integration. Interactive commands perform a once-daily
-cached version check and warn about newer releases; non-interactive commands
-skip it. Local drift checks never use the network.
-
-## Claude Code Plugin (Recommended)
-
-The easiest way to add tmux-team to Claude Code is via the plugin system:
+## Install
 
 ```bash
-# Add tmux-team as a marketplace
-/plugin marketplace add wkh237/tmux-team
-
-# Install the plugin
-/plugin install tmux-team@tmux-team
-```
-
-The existing plugin namespace exposes `/tmux-team:team`, `/tmux-team:learn`,
-and the `/tmux-team:tmux-team` skill. The standalone installer described below
-instead provides `/team`; it does not install a standalone `/learn` command.
-
-## Quick Install
-
-You can select an integration explicitly:
-
-```bash
-# Auto-detect environment and install
-tmt install
-
-# Or specify agent directly
-tmt install claude
+tmt install          # Detect installed providers
+tmt install claude   # Or select one explicitly
 tmt install codex
 tmt install gemini
 ```
 
-To inspect the exact bundled universal skill without installing it:
+| Provider         | Native skill location                 |
+| ---------------- | ------------------------------------- |
+| Claude Code      | `~/.claude/skills/tmux-team/SKILL.md` |
+| Codex and Gemini | `~/.agents/skills/tmux-team/SKILL.md` |
+
+The containing directory is a managed link to the installed package. Repeating
+installation is a no-op when the link is correct. Package updates at the same
+location update the linked instructions; rerun installation after relocation.
+`tmt upgrade` follows npm `latest`, not the unpublished v5 preview; follow the
+README's preview instructions to select a new revision.
+
+Load the skill in your agent before collaborating. Claude Code's native skill
+can be invoked as `/tmux-team`; the CLI remains `tmt`. Installing files does not
+guarantee an already-running agent has reloaded them. Use its skill discovery
+or restart the session when necessary. The [Claude skill documentation](https://code.claude.com/docs/en/skills)
+describes its native personal skill location and invocation.
+
+## Inspect or choose a folder
 
 ```bash
 tmt learn --skill
-```
-
-Plain `tmt learn` remains the educational guide. Both modes are text-only.
-For a custom provider-discovered skills root:
-
-```bash
 tmt install --dir './project skills'
 ```
 
-The destination is exactly `./project skills/tmux-team`, resolved against the
-current directory. Do not combine `--dir` with a provider or `all`. Custom
-mode never migrates default-provider paths. Repeating the command is a no-op
-for a correct link; `--force` backs up conflicting user content before repair.
-Unrelated siblings are untouched. Choose a folder the provider discovers;
-installation does not cause a running agent to reload its instructions.
+`learn --skill` prints the exact bundled skill; plain `learn` is a short guide.
+Custom installation creates `./project skills/tmux-team` relative to the current
+directory. Choose a folder your provider discovers, and do not combine `--dir`
+with a provider or `all`. Custom installs do not migrate default paths or touch
+unrelated siblings. Automatic drift reminders cover default locations, not
+arbitrary custom folders.
 
-Managed custom links follow source updates at the same package path. After
-package relocation, rerun the same custom install command to repair the link.
-Automatic drift reminders inspect known default paths, not arbitrary custom
-folders; they do not manage provider-installed plugins. The npm update check
-uses `latest`, not an alpha-channel skill version tracker.
+## Existing installations
 
-After installation, use `tmux-team name <global-name>` (or its exact `this`
-alias) inside each agent's tmux pane. To bind another pane, run
-`tmux-team add <pane-target> <global-name>`; targets are resolved to stable
-tmux `%pane_id` values. Use `tmux-team whoami` to inspect the current identity
-and `tmux-team unbind` to remove it. Identities are global and remain
-addressable from any working directory.
+Existing unmanaged targets are preserved by default. Inspect a conflict before
+using `tmt install <provider> --force`; replacement creates a recoverable backup.
+Skill target backups are stored in a sibling `.tmt-skill-backups` directory
+outside the skills root so agents do not discover them as duplicate skills.
+The installer reports backup paths. Do not delete the source package or your
+identity database to repair a skill link.
 
-The `talk`, `check`, and `list` commands accept either a global name or a
-direct pane target (`%pane_id`, `window.pane`, or `session:window.pane`):
+The old Claude `~/.claude/commands/team.md` entry is no longer installed or
+updated. `tmt install claude` preserves an existing entry and warns; after the
+native skill is installed successfully, `tmt install claude --force` can move
+that old entry to a recoverable backup. Other commands are untouched. Local
+drift checks also report retired command entries, including broken links.
 
-```bash
-tmt talk codex "Review this PR"
-tmt check %12 100
-tmt list
-tmt list %12
-```
+Previously installed Claude marketplace plugins are managed by Claude, not by
+TMT. Remove or disable the old `tmux-team` plugin through Claude's plugin manager
+after checking the native skill works, to avoid duplicate guidance. TMT does not
+edit plugin settings, delete cached plugins, or uninstall them automatically.
 
-The `add` order is pane target first, then global name. Older name-first
-examples are rejected with a usage error. `all` is an ordinary identity name,
-not a special destination.
-
-## Durable replies and results
-
-When TMT supplies an exact receipt, an agent can submit a complete result
-without tmux:
+## Verify
 
 ```bash
-tmt reply <request-id> --receipt <receipt> --message 'Review complete.'
-tmt reply <request-id> --receipt <receipt> --file response.md
-tmt reply <request-id> --receipt <receipt> --stdin < response.md
-tmt result <request-id> --json
+tmt --version
+tmt learn --skill
+tmt install claude --json   # A correct existing link reports changed: false
 ```
 
-Use `--message` for short replies, including an explicit empty string. Quote
-the body for your shell; use `--message='-leading text'` for a leading hyphen.
-Choose exactly one of `--message`, `--file`, or `--stdin`. Inline arguments
-have operating-system size limits and cannot contain NUL; use file/stdin for
-large bodies or NUL-containing text. All sources share the same exact-body
-validation and immutable submission rules.
-
-Received instructions group the reply command in `<tmt-reply>` tags, with the
-request ID and receipt supplied once. These tags do not guarantee hidden UI
-rendering and are not terminal-output completion markers. Replace the message
-placeholder with your complete response, or use file/stdin with the same
-request ID and receipt.
-
-Use exactly one input source and the request ID/receipt supplied by `talk`,
-including detached requests. Do not invent a receipt, guess the latest
-request, or infer a pane. A successful submission means the
-result was delivered, not that the task succeeded; summarize only afterward.
-
-An identical retry for the same request and attempt keeps the original
-submission timestamp. A different body is a conflict and cannot replace the
-stored response.
-
-The receipt is local correlation, not remote authentication. Accepted bodies
-are retained for seven days from submission; identical retry is safe only
-while retained with the same receipt and body, not indefinitely. A missing
-result does not cancel the work. Surface failed submission without a success
-summary, and do not resubmit if final summarization fails after acceptance.
-
-Reply bodies are exact valid UTF-8 up to 1 MiB, including empty or whitespace
-text, BOM, NUL, CR/LF, Unicode, and marker-like content. Stdin is EOF-driven
-with a five-second input deadline. Result reports `RESPONSE_NOT_AVAILABLE`
-(exit 3) when the body is pending, unknown, or expired; input errors exit 1,
-input timeout exits 4, and conflicts exit 5.
-With `--json`, unavailable output is
-`{status:"unavailable",requestId,error:{code:"RESPONSE_NOT_AVAILABLE",message}}`.
-
-tmux-team is CLI-only: each invocation exits after its operation and no daemon
-or background service is required.
-
-Talk waits for a complete durable final by default, with a 180-second timeout
-unless `defaults.timeout` is configured. `--timeout` accepts positive seconds
-or ms/s suffixes, at most 24 hours. Use `--detach` instead of explicit timeout
-to return a request ID after sending; retrieve it with `result` later.
-Timeout/interruption never cancels work or permits automatic resend. Terminal
-markers, idle output and summaries are not completion signals; `check` is only
-diagnostic. Same-pane input serialization and exactly-once processing are not
-guaranteed. `--wait` is retired, `--lines` is for check, and stored mode values
-are inert. `config clear mode` removes only the obsolete local key.
-
-## Claude Code
-
-Claude Code users should prefer the marketplace plugin above. It provides
-`/tmux-team:team`, `/tmux-team:learn`, and `/tmux-team:tmux-team`.
-See the [Claude plugin docs](https://code.claude.com/docs/en/discover-plugins)
-and [plugin reference](https://code.claude.com/docs/en/plugins-reference).
-
-### Manual Install
-
-```bash
-mkdir -p ~/.claude/commands
-cp skills/claude/team.md ~/.claude/commands/team.md
-```
-
-### Usage
-
-```bash
-# In Claude Code, use the slash command:
-/team talk codex "Review this PR"
-
-# Or invoke implicitly - Claude will recognize when to use it
-```
-
-## OpenAI Codex CLI
-
-Codex discovers user skills in `~/.agents/skills` and repository skills in
-`.agents/skills`. See the [Codex skills docs](https://learn.chatgpt.com/docs/build-skills).
-
-### Manual Install
-
-```bash
-mkdir -p ~/.agents/skills/tmux-team
-cp skills/tmux-team/SKILL.md ~/.agents/skills/tmux-team/SKILL.md
-```
-
-### Usage
-
-```bash
-# Explicit invocation
-$tmux-team
-
-# Implicit - Codex auto-selects when you mention other agents
-"Ask the codex agent to review the authentication code"
-```
-
-## Gemini CLI
-
-Gemini CLI supports native Agent Skills and the shared `~/.agents/skills`
-location. See the [Gemini Agent Skills guide](https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/using-agent-skills.md).
-
-## Verify Installation
-
-After installation, verify with `tmt list` or `tmt help`. For Claude, `/help`
-should show `/team` for standalone installation or `/tmux-team:team` for the
-marketplace plugin; Codex and Gemini discover the `tmux-team` skill natively.
+Use [the quick start](../README.md#quick-start) for the first live exchange and
+[the user guide](../USER-GUIDE.md) for recovery, roles, and configuration.

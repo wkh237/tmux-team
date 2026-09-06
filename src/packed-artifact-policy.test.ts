@@ -5,9 +5,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const { REQUIRED_PACKED_PATHS, verifyPackedArtifact } = (await import(
+const { FORBIDDEN_PACKED_PATHS, REQUIRED_PACKED_PATHS, verifyPackedArtifact } = (await import(
   pathToFileURL(path.join(repositoryRoot, 'scripts', 'packed-artifact-policy.mjs')).href
 )) as unknown as {
+  FORBIDDEN_PACKED_PATHS: readonly string[];
   REQUIRED_PACKED_PATHS: readonly string[];
   verifyPackedArtifact: (packageRoot: string) => { checked: number };
 };
@@ -68,6 +69,21 @@ describe('packed artifact policy', () => {
       }
     }
   );
+
+  it.each(FORBIDDEN_PACKED_PATHS)('rejects retired packed asset: %s', (relative) => {
+    const root = createPackageFixture();
+    try {
+      const target = path.join(root, relative);
+      mkdirSync(path.dirname(target), { recursive: true });
+      if (path.extname(relative)) writeFileSync(target, 'retired fixture\n');
+      else mkdirSync(target, { recursive: true });
+      expect(() => verifyPackedArtifact(root)).toThrow(
+        `Packed artifact contains retired skill asset: ${relative}`
+      );
+    } finally {
+      removePackageFixture(root);
+    }
+  });
 
   it('cleans disposable fixtures after both success and failure', () => {
     const root = createPackageFixture();

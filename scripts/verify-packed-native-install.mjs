@@ -171,30 +171,85 @@ function verifyPackedSkills(projectDirectory, env, providers) {
       expectedStatus,
     });
 
+  const legacyClaudeCommand = path.join(home, '.claude', 'commands', 'team.md');
+  fs.mkdirSync(path.dirname(legacyClaudeCommand), { recursive: true });
+  fs.writeFileSync(legacyClaudeCommand, 'legacy Claude command\n');
+
   const packageRoot = path.join(projectDirectory, 'node_modules', 'tmux-team');
   const source = path.join(packageRoot, 'skills', 'tmux-team', 'SKILL.md');
   const content = fs.readFileSync(source, 'utf8');
+  const skillsRoot = path.dirname(path.dirname(source));
+  assert.deepEqual(
+    fs.readdirSync(skillsRoot).sort(),
+    ['README.md', 'tmux-team'],
+    'The packed skills root must contain only its guide and canonical skill directory'
+  );
   assert.equal(run(['learn', '--skill']), content, 'Skill viewer must preserve exact bundled text');
-  const sourceParent = path.dirname(path.dirname(source));
-  const sourceSiblings = fs.readdirSync(sourceParent).sort();
-  const overlap = JSON.parse(run(['install', '--dir', sourceParent, '--force', '--json'], 1));
+  const overlap = JSON.parse(run(['install', '--dir', skillsRoot, '--force', '--json'], 1));
   assert.ok(overlap.error, 'Overlapping custom target must fail explicitly');
   assert.equal(fs.readFileSync(source, 'utf8'), content);
-  assert.deepEqual(fs.readdirSync(sourceParent).sort(), sourceSiblings);
+  assert.deepEqual(fs.readdirSync(skillsRoot).sort(), ['README.md', 'tmux-team']);
   const installed = JSON.parse(run(['install', 'all', '--json']));
   assert.deepEqual(
     installed.installed.map((item) => item.agent),
     providers
   );
+  assert.deepEqual(
+    Object.fromEntries(installed.installed.map((item) => [item.agent, item.target])),
+    {
+      claude: path.join(home, '.claude', 'skills', 'tmux-team'),
+      codex: path.join(home, '.agents', 'skills', 'tmux-team'),
+      gemini: path.join(home, '.agents', 'skills', 'tmux-team'),
+    },
+    'Provider installs must use only the canonical skill targets'
+  );
   const universal = path.join(home, '.agents', 'skills', 'tmux-team');
-  const claude = path.join(home, '.claude', 'commands', 'team.md');
+  const claude = path.join(home, '.claude', 'skills', 'tmux-team');
   assert.ok(fs.lstatSync(universal).isSymbolicLink());
   assert.equal(fs.readFileSync(path.join(universal, 'SKILL.md'), 'utf8'), content);
   assert.ok(fs.lstatSync(claude).isSymbolicLink());
-  assert.equal(
-    fs.readFileSync(claude, 'utf8'),
-    fs.readFileSync(path.join(packageRoot, 'skills', 'claude', 'team.md'), 'utf8')
+  assert.equal(fs.readFileSync(path.join(claude, 'SKILL.md'), 'utf8'), content);
+  assert.equal(fs.realpathSync(universal), fs.realpathSync(path.dirname(source)));
+  assert.equal(fs.realpathSync(claude), fs.realpathSync(path.dirname(source)));
+  assert.ok(fs.existsSync(legacyClaudeCommand), 'The legacy Claude command should be preserved');
+  const legacyContent = fs.readFileSync(legacyClaudeCommand, 'utf8');
+  assert.equal(legacyContent, 'legacy Claude command\n');
+
+  const repeatedDefault = JSON.parse(run(['install', 'all', '--json']));
+  assert.deepEqual(
+    repeatedDefault.installed.map((item) => item.changed),
+    providers.map(() => false),
+    'Repeating installation should be a no-op for managed canonical links'
   );
+
+  // An unmanaged canonical Claude target must remain untouched unless force
+  // is explicit, while the old command path above remains user-owned.
+  fs.rmSync(claude, { recursive: true, force: true });
+  fs.mkdirSync(claude, { recursive: true });
+  fs.writeFileSync(path.join(claude, 'user-owned.md'), 'keep this file\n');
+  const refused = JSON.parse(run(['install', 'all', '--json'], 1));
+  assert.ok(refused.error, 'Unmanaged canonical content must require --force');
+  assert.equal(fs.readFileSync(path.join(claude, 'user-owned.md'), 'utf8'), 'keep this file\n');
+  assert.equal(fs.readFileSync(legacyClaudeCommand, 'utf8'), legacyContent);
+  const forced = JSON.parse(run(['install', 'all', '--force', '--json']));
+  const claudeInstall = forced.installed.find((item) => item.agent === 'claude');
+  assert.equal(claudeInstall.changed, true);
+  assert.ok(claudeInstall.backup, 'Force installation should report the recoverable backup');
+  const claudeSkillRoot = path.dirname(claude);
+  const claudeBackupRoot = path.join(path.dirname(claudeSkillRoot), '.tmt-skill-backups');
+  assert.equal(path.dirname(claudeInstall.backup), claudeBackupRoot);
+  assert.equal(path.basename(claudeInstall.backup).startsWith('tmux-team.backup-'), true);
+  assert.equal(path.relative(claudeSkillRoot, claudeInstall.backup).startsWith('..'), true);
+  assert.equal(
+    fs.readFileSync(path.join(claudeInstall.backup, 'user-owned.md'), 'utf8'),
+    'keep this file\n'
+  );
+  assert.ok(fs.lstatSync(claude).isSymbolicLink());
+  assert.equal(fs.existsSync(legacyClaudeCommand), false);
+  assert.deepEqual(claudeInstall.legacyBackups?.length, 1);
+  assert.equal(path.dirname(claudeInstall.legacyBackups[0]), path.dirname(legacyClaudeCommand));
+  assert.equal(path.basename(claudeInstall.legacyBackups[0]).startsWith('team.md.backup-'), true);
+  assert.equal(fs.readFileSync(claudeInstall.legacyBackups[0], 'utf8'), legacyContent);
 
   const customRoot = path.join(projectDirectory, 'custom skills');
   fs.mkdirSync(customRoot);
@@ -211,12 +266,43 @@ function verifyPackedSkills(projectDirectory, env, providers) {
   assert.equal(repeated.installed[0].changed, false);
   assert.equal(fs.readFileSync(sibling, 'utf8'), 'preserve this sibling');
 
+  fs.rmSync(target, { recursive: true, force: true });
+  fs.mkdirSync(target, { recursive: true });
+  fs.writeFileSync(path.join(target, 'user-owned.md'), 'keep custom content\n');
+  const customRefused = JSON.parse(run(['install', '--dir', './custom skills', '--json'], 1));
+  assert.ok(customRefused.error, 'Unmanaged custom content must require --force');
+  assert.equal(
+    fs.readFileSync(path.join(target, 'user-owned.md'), 'utf8'),
+    'keep custom content\n'
+  );
+  const customForced = JSON.parse(
+    run(['install', '--dir', './custom skills', '--force', '--json'])
+  );
+  const customBackup = customForced.installed[0].backup;
+  assert.ok(customBackup, 'Force custom installation should report the recoverable backup');
+  assert.equal(
+    fs.realpathSync(path.dirname(customBackup)),
+    fs.realpathSync(path.join(projectDirectory, '.tmt-skill-backups'))
+  );
+  assert.equal(path.basename(customBackup).startsWith('tmux-team.backup-'), true);
+  assert.equal(
+    path.relative(fs.realpathSync(customRoot), fs.realpathSync(customBackup)).startsWith('..'),
+    true
+  );
+  assert.equal(
+    fs.readFileSync(path.join(customBackup, 'user-owned.md'), 'utf8'),
+    'keep custom content\n'
+  );
+  assert.ok(fs.lstatSync(target).isSymbolicLink());
+  assert.equal(fs.readFileSync(sibling, 'utf8'), 'preserve this sibling');
+
   // Only the disposable installed package is changed, proving links and the
   // viewer follow source updates without writing to the host's installed skill.
   const updated = `${content}\nPacked verification update.\n`;
   fs.writeFileSync(source, updated);
   assert.equal(fs.readFileSync(path.join(target, 'SKILL.md'), 'utf8'), updated);
   assert.equal(fs.readFileSync(path.join(universal, 'SKILL.md'), 'utf8'), updated);
+  assert.equal(fs.readFileSync(path.join(claude, 'SKILL.md'), 'utf8'), updated);
   assert.equal(run(['learn', '--skill']), updated);
 }
 

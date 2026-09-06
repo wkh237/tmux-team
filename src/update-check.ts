@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   getCodexHome,
+  getLegacyClaudeCommand,
   getLegacyCodexDirectories,
   getSkillConfigs,
   isCorrectLink,
@@ -16,23 +17,17 @@ import type { Context } from './types.js';
 import { VERSION } from './version.js';
 
 export interface DriftIssue {
-  kind: 'legacy' | 'broken-link' | 'wrong-link' | 'outdated-copy';
+  kind: 'legacy' | 'broken-link' | 'wrong-link';
   path: string;
   message: string;
 }
 
-function linkIssue(
-  target: string,
-  source: string,
-  label: string,
-  allowCopiedFile = false
-): DriftIssue | undefined {
+function linkIssue(target: string, source: string, label: string): DriftIssue | undefined {
   if (!targetExists(target)) return undefined;
   if (isCorrectLink(target, source)) return undefined;
   let kind: DriftIssue['kind'] = 'wrong-link';
   try {
     const stat = fs.lstatSync(target);
-    if (stat.isFile() && allowCopiedFile) return undefined;
     if (stat.isSymbolicLink()) {
       const resolved = path.resolve(path.dirname(target), fs.readlinkSync(target));
       kind = fs.existsSync(resolved) ? 'wrong-link' : 'broken-link';
@@ -60,7 +55,6 @@ export function inspectLocalDrift(options: DriftOptions = {}): DriftIssue[] {
   const codexHome = options.codexHome ?? getCodexHome(home);
   const configs = getSkillConfigs(root, home);
   const universal = configs.codex.source;
-  const claudeSource = configs.claude.source;
   const agentsTarget = configs.codex.target;
   const claudeTarget = configs.claude.target;
   const issues: DriftIssue[] = [];
@@ -76,23 +70,16 @@ export function inspectLocalDrift(options: DriftOptions = {}): DriftIssue[] {
   }
   const universalIssue = linkIssue(agentsTarget, universal, 'Open Agent skill');
   if (universalIssue) issues.push(universalIssue);
-  const claudeIssue = linkIssue(claudeTarget, claudeSource, 'Claude command', true);
+  const claudeIssue = linkIssue(claudeTarget, universal, 'Claude skill');
   if (claudeIssue) issues.push(claudeIssue);
 
-  // A regular Claude file is a supported legacy install, but warn when it has drifted.
-  try {
-    if (
-      fs.lstatSync(claudeTarget).isFile() &&
-      fs.readFileSync(claudeTarget, 'utf8') !== fs.readFileSync(claudeSource, 'utf8')
-    ) {
-      issues.push({
-        kind: 'outdated-copy',
-        path: claudeTarget,
-        message: `Claude command copy is out of date (${claudeTarget})`,
-      });
-    }
-  } catch {
-    // Missing files and unreadable targets are handled by the link inspection above.
+  const legacyClaudeCommand = getLegacyClaudeCommand(home);
+  if (targetExists(legacyClaudeCommand)) {
+    issues.push({
+      kind: 'legacy',
+      path: legacyClaudeCommand,
+      message: `Legacy Claude command found at ${legacyClaudeCommand}`,
+    });
   }
   return issues;
 }

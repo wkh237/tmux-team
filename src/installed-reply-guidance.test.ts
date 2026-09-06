@@ -3,17 +3,11 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { parseArgs } from './cli/parser.js';
 
-// Provider wrappers differ, but each shipped entry point must teach the same
-// reply input contract. Real CLI and Docker tests own execution semantics.
+// The canonical installed skill must teach the complete reply input contract.
+// Real CLI and Docker tests own execution semantics.
 describe('shipped reply guidance', () => {
-  it.each([
-    'skills/tmux-team/SKILL.md',
-    'skills/codex/SKILL.md',
-    'skills/claude/team.md',
-    'plugins/tmux-team/skills/tmux-team/SKILL.md',
-    'plugins/tmux-team/commands/team.md',
-    'plugins/tmux-team/commands/learn.md',
-  ])('%s exposes inline and streaming/file alternatives', (relativePath) => {
+  it('exposes inline and streaming/file alternatives', () => {
+    const relativePath = 'skills/tmux-team/SKILL.md';
     const source = fs.readFileSync(
       fileURLToPath(new URL(`../${relativePath}`, import.meta.url)),
       'utf8'

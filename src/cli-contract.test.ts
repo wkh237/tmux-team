@@ -74,16 +74,56 @@ describe('real CLI process contract', () => {
         expect(document.installed.map((item) => item.agent)).toEqual(['claude', 'codex', 'gemini']);
 
         const configs = getSkillConfigs();
-        const claudeTarget = path.join(sandbox.home, '.claude', 'commands', 'team.md');
+        const claudeTarget = path.join(sandbox.home, '.claude', 'skills', 'tmux-team');
         const universalTarget = path.join(sandbox.home, '.agents', 'skills', 'tmux-team');
         expect(lstatSync(claudeTarget).isSymbolicLink()).toBe(true);
         expect(lstatSync(universalTarget).isSymbolicLink()).toBe(true);
         expect(realpathSync(claudeTarget)).toBe(realpathSync(configs.claude.source));
         expect(realpathSync(universalTarget)).toBe(realpathSync(configs.codex.source));
-        expect(readFileSync(claudeTarget)).toEqual(readFileSync(configs.claude.source));
+        expect(realpathSync(claudeTarget)).toBe(realpathSync(universalTarget));
+        expect(readFileSync(path.join(claudeTarget, 'SKILL.md'))).toEqual(
+          readFileSync(path.join(configs.claude.source, 'SKILL.md'))
+        );
+        expect(existsSync(path.join(sandbox.home, '.claude', 'commands', 'team.md'))).toBe(false);
         expect(readFileSync(path.join(universalTarget, 'SKILL.md'))).toEqual(
           readFileSync(path.join(configs.codex.source, 'SKILL.md'))
         );
+      })
+  );
+
+  it(
+    'preserves an old Claude command until explicit force and reports a recoverable backup',
+    { timeout: 10_000 },
+    () =>
+      withSandbox(async (sandbox) => {
+        const command = path.join(sandbox.home, '.claude', 'commands', 'team.md');
+        const sibling = path.join(path.dirname(command), 'unrelated.md');
+        mkdirSync(path.dirname(command), { recursive: true });
+        writeFileSync(command, 'User-maintained legacy command.');
+        writeFileSync(sibling, 'Unrelated command.');
+        const first = await runCli(sandbox, ['install', 'claude', '--json']);
+        expect(first.status).toBe(0);
+        expect(first.stderr).toBe('');
+        expect(parseWholeStdout(first)).toMatchObject({
+          installed: [{ agent: 'claude', changed: true }],
+        });
+        expect(readFileSync(command, 'utf8')).toBe('User-maintained legacy command.');
+
+        const forced = await runCli(sandbox, ['install', 'claude', '--force', '--json']);
+        expect(forced.status).toBe(0);
+        expect(forced.stderr).toBe('');
+        const document = parseWholeStdout(forced) as {
+          installed: Array<{ changed: boolean; legacyBackups: string[] }>;
+        };
+        expect(document.installed).toHaveLength(1);
+        expect(document.installed[0].changed).toBe(false);
+        expect(document.installed[0].legacyBackups).toHaveLength(1);
+        expect(readFileSync(document.installed[0].legacyBackups[0], 'utf8')).toBe(
+          'User-maintained legacy command.'
+        );
+        expect(existsSync(command)).toBe(false);
+        expect(readFileSync(sibling, 'utf8')).toBe('Unrelated command.');
+        expect(existsSync(sandbox.database)).toBe(false);
       })
   );
 

@@ -20,8 +20,21 @@ export const REQUIRED_PACKED_PATHS = Object.freeze([
   'src/storage/identity-repository.ts',
   'src/storage/request-repository.ts',
   'skills/tmux-team/SKILL.md',
-  'skills/codex/SKILL.md',
-  'skills/claude/team.md',
+]);
+
+/**
+ * Provider projections and their source/generator tree were retired in favor
+ * of one canonical skill. A packed artifact must not quietly keep shipping
+ * stale copies just because the canonical source is present.
+ */
+export const FORBIDDEN_PACKED_PATHS = Object.freeze([
+  '.claude-plugin',
+  'plugins',
+  'scripts/skill-projection-templates',
+  'scripts/skill-projections.mjs',
+  'skills/claude',
+  'skills/codex',
+  'src/skill-projections.test.ts',
 ]);
 
 function relativePath(root, target) {
@@ -54,6 +67,19 @@ function findForbiddenSource(root) {
   return visit(sourceRoot);
 }
 
+function findRetiredAsset(root) {
+  for (const relative of FORBIDDEN_PACKED_PATHS) {
+    try {
+      fs.lstatSync(path.join(root, relative));
+      return relative;
+    } catch (error) {
+      if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw error;
+      // Missing paths are the expected state for a current package.
+    }
+  }
+  return null;
+}
+
 /**
  * Validate the contents of an installed package, not the source checkout.
  * The verifier owns process-level installation and runtime checks; this helper
@@ -66,12 +92,18 @@ export function verifyPackedArtifact(packageRoot) {
     let stat;
     try {
       stat = fs.statSync(target);
-    } catch {
+    } catch (error) {
+      if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw error;
       throw new Error(`Packed artifact is missing required file: ${relative}`);
     }
     if (!stat.isFile()) {
       throw new Error(`Packed artifact required path is not a file: ${relative}`);
     }
+  }
+
+  const retired = findRetiredAsset(root);
+  if (retired) {
+    throw new Error(`Packed artifact contains retired skill asset: ${retired}`);
   }
 
   const forbidden = findForbiddenSource(root);
