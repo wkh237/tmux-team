@@ -142,110 +142,126 @@ describe('real CLI configuration contract', () => {
     }
   }, 30_000);
 
-  it('rejects null known values even when another config tier overrides them', async () => {
-    for (const [globalValue, localValue] of [
-      [{ defaults: { pasteEnterDelayMs: null } }, { $config: { pasteEnterDelayMs: 0 } }],
-      [{ defaults: { preambleEvery: 3 } }, { $config: { preambleEvery: null } }],
-    ] as const) {
-      await withSandbox(async (sandbox) => {
-        const globalBytes = writeGlobal(sandbox, globalValue);
-        const localBytes = writeLocal(sandbox, localValue);
-        const before = fileSnapshot(sandbox.root);
-        const result = await runCli(sandbox, ['list', '--json']);
+  it(
+    'rejects null known values even when another config tier overrides them',
+    { timeout: 10_000 },
+    async () => {
+      for (const [globalValue, localValue] of [
+        [{ defaults: { pasteEnterDelayMs: null } }, { $config: { pasteEnterDelayMs: 0 } }],
+        [{ defaults: { preambleEvery: 3 } }, { $config: { preambleEvery: null } }],
+      ] as const) {
+        await withSandbox(async (sandbox) => {
+          const globalBytes = writeGlobal(sandbox, globalValue);
+          const localBytes = writeLocal(sandbox, localValue);
+          const before = fileSnapshot(sandbox.root);
+          const result = await runCli(sandbox, ['list', '--json']);
 
-        expect(result.status).toBe(1);
-        expectError(result, 'CONFIG_ERROR');
-        expect(fileSnapshot(sandbox.root)).toEqual(before);
-        expect(fs.readFileSync(sandbox.globalConfig, 'utf8')).toBe(globalBytes);
-        expect(fs.readFileSync(sandbox.localConfig, 'utf8')).toBe(localBytes);
-        expect(fs.existsSync(sandbox.database)).toBe(false);
+          expect(result.status).toBe(1);
+          expectError(result, 'CONFIG_ERROR');
+          expect(fileSnapshot(sandbox.root)).toEqual(before);
+          expect(fs.readFileSync(sandbox.globalConfig, 'utf8')).toBe(globalBytes);
+          expect(fs.readFileSync(sandbox.localConfig, 'utf8')).toBe(localBytes);
+          expect(fs.existsSync(sandbox.database)).toBe(false);
+        });
+      }
+    }
+  );
+
+  it(
+    'accepts omitted defaults and local settings while retaining built-in defaults',
+    { timeout: 10_000 },
+    async () => {
+      await withSandbox(async (sandbox) => {
+        writeGlobal(sandbox, { futureGlobal: { keep: true } });
+        writeLocal(sandbox, { keep: true });
+        const result = await runCli(sandbox, ['config', 'show', '--json']);
+
+        expect(result.status).toBe(0);
+        expect(parseWholeStdout(result)).toMatchObject({
+          resolved: {
+            preambleMode: 'always',
+            preambleEvery: 3,
+            pasteEnterDelayMs: 500,
+            defaults: { timeout: 180, pollInterval: 1, captureLines: 100 },
+          },
+        });
       });
     }
-  });
+  );
 
-  it('accepts omitted defaults and local settings while retaining built-in defaults', async () => {
-    await withSandbox(async (sandbox) => {
-      writeGlobal(sandbox, { futureGlobal: { keep: true } });
-      writeLocal(sandbox, { keep: true });
-      const result = await runCli(sandbox, ['config', 'show', '--json']);
+  it(
+    'accepts safe preamble frequencies above the timer delay bound',
+    { timeout: 10_000 },
+    async () => {
+      await withSandbox(async (sandbox) => {
+        writeGlobal(sandbox, { defaults: { preambleEvery: 2_147_483_648 } });
+        const result = await runCli(sandbox, ['config', 'show', '--json']);
 
-      expect(result.status).toBe(0);
-      expect(parseWholeStdout(result)).toMatchObject({
-        resolved: {
-          preambleMode: 'always',
-          preambleEvery: 3,
-          pasteEnterDelayMs: 500,
-          defaults: { timeout: 180, pollInterval: 1, captureLines: 100 },
-        },
+        expect(result.status).toBe(0);
+        expect(parseWholeStdout(result)).toMatchObject({
+          resolved: { preambleEvery: 2_147_483_648 },
+        });
       });
-    });
-  });
+    }
+  );
 
-  it('accepts safe preamble frequencies above the timer delay bound', async () => {
-    await withSandbox(async (sandbox) => {
-      writeGlobal(sandbox, { defaults: { preambleEvery: 2_147_483_648 } });
-      const result = await runCli(sandbox, ['config', 'show', '--json']);
+  it(
+    'keeps unknown and retired keys opaque while applying valid precedence and zero values',
+    { timeout: 10_000 },
+    async () => {
+      await withSandbox(async (sandbox) => {
+        const globalBytes = writeGlobal(sandbox, {
+          preambleMode: 'disabled',
+          mode: 'retired-global-mode',
+          futureGlobal: { keep: true },
+          defaults: {
+            timeout: 86_400,
+            pollInterval: 0.25,
+            captureLines: 0,
+            preambleEvery: 7,
+            pasteEnterDelayMs: 1.5,
+            maxCaptureLines: 999,
+            futureDefault: 'opaque',
+          },
+        });
+        const localBytes = writeLocal(sandbox, {
+          keep: { value: true },
+          $config: {
+            mode: 'retired-local-mode',
+            preambleMode: 'always',
+            preambleEvery: 0,
+            futureLocal: ['opaque'],
+          },
+        });
 
-      expect(result.status).toBe(0);
-      expect(parseWholeStdout(result)).toMatchObject({
-        resolved: { preambleEvery: 2_147_483_648 },
-      });
-    });
-  });
-
-  it('keeps unknown and retired keys opaque while applying valid precedence and zero values', async () => {
-    await withSandbox(async (sandbox) => {
-      const globalBytes = writeGlobal(sandbox, {
-        preambleMode: 'disabled',
-        mode: 'retired-global-mode',
-        futureGlobal: { keep: true },
-        defaults: {
-          timeout: 86_400,
-          pollInterval: 0.25,
-          captureLines: 0,
-          preambleEvery: 7,
-          pasteEnterDelayMs: 1.5,
-          maxCaptureLines: 999,
-          futureDefault: 'opaque',
-        },
-      });
-      const localBytes = writeLocal(sandbox, {
-        keep: { value: true },
-        $config: {
-          mode: 'retired-local-mode',
+        const result = await runCli(sandbox, ['config', 'show', '--json']);
+        expect(result.status).toBe(0);
+        const document = parseWholeStdout(result) as {
+          resolved: {
+            preambleMode: string;
+            preambleEvery: number;
+            pasteEnterDelayMs: number;
+            defaults: Record<string, unknown>;
+          };
+        };
+        expect(document.resolved).toMatchObject({
           preambleMode: 'always',
           preambleEvery: 0,
-          futureLocal: ['opaque'],
-        },
+          pasteEnterDelayMs: 1.5,
+          defaults: {
+            timeout: 86_400,
+            pollInterval: 0.25,
+            captureLines: 0,
+          },
+        });
+        expect(document.resolved.defaults).not.toHaveProperty('maxCaptureLines');
+        expect(document.resolved.defaults).not.toHaveProperty('futureDefault');
+        expect(document.resolved).not.toHaveProperty('mode');
+        expect(fs.readFileSync(sandbox.globalConfig, 'utf8')).toBe(globalBytes);
+        expect(fs.readFileSync(sandbox.localConfig, 'utf8')).toBe(localBytes);
       });
-
-      const result = await runCli(sandbox, ['config', 'show', '--json']);
-      expect(result.status).toBe(0);
-      const document = parseWholeStdout(result) as {
-        resolved: {
-          preambleMode: string;
-          preambleEvery: number;
-          pasteEnterDelayMs: number;
-          defaults: Record<string, unknown>;
-        };
-      };
-      expect(document.resolved).toMatchObject({
-        preambleMode: 'always',
-        preambleEvery: 0,
-        pasteEnterDelayMs: 1.5,
-        defaults: {
-          timeout: 86_400,
-          pollInterval: 0.25,
-          captureLines: 0,
-        },
-      });
-      expect(document.resolved.defaults).not.toHaveProperty('maxCaptureLines');
-      expect(document.resolved.defaults).not.toHaveProperty('futureDefault');
-      expect(document.resolved).not.toHaveProperty('mode');
-      expect(fs.readFileSync(sandbox.globalConfig, 'utf8')).toBe(globalBytes);
-      expect(fs.readFileSync(sandbox.localConfig, 'utf8')).toBe(localBytes);
-    });
-  });
+    }
+  );
 
   it('rejects decimal, out-of-range, and unknown setters without writing files', async () => {
     await withSandbox(async (sandbox) => {
@@ -278,125 +294,141 @@ describe('real CLI configuration contract', () => {
     });
   }, 30_000);
 
-  it('repairs a targeted invalid setting while preserving partial global defaults and opaque siblings', async () => {
-    await withSandbox(async (sandbox) => {
-      writeGlobal(sandbox, {
-        defaults: { timeout: 240, futureDefault: { keep: true } },
-      });
-      writeLocal(sandbox, {
-        keep: 'opaque',
-        $config: { preambleEvery: 'invalid', pasteEnterDelayMs: 500 },
-      });
+  it(
+    'repairs a targeted invalid setting while preserving partial global defaults and opaque siblings',
+    { timeout: 10_000 },
+    async () => {
+      await withSandbox(async (sandbox) => {
+        writeGlobal(sandbox, {
+          defaults: { timeout: 240, futureDefault: { keep: true } },
+        });
+        writeLocal(sandbox, {
+          keep: 'opaque',
+          $config: { preambleEvery: 'invalid', pasteEnterDelayMs: 500 },
+        });
 
-      const repaired = await runCli(sandbox, ['config', 'set', 'preambleEvery', '4', '--json']);
-      expect(repaired.status).toBe(0);
-      expect(JSON.parse(fs.readFileSync(sandbox.localConfig, 'utf8'))).toEqual({
-        keep: 'opaque',
-        $config: { preambleEvery: 4, pasteEnterDelayMs: 500 },
-      });
+        const repaired = await runCli(sandbox, ['config', 'set', 'preambleEvery', '4', '--json']);
+        expect(repaired.status).toBe(0);
+        expect(JSON.parse(fs.readFileSync(sandbox.localConfig, 'utf8'))).toEqual({
+          keep: 'opaque',
+          $config: { preambleEvery: 4, pasteEnterDelayMs: 500 },
+        });
 
-      const globalSet = await runCli(sandbox, [
-        'config',
-        'set',
-        'preambleEvery',
-        '0',
-        '--global',
-        '--json',
-      ]);
-      expect(globalSet.status).toBe(0);
-      expect(JSON.parse(fs.readFileSync(sandbox.globalConfig, 'utf8'))).toEqual({
-        defaults: {
-          timeout: 240,
-          preambleEvery: 0,
-          futureDefault: { keep: true },
-        },
+        const globalSet = await runCli(sandbox, [
+          'config',
+          'set',
+          'preambleEvery',
+          '0',
+          '--global',
+          '--json',
+        ]);
+        expect(globalSet.status).toBe(0);
+        expect(JSON.parse(fs.readFileSync(sandbox.globalConfig, 'utf8'))).toEqual({
+          defaults: {
+            timeout: 240,
+            preambleEvery: 0,
+            futureDefault: { keep: true },
+          },
+        });
       });
-    });
-  });
+    }
+  );
 
-  it('allows zero setters and repairs only the targeted invalid local setting', async () => {
-    await withSandbox(async (sandbox) => {
-      writeLocal(sandbox, {
-        keep: 'opaque',
-        $config: { preambleEvery: 3, pasteEnterDelayMs: 500 },
-      });
-      expect(
-        (await runCli(sandbox, ['config', 'set', 'preambleEvery', '0', '--json'])).status
-      ).toBe(0);
-      expect(
-        (await runCli(sandbox, ['config', 'set', 'pasteEnterDelayMs', '0', '--json'])).status
-      ).toBe(0);
-      const shown = await runCli(sandbox, ['config', 'show', '--json']);
-      expect(shown.status).toBe(0);
-      expect(parseWholeStdout(shown)).toMatchObject({
-        resolved: { preambleEvery: 0, pasteEnterDelayMs: 0 },
-      });
+  it(
+    'allows zero setters and repairs only the targeted invalid local setting',
+    { timeout: 10_000 },
+    async () => {
+      await withSandbox(async (sandbox) => {
+        writeLocal(sandbox, {
+          keep: 'opaque',
+          $config: { preambleEvery: 3, pasteEnterDelayMs: 500 },
+        });
+        expect(
+          (await runCli(sandbox, ['config', 'set', 'preambleEvery', '0', '--json'])).status
+        ).toBe(0);
+        expect(
+          (await runCli(sandbox, ['config', 'set', 'pasteEnterDelayMs', '0', '--json'])).status
+        ).toBe(0);
+        const shown = await runCli(sandbox, ['config', 'show', '--json']);
+        expect(shown.status).toBe(0);
+        expect(parseWholeStdout(shown)).toMatchObject({
+          resolved: { preambleEvery: 0, pasteEnterDelayMs: 0 },
+        });
 
-      writeLocal(sandbox, {
-        keep: 'opaque',
-        $config: { preambleEvery: 'invalid', pasteEnterDelayMs: 0 },
-      });
-      const repaired = await runCli(sandbox, ['config', 'clear', 'preambleEvery', '--json']);
-      expect(repaired.status).toBe(0);
-      expect(JSON.parse(fs.readFileSync(sandbox.localConfig, 'utf8'))).toEqual({
-        keep: 'opaque',
-        $config: { pasteEnterDelayMs: 0 },
-      });
+        writeLocal(sandbox, {
+          keep: 'opaque',
+          $config: { preambleEvery: 'invalid', pasteEnterDelayMs: 0 },
+        });
+        const repaired = await runCli(sandbox, ['config', 'clear', 'preambleEvery', '--json']);
+        expect(repaired.status).toBe(0);
+        expect(JSON.parse(fs.readFileSync(sandbox.localConfig, 'utf8'))).toEqual({
+          keep: 'opaque',
+          $config: { pasteEnterDelayMs: 0 },
+        });
 
-      const invalidRemainder = JSON.stringify({
-        keep: 'opaque',
-        $config: { preambleEvery: 'invalid', pasteEnterDelayMs: 'invalid' },
+        const invalidRemainder = JSON.stringify({
+          keep: 'opaque',
+          $config: { preambleEvery: 'invalid', pasteEnterDelayMs: 'invalid' },
+        });
+        fs.writeFileSync(sandbox.localConfig, invalidRemainder);
+        const rejected = await runCli(sandbox, ['config', 'clear', 'preambleEvery', '--json']);
+        expect(rejected.status).toBe(1);
+        expectError(rejected, 'CONFIG_ERROR');
+        expect(fs.readFileSync(sandbox.localConfig, 'utf8')).toBe(invalidRemainder);
       });
-      fs.writeFileSync(sandbox.localConfig, invalidRemainder);
-      const rejected = await runCli(sandbox, ['config', 'clear', 'preambleEvery', '--json']);
-      expect(rejected.status).toBe(1);
-      expectError(rejected, 'CONFIG_ERROR');
-      expect(fs.readFileSync(sandbox.localConfig, 'utf8')).toBe(invalidRemainder);
-    });
-  });
+    }
+  );
 
-  it('keeps storage-only reply and result usable with malformed configuration', async () => {
-    await withSandbox(async (sandbox) => {
-      const requestId = 'config-independent-response';
-      const receipt = seedReply(sandbox, requestId);
-      writeGlobal(sandbox, { defaults: { captureLines: 'invalid' } });
-      const body = 'storage-only despite malformed config';
+  it(
+    'keeps storage-only reply and result usable with malformed configuration',
+    { timeout: 10_000 },
+    async () => {
+      await withSandbox(async (sandbox) => {
+        const requestId = 'config-independent-response';
+        const receipt = seedReply(sandbox, requestId);
+        writeGlobal(sandbox, { defaults: { captureLines: 'invalid' } });
+        const body = 'storage-only despite malformed config';
 
-      const submitted = await runCli(sandbox, [
-        'reply',
-        requestId,
-        '--receipt',
-        receipt,
-        '--message',
-        body,
-        '--json',
-      ]);
-      expect(submitted.status).toBe(0);
-      expect(parseWholeStdout(submitted)).toMatchObject({
-        status: 'submitted',
-        requestId,
-        bodyBytes: Buffer.byteLength(body),
+        const submitted = await runCli(sandbox, [
+          'reply',
+          requestId,
+          '--receipt',
+          receipt,
+          '--message',
+          body,
+          '--json',
+        ]);
+        expect(submitted.status).toBe(0);
+        expect(parseWholeStdout(submitted)).toMatchObject({
+          status: 'submitted',
+          requestId,
+          bodyBytes: Buffer.byteLength(body),
+        });
+
+        const retrieved = await runCli(sandbox, ['result', requestId, '--json']);
+        expect(retrieved.status).toBe(0);
+        expect(parseWholeStdout(retrieved)).toMatchObject({
+          status: 'completed',
+          requestId,
+          response: body,
+        });
+        expect(fs.existsSync(sandbox.database)).toBe(true);
       });
+    }
+  );
 
-      const retrieved = await runCli(sandbox, ['result', requestId, '--json']);
-      expect(retrieved.status).toBe(0);
-      expect(parseWholeStdout(retrieved)).toMatchObject({
-        status: 'completed',
-        requestId,
-        response: body,
+  it(
+    'does not let malformed unrelated local settings affect a public result lookup',
+    { timeout: 10_000 },
+    async () => {
+      await withSandbox(async (sandbox) => {
+        const requestId = 'config-independent-missing-result';
+        seedReply(sandbox, requestId);
+        writeLocal(sandbox, { $config: { preambleEvery: 'invalid' } });
+        const result = await runCli(sandbox, ['result', 'missing-result', '--json']);
+        expect(result.status).toBe(3);
+        expectError(result, 'RESPONSE_NOT_AVAILABLE');
       });
-      expect(fs.existsSync(sandbox.database)).toBe(true);
-    });
-  });
-
-  it('does not let malformed unrelated local settings affect a public result lookup', async () => {
-    await withSandbox(async (sandbox) => {
-      const requestId = 'config-independent-missing-result';
-      seedReply(sandbox, requestId);
-      writeLocal(sandbox, { $config: { preambleEvery: 'invalid' } });
-      const result = await runCli(sandbox, ['result', 'missing-result', '--json']);
-      expect(result.status).toBe(3);
-      expectError(result, 'RESPONSE_NOT_AVAILABLE');
-    });
-  });
+    }
+  );
 });

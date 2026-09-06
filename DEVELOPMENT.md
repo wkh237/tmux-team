@@ -151,6 +151,10 @@ reply/result independence from malformed settings. Docker scenarios preserve
 the no-tmux/no-storage assertions for invalid loaded configuration and exercise
 valid overrides through the public CLI and deterministic peer. A loader-level
 `CONFIG_ERROR` must not weaken the independent runtime capture/timing tests.
+Real CLI process tests must declare a bounded process-test timeout, following
+the existing CLI contract suites, rather than inheriting the one-second unit
+default. Keep child-process termination bounds and behavioral assertions intact;
+test-runner budgets are not production timeout policy.
 
 ## Packed native-install verification
 
