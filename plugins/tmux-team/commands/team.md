@@ -122,3 +122,23 @@ do not complete a request. Same-pane input serialization is not guaranteed.
 - Craft clear, specific messages for the other agent
 - Preserve multiline messages and do not send pane input without authorization
 - After receiving a response, summarize it for the user
+
+## View and install the bundled skill
+
+`tmt learn --skill` prints the exact bundled universal skill; plain `tmt learn`
+shows the guide. Both are text-only. Install default integrations with
+`tmt install [claude|codex|gemini|all]`, or choose a skills root explicitly:
+
+```bash
+tmt install --dir ./my-skills
+```
+
+This links `./my-skills/tmux-team`; do not also specify a provider. Choose a
+folder your provider actually discovers and reload its skills if needed.
+Managed links follow bundled updates at the same package path. Re-run the same
+install command to inspect/repair the target after relocation; existing
+unmanaged content is preserved unless `--force` requests a recoverable backup.
+Automatic drift reminders inspect known default paths, not custom folders.
+They do not reload an active agent, update provider-managed plugins, or track
+alpha release channels. Package upgrades and skill installation are separate
+from provider discovery.

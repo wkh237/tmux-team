@@ -55,7 +55,10 @@ _tmux-team() {
         compadd "zsh" "bash"
         ;;
       install)
-        compadd "claude" "codex" "gemini" "all"
+        compadd -- "claude" "codex" "gemini" "all" "--dir"
+        ;;
+      learn)
+        compadd -- "--skill"
         ;;
       role)
         compadd "show" "set" "clear"
@@ -108,7 +111,10 @@ const bashCompletion = `_tmux_team() {
         COMPREPLY=( $(compgen -W "zsh bash" -- \${cur}) )
         ;;
       install)
-        COMPREPLY=( $(compgen -W "claude codex gemini all" -- \${cur}) )
+        COMPREPLY=( $(compgen -W "claude codex gemini all --dir" -- \${cur}) )
+        ;;
+      learn)
+        COMPREPLY=( $(compgen -W "--skill" -- \${cur}) )
         ;;
       role)
         COMPREPLY=( $(compgen -W "show set clear" -- \${cur}) )

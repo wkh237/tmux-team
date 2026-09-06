@@ -4,7 +4,13 @@ import fs from 'node:fs';
 import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {
+  getCodexHome,
+  getSkillConfigs,
+  isCorrectLink,
+  packageRoot,
+  targetExists,
+} from './skill-installation.js';
 import type { Context } from './types.js';
 import { VERSION } from './version.js';
 
@@ -14,47 +20,14 @@ export interface DriftIssue {
   message: string;
 }
 
-function packageRoot(): string {
-  const currentFile = fileURLToPath(import.meta.url);
-  let dir = path.dirname(currentFile);
-  for (let i = 0; i < 6; i++) {
-    if (fs.existsSync(path.join(dir, 'package.json'))) return dir;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return path.resolve(path.dirname(currentFile), '..');
-}
-
-function existsAsPath(filePath: string): boolean {
-  try {
-    fs.lstatSync(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function correctLink(target: string, source: string): boolean {
-  try {
-    const stat = fs.lstatSync(target);
-    return (
-      stat.isSymbolicLink() &&
-      path.resolve(path.dirname(target), fs.readlinkSync(target)) === path.resolve(source)
-    );
-  } catch {
-    return false;
-  }
-}
-
 function linkIssue(
   target: string,
   source: string,
   label: string,
   allowCopiedFile = false
 ): DriftIssue | undefined {
-  if (!existsAsPath(target)) return undefined;
-  if (correctLink(target, source)) return undefined;
+  if (!targetExists(target)) return undefined;
+  if (isCorrectLink(target, source)) return undefined;
   let kind: DriftIssue['kind'] = 'wrong-link';
   try {
     const stat = fs.lstatSync(target);
@@ -83,18 +56,19 @@ export interface DriftOptions {
 export function inspectLocalDrift(options: DriftOptions = {}): DriftIssue[] {
   const home = options.home ?? os.homedir();
   const root = options.root ?? packageRoot();
-  const codexHome = options.codexHome ?? process.env.CODEX_HOME ?? path.join(home, '.codex');
-  const universal = path.join(root, 'skills', 'tmux-team');
-  const claudeSource = path.join(root, 'skills', 'claude', 'team.md');
-  const agentsTarget = path.join(home, '.agents', 'skills', 'tmux-team');
-  const claudeTarget = path.join(home, '.claude', 'commands', 'team.md');
+  const codexHome = options.codexHome ?? getCodexHome(home);
+  const configs = getSkillConfigs(root, home);
+  const universal = configs.codex.source;
+  const claudeSource = configs.claude.source;
+  const agentsTarget = configs.codex.target;
+  const claudeTarget = configs.claude.target;
   const issues: DriftIssue[] = [];
 
   for (const legacy of [
     path.join(home, '.codex', 'skills', 'tmux-team', 'SKILL.md'),
     path.join(codexHome, 'skills', 'tmux-team', 'SKILL.md'),
   ]) {
-    if (existsAsPath(legacy) && !issues.some((issue) => issue.path === legacy)) {
+    if (targetExists(legacy) && !issues.some((issue) => issue.path === legacy)) {
       issues.push({
         kind: 'legacy',
         path: legacy,

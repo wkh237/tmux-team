@@ -143,6 +143,12 @@ prebuild for the current platform, architecture, and libc. A successful run
 therefore proves that no source compilation is required. Temporary projects
 and caches are removed on every exit path.
 
+The same verifier exercises `learn --skill` and default/custom skill installs
+from the packed executable in an isolated home. It compares actual source bytes,
+checks managed links and repeated no-op, preserves an unrelated sibling, and
+changes only the disposable installed source to prove update visibility. This
+does not substitute for application storage/migration verification in TMT-29.
+
 Example:
 
 ```bash

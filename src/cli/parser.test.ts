@@ -295,6 +295,17 @@ describe('declarative CLI parser', () => {
     expect(() => parseArgs(['role', 'set', 'a', 'b'])).toThrow(CliParseError);
   });
 
+  it('parses skill viewing and custom install directories', () => {
+    expect(parseArgs(['learn', '--skill']).invocation).toEqual({ kind: 'learn', skill: true });
+    expect(parseArgs(['install', '--dir', 'relative skills']).invocation).toEqual({
+      kind: 'install',
+      directory: 'relative skills',
+    });
+    expect(() => parseArgs(['install', '--dir', '   '])).toThrow(CliParseError);
+    expect(() => parseArgs(['install', 'codex', '--dir', '/tmp/skills'])).toThrow(CliParseError);
+    expect(() => parseArgs(['install', 'all', '--dir', '/tmp/skills'])).toThrow(CliParseError);
+  });
+
   it('parses storage-only reply/result commands with explicit input and no tmux capability', () => {
     expect(
       parseArgs(['reply', 'request-1', '--receipt', receipt, '--file', '/tmp/reply.txt', '--json'])

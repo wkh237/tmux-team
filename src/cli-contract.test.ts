@@ -9,7 +9,7 @@ import {
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
-import { getSkillConfigs } from './commands/install.js';
+import { getSkillConfigs } from './skill-installation.js';
 import { CURRENT_MIGRATIONS } from './storage/migrations.js';
 import {
   expectError,
@@ -35,6 +35,33 @@ function readMigrationHistory(sandbox: Sandbox): Array<{ version: number; name: 
 
 describe('real CLI process contract', () => {
   it(
+    'prints the bundled universal skill byte-for-byte without startup effects',
+    { timeout: 10_000 },
+    () =>
+      withSandbox(async (sandbox) => {
+        const expected = readFileSync(
+          path.join(getSkillConfigs().codex.source, 'SKILL.md'),
+          'utf8'
+        );
+        writeFileSync(sandbox.localConfig, '{ malformed config');
+        const legacy = path.join(sandbox.home, '.codex', 'skills', 'tmux-team');
+        mkdirSync(legacy, { recursive: true });
+        writeFileSync(path.join(legacy, 'SKILL.md'), 'Unmanaged legacy content.');
+        const before = fileSnapshot(sandbox.root);
+        const result = await runCli(sandbox, ['learn', '--skill']);
+        expect(result.status).toBe(0);
+        expect(result.stdout).toBe(expected);
+        expect(result.stderr).toBe('');
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+
+        const json = await runCli(sandbox, ['learn', '--skill', '--json']);
+        expect(json.status).toBe(1);
+        expectError(json, 'JSON_UNSUPPORTED');
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+      })
+  );
+
+  it(
     'installs all skill integrations into isolated HOME with shipped source bytes',
     { timeout: 10_000 },
     () =>
@@ -57,6 +84,54 @@ describe('real CLI process contract', () => {
         expect(readFileSync(path.join(universalTarget, 'SKILL.md'))).toEqual(
           readFileSync(path.join(configs.codex.source, 'SKILL.md'))
         );
+      })
+  );
+
+  it(
+    'installs the universal skill into a relative custom directory and repeats idempotently',
+    { timeout: 10_000 },
+    () =>
+      withSandbox(async (sandbox) => {
+        const customParent = path.join(sandbox.cwd, 'custom skills');
+        mkdirSync(customParent, { recursive: true });
+        writeFileSync(path.join(customParent, 'sibling.txt'), 'keep');
+        const target = path.join(realpathSync(customParent), 'tmux-team');
+
+        const first = await runCli(sandbox, ['install', '--dir', 'custom skills', '--json']);
+        expect(first.status).toBe(0);
+        expect(parseWholeStdout(first)).toEqual({
+          installed: [{ target, changed: true }],
+        });
+        expect(lstatSync(target).isSymbolicLink()).toBe(true);
+        expect(readFileSync(path.join(target, 'SKILL.md'))).toEqual(
+          readFileSync(path.join(getSkillConfigs().codex.source, 'SKILL.md'))
+        );
+        expect(readFileSync(path.join(customParent, 'sibling.txt'), 'utf8')).toBe('keep');
+
+        const second = await runCli(sandbox, ['install', '--dir', 'custom skills', '--json']);
+        expect(second.status).toBe(0);
+        expect(parseWholeStdout(second)).toEqual({
+          installed: [{ target, changed: false }],
+        });
+      })
+  );
+
+  it(
+    'rejects custom install selectors before creating state or touching targets',
+    { timeout: 10_000 },
+    () =>
+      withSandbox(async (sandbox) => {
+        const before = fileSnapshot(sandbox.root);
+        for (const args of [
+          ['install', 'codex', '--dir', 'custom skills', '--json'],
+          ['install', 'all', '--dir', 'custom skills', '--json'],
+          ['install', '--dir', '   ', '--json'],
+        ]) {
+          const result = await runCli(sandbox, args);
+          expect(result.status).toBe(1);
+          expectError(result, 'USAGE_ERROR');
+          expect(fileSnapshot(sandbox.root)).toEqual(before);
+        }
       })
   );
 

@@ -116,6 +116,26 @@ tmux display-message -p '#{pane_id}'
 
 ## Commands
 
+View the exact bundled universal skill with `tmt learn --skill`; plain
+`tmt learn` shows the guide. Both modes are text-only.
+
+```bash
+tmt install --dir './project skills'
+```
+
+This installs a managed link at `./project skills/tmux-team`, relative to the
+current directory. Do not combine a custom directory with a provider or `all`.
+Existing unmanaged content is preserved unless `--force` requests a recoverable
+backup. Repeating the same install is a no-op for a correct link. Custom mode
+does not migrate default-provider paths or touch unrelated sibling files.
+
+Choose a folder your provider discovers; installation does not reload an active
+agent. Managed links follow bundled updates at the same package path. Rerun
+the same install command after package relocation to repair a custom link.
+Automatic drift reminders cover known default paths, not arbitrary custom
+folders or provider-managed plugins. The npm version check uses `latest`,
+not an alpha-channel skill version tracker.
+
 | Command                                                                             | Description                                                 |
 | ----------------------------------------------------------------------------------- | ----------------------------------------------------------- |
 | `install [claude\|codex\|gemini\|all]`                                              | Install or repair agent integrations                        |

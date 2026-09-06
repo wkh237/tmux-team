@@ -382,6 +382,37 @@ before effects; upgrade retains its JSON rejection. No new text-command schemas
 or grammar are introduced. Runtime boot failures before application loading and
 unwritable output streams are outside the one-document guarantee.
 
+## Bundled skill viewing and installation
+
+`learn --skill` emits the exact bundled universal `SKILL.md`, without startup
+checks, ANSI formatting, or an added newline. It is text-only and rejects JSON
+before effects. Plain `learn` remains the educational guide.
+
+`install --dir <skills-root>` resolves exactly `<skills-root>/tmux-team` against
+the invocation directory. It is mutually exclusive with an explicit provider
+or `all`; empty directory input is rejected before effects. Custom mode links
+the universal skill and never migrates default-provider paths. Existing managed
+links are no-ops; unmanaged paths are refused unless explicit force requests a
+recoverable adjacent backup. Unrelated siblings remain outside the operation.
+Before mutation, source/destination overlap is rejected, including destination
+parents that alias the bundled source through symlinks. Force is not permission
+to move the installed package source or create a recursive self-link.
+
+`src/skill-installation.ts` owns shared package-root, bundled-source, target and
+link knowledge used by install, the viewer and local drift inspection. The
+installer owns provider detection/presentation and optional legacy backup;
+the update checker owns reminder policy. No custom-install registry, arbitrary
+folder scan, provider plugin update or agent reload is implied. Links follow
+source updates at the same package path; reinstall explicitly after relocation.
+Automatic drift inspection covers known defaults only, and npm version checking
+is not an alpha-channel skill version tracker.
+
+The existing packed native verifier also invokes the packed viewer and default
+and custom installation in an isolated home. It verifies actual link contents,
+repeat no-op, unrelated sibling preservation and source-update visibility;
+unit/CLI contract tests cover conflicts, backups and invalid input. This does
+not close TMT-29's separate packed application-storage/migration acceptance.
+
 ## Current module map
 
 | Location                                                                                                                                                                   | Responsibility and integration points                                                                                                                                   |

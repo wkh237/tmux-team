@@ -51,6 +51,32 @@ tmt install codex
 tmt install gemini
 ```
 
+To inspect the exact bundled universal skill without installing it:
+
+```bash
+tmt learn --skill
+```
+
+Plain `tmt learn` remains the educational guide. Both modes are text-only.
+For a custom provider-discovered skills root:
+
+```bash
+tmt install --dir './project skills'
+```
+
+The destination is exactly `./project skills/tmux-team`, resolved against the
+current directory. Do not combine `--dir` with a provider or `all`. Custom
+mode never migrates default-provider paths. Repeating the command is a no-op
+for a correct link; `--force` backs up conflicting user content before repair.
+Unrelated siblings are untouched. Choose a folder the provider discovers;
+installation does not cause a running agent to reload its instructions.
+
+Managed custom links follow source updates at the same package path. After
+package relocation, rerun the same custom install command to repair the link.
+Automatic drift reminders inspect known default paths, not arbitrary custom
+folders; they do not manage provider-installed plugins. The npm update check
+uses `latest`, not an alpha-channel skill version tracker.
+
 After installation, use `tmux-team name <global-name>` (or its exact `this`
 alias) inside each agent's tmux pane. To bind another pane, run
 `tmux-team add <pane-target> <global-name>`; targets are resolved to stable
@@ -164,14 +190,14 @@ Codex discovers user skills in `~/.agents/skills` and repository skills in
 
 ```bash
 mkdir -p ~/.agents/skills/tmux-team
-cp skills/codex/SKILL.md ~/.agents/skills/tmux-team/SKILL.md
+cp skills/tmux-team/SKILL.md ~/.agents/skills/tmux-team/SKILL.md
 ```
 
 ### Usage
 
 ```bash
 # Explicit invocation
-$tmt talk codex "Review this PR" --json
+$tmux-team
 
 # Implicit - Codex auto-selects when you mention other agents
 "Ask the codex agent to review the authentication code"

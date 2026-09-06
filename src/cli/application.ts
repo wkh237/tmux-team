@@ -58,13 +58,13 @@ export async function dispatchCommand(ctx: Context, parsed: ParsedArgs): Promise
     case 'result':
       return cmdResult(ctx, request);
     case 'install':
-      return cmdInstall(ctx, request.target);
+      return cmdInstall(ctx, request.target, request.directory);
     case 'completion':
       return;
     case 'upgrade':
       return cmdUpgrade(ctx);
     case 'learn':
-      return cmdLearn();
+      return cmdLearn(request.skill);
     default:
       return assertNever(request);
   }

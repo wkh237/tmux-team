@@ -51,7 +51,15 @@ ${colors.yellow('COMMANDS')}
   ${colors.green('role')} <show|set|clear>      Manage durable identity role profiles
   ${colors.green('completion')}                  Output shell completion script
   ${colors.green('learn')}                       Show educational guide
+  ${colors.green('learn --skill')}               Print the exact bundled universal skill
   ${colors.green('help')}                        Show this help message
+
+${colors.yellow('SKILL INSTALLATION')}
+  tmt install --dir <skills-root> [--force] [--json]
+  Links <skills-root>/tmux-team; do not combine with a provider or all.
+  Unmanaged paths require --force and are backed up, not deleted.
+  Choose a folder the provider discovers; active agents may need a reload.
+  Automatic drift reminders cover default paths, not custom folders.
 
 ${colors.yellow('OPTIONS')}
   ${colors.green('--json')}                      Output in JSON format

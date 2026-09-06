@@ -10,8 +10,9 @@ export type ParsedInvocation =
   | { readonly kind: 'help'; readonly showIntro: boolean }
   | { readonly kind: 'version' }
   | { readonly kind: 'completion'; readonly shell?: string }
-  | { readonly kind: 'install'; readonly target?: string }
-  | { readonly kind: 'init' | 'whoami' | 'unbind' | 'upgrade' | 'learn' }
+  | { readonly kind: 'install'; readonly target?: string; readonly directory?: string }
+  | { readonly kind: 'init' | 'whoami' | 'unbind' | 'upgrade' }
+  | { readonly kind: 'learn'; readonly skill?: boolean }
   | { readonly kind: 'list'; readonly target?: IdentitySelector }
   | { readonly kind: 'add'; readonly pane: string; readonly name: string }
   | { readonly kind: 'this' | 'name'; readonly name: string }
@@ -78,6 +79,8 @@ interface CommandOptions extends CommonOptions {
   identity?: string;
   file?: string;
   message?: string;
+  dir?: string;
+  skill?: boolean;
 }
 
 interface Capture {
@@ -499,20 +502,36 @@ function setupProgram(capture: Capture): Command {
     }
     action(this, { kind: 'result', requestId });
   });
-  const install = leaf(program.command('install').argument('[agent]'));
+  const install = leaf(program.command('install').argument('[agent]')).option('--dir <path>');
   install.action(function (agent?: string) {
-    action(this, { kind: 'install', target: agent });
+    const options = commandOptions(this);
+    if (options.dir !== undefined && options.dir.trim() === '') {
+      throw new CliParseError('Install directory must not be empty.');
+    }
+    if (options.dir !== undefined && agent !== undefined) {
+      throw new CliParseError('The --dir option cannot be combined with an agent or all.');
+    }
+    action(this, {
+      kind: 'install',
+      ...(agent !== undefined ? { target: agent } : {}),
+      ...(options.dir !== undefined ? { directory: options.dir } : {}),
+    });
   });
   const completion = leaf(program.command('completion').argument('[shell]'));
   completion.action(function (shell?: string) {
     action(this, { kind: 'completion', shell });
   });
-  for (const kind of ['upgrade', 'learn', 'whoami', 'unbind'] as const) {
+  for (const kind of ['upgrade', 'whoami', 'unbind'] as const) {
     const command = leaf(program.command(kind));
     command.action(function () {
       action(this, { kind });
     });
   }
+  const learn = leaf(program.command('learn')).option('--skill');
+  learn.action(function () {
+    const options = commandOptions(this);
+    action(this, { kind: 'learn', ...(options.skill ? { skill: true } : {}) });
+  });
   return program;
 }
 
