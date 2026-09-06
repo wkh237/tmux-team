@@ -8,9 +8,19 @@ import { colors } from '../ui.js';
 import { resolveTarget } from '../target-resolver.js';
 import { normalizeName } from '../domain/names.js';
 import { identityAwareTmux } from '../identity-service.js';
+import { isValidCaptureLines, MAX_CAPTURE_LINES } from '../domain/interaction-limits.js';
 
 export function cmdCheck(ctx: Context, target: string, lines?: number): void {
-  const { ui, config, tmux, flags, exit } = ctx;
+  const { ui, config, flags, exit } = ctx;
+  const captureLines = lines ?? config.defaults.captureLines;
+  if (!isValidCaptureLines(captureLines)) {
+    const message = `Capture lines must be an integer between 0 and ${MAX_CAPTURE_LINES}.`;
+    if (flags.json) ui.json({ error: { code: 'INVALID_CAPTURE_LINES', message } });
+    else ui.error(message);
+    return exit(ExitCodes.ERROR);
+  }
+
+  const { tmux } = ctx;
   const runtimeTmux = identityAwareTmux(tmux, ctx.identityService);
   const resolution = resolveTarget(runtimeTmux, target);
   if (!resolution.ok) {
@@ -24,7 +34,6 @@ export function cmdCheck(ctx: Context, target: string, lines?: number): void {
   }
 
   const pane = resolution.value.paneId;
-  const captureLines = lines ?? config.defaults.captureLines;
 
   try {
     const output = tmux.capture(pane, captureLines);

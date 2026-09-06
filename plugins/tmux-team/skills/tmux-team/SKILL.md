@@ -31,6 +31,9 @@ Successful submission also does not guarantee exactly-once agent processing.
 markers, idle output, a summary, or process exit as completion. A cooperating
 recipient must invoke `tmt reply`; otherwise there is no final result yet.
 `check` is only a diagnostic snapshot, not correlated result retrieval.
+Its positional count or `--lines` accepts integers from 0 through 2147483647;
+zero captures the visible pane. Invalid counts are rejected, not clamped.
+Invalid configured capture counts also fail before target lookup or capture.
 
 ## JSON results and failures
 

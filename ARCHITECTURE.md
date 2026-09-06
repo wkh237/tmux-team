@@ -233,6 +233,16 @@ unavailable output cancels recipient work or changes service retention.
 
 ## Talk observer and retired settings
 
+`src/domain/interaction-limits.ts` owns pure capture and timing validity rules.
+The parser owns decimal/duration syntax and maps failures to usage errors;
+talk retains its timing error translation and conditional wait validation.
+Check validates its effective capture count before target lookup: integers
+0 through 2,147,483,647 are accepted, with zero preserving visible-pane capture.
+Invalid runtime counts return `INVALID_CAPTURE_LINES` (exit 1), without capture
+or reconciliation. These argument limits do not replace tmux's existing
+one-second timeout and 4 MiB output bound. Config loading/writing consolidation
+and command-option ownership remain TMT-46 and TMT-22 work respectively.
+
 The parser rejects retired `--wait`, talk `--lines`, and explicit
 `--timeout`/`--detach` combinations before Context effects. `send` follows the
 same talk semantics. Runtime timing validation precedes preamble/request mutation:

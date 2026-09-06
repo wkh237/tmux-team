@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { CliParseError, parseArgs } from './parser.js';
 import { encodeReplyReceipt } from '../reply-receipt.js';
+import {
+  MAX_CAPTURE_LINES,
+  MAX_OBSERVER_TIMEOUT_SECONDS,
+  MAX_TIMER_DELAY_MS,
+} from '../domain/interaction-limits.js';
 
 const receipt = encodeReplyReceipt({
   version: 1,
@@ -77,6 +82,40 @@ describe('declarative CLI parser', () => {
     expect(() => parseArgs(['talk', 'claude', 'hello', '--wait'])).toThrow(CliParseError);
     expect(() => parseArgs(['talk', 'claude', 'hello', '--lines', '10'])).toThrow(CliParseError);
     expect(() => parseArgs(['check', 'claude', '--lines', '10'])).not.toThrow();
+  });
+
+  it('bounds capture lines for both positional and explicit options', () => {
+    expect(parseArgs(['check', 'claude', '0']).invocation).toMatchObject({ lines: 0 });
+    expect(parseArgs(['check', 'claude', '--lines', String(MAX_CAPTURE_LINES)])).toMatchObject({
+      flags: { lines: MAX_CAPTURE_LINES },
+    });
+    expect(
+      parseArgs(['check', 'claude', '0', '--lines', String(MAX_CAPTURE_LINES)]).invocation
+    ).toMatchObject({ lines: 0 });
+    for (const args of [
+      ['check', 'claude', String(MAX_CAPTURE_LINES + 1)],
+      ['check', 'claude', '--lines', String(MAX_CAPTURE_LINES + 1)],
+      ['check', 'claude', '--lines', '999999999999999999999999999999'],
+      ['check', 'claude', '--lines', '10junk'],
+    ]) {
+      expect(() => parseArgs(args)).toThrow(CliParseError);
+    }
+  });
+
+  it('accepts timing limits at their supported boundaries', () => {
+    expect(
+      parseArgs(['talk', 'claude', 'hello', '--timeout', `${MAX_OBSERVER_TIMEOUT_SECONDS}s`]).flags
+        .timeout
+    ).toBe(MAX_OBSERVER_TIMEOUT_SECONDS);
+    expect(
+      parseArgs(['talk', 'claude', 'hello', '--delay', `${MAX_TIMER_DELAY_MS}ms`]).flags.delay
+    ).toBe(MAX_TIMER_DELAY_MS / 1000);
+    expect(() =>
+      parseArgs(['talk', 'claude', 'hello', '--delay', `${MAX_TIMER_DELAY_MS + 1}ms`])
+    ).toThrow(CliParseError);
+    expect(() =>
+      parseArgs(['talk', 'claude', 'hello', '--timeout', `${MAX_OBSERVER_TIMEOUT_SECONDS + 1}s`])
+    ).toThrow(CliParseError);
   });
 
   it('applies no-preamble regardless of whether it appears before or after talk', () => {

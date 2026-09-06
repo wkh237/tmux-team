@@ -10,6 +10,12 @@ import type {
   RoleRequest,
 } from './requests.js';
 import { validateReplyRequestId } from '../reply-receipt.js';
+import {
+  MAX_CAPTURE_LINES,
+  isValidCaptureLines,
+  isValidObserverTimeoutSeconds,
+  isValidTimerDelayMs,
+} from '../domain/interaction-limits.js';
 export type { IdentitySelector } from '../identity-context.js';
 
 export type ParsedInvocation =
@@ -101,8 +107,15 @@ function parseTime(value: string): number {
 
 function parseLines(value: string): number {
   if (!/^\d+$/.test(value))
-    throw new CliParseError(`Invalid lines value: ${value}. Use a non-negative integer.`);
-  return parseInt(value, 10);
+    throw new CliParseError(
+      `Invalid lines value: ${value}. Use an integer between 0 and ${MAX_CAPTURE_LINES}.`
+    );
+  const lines = Number(value);
+  if (!isValidCaptureLines(lines))
+    throw new CliParseError(
+      `Invalid lines value: ${value}. Use an integer between 0 and ${MAX_CAPTURE_LINES}.`
+    );
+  return lines;
 }
 
 function flagsFrom(options: CommonOptions, argv: readonly string[] = []): Flags {
@@ -116,11 +129,7 @@ function flagsFrom(options: CommonOptions, argv: readonly string[] = []): Flags 
   if (options.delay !== undefined) flags.delay = parseTime(options.delay);
   if (options.detach) flags.detach = true;
   if (options.timeout !== undefined) flags.timeout = parseTime(options.timeout);
-  if (options.lines !== undefined) {
-    if (!/^\d+$/.test(options.lines))
-      throw new CliParseError(`Invalid lines value: ${options.lines}. Use a non-negative integer.`);
-    flags.lines = parseInt(options.lines, 10);
-  }
+  if (options.lines !== undefined) flags.lines = parseLines(options.lines);
   if (options.noPreamble || options.preamble === false || argv.includes('--no-preamble'))
     flags.noPreamble = true;
   return flags;
@@ -241,11 +250,7 @@ function setupProgram(capture: Capture): Command {
       }
       if (optionWasProvided(command, 'timeout') && options.timeout !== undefined) {
         const timeoutSeconds = parseTime(options.timeout);
-        if (
-          !Number.isFinite(timeoutSeconds) ||
-          timeoutSeconds <= 0 ||
-          timeoutSeconds > 24 * 60 * 60
-        ) {
+        if (!isValidObserverTimeoutSeconds(timeoutSeconds)) {
           throw new CliParseError(
             'Talk timeout must be finite, positive, and no greater than 24 hours.'
           );
@@ -253,7 +258,7 @@ function setupProgram(capture: Capture): Command {
       }
       if (optionWasProvided(command, 'delay') && options.delay !== undefined) {
         const delaySeconds = parseTime(options.delay);
-        if (delaySeconds * 1000 > 2_147_483_647) {
+        if (!isValidTimerDelayMs(delaySeconds * 1000)) {
           throw new CliParseError('Talk delay exceeds the supported timer limit.');
         }
       }

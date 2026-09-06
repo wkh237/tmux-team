@@ -4,6 +4,7 @@
 
 import { colors } from '../ui.js';
 import { VERSION } from '../version.js';
+import { MAX_CAPTURE_LINES, MAX_TIMER_DELAY_MS } from '../domain/interaction-limits.js';
 
 export interface HelpConfig {
   timeout?: number;
@@ -79,11 +80,15 @@ ${colors.yellow('CALLER CONTEXT')}
   Outside tmux, use explicit add/talk/check targets or role --identity <name>.
 
 ${colors.yellow('TALK OPTIONS')}
-  ${colors.green('--delay')} <seconds>           Wait before sending
+  ${colors.green('--delay')} <seconds>           Wait before sending (0 through ${MAX_TIMER_DELAY_MS}ms)
   ${colors.green('--timeout')} <time>            Observer bound (current: ${timeout}s; positive, at most 24h)
   ${colors.green('--detach')}                    Return request ID after sending; no explicit --timeout
   ${colors.green('--no-preamble')}               Skip agent preamble for this message
   ${colors.green('--debug')}                     Show debug output
+
+${colors.yellow('CHECK OPTIONS')}
+  check/read <target> [lines] or --lines <count>: integer 0 through ${MAX_CAPTURE_LINES}.
+  Zero captures the visible pane. Invalid CLI/configured counts are rejected.
 
 ${colors.yellow('REPLY / RESULT')}
   tmt reply <request-id> --receipt <receipt> (--message <text> | --file <path> | --stdin) [--json]

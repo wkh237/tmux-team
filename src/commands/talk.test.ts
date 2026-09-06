@@ -16,6 +16,7 @@ import { openIdentityRepository, type IdentityRepository } from '../storage/iden
 import { ExitCodes } from '../exits.js';
 import { TmuxDeliveryError } from '../message-delivery.js';
 import { decodeReplyReceipt } from '../reply-receipt.js';
+import { MAX_OBSERVER_TIMEOUT_SECONDS, MAX_TIMER_DELAY_MS } from '../domain/interaction-limits.js';
 import { cmdTalk } from './talk.js';
 
 const ENDPOINT = {
@@ -690,15 +691,75 @@ describe('cmdTalk durable completion', () => {
     expect(onlyAttempt(fixture.service).status).toBe('sent');
   });
 
+  it('accepts the maximum observer timeout and timer delay', async () => {
+    const root = temporaryDirectory('tmt-talk-timing-boundary-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const sleeps: number[] = [];
+    const tmux = createMockTmux({
+      onSend: (message) =>
+        submitFor(fixture.service, attemptFromInstruction(fixture.service, message), 'boundary'),
+    });
+    const ctx = createContext(root, {
+      tmux,
+      flags: {
+        delay: MAX_TIMER_DELAY_MS / 1000,
+        timeout: MAX_OBSERVER_TIMEOUT_SECONDS,
+      },
+    });
+
+    await cmdTalk(ctx, 'claude', 'Hello', {
+      sleep: async (milliseconds) => {
+        sleeps.push(milliseconds);
+      },
+    });
+
+    expect(sleeps).toEqual([MAX_TIMER_DELAY_MS]);
+    expect(tmux.sends).toHaveLength(1);
+    expect(onlyAttempt(fixture.service).status).toBe('sent');
+  });
+
+  it('does not validate wait-only timing when detached', async () => {
+    const root = temporaryDirectory('tmt-talk-detached-timing-');
+    const fixture = requestFixture(createPaths(root).databaseFile);
+    const tmux = createMockTmux();
+    const ctx = createContext(root, {
+      tmux,
+      flags: { detach: true, timeout: 0 },
+      config: createConfig({ pollInterval: 0 }),
+    });
+
+    await cmdTalk(ctx, 'claude', 'Detached');
+
+    expect(tmux.sends).toHaveLength(1);
+    expect(onlyAttempt(fixture.service).status).toBe('sent');
+  });
+
   it.each([
     { name: 'zero timeout', flags: { timeout: 0 } },
+    {
+      name: 'over-limit timeout',
+      flags: { timeout: MAX_OBSERVER_TIMEOUT_SECONDS + 0.001 },
+    },
     { name: 'infinite timeout', flags: { timeout: Infinity } },
     { name: 'negative delay', flags: { delay: -1 } },
     { name: 'non-finite delay', flags: { delay: Number.NaN } },
     { name: 'infinite delay', flags: { delay: Infinity } },
+    {
+      name: 'over-limit delay',
+      flags: { delay: (MAX_TIMER_DELAY_MS + 1) / 1000 },
+    },
     { name: 'zero poll interval', config: { pollInterval: 0 } },
     { name: 'non-finite poll interval', config: { pollInterval: Number.NaN } },
     { name: 'non-finite enter delay', config: { pasteEnterDelayMs: Number.NaN } },
+    {
+      name: 'over-limit enter delay',
+      config: { pasteEnterDelayMs: MAX_TIMER_DELAY_MS + 1 },
+    },
+    {
+      name: 'over-limit enter delay while detached',
+      flags: { detach: true },
+      config: { pasteEnterDelayMs: MAX_TIMER_DELAY_MS + 1 },
+    },
   ])('rejects invalid $name before send or request preparation', async ({ flags, config }) => {
     const root = temporaryDirectory('tmt-talk-invalid-timing-');
     requestFixture(createPaths(root).databaseFile);
