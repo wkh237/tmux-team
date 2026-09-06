@@ -42,7 +42,11 @@ function fixture(): Fixture {
   repositories.push(repository);
   const identity = repository.createIdentity('Alice', 'alice');
   const clock = { value: 1_700_000_000_000 };
-  const service = createRequestService({ repository, now: () => clock.value });
+  const service = createRequestService({
+    repository,
+    now: () => clock.value,
+    getRetentionDays: () => 7,
+  });
   return {
     database,
     endpoint,
@@ -153,6 +157,7 @@ describe('durable request responses', () => {
         body,
         bodyBytes: Buffer.byteLength(body, 'utf8'),
         submittedAtMs: value.clock.value,
+        responseExpiresAtMs: value.clock.value + RESPONSE_RETENTION_MS,
       });
       expect(value.service.getResponse(requestId)).toEqual(submitted);
     }
@@ -407,6 +412,70 @@ describe('durable request responses', () => {
     );
   });
 
+  it('freezes retention at preparation and never consults configuration on read or cleanup', () => {
+    const value = fixture();
+    let configuredDays = 1;
+    let reads = 0;
+    const service = createRequestService({
+      repository: value.repository,
+      now: () => value.clock.value,
+      getRetentionDays: () => {
+        reads += 1;
+        return configuredDays;
+      },
+    });
+    const attemptId = service.prepare({
+      requestId: 'request-frozen-retention',
+      endpoint: value.endpoint,
+      wait: true,
+      expiresAtMs: value.clock.value + 60 * 60 * 1000,
+    }).attemptId;
+    expect(reads).toBe(1);
+    expect(service.getAttempt(attemptId)).toMatchObject({ retentionDays: 1 });
+
+    configuredDays = 90;
+    service.beginSend(attemptId);
+    const response = service.submitResponse({
+      requestId: 'request-frozen-retention',
+      attemptId,
+      endpoint: value.endpoint,
+      body: 'frozen',
+    });
+    expect(response.responseExpiresAtMs).toBe(value.clock.value + DAY_MS);
+    service.releaseWait(attemptId);
+    service.settle(attemptId, 'sent');
+    service.getResponse('request-frozen-retention');
+    service.cleanup();
+    expect(reads).toBe(1);
+  });
+
+  it('hides an expired body logically while bounded cleanup leaves later physical rows', () => {
+    const value = fixture();
+    const accepted = Array.from({ length: 101 }, (_, index) => {
+      const requestId = `request-logical-body-${String(index).padStart(3, '0')}`;
+      const attemptId = prepareSending(value, requestId, { wait: false });
+      return submit(value, requestId, attemptId, requestId);
+    });
+    const last = accepted[accepted.length - 1];
+    if (!last) throw new Error('Expected final response.');
+    value.clock.value = last.responseExpiresAtMs;
+
+    expect(value.service.getResponse(last.requestId)).toBeUndefined();
+    expect(value.repository.findResponse(last.requestId)).toEqual(last);
+    expect(
+      accepted.filter((response) => value.repository.findResponse(response.requestId)).length
+    ).toBe(1);
+  });
+
+  it('does not reopen an in-flight attempt after its metadata horizon', () => {
+    const value = fixture();
+    const attemptId = prepareSending(value, 'request-expired-metadata');
+    value.clock.value += 7 * DAY_MS + 1;
+    expect(() => value.service.settle(attemptId, 'sent')).toThrow('metadata has expired');
+    expect(value.service.getAttempt(attemptId)).toBeUndefined();
+    expect(value.repository.findAttempt(attemptId)).toMatchObject({ status: 'uncertain' });
+  });
+
   it('retains a response while attempt metadata reaches ordinary cleanup age, then expires both at seven days', () => {
     const value = fixture();
     const requestId = 'request-retention';
@@ -428,9 +497,9 @@ describe('durable request responses', () => {
     const expiredAttempt = value.service.getAttempt(attemptId);
     expectResponseError(
       () => submit(value, requestId, attemptId, 'retained body'),
-      'RESPONSE_EXPIRED'
+      'RESPONSE_REQUEST_NOT_FOUND'
     );
-    expect(value.repository.findResponse(requestId)).toEqual(accepted);
+    expect(value.repository.findResponse(requestId)).toBeUndefined();
     expect(value.service.getAttempt(attemptId)).toEqual(expiredAttempt);
     value.service.cleanup();
     expect(value.service.getResponse(requestId)).toBeUndefined();
@@ -447,7 +516,8 @@ describe('durable request responses', () => {
     value.clock.value += 8 * DAY_MS;
     const settledAtMs = value.clock.value;
     value.service.cleanup();
-    expect(value.service.getAttempt(attemptId)).toMatchObject({
+    expect(value.service.getAttempt(attemptId)).toBeUndefined();
+    expect(value.repository.findAttempt(attemptId)).toMatchObject({
       status: 'uncertain',
       waitActive: false,
       settledAtMs,
@@ -455,7 +525,8 @@ describe('durable request responses', () => {
     });
     value.clock.value = settledAtMs + DAY_MS - 1;
     value.service.cleanup();
-    expect(value.service.getAttempt(attemptId)).toBeDefined();
+    expect(value.service.getAttempt(attemptId)).toBeUndefined();
+    expect(value.repository.findAttempt(attemptId)).toBeDefined();
     value.clock.value += 1;
     value.service.cleanup();
     expect(value.service.getAttempt(attemptId)).toBeUndefined();
@@ -506,7 +577,7 @@ describe('durable request responses', () => {
     expect(value.repository.getPreambleCount(value.identityId)).toBe(1);
   });
 
-  it('blocks request-id reuse while a retained response outlives its purged attempt metadata', () => {
+  it('blocks request-id reuse while a retained response keeps metadata fenced', () => {
     const value = fixture();
     const requestId = 'request-retained-id';
     const attemptId = prepareSending(value, requestId, {
@@ -519,7 +590,7 @@ describe('durable request responses', () => {
 
     value.clock.value = accepted.submittedAtMs + 2 * DAY_MS;
     value.service.cleanup();
-    expect(value.service.getAttempt(attemptId)).toBeUndefined();
+    expect(value.service.getAttempt(attemptId)).toBeDefined();
     expect(value.service.getResponse(requestId)).toEqual(accepted);
     expect(submit(value, requestId, attemptId, 'retained request id')).toEqual(accepted);
     const attemptsBeforeReuse = value.service.listAttempts();

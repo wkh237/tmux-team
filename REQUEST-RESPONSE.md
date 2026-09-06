@@ -49,9 +49,36 @@ The submission deadline is the later of attempt expiry and seven days after
 preparation. Equality is expired. Wait release and the existing one-hour minimum
 attempt expiry do not end that window. Cleanup preserves terminal attempt metadata
 through both this deadline and the existing 24-hour settlement retention floor.
-Final bodies have independent seven-day retention after submission; expired bodies
+Final bodies have independent retention after submission, using the duration
+frozen on their request (90 days by default for new requests); expired bodies
 are hidden by reads and deleted by opportunistic cleanup. This is not a scheduled
 physical-deletion SLA. Retained retries remain idempotent past submission expiry.
+
+TMT-54 persists retention through a forward migration. Existing requests and
+bodies retain a concrete seven-day duration, preserving submission timestamps;
+new global policy never extends those old bodies. The global config's
+`exchange.retentionDays` accepts integer days 1 through 3650, default 90.
+`config set exchange.retentionDays <days> --global` changes future preparation
+only; local override/clear is rejected. Reply/result use stored deadlines and
+do not load current configuration. No permanent alternate legacy runtime path
+or migration-time rebasing is introduced.
+
+Initial metadata expiry protects the preparation content horizon, reply
+acceptance deadline and attempt-expiry-plus-24-hour settlement floor. An actual
+nonexpired settlement protects its own floor; first final submission extends
+metadata through that body's expiry. Reads, housekeeping, waiter release and
+identical retries do not renew retention. Metadata cannot be pruned ahead of a
+retained final or still-eligible reply. No prompts or attention are stored yet.
+
+Service-owned request/result reads apply logical expiry independently of physical
+cleanup. Opportunistic cleanup uses deterministic limited batches in a short
+transaction: up to 100 expired-attempt transitions, 100 final deletions and 100
+metadata deletions. Batch failure rolls back and propagates through the existing
+error boundary. Repeated invocations drain backlog; no invocation means no
+scheduled deletion. Deadlines are fixed UTC wall-clock values. Clock rollback
+can delay logical expiry while content is physically present, but never changes
+the stored deadline or restores deleted data. Cleanup is not secure erasure,
+file shrinkage, acknowledgement, cancellation or a change to reply eligibility.
 
 Migration 5 adds independent `request_responses` rows, with complete endpoint
 snapshots and no cascading foreign keys to attempts or identities. It also adds
@@ -155,12 +182,15 @@ a truthful work/tests/blockers summary; failed submission is never success.
 ## Future TMT Exchange direction (unshipped)
 
 This section is the canonical future design direction for a TMT Exchange (X).
-It is not an implementation contract or a claim that the commands, schema, or
-state below exist. The current `talk`, `reply`, `result`, and diagnostic `check`
+TMT-54's retention foundation is implemented as described above; provenance,
+prompt storage and attention below remain unshipped. The current `talk`,
+`reply`, `result`, and diagnostic `check`
 contracts above remain authoritative until bounded implementation issues land.
 
 Planning and bounded follow-up ownership are tracked by [TMT-49](https://linear.app/tigerpig-dev/issue/TMT-49),
-[TMT-50](https://linear.app/tigerpig-dev/issue/TMT-50) (provenance/context),
+[TMT-50](https://linear.app/tigerpig-dev/issue/TMT-50), with retention in
+[TMT-54](https://linear.app/tigerpig-dev/issue/TMT-54) and provenance/context in
+[TMT-55](https://linear.app/tigerpig-dev/issue/TMT-55),
 [TMT-51](https://linear.app/tigerpig-dev/issue/TMT-51) (attention), and
 [TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30) (identity bootstrap).
 
@@ -228,15 +258,12 @@ memory feature, or MCP state machine is implied. An eventual minimal MCP
 client may use live tmux delivery and the same SQLite-backed reply path without
 requiring caller identity or an inbox; authenticated remote access is separate.
 
-Prompt, request metadata, final-body, attention, acknowledgement, and
-unavailable-versus-pending retention semantics must be specified before code.
-TMT-owned automatic expiry is part of the direction: every service-owned read
-must apply logical expiry at the current clock, and the same shared service may
-perform bounded opportunistic physical cleanup in a short SQLite transaction.
-SQLite has no autonomous TTL scheduler, so no daemon, cron, network service, or
-punctual physical-deletion promise is introduced; without a TMT invocation,
-cleanup waits. The existing seven-day final-body expiry is the current baseline
-to extend or reconcile, not a parallel cleanup subsystem.
+TMT-54 owns the shared frozen policy, metadata/final horizons and bounded
+housekeeping. TMT-55 must specify prompt privacy and validation and consume the
+preparation-anchored horizon; TMT-51 must define attention/ack and
+unavailable-versus-pending projections through that same owner. Do not add a
+parallel cleanup subsystem. SQLite has no autonomous TTL scheduler, so no daemon,
+cron, network service or punctual physical-deletion promise is introduced.
 
 Acknowledgement is not deletion, and unread records are not retained
 indefinitely. An expired result is unavailable, not pending. A hard metadata
@@ -248,16 +275,14 @@ shrinkage or secure erasure: do not run `VACUUM` on every command or treat
 `auto_vacuum` as a TTL mechanism ([SQLite `auto_vacuum`](https://sqlite.org/pragma.html#pragma_auto_vacuum),
 [SQLite serverless operation](https://www.sqlite.org/zeroconf.html)).
 
-Beyond the proposed default below, exact clock boundaries, configuration
-validation, cleanup batch bounds, restart behavior, and cleanup/read races are
-pre-code gates. The design must say which prompt, metadata, body, attention,
-and acknowledgement state survives expiry, when an expired revision can no
-longer reopen attention, and how identity rebinding affects a view. These are
-not fixed invented policy values in this document.
+Attention design must say which visible state survives prompt/body expiry,
+when an expired revision can no longer reopen, and how identity rebinding
+affects a view. It consumes the stored metadata horizon; reads/ack must never
+silently renew it. TMT-54's exact boundaries and bounded cleanup are not new
+policy knobs for the attention adapter to reinterpret.
 
-The proposed interpretation of three months is exactly 90 days for retained X
-content/metadata/attention horizon. It should reuse the existing global config
-file, with the proposed key and default visible as:
+The implemented interpretation of the default duration is exactly 90 days,
+using the existing global config file:
 
 ```json
 {
@@ -267,15 +292,13 @@ file, with the proposed key and default visible as:
 }
 ```
 
-This is an unshipped config contract, not a new configuration system. The
-current seven-day final-body retention remains current until the X migration;
-TMT-50 must define how existing seven-day data transitions to the unified
-policy, without resurrecting expired or deleted bodies. Whether retention is
-anchored at creation, final submission, or another recorded event; the allowed
-range; whether a setting change affects existing records or only new ones; and
-the cleanup batch bound remain pre-code decisions. Ack and reads do not renew
-retention. The 180-second `talk` observer timeout and the reply acceptance
-window remain separate lifetimes.
+This applies to newly prepared requests only. Older migrated records retain
+seven days, without resurrecting expired or deleted bodies. Request content
+uses preparation time; final content uses submission time; metadata protects
+both plus settlement/acceptance obligations. A late final can therefore keep
+metadata longer than 90 days from creation. Ack and reads do not renew
+retention. The 180-second `talk` observer timeout and the unchanged reply
+acceptance window remain separate lifetimes.
 
 The following semantic scenarios are illustrative only, not final JSON schemas:
 
@@ -291,8 +314,8 @@ multi-process races for single ack and `ack --all`, real Docker/mock-agent
 scenarios for talk/reply/result correlation and late replies, and packed-skill
 verification when any shipped command guidance changes. Reuse the existing
 request worker harness and E2E fixture; do not add tests for unshipped commands
-to the installed skill. The intended sequence is foundation/configuration
-work (TMT-46/TMT-29), bounded metadata/identity and attention slices, minimal
+to the installed skill. Foundation/configuration work (TMT-46/TMT-29) is complete.
+The remaining sequence is bounded provenance/context, identity and attention slices, minimal
 MCP, then memory. Offline queue/lease work remains a separate future track.
 If pursued, an offline queue or lease is separate from X and is not an MCP
 prerequisite.

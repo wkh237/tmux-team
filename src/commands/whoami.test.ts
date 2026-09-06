@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { cmdWhoami } from './whoami.js';
 import { cmdUnbind } from './unbind.js';
 import type { Context, IdentityService } from '../types.js';
+import { createDefaultConfig } from '../config-settings.js';
 
 function identity(name = 'alice') {
   return {
@@ -39,6 +40,14 @@ function context(json = false): Context {
     resolveActive: vi.fn(),
     reconcile: vi.fn(),
   };
+  const config = createDefaultConfig();
+  config.defaults = {
+    ...config.defaults,
+    timeout: 1,
+    captureLines: 1,
+    preambleEvery: 1,
+    pasteEnterDelayMs: 0,
+  };
   return {
     argv: [],
     flags: { json, verbose: false },
@@ -50,16 +59,7 @@ function context(json = false): Context {
       table: vi.fn(),
       json: vi.fn(),
     },
-    config: {
-      preambleMode: 'always',
-      defaults: {
-        timeout: 1,
-        pollInterval: 1,
-        captureLines: 1,
-        preambleEvery: 1,
-        pasteEnterDelayMs: 0,
-      },
-    },
+    config,
     tmux: {
       send: vi.fn(),
       capture: vi.fn(),

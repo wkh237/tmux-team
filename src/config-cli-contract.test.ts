@@ -66,6 +66,17 @@ describe('real CLI configuration contract', () => {
       { label: 'global array root', scope: 'global', value: [] },
       { label: 'global null defaults', scope: 'global', value: { defaults: null } },
       { label: 'global array defaults', scope: 'global', value: { defaults: [] } },
+      { label: 'global null exchange', scope: 'global', value: { exchange: null } },
+      {
+        label: 'numeric-string exchange retention',
+        scope: 'global',
+        value: { exchange: { retentionDays: '90' } },
+      },
+      {
+        label: 'zero exchange retention',
+        scope: 'global',
+        value: { exchange: { retentionDays: 0 } },
+      },
       {
         label: 'null known global value',
         scope: 'global',

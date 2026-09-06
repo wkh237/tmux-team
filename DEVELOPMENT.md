@@ -113,6 +113,18 @@ submission/retention boundaries, plus independent processes for writer races.
 The live CLI consumes this same service; Docker/mock-agent scenarios verify
 request correlation and exact-body retrieval across the real CLI/tmux boundary.
 
+Retention tests distinguish the frozen policy from current configuration and
+logical expiry from physical deletion. Use injected clocks and independent SQL
+oracles for exact boundaries, migration anchors and bounded batch draining;
+never wait real days or only assert that cleanup was called. Check metadata
+cleanup query plans without `ANALYZE`: exercise the actual adapter SQL and
+prove ordered index selection without a temporary full candidate sort.
+Cover retained finals beyond preparation horizons, unchanged idempotency timestamps, no
+metadata renewal from housekeeping, and cleanup/submission transaction races.
+Docker scenarios verify real config-to-preparation wiring and storage-only
+reply/result behavior after current configuration becomes invalid. Prompt and
+attention tests belong to their delivering slices, not this retention baseline.
+
 Reply adapter verification additionally exercises the real CLI in an isolated
 home and SQLite database, including inline text and file/stdin decoding, exact result text,
 idempotent retry across invocations and rejection without partial finalization.

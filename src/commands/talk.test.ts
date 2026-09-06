@@ -17,6 +17,7 @@ import { ExitCodes } from '../exits.js';
 import { TmuxDeliveryError } from '../message-delivery.js';
 import { decodeReplyReceipt } from '../reply-receipt.js';
 import { MAX_OBSERVER_TIMEOUT_SECONDS, MAX_TIMER_DELAY_MS } from '../domain/interaction-limits.js';
+import { createDefaultConfig } from '../config-settings.js';
 import { cmdTalk } from './talk.js';
 
 const ENDPOINT = {
@@ -177,17 +178,14 @@ function createPaths(root: string): Paths {
 }
 
 function createConfig(overrides: Partial<ResolvedConfig['defaults']> = {}): ResolvedConfig {
-  return {
-    preambleMode: 'always',
-    defaults: {
-      timeout: 180,
-      pollInterval: 0.001,
-      captureLines: 100,
-      preambleEvery: 3,
-      pasteEnterDelayMs: 0,
-      ...overrides,
-    },
+  const config = createDefaultConfig();
+  config.defaults = {
+    ...config.defaults,
+    pollInterval: 0.001,
+    pasteEnterDelayMs: 0,
+    ...overrides,
   };
+  return config;
 }
 
 function createPreambleService(content = 'Be concise'): NonNullable<Context['preambleService']> {

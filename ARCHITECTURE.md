@@ -101,10 +101,11 @@ Timeout remains observer-only; offline queues, leases, memory, and MCP state are
 separate future work. SQLite supplies no autonomous TTL scheduler, so this does
 not promise punctual physical deletion or database-file shrinkage. Keep this
 current map and the linked section in sync as each bounded future slice is
-implemented. The proposed future default is a unified 90-day X retention
-horizon via the existing global config's `exchange.retentionDays`; this is
-unshipped. Current seven-day final-body retention remains unchanged until an
-explicit migration policy lands. The default 180-second talk observer timeout
+implemented. TMT-54 supplies the retention foundation through the existing
+global config's `exchange.retentionDays`, default 90 days. Each new request
+freezes its policy; the migration preserves seven-day retention for existing
+requests and bodies. Provenance, original prompts and attention remain unshipped.
+The default 180-second talk observer timeout
 and the reply submission window are distinct from data retention.
 
 ## Message delivery and uncertainty
@@ -158,8 +159,9 @@ settlement/refund is idempotent and cannot mutate another request.
 
 Wait release does not cancel recipient work or alter delivery outcome. Expiry is
 at least one hour and extends for configured send/wait budgets. Opportunistic
-cleanup prunes terminal metadata only after both 24 hours from settlement and the
-response submission deadline, while keeping cadence totals. A failure before reservation
+cleanup prunes metadata only after its stored horizon, protecting the settlement
+floor, response acceptance deadline and retained final, while keeping cadence
+totals. A failure before reservation
 or begin-send stops input; a post-send persistence failure cannot safely imply
 non-delivery. Commands report `REQUEST_STATE_ERROR` with inspection guidance
 when appropriate. There is no automatic retry, daemon or inbox in this slice.
@@ -185,14 +187,62 @@ delivery outcomes cannot be rewritten by contradictory settlement. Completion
 means a submitted result, not successful task execution or authenticated delivery.
 
 Submission remains eligible until the later of attempt expiry and seven days from
-preparation. Wait release does not close this window. Final bodies expire seven
-days after submission: reads hide them at that boundary; opportunistic cleanup
+preparation. Wait release does not close this window. Final bodies expire after
+the duration frozen on their request, anchored at submission: reads hide them
+at that boundary; opportunistic cleanup
 physically removes them. Independent endpoint snapshots and no cascading foreign
-keys let a final outlive its attempt or identity binding. The bounded attempt
+keys preserve finals across identity rebinding and support already-orphaned
+historical finals; current cleanup retains matching metadata through final expiry. The bounded attempt
 completion marker prevents recreation and false refunds after body deletion when
 a long attempt deadline is still open. Preparation rejects IDs still owned by a
 retained final. After all retained metadata is gone, unknown and previously expired
 requests are indistinguishable; there is no permanent tombstone store.
+
+### Frozen retention and bounded housekeeping
+
+TMT-54 appends persisted retention to the existing request/response schema.
+`domain/exchange-retention.ts` owns numeric validity and deadline calculations;
+the request service owns lifecycle policy and the request adapter owns indexed
+candidate selection and mutation. Configuration consumes that same policy.
+Context supplies a lazy policy callback used only by new preparation, before
+the reservation transaction. Reply, result and cleanup use stored deadlines
+without opening current configuration or tmux.
+
+`exchange.retentionDays` is global-only, an integer from 1 through 3650 with a
+90-day default. Policy changes affect new requests only. The forward migration
+stamps existing requests/bodies with seven days and preserves original time
+anchors; it does not rebase on migration time, resurrect missing data or retain
+a second legacy service implementation. New arithmetic is checked; historical
+deadline calculations remain within the supported integer range.
+
+The original request horizon starts at preparation; final-body retention starts
+at first accepted submission. Metadata protects both, the unchanged reply
+acceptance window and the existing 24-hour settlement floor. An accepted late
+final may extend metadata through its own expiry; reads, duplicate replies,
+housekeeping and waiter release do not renew it. Synthetic cleanup settlement
+can delay physical deletion for 24 hours without restoring logically expired
+metadata. A short configured horizon may
+leave metadata eligible for a late reply after request content would expire.
+This is a per-content duration, not a hard limit from first creation.
+
+Logical reads hide expired records at deadline equality even before physical
+cleanup. Housekeeping uses one short immediate transaction, bounded to 100
+expired-attempt transitions, 100 final-body deletions and 100 metadata deletions,
+ordered by expiry and stable ID. It runs through existing request operations;
+repeated calls drain backlog without a daemon or a physical-deletion SLA.
+Metadata selection pins its horizon index so a fresh database without planner
+statistics cannot sort all terminal candidates before applying the batch limit.
+The limit bounds mutations, not a universal maximum on examined index entries.
+Failure rolls back the batch and propagates through existing command errors.
+No transaction spans tmux, polling or external work. Conditional state changes
+preserve exactly-once cadence refunds and completion fences.
+
+Deadlines use UTC wall time, not a sliding timer. Clock rollback does not change
+stored deadlines but can delay logical expiry while data is still physically
+present. Deletion is not file shrinkage or secure erasure; no per-call VACUUM
+or automatic clock-repair mechanism is provided. Identity/profile/cadence data
+are outside Exchange content cleanup. Prompts and attention remain separate
+future slices consuming this owner rather than copying its policy.
 
 Typed response errors distinguish invalid/oversized input, unknown request, wrong
 attempt/recipient, ineligible state, expiry and conflict. Rejections preserve

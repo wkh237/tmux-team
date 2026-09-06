@@ -1,7 +1,20 @@
 import type Database from 'better-sqlite3';
+import {
+  EXCHANGE_METADATA_SETTLEMENT_FLOOR_MS,
+  EXCHANGE_RESPONSE_ACCEPTANCE_WINDOW_MS,
+  LEGACY_EXCHANGE_RETENTION_DAYS,
+  RETENTION_DAY_MS,
+} from '../domain/exchange-retention.js';
 import { classifyStorageError, incompatibleSchema, StorageError } from './errors.js';
 
 type SqliteDatabase = Database.Database;
+
+function saturatingAddMilliseconds(value: number, delta: number, label: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0 || !Number.isSafeInteger(delta) || delta < 0) {
+    throw new Error(`${label} is outside the supported range.`);
+  }
+  return value > Number.MAX_SAFE_INTEGER - delta ? Number.MAX_SAFE_INTEGER : value + delta;
+}
 
 export interface MigrationDefinition {
   readonly version: number;
@@ -133,6 +146,142 @@ export const CURRENT_MIGRATIONS: readonly MigrationDefinition[] = [
         CREATE INDEX request_responses_retention
           ON request_responses (submitted_at_ms);
       `),
+  },
+  {
+    version: 6,
+    name: 'freeze exchange retention and response expiry horizons',
+    up: (database) => {
+      database.exec(`
+        ALTER TABLE request_attempts
+          ADD COLUMN retention_days INTEGER NOT NULL DEFAULT ${LEGACY_EXCHANGE_RETENTION_DAYS};
+        ALTER TABLE request_attempts
+          ADD COLUMN retention_expires_at_ms INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE request_responses
+          ADD COLUMN response_expires_at_ms INTEGER NOT NULL DEFAULT 0;
+      `);
+
+      const selectAttempts = database.prepare(
+        `SELECT attempt_id, prepared_at_ms, expires_at_ms, settled_at_ms
+         FROM request_attempts
+         WHERE attempt_id > ?
+         ORDER BY attempt_id
+         LIMIT 100`
+      );
+      const selectFirstAttempts = database.prepare(
+        `SELECT attempt_id, prepared_at_ms, expires_at_ms, settled_at_ms
+         FROM request_attempts ORDER BY attempt_id LIMIT 100`
+      );
+      const updateAttempt = database.prepare(
+        'UPDATE request_attempts SET retention_expires_at_ms = ? WHERE attempt_id = ?'
+      );
+      let previousAttemptId: string | undefined;
+      while (true) {
+        const attempts = (
+          previousAttemptId === undefined
+            ? selectFirstAttempts.all()
+            : selectAttempts.all(previousAttemptId)
+        ) as Array<{
+          attempt_id: string;
+          prepared_at_ms: number;
+          expires_at_ms: number;
+          settled_at_ms: number | null;
+        }>;
+        if (attempts.length === 0) break;
+        for (const attempt of attempts) {
+          const frozenRetention = saturatingAddMilliseconds(
+            attempt.prepared_at_ms,
+            LEGACY_EXCHANGE_RETENTION_DAYS * RETENTION_DAY_MS,
+            `Attempt '${attempt.attempt_id}' retention expiry`
+          );
+          const responseAcceptance = saturatingAddMilliseconds(
+            attempt.prepared_at_ms,
+            EXCHANGE_RESPONSE_ACCEPTANCE_WINDOW_MS,
+            `Attempt '${attempt.attempt_id}' response acceptance deadline`
+          );
+          const settlementFloor = saturatingAddMilliseconds(
+            attempt.expires_at_ms,
+            EXCHANGE_METADATA_SETTLEMENT_FLOOR_MS,
+            `Attempt '${attempt.attempt_id}' settlement retention floor`
+          );
+          const settledFloor =
+            attempt.settled_at_ms === null
+              ? 0
+              : saturatingAddMilliseconds(
+                  attempt.settled_at_ms,
+                  EXCHANGE_METADATA_SETTLEMENT_FLOOR_MS,
+                  `Attempt '${attempt.attempt_id}' settled retention floor`
+                );
+          updateAttempt.run(
+            Math.max(frozenRetention, responseAcceptance, settlementFloor, settledFloor),
+            attempt.attempt_id
+          );
+          previousAttemptId = attempt.attempt_id;
+        }
+      }
+
+      const selectResponses = database.prepare(
+        `SELECT request_id, submitted_at_ms
+         FROM request_responses
+         WHERE request_id > ?
+         ORDER BY request_id
+         LIMIT 100`
+      );
+      const selectFirstResponses = database.prepare(
+        `SELECT request_id, submitted_at_ms
+         FROM request_responses ORDER BY request_id LIMIT 100`
+      );
+      const updateResponse = database.prepare(
+        'UPDATE request_responses SET response_expires_at_ms = ? WHERE request_id = ?'
+      );
+      let previousRequestId: string | undefined;
+      while (true) {
+        const responses = (
+          previousRequestId === undefined
+            ? selectFirstResponses.all()
+            : selectResponses.all(previousRequestId)
+        ) as Array<{
+          request_id: string;
+          submitted_at_ms: number;
+        }>;
+        if (responses.length === 0) break;
+        for (const response of responses) {
+          updateResponse.run(
+            saturatingAddMilliseconds(
+              response.submitted_at_ms,
+              LEGACY_EXCHANGE_RETENTION_DAYS * RETENTION_DAY_MS,
+              `Response '${response.request_id}' retention expiry`
+            ),
+            response.request_id
+          );
+          previousRequestId = response.request_id;
+        }
+      }
+      database.exec(`
+        UPDATE request_attempts
+        SET retention_expires_at_ms = MAX(
+          retention_expires_at_ms,
+          COALESCE(
+            (SELECT response_expires_at_ms
+             FROM request_responses
+             WHERE request_responses.request_id = request_attempts.request_id
+               AND request_responses.attempt_id = request_attempts.attempt_id),
+            retention_expires_at_ms
+          )
+        )
+      `);
+
+      database.exec(`
+        CREATE INDEX request_attempts_retention_horizon
+          ON request_attempts (retention_expires_at_ms, attempt_id);
+        CREATE INDEX request_attempts_cleanup_expiry
+          ON request_attempts (expires_at_ms, attempt_id)
+          WHERE wait_active = 1 OR status IN ('prepared', 'sending');
+        CREATE INDEX request_responses_expiry
+          ON request_responses (response_expires_at_ms, request_id);
+        CREATE INDEX request_responses_attempt
+          ON request_responses (attempt_id, response_expires_at_ms);
+      `);
+    },
   },
 ];
 

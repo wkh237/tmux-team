@@ -9,6 +9,7 @@ import { IdentityServiceError } from '../identity-service.js';
 import { ExitCodes } from '../exits.js';
 import { IdentitySelectionError } from '../identity-context.js';
 import { MAX_CAPTURE_LINES } from '../domain/interaction-limits.js';
+import { createDefaultConfig } from '../config-settings.js';
 
 import { cmdInit } from './init.js';
 import { cmdAdd } from './add.js';
@@ -100,14 +101,7 @@ function createCtx(
     databaseFile: path.join(testDir, 'tmux-team.db'),
   };
   const baseConfig: ResolvedConfig = {
-    preambleMode: 'always',
-    defaults: {
-      timeout: 180,
-      pollInterval: 1,
-      captureLines: 100,
-      preambleEvery: 3,
-      pasteEnterDelayMs: 500,
-    },
+    ...createDefaultConfig(),
     ...overrides?.config,
   };
   const flags: Flags = { json: false, verbose: false, ...overrides?.flags } as Flags;
@@ -621,7 +615,7 @@ describe('basic commands', () => {
       cmdConfig(ctx, configRequest('clear', { key: 'invalidkey', global: false }))
     ).toThrow(`exit(${ExitCodes.ERROR})`);
     expect(ctx.ui.error).toHaveBeenCalledWith(
-      'Invalid key: invalidkey. Valid keys: preambleMode, preambleEvery, pasteEnterDelayMs'
+      'Invalid key: invalidkey. Valid keys: preambleMode, preambleEvery, pasteEnterDelayMs, exchange.retentionDays'
     );
   });
 

@@ -1,10 +1,22 @@
-import type { ConfigDefaults, GlobalConfig, LocalSettings, ResolvedConfig } from './types.js';
+import type {
+  ConfigDefaults,
+  GlobalConfig,
+  GlobalExchangeSettings,
+  LocalSettings,
+  ResolvedConfig,
+} from './types.js';
 import {
   isValidCaptureLines,
   isValidObserverTimeoutSeconds,
   isValidPollIntervalSeconds,
   isValidTimerDelayMs,
 } from './domain/interaction-limits.js';
+import {
+  DEFAULT_EXCHANGE_RETENTION_DAYS,
+  MAX_EXCHANGE_RETENTION_DAYS,
+  MIN_EXCHANGE_RETENTION_DAYS,
+  isValidExchangeRetentionDays,
+} from './domain/exchange-retention.js';
 
 const DEFAULT_CONFIG = {
   preambleMode: 'always',
@@ -15,6 +27,9 @@ const DEFAULT_CONFIG = {
     preambleEvery: 3,
     pasteEnterDelayMs: 500,
   },
+  exchange: {
+    retentionDays: DEFAULT_EXCHANGE_RETENTION_DAYS,
+  },
 } as const;
 
 type JsonObject = Record<string, unknown>;
@@ -24,7 +39,8 @@ export type ConfigSettingKey =
   | 'pollInterval'
   | 'captureLines'
   | 'preambleEvery'
-  | 'pasteEnterDelayMs';
+  | 'pasteEnterDelayMs'
+  | 'exchange.retentionDays';
 
 export class ConfigValidationError extends Error {
   constructor(
@@ -93,6 +109,10 @@ const SETTING_RULES: Record<ConfigSettingKey, SettingRule> = {
     valid: isValidTimerDelayMs,
     expected: 'a finite number from 0 through 2147483647',
   },
+  'exchange.retentionDays': {
+    valid: isValidExchangeRetentionDays,
+    expected: `an integer from ${MIN_EXCHANGE_RETENTION_DAYS} through ${MAX_EXCHANGE_RETENTION_DAYS}`,
+  },
 };
 
 export function isValidConfigSettingValue(key: ConfigSettingKey, value: unknown): boolean {
@@ -119,6 +139,7 @@ export function validateGlobalConfigShape(
 ): asserts value is JsonObject {
   const root = validateObject(value, filePath, '<root>');
   if (hasOwn(root, 'defaults')) validateObject(root.defaults, filePath, 'defaults');
+  if (hasOwn(root, 'exchange')) validateObject(root.exchange, filePath, 'exchange');
 }
 
 /** Validate only the JSON container shape so a targeted config repair is possible. */
@@ -137,6 +158,19 @@ export function validateGlobalConfig(
   validateGlobalConfigShape(value, filePath);
   const root = value;
   validateKnownSettings(root, filePath, '', ['preambleMode']);
+  if (hasOwn(root, 'exchange')) {
+    const exchange = root.exchange as JsonObject;
+    if (hasOwn(exchange, 'retentionDays')) {
+      const rule = SETTING_RULES['exchange.retentionDays'];
+      validateKnownField(
+        exchange.retentionDays,
+        filePath,
+        'exchange.retentionDays',
+        rule.valid,
+        rule.expected
+      );
+    }
+  }
   if (!hasOwn(root, 'defaults')) return;
   const defaults = root.defaults as JsonObject;
   validateKnownSettings(defaults, filePath, 'defaults.', [
@@ -163,6 +197,7 @@ export function validateLocalConfig(value: unknown, filePath: string): asserts v
 export interface ValidatedGlobalConfig {
   readonly preambleMode?: GlobalConfig['preambleMode'];
   readonly defaults?: Partial<ConfigDefaults>;
+  readonly exchange?: Pick<GlobalExchangeSettings, 'retentionDays'>;
 }
 
 export interface ValidatedLocalSettings {
@@ -171,6 +206,7 @@ export interface ValidatedLocalSettings {
 
 function projectGlobalConfig(value: JsonObject): ValidatedGlobalConfig {
   const rawDefaults = isJsonObject(value.defaults) ? value.defaults : undefined;
+  const rawExchange = isJsonObject(value.exchange) ? value.exchange : undefined;
   return {
     ...(value.preambleMode !== undefined && {
       preambleMode: value.preambleMode as GlobalConfig['preambleMode'],
@@ -191,6 +227,9 @@ function projectGlobalConfig(value: JsonObject): ValidatedGlobalConfig {
           pasteEnterDelayMs: rawDefaults.pasteEnterDelayMs as number,
         }),
       },
+    }),
+    ...(rawExchange?.retentionDays !== undefined && {
+      exchange: { retentionDays: rawExchange.retentionDays as number },
     }),
   };
 }
@@ -234,6 +273,7 @@ export function createDefaultConfig(): ResolvedConfig {
   return {
     preambleMode: DEFAULT_CONFIG.preambleMode,
     defaults: { ...DEFAULT_CONFIG.defaults },
+    exchange: { ...DEFAULT_CONFIG.exchange },
   };
 }
 

@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createRequestService,
+  REQUEST_RETENTION_MS,
   RESPONSE_ACCEPTANCE_WINDOW_MS,
   type RequestEndpoint,
 } from './request-service.js';
@@ -369,7 +370,11 @@ describe('request service', () => {
     const repository = openIdentityRepository(databaseFile());
     repositories.push(repository);
     let nowMs = 10_000;
-    const service = createRequestService({ repository, now: () => nowMs });
+    const service = createRequestService({
+      repository,
+      now: () => nowMs,
+      getRetentionDays: () => 7,
+    });
     const prepared = service.prepare({
       requestId: 'request-1',
       endpoint,
@@ -388,6 +393,71 @@ describe('request service', () => {
     nowMs += RESPONSE_ACCEPTANCE_WINDOW_MS + 1;
     service.cleanup();
     expect(service.getAttempt(prepared.attemptId)).toBeUndefined();
+  });
+
+  it('hides metadata at its exact logical boundary before physical cleanup removes it', () => {
+    const repository = openIdentityRepository(databaseFile());
+    repositories.push(repository);
+    let nowMs = 10_000;
+    const service = createRequestService({
+      repository,
+      now: () => nowMs,
+      getRetentionDays: () => 1,
+    });
+    const prepared = service.prepare({
+      requestId: 'request-logical-boundary',
+      endpoint,
+      wait: false,
+      expiresAtMs: nowMs + 60 * 60 * 1000,
+    });
+    service.beginSend(prepared.attemptId);
+    const persisted = repository.findAttempt(prepared.attemptId);
+    if (!persisted) throw new Error('Expected persisted attempt.');
+
+    nowMs = persisted.retentionExpiresAtMs - 1;
+    expect(service.getAttempt(prepared.attemptId)).toBeDefined();
+    nowMs = persisted.retentionExpiresAtMs;
+    expect(service.getAttempt(prepared.attemptId)).toBeUndefined();
+    expect(service.listAttempts()).toEqual([]);
+    expect(repository.findAttempt(prepared.attemptId)).toBeDefined();
+  });
+
+  it('extends metadata only for an actual late settlement, never for reads or repeats', () => {
+    const repository = openIdentityRepository(databaseFile());
+    repositories.push(repository);
+    let nowMs = 10_000;
+    const service = createRequestService({
+      repository,
+      now: () => nowMs,
+      getRetentionDays: () => 1,
+    });
+    const prepared = service.prepare({
+      requestId: 'request-late-settlement',
+      endpoint,
+      wait: true,
+      expiresAtMs: nowMs + 60 * 60 * 1000,
+    });
+    service.beginSend(prepared.attemptId);
+    const before = repository.findAttempt(prepared.attemptId);
+    if (!before) throw new Error('Expected persisted attempt.');
+
+    nowMs = before.retentionExpiresAtMs - 1;
+    service.settle(prepared.attemptId, 'sent');
+    const afterSettlement = repository.findAttempt(prepared.attemptId);
+    if (!afterSettlement) throw new Error('Expected settled attempt.');
+    expect(afterSettlement.retentionExpiresAtMs).toBe(nowMs + REQUEST_RETENTION_MS);
+    expect(afterSettlement.retentionExpiresAtMs).toBeGreaterThan(before.retentionExpiresAtMs);
+
+    nowMs += 1_000;
+    service.settle(prepared.attemptId, 'sent');
+    nowMs += 1_000;
+    service.releaseWait(prepared.attemptId);
+    nowMs += 1_000;
+    expect(service.getAttempt(prepared.attemptId)).toBeDefined();
+    expect(service.listAttempts()).toHaveLength(1);
+    expect(repository.findAttempt(prepared.attemptId)?.retentionExpiresAtMs).toBe(
+      afterSettlement.retentionExpiresAtMs
+    );
   });
 
   it('rejects settlement before begin and preserves idempotent terminal settlement', () => {

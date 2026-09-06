@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Paths, ResolvedConfig, UI, Tmux } from './types.js';
+import { createDefaultConfig } from './config-settings.js';
 
 describe('createContext', () => {
   afterEach(() => {
@@ -19,16 +20,7 @@ describe('createContext', () => {
       stateFile: '/g/state.json',
       databaseFile: '/g/tmux-team.db',
     };
-    const config: ResolvedConfig = {
-      preambleMode: 'always',
-      defaults: {
-        timeout: 180,
-        pollInterval: 1,
-        captureLines: 100,
-        preambleEvery: 3,
-        pasteEnterDelayMs: 500,
-      },
-    };
+    const config: ResolvedConfig = createDefaultConfig();
     const ui: UI = {
       info: vi.fn(),
       success: vi.fn(),
@@ -76,16 +68,7 @@ describe('createContext', () => {
       stateFile: '/g/state.json',
       databaseFile: '/g/tmux-team.db',
     };
-    const config: ResolvedConfig = {
-      preambleMode: 'always',
-      defaults: {
-        timeout: 180,
-        pollInterval: 1,
-        captureLines: 100,
-        preambleEvery: 3,
-        pasteEnterDelayMs: 500,
-      },
-    };
+    const config: ResolvedConfig = createDefaultConfig();
     const tmux: Tmux = {
       send: vi.fn(),
       capture: vi.fn(),
@@ -218,7 +201,18 @@ describe('createContext', () => {
       submitResponse: vi.fn(),
       getResponse: vi.fn(),
     };
-    const createRequestService = vi.fn(() => requestService);
+    let retentionPolicy: (() => number) | undefined;
+    const createRequestService = vi.fn(
+      (options: { repository: unknown; getRetentionDays: () => number }) => {
+        retentionPolicy = options.getRetentionDays;
+        return requestService;
+      }
+    );
+    const loadConfig = vi.fn(() => ({ ...createDefaultConfig(), exchange: { retentionDays: 17 } }));
+    vi.doMock('./config.js', () => ({
+      resolvePaths: () => ({ databaseFile: '/isolated/tmux-team.db' }),
+      loadConfig,
+    }));
     vi.doMock('./storage/identity-repository.js', () => ({ openIdentityRepository }));
     vi.doMock('./request-service.js', () => ({ createRequestService }));
 
@@ -231,7 +225,13 @@ describe('createContext', () => {
 
     expect(createRequestService).not.toHaveBeenCalled();
     expect(ctx.requestService).toBe(requestService);
-    expect(createRequestService).toHaveBeenCalledWith({ repository });
+    expect(createRequestService).toHaveBeenCalledWith({
+      repository,
+      getRetentionDays: expect.any(Function),
+    });
+    expect(loadConfig).not.toHaveBeenCalled();
+    expect(retentionPolicy?.()).toBe(17);
+    expect(loadConfig).toHaveBeenCalledOnce();
     expect(openIdentityRepository).toHaveBeenCalledOnce();
     ctx.dispose?.();
     expect(repository.close).toHaveBeenCalledOnce();

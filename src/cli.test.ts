@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { Context } from './types.js';
+import { createDefaultConfig } from './config-settings.js';
 
 const unusedRequestService: Context['requestService'] = {
   prepare() {
@@ -43,16 +44,7 @@ function makeStubContext(): Context {
       table: vi.fn(),
       json: vi.fn(),
     },
-    config: {
-      preambleMode: 'always',
-      defaults: {
-        timeout: 180,
-        pollInterval: 1,
-        captureLines: 100,
-        preambleEvery: 3,
-        pasteEnterDelayMs: 500,
-      },
-    },
+    config: createDefaultConfig(),
     tmux: {
       send: vi.fn(),
       capture: vi.fn(),

@@ -5,6 +5,7 @@ import path from 'path';
 import type { Context, Flags, Paths, ResolvedConfig, Tmux, UI } from '../types.js';
 import { ExitCodes } from '../exits.js';
 import { ALL_SKILL_TARGET, SKILL_AGENTS } from '../skill-installation.js';
+import { createDefaultConfig } from '../config-settings.js';
 
 function createMockUI(): UI {
   return {
@@ -25,16 +26,7 @@ function createCtx(testDir: string, overrides?: Partial<{ flags: Partial<Flags> 
     stateFile: path.join(testDir, 'state.json'),
     databaseFile: path.join(testDir, 'tmux-team.db'),
   };
-  const config: ResolvedConfig = {
-    preambleMode: 'always',
-    defaults: {
-      timeout: 180,
-      pollInterval: 1,
-      captureLines: 100,
-      preambleEvery: 3,
-      pasteEnterDelayMs: 500,
-    },
-  };
+  const config: ResolvedConfig = createDefaultConfig();
   const flags: Flags = { json: false, verbose: false, ...overrides?.flags } as Flags;
   const tmux: Tmux = {
     send: vi.fn(),

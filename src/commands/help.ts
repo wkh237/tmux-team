@@ -156,7 +156,8 @@ ${colors.yellow('REPLY / RESULT')}
   keep the original submittedAtMs; conflicting bodies cannot replace results.
   JSON unavailable is {status:"unavailable",requestId,error:{code:"RESPONSE_NOT_AVAILABLE",message}}.
   Receipts are local correlation, not remote authentication. Bodies are
-  retained seven days; retry only with the same receipt/body while retained.
+  retained for the request's frozen duration (90 days by default, seven for
+  pre-migration requests). Retry only with the same receipt/body while retained.
   Missing results do not cancel work. Surface failed submission without a
   success summary, and never resubmit after accepted delivery.
 
@@ -180,6 +181,9 @@ ${colors.yellow('CONFIG')}
 ${colors.yellow('SETTINGS')}
   tmux-team config set preambleMode disabled ${colors.dim('Disable preambles (local)')}
   tmux-team config set preambleEvery 5      ${colors.dim('Inject preamble every 5 messages')}
+  tmux-team config set exchange.retentionDays 90 --global
+  Retention accepts integer days 1..3650, global-only, for new requests only.
+  Reads/retries do not renew expiry; cleanup is bounded and opportunistic.
   --wait is retired; --lines is only for check, not talk.
   Stored mode/maxCaptureLines settings are inert and preserved, not migrated.
   config clear mode removes only the obsolete local mode key.

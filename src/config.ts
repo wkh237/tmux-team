@@ -160,6 +160,9 @@ export function loadConfig(paths: Paths): ResolvedConfig {
     if (knownGlobal.defaults) {
       Object.assign(config.defaults, knownGlobal.defaults);
     }
+    if (knownGlobal.exchange?.retentionDays !== undefined) {
+      config.exchange.retentionDays = knownGlobal.exchange.retentionDays;
+    }
   }
 
   // Load local settings. Other local JSON fields remain opaque and are never

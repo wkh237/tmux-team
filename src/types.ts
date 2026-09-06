@@ -27,9 +27,19 @@ export interface ConfigDefaults {
   pasteEnterDelayMs: number; // delay after paste before Enter (default: 500)
 }
 
+export interface ExchangeConfig {
+  retentionDays: number;
+}
+
+export interface GlobalExchangeSettings {
+  retentionDays?: number;
+  [key: string]: unknown;
+}
+
 export interface GlobalConfig {
   preambleMode: 'always' | 'disabled';
   defaults: ConfigDefaults;
+  exchange?: GlobalExchangeSettings;
 }
 
 export interface LocalSettings {
@@ -46,6 +56,7 @@ export interface LocalConfigFile {
 export interface ResolvedConfig {
   preambleMode: 'always' | 'disabled';
   defaults: ConfigDefaults;
+  exchange: ExchangeConfig;
 }
 
 export interface Flags {

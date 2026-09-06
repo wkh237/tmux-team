@@ -207,6 +207,23 @@ describe('loadConfig', () => {
     expect(config.defaults.pollInterval).toBe(1);
     expect(config.defaults.captureLines).toBe(100);
     expect(config.defaults.pasteEnterDelayMs).toBe(500);
+    expect(config.exchange.retentionDays).toBe(90);
+  });
+
+  it('loads global exchange retention but ignores local exchange data', () => {
+    const globalConfig = { exchange: { retentionDays: 30 } };
+    const localConfig = { $config: { exchange: { retentionDays: 1 } } };
+
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockImplementation((p) => {
+      if (p === mockPaths.globalConfig) return JSON.stringify(globalConfig);
+      if (p === mockPaths.localConfig) return JSON.stringify(localConfig);
+      return '';
+    });
+
+    const config = loadConfig(mockPaths);
+
+    expect(config.exchange.retentionDays).toBe(30);
   });
 
   it('loads runtime settings while leaving obsolete mode and extraction keys opaque', () => {
