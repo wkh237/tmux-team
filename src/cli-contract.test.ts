@@ -9,7 +9,7 @@ import {
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
-import { getSkillConfigs } from './skill-installation.js';
+import { getSkillConfigs, SKILL_AGENTS } from './skill-installation.js';
 import { CURRENT_MIGRATIONS } from './storage/migrations.js';
 import {
   expectError,
@@ -62,6 +62,18 @@ describe('real CLI process contract', () => {
   );
 
   it(
+    'shows every supported provider and the no-provider fallback in the real CLI guide',
+    { timeout: 10_000 },
+    () =>
+      withSandbox(async (sandbox) => {
+        const result = await runCli(sandbox, ['learn']);
+        expect(result.status).toBe(0);
+        expect(result.stdout).toContain(`${SKILL_AGENTS.join(', ')}.`);
+        expect(result.stdout).toContain('shared skill without claiming a provider');
+      })
+  );
+
+  it(
     'installs all skill integrations into isolated HOME with shipped source bytes',
     { timeout: 10_000 },
     () =>
@@ -71,16 +83,29 @@ describe('real CLI process contract', () => {
         const document = parseWholeStdout(result) as {
           installed: Array<{ agent: string; target: string }>;
         };
-        expect(document.installed.map((item) => item.agent)).toEqual(['claude', 'codex', 'gemini']);
+        expect(document.installed.map((item) => item.agent)).toEqual([
+          'claude',
+          'codex',
+          'gemini',
+          'agy',
+          'pi',
+          'opencode',
+        ]);
 
         const configs = getSkillConfigs();
         const claudeTarget = path.join(sandbox.home, '.claude', 'skills', 'tmux-team');
         const universalTarget = path.join(sandbox.home, '.agents', 'skills', 'tmux-team');
+        const agyTarget = path.join(sandbox.home, '.gemini', 'config', 'skills', 'tmux-team');
+        const piTarget = path.join(sandbox.home, '.pi', 'agent', 'skills', 'tmux-team');
         expect(lstatSync(claudeTarget).isSymbolicLink()).toBe(true);
         expect(lstatSync(universalTarget).isSymbolicLink()).toBe(true);
+        expect(lstatSync(agyTarget).isSymbolicLink()).toBe(true);
+        expect(lstatSync(piTarget).isSymbolicLink()).toBe(true);
         expect(realpathSync(claudeTarget)).toBe(realpathSync(configs.claude.source));
         expect(realpathSync(universalTarget)).toBe(realpathSync(configs.codex.source));
         expect(realpathSync(claudeTarget)).toBe(realpathSync(universalTarget));
+        expect(realpathSync(agyTarget)).toBe(realpathSync(universalTarget));
+        expect(realpathSync(piTarget)).toBe(realpathSync(universalTarget));
         expect(readFileSync(path.join(claudeTarget, 'SKILL.md'))).toEqual(
           readFileSync(path.join(configs.claude.source, 'SKILL.md'))
         );
@@ -88,6 +113,35 @@ describe('real CLI process contract', () => {
         expect(readFileSync(path.join(universalTarget, 'SKILL.md'))).toEqual(
           readFileSync(path.join(configs.codex.source, 'SKILL.md'))
         );
+      })
+  );
+
+  it(
+    'falls back to the shared skill target without inventing a provider',
+    { timeout: 10_000 },
+    () =>
+      withSandbox(async (sandbox) => {
+        mkdirSync(path.join(sandbox.root, 'empty-bin'));
+        sandbox.env.PATH = path.join(sandbox.root, 'empty-bin');
+        delete sandbox.env.PI_CODING_AGENT_DIR;
+        const target = path.join(sandbox.home, '.agents', 'skills', 'tmux-team');
+
+        const first = await runCli(sandbox, ['install', '--json']);
+        expect(first.status).toBe(0);
+        expect(parseWholeStdout(first)).toEqual({ installed: [{ target, changed: true }] });
+        expect(lstatSync(target).isSymbolicLink()).toBe(true);
+
+        const second = await runCli(sandbox, ['install']);
+        expect(second.status).toBe(0);
+        expect(second.stdout).toContain(`skill linked at ${target}`);
+        expect(second.stdout).not.toContain('custom skill');
+
+        const third = await runCli(sandbox, ['install', '--json']);
+        expect(third.status).toBe(0);
+        expect(parseWholeStdout(third)).toEqual({ installed: [{ target, changed: false }] });
+        expect(existsSync(path.join(sandbox.home, '.claude'))).toBe(false);
+        expect(existsSync(path.join(sandbox.home, '.gemini'))).toBe(false);
+        expect(existsSync(path.join(sandbox.home, '.pi'))).toBe(false);
       })
   );
 

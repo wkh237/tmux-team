@@ -1,7 +1,7 @@
 # tmux-team
 
-Your coding agents, working together. Connect Claude, Codex, and Gemini in
-tmux: delegate by name, collect complete replies, and recover outstanding work
+Your coding agents, working together. Connect terminal agents in tmux:
+delegate by name, collect complete replies, and recover outstanding work
 without digging through terminal history. Local CLI, no daemon required.
 
 ## v5 preview installation
@@ -10,7 +10,7 @@ Install the tested `5.0.0-alpha.1` preview directly from this pinned revision.
 Requires macOS or Linux, Node.js >=22.12 (Node 24 recommended), and tmux.
 
 ```bash
-npm install -g https://github.com/wkh237/tmux-team/archive/47eaa363757583b1472b2fbc6bbd3559392afbf8.tar.gz
+npm install -g https://github.com/wkh237/tmux-team/archive/99d4a12bde0e0c63dbb8391a5bb8865c3669b2c1.tar.gz
 tmt install
 ```
 
@@ -23,6 +23,10 @@ After `tmt install`, load or reload the installed `tmux-team` skill in each
 agent before sending work. Provider-specific install notes are in
 [`skills/README.md`](skills/README.md); the canonical bundled guidance is
 [`skills/tmux-team/SKILL.md`](skills/tmux-team/SKILL.md).
+
+Upgrading from an older version? Update the CLI, run `tmt install`, then restart
+the agent or ask it to read `tmt learn --skill`. Installation never prompts;
+conflicts are preserved until you explicitly choose `--force`.
 
 ## Quick start
 
@@ -84,7 +88,8 @@ an inbox.
 - Complete final replies through `reply`/`result`, including late replies after
   a pane closes.
 - Local SQLite state with no background service and no network transport.
-- Skills for Claude Code, Codex, and Gemini, installed or repaired by `tmt install`.
+- One skill for Claude Code, Codex, Gemini, agy, Pi and OpenCode, installed or
+  repaired by `tmt install`.
 
 Useful commands:
 
@@ -115,7 +120,8 @@ request/response design is documented in
 
 ## One skill, no plugin
 
-`tmt install` installs the same native skill for Claude Code, Codex, and Gemini.
+`tmt install` detects supported providers and installs the same canonical skill.
+If none is detected, it installs the shared skill without requiring a provider.
 Claude Code can invoke it as `/tmux-team`; no marketplace or separate `/team`
 command is needed. See the [installation guide](skills/README.md) if you have
 an older command or plugin installed.

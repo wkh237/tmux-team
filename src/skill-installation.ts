@@ -4,7 +4,14 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** Ordered provider inventory shared by skill installation and completion. */
-export const SKILL_AGENTS = Object.freeze(['claude', 'codex', 'gemini'] as const);
+export const SKILL_AGENTS = Object.freeze([
+  'claude',
+  'codex',
+  'gemini',
+  'agy',
+  'pi',
+  'opencode',
+] as const);
 export type SkillAgent = (typeof SKILL_AGENTS)[number];
 export const ALL_SKILL_TARGET = 'all' as const;
 
@@ -53,8 +60,40 @@ export function hasBundledSkillSource(source: string): boolean {
   }
 }
 
+export function getSharedAgentDirectory(home = os.homedir()): string {
+  return path.join(home, '.agents');
+}
+
 function getManagedSkillTarget(home: string): string {
-  return path.join(home, '.agents', 'skills', 'tmux-team');
+  return path.join(getSharedAgentDirectory(home), 'skills', 'tmux-team');
+}
+
+/** Resolve the shared Open Agent skill configuration used by several providers. */
+export function getUniversalSkillConfig(root = packageRoot(), home = os.homedir()): SkillConfig {
+  return {
+    source: getUniversalSkillSource(root),
+    target: getManagedSkillTarget(home),
+  };
+}
+
+/** Resolve Pi's native coding-agent directory, including its documented override. */
+export function getPiCodingAgentDirectory(home = os.homedir()): string {
+  const configured = process.env.PI_CODING_AGENT_DIR;
+  if (!configured) return path.join(home, '.pi', 'agent');
+  if (configured === '~') return home;
+  if (configured.startsWith('~/')) return path.join(home, configured.slice(2));
+  return path.resolve(configured);
+}
+
+/** Resolve OpenCode's provider-specific configuration directory for detection. */
+export function getOpenCodeConfigDirectory(home = os.homedir()): string {
+  if (process.env.OPENCODE_CONFIG_DIR) return process.env.OPENCODE_CONFIG_DIR;
+  return path.join(process.env.XDG_CONFIG_HOME || path.join(home, '.config'), 'opencode');
+}
+
+/** Resolve Antigravity's provider-specific configuration directory. */
+export function getAgyConfigDirectory(home = os.homedir()): string {
+  return path.join(home, '.gemini', 'config');
 }
 
 /** Resolve the pre-native Claude command path retained for migration. */
@@ -79,16 +118,24 @@ export function getSkillConfigs(
   root = packageRoot(),
   home = os.homedir()
 ): Record<SkillAgent, SkillConfig> {
-  const universal = getUniversalSkillSource(root);
-  const agentTarget = getManagedSkillTarget(home);
+  const universalConfig = getUniversalSkillConfig(root, home);
   return {
     claude: {
-      source: universal,
+      source: universalConfig.source,
       target: path.join(home, '.claude', 'skills', 'tmux-team'),
     },
     // Codex and Gemini intentionally share one official user-global location.
-    codex: { source: universal, target: agentTarget },
-    gemini: { source: universal, target: agentTarget },
+    codex: universalConfig,
+    gemini: universalConfig,
+    agy: {
+      source: universalConfig.source,
+      target: path.join(getAgyConfigDirectory(home), 'skills', 'tmux-team'),
+    },
+    pi: {
+      source: universalConfig.source,
+      target: path.join(getPiCodingAgentDirectory(home), 'skills', 'tmux-team'),
+    },
+    opencode: universalConfig,
   };
 }
 

@@ -16,7 +16,12 @@ import {
   getCustomSkillConfig,
   getLegacyClaudeCommand,
   getLegacyCodexDirectories,
+  getAgyConfigDirectory,
+  getOpenCodeConfigDirectory,
+  getPiCodingAgentDirectory,
+  getSharedAgentDirectory,
   getSkillConfigs,
+  getUniversalSkillConfig,
   hasBundledSkillSource,
   isSkillAgent,
   isCorrectLink,
@@ -52,15 +57,23 @@ function environmentDetected(agent: SkillAgent, home: string): boolean {
   switch (agent) {
     case 'claude':
       return fs.existsSync(path.join(home, '.claude')) || commandExists('claude');
-    case 'codex':
+    case 'codex': {
+      const codexHome = getCodexHome(home);
       return (
-        fs.existsSync(path.join(home, '.agents')) ||
         fs.existsSync(path.join(home, '.codex')) ||
-        fs.existsSync(getCodexHome()) ||
+        (path.resolve(codexHome) !== path.resolve(getSharedAgentDirectory(home)) &&
+          fs.existsSync(codexHome)) ||
         commandExists('codex')
       );
+    }
     case 'gemini':
       return fs.existsSync(path.join(home, '.gemini')) || commandExists('gemini');
+    case 'agy':
+      return fs.existsSync(getAgyConfigDirectory(home)) || commandExists('agy');
+    case 'pi':
+      return fs.existsSync(getPiCodingAgentDirectory(home)) || commandExists('pi');
+    case 'opencode':
+      return fs.existsSync(getOpenCodeConfigDirectory(home)) || commandExists('opencode');
   }
 }
 
@@ -139,6 +152,10 @@ function installCustom(ctx: Context, directory: string): InstallResult {
   return installSelectedSkill(ctx, selected);
 }
 
+function installUniversal(ctx: Context): InstallResult {
+  return installSelectedSkill(ctx, getUniversalSkillConfig());
+}
+
 function printNextSteps(ctx: Context, installed: InstallResult[]): void {
   if (ctx.flags.json) {
     ctx.ui.json({ installed });
@@ -147,10 +164,10 @@ function printNextSteps(ctx: Context, installed: InstallResult[]): void {
   const seenTargets = new Set<string>();
   for (const item of installed) {
     const shared = seenTargets.has(item.target);
-    const label = item.agent === undefined ? 'custom skill' : `${item.agent} skill`;
+    const label = item.agent === undefined ? 'skill' : `${item.agent} skill`;
     ctx.ui.success(
       shared
-        ? `${item.agent} integration uses the shared skill at ${item.target}`
+        ? `${item.agent ? `${item.agent} integration` : 'Skill'} uses the shared skill at ${item.target}`
         : `${label} linked at ${item.target}`
     );
     seenTargets.add(item.target);
@@ -197,11 +214,15 @@ export async function cmdInstall(ctx: Context, agent?: string, directory?: strin
       else if (requestedAgent) agents = [requestedAgent];
       else {
         agents = detectEnvironment();
-        // A clean machine gets the universal Open Agent Skill.
-        if (agents.length === 0) agents = ['codex'];
       }
-      for (const selected of agents) {
-        installed.push(installAgent(ctx, selected));
+      // A clean machine gets the universal Open Agent Skill without inventing
+      // a provider identity in the structured result.
+      if (agents.length === 0) {
+        installed.push(installUniversal(ctx));
+      } else {
+        for (const selected of agents) {
+          installed.push(installAgent(ctx, selected));
+        }
       }
     }
   } catch (error) {

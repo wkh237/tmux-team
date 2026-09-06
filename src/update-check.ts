@@ -9,8 +9,10 @@ import {
   getLegacyClaudeCommand,
   getLegacyCodexDirectories,
   getSkillConfigs,
+  getUniversalSkillConfig,
   isCorrectLink,
   packageRoot,
+  SKILL_AGENTS,
   targetExists,
 } from './skill-installation.js';
 import type { Context } from './types.js';
@@ -54,9 +56,7 @@ export function inspectLocalDrift(options: DriftOptions = {}): DriftIssue[] {
   const root = options.root ?? packageRoot();
   const codexHome = options.codexHome ?? getCodexHome(home);
   const configs = getSkillConfigs(root, home);
-  const universal = configs.codex.source;
-  const agentsTarget = configs.codex.target;
-  const claudeTarget = configs.claude.target;
+  const sharedTarget = path.resolve(getUniversalSkillConfig(root, home).target);
   const issues: DriftIssue[] = [];
 
   for (const legacy of getLegacyCodexDirectories(home, codexHome)) {
@@ -68,10 +68,16 @@ export function inspectLocalDrift(options: DriftOptions = {}): DriftIssue[] {
       });
     }
   }
-  const universalIssue = linkIssue(agentsTarget, universal, 'Open Agent skill');
-  if (universalIssue) issues.push(universalIssue);
-  const claudeIssue = linkIssue(claudeTarget, universal, 'Claude skill');
-  if (claudeIssue) issues.push(claudeIssue);
+  const seenTargets = new Set<string>();
+  for (const agent of SKILL_AGENTS) {
+    const config = configs[agent];
+    const targetKey = path.resolve(config.target);
+    if (seenTargets.has(targetKey)) continue;
+    seenTargets.add(targetKey);
+    const label = targetKey === sharedTarget ? 'Open Agent skill' : `${agent} skill`;
+    const issue = linkIssue(config.target, config.source, label);
+    if (issue) issues.push(issue);
+  }
 
   const legacyClaudeCommand = getLegacyClaudeCommand(home);
   if (targetExists(legacyClaudeCommand)) {
