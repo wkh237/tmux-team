@@ -155,6 +155,104 @@ describe('real CLI process contract', () => {
   );
 
   it(
+    'rejects ignored options before creating storage or changing sandbox files',
+    { timeout: 10_000 },
+    () =>
+      withSandbox(async (sandbox) => {
+        const before = fileSnapshot(sandbox.root);
+        for (const args of [
+          ['list', '--config', '/tmp/ignored.json', '--json'],
+          ['--config', '/tmp/ignored.json', 'list', '--json'],
+          ['list', '--timeout', '1s', '--json'],
+          ['--timeout', '1s', 'list', '--json'],
+          ['role', 'show', '--timeout', '1s', '--json'],
+          ['--timeout', '1s', 'role', 'show', '--json'],
+        ]) {
+          const result = await runCli(sandbox, args);
+          expect(result.status).toBe(1);
+          expectError(result, 'USAGE_ERROR');
+          expect(fileSnapshot(sandbox.root)).toEqual(before);
+          expect(existsSync(sandbox.database)).toBe(false);
+        }
+      })
+  );
+
+  it(
+    'validates invalid options before root help or version and preserves JSON errors',
+    { timeout: 10_000 },
+    () =>
+      withSandbox(async (sandbox) => {
+        const before = fileSnapshot(sandbox.root);
+        for (const args of [
+          ['--json', 'help', '--timeout', '1s'],
+          ['--json', '--help', '--timeout', '1s'],
+          ['--json', '--version', '--timeout', '1s'],
+        ]) {
+          const result = await runCli(sandbox, args);
+          expect(result.status).toBe(1);
+          expectError(result, 'USAGE_ERROR');
+          expect(fileSnapshot(sandbox.root)).toEqual(before);
+          expect(existsSync(sandbox.database)).toBe(false);
+        }
+      })
+  );
+
+  it('keeps JSON leaf grammar failures before context creation', { timeout: 10_000 }, () =>
+    withSandbox(async (sandbox) => {
+      const before = fileSnapshot(sandbox.root);
+      for (const args of [
+        ['--json', 'role', 'set'],
+        ['--json', 'role', 'set', '--file', 'profile.md', '--', '--file=--json'],
+      ]) {
+        const result = await runCli(sandbox, args);
+        expect(result.status).toBe(1);
+        expectError(result, 'USAGE_ERROR');
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+        expect(existsSync(sandbox.database)).toBe(false);
+      }
+    })
+  );
+
+  it('does not treat --json after -- as a JSON diagnostic flag', { timeout: 10_000 }, () =>
+    withSandbox(async (sandbox) => {
+      const before = fileSnapshot(sandbox.root);
+      const result = await runCli(sandbox, ['list', '--', '--json', 'extra']);
+      expect(result.status).toBe(1);
+      expect(result.signal).toBeNull();
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toMatch(/too many arguments|Usage/i);
+      expect(fileSnapshot(sandbox.root)).toEqual(before);
+      expect(existsSync(sandbox.database)).toBe(false);
+    })
+  );
+
+  it('keeps a literal --file=--json body in a human grammar failure', { timeout: 10_000 }, () =>
+    withSandbox(async (sandbox) => {
+      const before = fileSnapshot(sandbox.root);
+      const result = await runCli(sandbox, ['role', 'set', 'body', '--file=--json']);
+      expect(result.status).toBe(1);
+      expect(result.signal).toBeNull();
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toMatch(/Usage|file/i);
+      expect(fileSnapshot(sandbox.root)).toEqual(before);
+      expect(existsSync(sandbox.database)).toBe(false);
+    })
+  );
+
+  it('does not reinterpret --json as a missing --config value', { timeout: 10_000 }, () =>
+    withSandbox(async (sandbox) => {
+      const before = fileSnapshot(sandbox.root);
+      const result = await runCli(sandbox, ['learn', '--config', '--json']);
+      expect(result.status).toBe(1);
+      expect(result.signal).toBeNull();
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toMatch(/config|option|Usage/i);
+      expect(fileSnapshot(sandbox.root)).toEqual(before);
+      expect(existsSync(sandbox.database)).toBe(false);
+    })
+  );
+
+  it(
     'reports malformed configuration before initialization and preserves the file',
     { timeout: 10_000 },
     () =>
@@ -321,6 +419,7 @@ describe('real CLI process contract', () => {
           ['help', '--json'],
           ['--json', '--help'],
           ['--version', '--json'],
+          ['--json', '--version'],
           ['completion', 'bash', '--json'],
           ['learn', '--json'],
         ];

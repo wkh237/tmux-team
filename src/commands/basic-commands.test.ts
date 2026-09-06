@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -625,19 +626,112 @@ describe('basic commands', () => {
 
   it('cmdCompletion prints scripts', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const shellRunOptions = { encoding: 'utf8' as const, timeout: 5000 };
     cmdCompletion('bash');
     const bashOutput = logSpy.mock.calls.join('\n');
     expect(bashOutput).toContain('complete -F _tmux_team');
-    expect(bashOutput).toContain('name this whoami unbind');
+    expect(bashOutput).toContain('list ls add this name talk send check read');
+    expect(bashOutput).not.toContain(' team ');
+    expect(bashOutput).not.toContain('--wait');
+    expect(bashOutput).not.toContain('--help');
+    const bashSyntax = spawnSync('bash', ['-n'], { ...shellRunOptions, input: bashOutput });
+    expect(bashSyntax.error).toBeUndefined();
+    expect(bashSyntax.status).toBe(0);
+
+    const runBashCompletion = (words: string[], current: number) =>
+      spawnSync(
+        'bash',
+        [
+          '-c',
+          `${bashOutput}\nCOMP_WORDS=(${words.join(' ')}); COMP_CWORD=${current}; _tmux_team; printf '%s\\n' "\${COMPREPLY[@]}"`,
+        ],
+        shellRunOptions
+      );
+    const completionCases = [
+      {
+        label: 'role set',
+        words: ['tmux-team', 'role', 'set', '--'],
+        required: ['--file'],
+        absent: [],
+      },
+      {
+        label: 'role clear',
+        words: ['tmux-team', 'role', 'clear', '--'],
+        required: ['--identity'],
+        absent: ['--file'],
+      },
+      {
+        label: 'config set',
+        words: ['tmux-team', 'config', 'set', '--'],
+        required: ['--global'],
+        absent: [],
+      },
+      {
+        label: 'check',
+        words: ['tmux-team', 'check', 'target', '--'],
+        required: ['--lines'],
+        absent: [],
+      },
+      {
+        label: 'talk',
+        words: ['tmux-team', 'talk', 'target', '--'],
+        required: ['--timeout'],
+        absent: ['--lines'],
+      },
+      {
+        label: 'read',
+        words: ['tmux-team', 'read', 'target', '--'],
+        required: ['--lines'],
+        absent: [],
+      },
+      {
+        label: 'send',
+        words: ['tmux-team', 'send', 'target', '--'],
+        required: ['--timeout'],
+        absent: ['--lines'],
+      },
+    ];
+    for (const testCase of completionCases) {
+      const result = runBashCompletion(testCase.words, 3);
+      const label = `bash ${testCase.label}`;
+      expect(result.error, label).toBeUndefined();
+      expect(result.status, label).toBe(0);
+      expect(result.stderr, label).toBe('');
+      for (const token of testCase.required) expect(result.stdout, label).toContain(token);
+      for (const token of testCase.absent) expect(result.stdout, label).not.toContain(token);
+    }
 
     logSpy.mockClear();
     cmdCompletion('zsh');
     const zshOutput = logSpy.mock.calls.join('\n');
     expect(zshOutput).toContain('#compdef tmux-team');
-    expect(zshOutput).toContain('name:Bind the current pane identity');
-    expect(zshOutput).toContain('this:Bind the current pane identity');
-    expect(zshOutput).toContain('whoami:Show the current pane identity');
-    expect(zshOutput).toContain('unbind:Remove the current pane identity');
+    expect(zshOutput).toContain("    'ls:");
+    expect(zshOutput).toContain("    'send:");
+    expect(zshOutput).not.toContain("    'team'");
+    expect(zshOutput).not.toContain('--wait');
+    expect(zshOutput).not.toContain('--help');
+    const zshSyntax = spawnSync('zsh', ['-n'], { ...shellRunOptions, input: zshOutput });
+    expect(zshSyntax.error).toBeUndefined();
+    expect(zshSyntax.status).toBe(0);
+
+    const runZshCompletion = (words: string[], current: number) =>
+      spawnSync(
+        'zsh',
+        [
+          '-fc',
+          `compadd() { reply=("$@"); }; _describe() { :; }; ${zshOutput}\nwords=(${words.join(' ')}); CURRENT=${current}; _tmux-team; print -l -- $reply`,
+        ],
+        shellRunOptions
+      );
+    for (const testCase of completionCases) {
+      const result = runZshCompletion(testCase.words, 4);
+      const label = `zsh ${testCase.label}`;
+      expect(result.error, label).toBeUndefined();
+      expect(result.status, label).toBe(0);
+      expect(result.stderr, label).toBe('');
+      for (const token of testCase.required) expect(result.stdout, label).toContain(token);
+      for (const token of testCase.absent) expect(result.stdout, label).not.toContain(token);
+    }
 
     logSpy.mockClear();
     cmdCompletion();
@@ -651,8 +745,17 @@ describe('basic commands', () => {
     cmdLearn();
     const output = logSpy.mock.calls.join('\n');
     expect(output).toContain('add <pane-target> <global-name>');
-    expect(output).toContain('this <global-name>');
-    expect(output).toContain('name <global-name>');
+    expect(output).toContain('this <name>');
+    expect(output).toContain('name <name>');
+    expect(output).toContain('list [target] (alias: ls)');
+    expect(output).toContain('role <show|set|clear>');
+    expect(output).toContain('config [show|set|clear]');
+    expect(output).toContain('preamble [show|set|clear]');
+    expect(output).toContain('tmt role show [--identity <name>]');
+    expect(output).toContain('tmt role set [content] [--identity <name>] [--file <path>]');
+    expect(output).toContain('tmt role clear [--identity <name>]');
+    expect(output).not.toContain('  team');
+    expect(output).toContain('text-only commands');
     expect(output).toContain('whoami');
     expect(output).toContain('unbind');
   });

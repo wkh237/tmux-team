@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Context, UI } from './types.js';
 import { ExitCodes } from './exits.js';
+import type { ParsedArgs } from './cli/parser.js';
 
 function baseContext(): Context {
   return {
@@ -21,22 +22,32 @@ function baseContext(): Context {
 
 async function loadRunner(
   options: {
-    dispatch?: (ctx: Context) => Promise<void> | void;
+    dispatch?: (ctx: Context, parsed: ParsedArgs) => Promise<void> | void;
     startup?: (ctx: Context) => Promise<void> | void;
     dispose?: () => void;
   } = {}
 ) {
   vi.resetModules();
-  const createContext = vi.fn((contextOptions: { ui: UI; exit: Context['exit'] }) => {
-    const ctx = baseContext();
-    ctx.ui = contextOptions.ui;
-    ctx.exit = contextOptions.exit;
-    ctx.dispose = options.dispose ?? ctx.dispose;
-    return ctx;
-  });
+  const createContext = vi.fn(
+    (contextOptions: {
+      argv: string[];
+      flags: Context['flags'];
+      capability: 'none' | 'storage' | 'tmux';
+      ui: UI;
+      exit: Context['exit'];
+    }) => {
+      const ctx = baseContext();
+      ctx.argv = contextOptions.argv;
+      ctx.flags = contextOptions.flags;
+      ctx.ui = contextOptions.ui;
+      ctx.exit = contextOptions.exit;
+      ctx.dispose = options.dispose ?? ctx.dispose;
+      return ctx;
+    }
+  );
   vi.doMock('./context.js', () => ({ ExitCodes, createContext }));
   vi.doMock('./cli/application.js', () => ({
-    dispatchCommand: vi.fn((ctx: Context) => options.dispatch?.(ctx)),
+    dispatchCommand: vi.fn((ctx: Context, parsed: ParsedArgs) => options.dispatch?.(ctx, parsed)),
   }));
   vi.doMock('./update-check.js', () => ({
     runStartupChecks: vi.fn((ctx: Context) => options.startup?.(ctx)),
@@ -95,6 +106,99 @@ describe('CLI runner lifecycle', () => {
       expect(createContext).not.toHaveBeenCalled();
       expect(startup).not.toHaveBeenCalled();
       expect(dispatch).not.toHaveBeenCalled();
+    } finally {
+      output.restore();
+    }
+  });
+
+  it.each([
+    ['--json', 'list', '--config', '/tmp/ignored.json'],
+    ['--json', '--config', '/tmp/ignored.json', 'list'],
+    ['--json', 'list', '--timeout', '1s'],
+    ['--json', '--timeout', '1s', 'list'],
+    ['--json', 'role', 'show', '--timeout', '1s'],
+    ['--json', '--timeout', '1s', 'role', 'show'],
+  ])('rejects ignored command options before any lifecycle effect: %j', async (...argv) => {
+    const output = captureStdout();
+    const startup = vi.fn();
+    const dispatch = vi.fn();
+    try {
+      const { runCli, createContext } = await loadRunner({ startup, dispatch });
+      await expect(runCli(argv)).resolves.toBe(1);
+      expect(document(output.chunks)).toMatchObject({ error: { code: 'USAGE_ERROR' } });
+      expect(createContext).not.toHaveBeenCalled();
+      expect(startup).not.toHaveBeenCalled();
+      expect(dispatch).not.toHaveBeenCalled();
+    } finally {
+      output.restore();
+    }
+  });
+
+  it.each([
+    ['--json', 'help', '--timeout', '1s'],
+    ['--json', '--help', '--timeout', '1s'],
+    ['--json', '--version', '--timeout', '1s'],
+  ])('validates invalid options before special output: %j', async (...argv) => {
+    const output = captureStdout();
+    const startup = vi.fn();
+    const dispatch = vi.fn();
+    try {
+      const { runCli, createContext } = await loadRunner({ startup, dispatch });
+      await expect(runCli(argv)).resolves.toBe(1);
+      expect(document(output.chunks)).toMatchObject({ error: { code: 'USAGE_ERROR' } });
+      expect(createContext).not.toHaveBeenCalled();
+      expect(startup).not.toHaveBeenCalled();
+      expect(dispatch).not.toHaveBeenCalled();
+    } finally {
+      output.restore();
+    }
+  });
+
+  it.each([
+    ['--json', 'role', 'set'],
+    ['--json', 'role', 'set', '--file', 'profile.md', '--', '--file=--json'],
+  ])('keeps JSON usage errors meaningful for leaf grammar failures: %j', async (...argv) => {
+    const output = captureStdout();
+    const startup = vi.fn();
+    const dispatch = vi.fn();
+    try {
+      const { runCli, createContext } = await loadRunner({ startup, dispatch });
+      await expect(runCli(argv)).resolves.toBe(1);
+      expect(document(output.chunks)).toMatchObject({ error: { code: 'USAGE_ERROR' } });
+      expect(createContext).not.toHaveBeenCalled();
+      expect(startup).not.toHaveBeenCalled();
+      expect(dispatch).not.toHaveBeenCalled();
+    } finally {
+      output.restore();
+    }
+  });
+
+  it('does not interpret option-looking payload after -- as runner flags', async () => {
+    const output = captureStdout();
+    const dispatch = vi.fn();
+    try {
+      const { runCli, createContext } = await loadRunner({ dispatch });
+      await expect(runCli(['talk', 'Alice', '--', '--timeout --json'])).resolves.toBe(0);
+      expect(createContext).toHaveBeenCalledOnce();
+      expect(dispatch).toHaveBeenCalledOnce();
+      expect(createContext).toHaveBeenCalledWith(
+        expect.objectContaining({
+          argv: ['talk', 'Alice', '--', '--timeout --json'],
+          flags: { json: false, verbose: false },
+        })
+      );
+      expect(dispatch).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          flags: { json: false, verbose: false },
+          invocation: {
+            kind: 'talk',
+            target: { value: 'Alice', kind: 'identity', explicit: false },
+            message: '--timeout --json',
+          },
+        })
+      );
+      expect(output.chunks).toEqual([]);
     } finally {
       output.restore();
     }
@@ -441,11 +545,14 @@ describe('CLI runner lifecycle', () => {
     }
   });
 
-  it('rejects JSON text-only commands before Context creation', async () => {
+  it.each([
+    ['--json', 'help'],
+    ['--json', '--version'],
+  ])('rejects JSON text-only commands before Context creation: %j', async (...argv) => {
     const output = captureStdout();
     try {
       const { runCli, createContext } = await loadRunner();
-      await expect(runCli(['--json', 'help'])).resolves.toBe(1);
+      await expect(runCli(argv)).resolves.toBe(1);
       expect(document(output.chunks)).toMatchObject({ error: { code: 'JSON_UNSUPPORTED' } });
       expect(createContext).not.toHaveBeenCalled();
     } finally {

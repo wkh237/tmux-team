@@ -242,6 +242,22 @@ after sending, and `--delay <seconds>` to delay sending.
 
 Install integrations with `tmt install` (auto-detects supported agents) or `tmt install all --force` to refresh managed links. Upgrade the CLI with `tmt upgrade`; managed links automatically use the updated bundled skill. Run install when an integration is missing or has drifted.
 
+## Command option scope
+
+Options apply only to commands that use them. `--timeout`, `--delay`,
+`--detach`, and `--no-preamble` belong to talk/send; `--lines` belongs to
+check/read; `--force` belongs to talk/send and install. Unrelated options
+and the unsupported `--config` path override fail with `USAGE_ERROR` before
+execution. Use `tmt help` for the command-specific option inventory.
+
+Meaningful common options may precede the command, such as
+`tmt --timeout 30 talk reviewer "Review this"`. Put command-local options
+such as reply `--receipt` or install `--dir` after their command. Use `--`
+before a positional message beginning with a hyphen, or equals syntax for
+an option value, such as `--message='--json is literal text'`. Literal text
+does not enable diagnostic flags. Reply/result accept only their documented
+options; `--verbose` and `--debug` are not supported there.
+
 ## View and install the bundled skill
 
 `tmt learn --skill` prints the exact bundled universal skill; plain `tmt learn`

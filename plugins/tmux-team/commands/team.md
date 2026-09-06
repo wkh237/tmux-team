@@ -123,6 +123,22 @@ do not complete a request. Same-pane input serialization is not guaranteed.
 - Preserve multiline messages and do not send pane input without authorization
 - After receiving a response, summarize it for the user
 
+## Command option scope
+
+Options apply only to commands that use them. `--timeout`, `--delay`,
+`--detach`, and `--no-preamble` belong to talk/send; `--lines` belongs to
+check/read; `--force` belongs to talk/send and install. Unrelated options
+and the unsupported `--config` path override fail with `USAGE_ERROR` before
+execution. Use `tmt help` for the command-specific option inventory.
+
+Meaningful common options may precede the command, such as
+`tmt --timeout 30 talk reviewer "Review this"`. Put command-local options
+such as reply `--receipt` or install `--dir` after their command. Use `--`
+before a positional message beginning with a hyphen, or equals syntax for
+an option value, such as `--message='--json is literal text'`. Literal text
+does not enable diagnostic flags. Reply/result accept only their documented
+options; `--verbose` and `--debug` are not supported there.
+
 ## View and install the bundled skill
 
 `tmt learn --skill` prints the exact bundled universal skill; plain `tmt learn`
