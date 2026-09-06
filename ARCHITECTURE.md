@@ -436,7 +436,7 @@ not close TMT-29's separate packed application-storage/migration acceptance.
 | [src/request-service.ts](src/request-service.ts), [src/storage/request-repository.ts](src/storage/request-repository.ts), [src/domain/response.ts](src/domain/response.ts) | Application-owned request/cadence/final-response policy, composed SQL adapter and exact-body validation. Context owns the shared connection.                            |
 | [src/ui.ts](src/ui.ts), [src/exits.ts](src/exits.ts)                                                                                                                       | Presentation helpers and exit-code registry; do not invent conflicting mappings.                                                                                        |
 | [src/commands/install.ts](src/commands/install.ts), [src/update-check.ts](src/update-check.ts), [skills/](skills/), [plugins/](plugins/)                                   | User-facing integrations, instructions and updates. These differ from repository developer skills in `.agents/skills/`.                                                 |
-| [test/e2e/](test/e2e/), [scripts/](scripts/), [.github/workflows/ci.yml](.github/workflows/ci.yml)                                                                         | Docker fixtures/scenarios, orchestration/pack verification and CI. Unit tests are colocated with source; concurrency workers currently also live in `src/`.             |
+| [test/e2e/](test/e2e/), [scripts/](scripts/), [.github/workflows/ci.yml](.github/workflows/ci.yml)                                                                         | Docker fixtures/scenarios, orchestration/pack verification and CI. Unit tests are colocated with source; concurrency entrypoints live in `src/test-support/workers/`.   |
 
 `src/commands/talk.ts` owns the bounded observer and existing request lifecycle
 composition. `src/talk-instruction.ts` owns concise recipient guidance only;
@@ -445,6 +445,15 @@ builder does not parse or infer terminal completion.
 The test mock independently recognizes the documented request instruction frame
 and invokes the public reply CLI, rather than importing a production response
 store or completing requests through a test-only endpoint.
+
+Identity, request and response concurrency suites share the bounded process
+harness in `src/test-support/request-workers.ts`. Each scenario owns its handles
+and stops workers in `finally` before deleting fixture files. Worker entrypoints
+are resolved relative to their modules, not the caller's working directory.
+Readiness barriers, result collection and forced teardown remain test-only;
+they do not add production synchronization or change SQLite retry policy.
+Package exclusion is a separate inventory concern: fixture placement alone
+does not prove that npm omits those files.
 
 ## Dependency and module design rules
 

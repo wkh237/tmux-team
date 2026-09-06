@@ -1,6 +1,7 @@
 import fs from 'node:fs';
-import { openIdentityRepository } from './storage/identity-repository.js';
-import { createRequestService, type RequestEndpoint } from './request-service.js';
+import { openIdentityRepository } from '../../storage/identity-repository.js';
+import { createRequestService, type RequestEndpoint } from '../../request-service.js';
+import { waitForBarrier } from './barrier.js';
 
 const [, , database, barrier, requestId, attemptId, variant, mode, body] = process.argv;
 if (!database || !barrier || !requestId || !attemptId || !variant || !mode) {
@@ -23,14 +24,6 @@ if (!['submit', 'submit-gated', 'fail', 'fail-gated'].includes(mode)) {
   throw new Error(`Unknown response race mode '${mode}'.`);
 }
 
-function waitForFile(file: string): void {
-  const deadline = Date.now() + 15_000;
-  while (!fs.existsSync(file)) {
-    if (Date.now() >= deadline) throw new Error(`Timed out waiting for ${file}`);
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
-  }
-}
-
 function output(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value)}\n`);
 }
@@ -38,7 +31,7 @@ function output(value: unknown): void {
 try {
   fs.writeFileSync(`${barrier}/ready-${variant}`, 'ready');
   const gate = mode === 'submit-gated' ? 'go-submit' : mode === 'fail-gated' ? 'go-fail' : 'go';
-  waitForFile(`${barrier}/${gate}`);
+  waitForBarrier(`${barrier}/${gate}`, 15_000);
 
   if (mode === 'fail' || mode === 'fail-gated') {
     service.settle(attemptId, 'definitely_failed');

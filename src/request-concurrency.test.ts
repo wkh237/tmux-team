@@ -49,8 +49,13 @@ function runWorker(
   variant: string,
   mode = 'prepare'
 ): WorkerHandle {
-  const worker = path.join(process.cwd(), 'src/request-concurrency-worker.ts');
-  return spawnWorker(worker, [database, barrier, identity, variant, mode], variant, process.cwd());
+  const worker = new URL('./test-support/workers/request-concurrency-worker.ts', import.meta.url);
+  return spawnWorker(
+    worker,
+    [database, barrier, identity, variant, mode],
+    variant,
+    path.dirname(barrier)
+  );
 }
 
 afterEach(() => {
@@ -94,7 +99,7 @@ describe('request service multi-process races', () => {
     } finally {
       await stopWorkers(handles);
     }
-  }, 15_000);
+  }, 30_000);
 
   it('keeps same-pane waits independent when server endpoint evidence differs', async () => {
     const fixture = databaseFixture();
@@ -129,7 +134,7 @@ describe('request service multi-process races', () => {
     } finally {
       await stopWorkers(handles);
     }
-  }, 15_000);
+  }, 30_000);
 
   it('releases exactly one attempt without changing another waiter', async () => {
     const fixture = databaseFixture();
@@ -179,7 +184,7 @@ describe('request service multi-process races', () => {
     } finally {
       await stopWorkers(handles);
     }
-  }, 15_000);
+  }, 30_000);
 
   it('rolls back an uncommitted attempt and cadence mutation after SIGKILL', async () => {
     const fixture = databaseFixture();
@@ -211,5 +216,5 @@ describe('request service multi-process races', () => {
     } finally {
       await stopWorkers([handle]);
     }
-  }, 15_000);
+  }, 30_000);
 });

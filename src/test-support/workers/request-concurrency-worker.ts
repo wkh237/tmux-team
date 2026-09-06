@@ -1,8 +1,9 @@
 /* c8 ignore file */
 import fs from 'node:fs';
 import path from 'node:path';
-import { createRequestService, type RequestEndpoint } from './request-service.js';
-import { openIdentityRepository } from './storage/identity-repository.js';
+import { createRequestService, type RequestEndpoint } from '../../request-service.js';
+import { openIdentityRepository } from '../../storage/identity-repository.js';
+import { waitForBarrier } from './barrier.js';
 
 const [databaseFile, barrierDirectory, identityId, variant, mode = 'prepare'] =
   process.argv.slice(2);
@@ -20,15 +21,6 @@ function barrierPath(name: string): string {
 
 function signal(name: string, content = 'ready'): void {
   fs.writeFileSync(barrierPath(name), content);
-}
-
-function waitForBarrier(name: string): void {
-  const deadline = Date.now() + BARRIER_TIMEOUT_MS;
-  const sleepBuffer = new Int32Array(new SharedArrayBuffer(4));
-  while (!fs.existsSync(barrierPath(name))) {
-    if (Date.now() >= deadline) throw new Error(`Timed out waiting for barrier '${name}'.`);
-    Atomics.wait(sleepBuffer, 0, 0, 10);
-  }
 }
 
 function endpointFor(currentMode: string, currentVariant: string): RequestEndpoint {
@@ -89,17 +81,17 @@ try {
       // back both the service-created attempt and its cadence reservation.
       service.prepare(requestInput(`uncommitted-${variant}`, endpoint, identityId));
       signal(`transaction-open-${variant}`);
-      waitForBarrier(`kill-${variant}`);
+      waitForBarrier(barrierPath(`kill-${variant}`), BARRIER_TIMEOUT_MS);
     });
     process.stdout.write(JSON.stringify({ ok: true, rolledBack: false }) + '\n');
   } else {
     signal(`ready-${variant}`);
-    waitForBarrier('go');
+    waitForBarrier(barrierPath('go'), BARRIER_TIMEOUT_MS);
     const prepared = service.prepare(requestInput(variant, endpoint, identityId));
 
     if (mode === 'release') {
       signal(`prepared-${variant}`, prepared.attemptId);
-      waitForBarrier(`release-${variant}`);
+      waitForBarrier(barrierPath(`release-${variant}`), BARRIER_TIMEOUT_MS);
       service.releaseWait(prepared.attemptId);
       signal(`released-${variant}`);
     }
