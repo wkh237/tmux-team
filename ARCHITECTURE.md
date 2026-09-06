@@ -89,6 +89,24 @@ require complete submission before a short truthful user summary. Delivery of a
 reply is not success of the requested task. Inbox, daemon, MCP/remote connectivity
 and memory remain outside this implementation.
 
+The same document contains the canonical **future TMT Exchange direction**.
+Exchange (X) is currently only a logical design: it would extend this request
+service and SQLite boundary with prompt/sender provenance, attention revisions,
+and identity-scoped explicit acknowledgement. It does not authorize a duplicate
+service or database, a new X-specific ID format, guessed identity backfill, or
+changes to the shipped `talk`/`reply`/`result` verbs. Reads do not acknowledge;
+service-owned reads may perform logical expiry and bounded opportunistic cleanup;
+`check` remains diagnostic and retains its existing reconciliation behavior.
+Timeout remains observer-only; offline queues, leases, memory, and MCP state are
+separate future work. SQLite supplies no autonomous TTL scheduler, so this does
+not promise punctual physical deletion or database-file shrinkage. Keep this
+current map and the linked section in sync as each bounded future slice is
+implemented. The proposed future default is a unified 90-day X retention
+horizon via the existing global config's `exchange.retentionDays`; this is
+unshipped. Current seven-day final-body retention remains unchanged until an
+explicit migration policy lands. The default 180-second talk observer timeout
+and the reply submission window are distinct from data retention.
+
 ## Message delivery and uncertainty
 
 The tmux message adapter prepares one payload with the existing ASCII `!` to

@@ -152,6 +152,151 @@ serialization, exactly-once processing, inbox and remote authentication are
 still outside scope. User-installed skills teach full submission first, then
 a truthful work/tests/blockers summary; failed submission is never success.
 
+## Future TMT Exchange direction (unshipped)
+
+This section is the canonical future design direction for a TMT Exchange (X).
+It is not an implementation contract or a claim that the commands, schema, or
+state below exist. The current `talk`, `reply`, `result`, and diagnostic `check`
+contracts above remain authoritative until bounded implementation issues land.
+
+Planning and bounded follow-up ownership are tracked by [TMT-49](https://linear.app/tigerpig-dev/issue/TMT-49),
+[TMT-50](https://linear.app/tigerpig-dev/issue/TMT-50) (provenance/context),
+[TMT-51](https://linear.app/tigerpig-dev/issue/TMT-51) (attention), and
+[TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30) (identity bootstrap).
+
+X is a logical collaboration record that relates an originator's request, its
+delivery attempts, the recipient's one immutable final reply, and per-identity
+attention state. It should extend the existing `RequestService` and
+`RequestRepository` over Context's existing SQLite connection. It does not
+mandate a second `XService`, a second database, a new table name, or a new ID
+format: existing request IDs and receipt/attempt fencing remain reusable.
+Attention revisions/high-water marks are not response-body revisions. A final
+reply remains one immutable body; an identical retry remains idempotent and a
+conflicting body remains a conflict. A late accepted reply can create the final
+body or reopen an unacknowledged attention revision; it never overwrites an
+existing final body.
+
+The proposed record needs explicit provenance for its originator/sender,
+recipient, request, attempts, final reply, and bounded acknowledgement state. Current
+attempt rows do not retain the prompt or sender identity: `identity_id` is
+currently target preamble/cadence state, while `talk`'s `identity` field is
+recipient presentation. Future implementation must not guess either value from
+a pane, name, receipt, or old file. The exact original prompt, whether it is
+retained at all, its byte limits, privacy/redaction rules, and its retention
+period are pre-code design gates. Existing migrations remain provenance; no
+guessed backfill is allowed. Anonymous existing `talk` and `result` flows must
+continue to work. Proposed `x` commands select the originator's data with
+`--identity <name>` through the shared durable selector. Omission requires a
+verified caller identity; outside that context it fails rather than guessing.
+Selection is local attribution, not authentication. The `talk` sender-identity
+grammar is not finalized; it must preserve anonymous live request-ID flows.
+
+The future attention contract is identity-scoped and explicit:
+
+- A read, including `result`, `x show`, or an unacknowledged listing, never
+  mutates attention state or acknowledges a revision. Service-owned reads may
+  perform logical-expiry checks and bounded housekeeping; `check` remains a
+  diagnostic command whose existing reconciliation behavior is separate.
+- The default proposed unacknowledged view is scoped to the originator. The
+  recipient's responsibility to submit a result is distinct from the
+  originator's responsibility to acknowledge it; a recipient view must not be
+  inferred from the current result command.
+- A proposed `tmt x ack <request-id>` acknowledges the current observed
+  attention revision for the selected identity. If the X is still pending,
+  this acknowledges only the progress observed at that point; it does not
+  claim a successful task or cancel delivery.
+- A reply that arrives after that acknowledgement creates a newer attention
+  revision and reopens the X for that identity. A single ack must use a
+  revision/high-water compare-and-swap so it cannot acknowledge a newer result
+  that was committed after the caller's observation.
+- A proposed `tmt x ack --all` must take one bounded, atomic snapshot of the
+  selected identity's eligible revisions. Results committed concurrently after
+  that snapshot remain unacknowledged and cannot be hidden by the batch.
+- An X is settled only when it has a final reply and its current attention
+  revision is explicitly acknowledged. A proven failed delivery may be
+  acknowledged as an exception for attention management, but that is not
+  successful work or a delivered result.
+
+The proposed command surface is `tmt x list`, `tmt x show <request-id>`,
+`tmt x ack <request-id>`, and `tmt x ack --all`; all are unshipped proposals.
+Proposed `tmt x` is equivalent to `tmt x list`; both spellings are unshipped.
+`talk`, `reply`, and `result` remain the verbs for sending, submitting, and
+reading. `check` remains a pane diagnostic only. Timeout and interruption
+remain observer-only: they do not cancel or complete X, and the existing
+180-second default remains current behavior. No offline queue, lease, daemon,
+memory feature, or MCP state machine is implied. An eventual minimal MCP
+client may use live tmux delivery and the same SQLite-backed reply path without
+requiring caller identity or an inbox; authenticated remote access is separate.
+
+Prompt, request metadata, final-body, attention, acknowledgement, and
+unavailable-versus-pending retention semantics must be specified before code.
+TMT-owned automatic expiry is part of the direction: every service-owned read
+must apply logical expiry at the current clock, and the same shared service may
+perform bounded opportunistic physical cleanup in a short SQLite transaction.
+SQLite has no autonomous TTL scheduler, so no daemon, cron, network service, or
+punctual physical-deletion promise is introduced; without a TMT invocation,
+cleanup waits. The existing seven-day final-body expiry is the current baseline
+to extend or reconcile, not a parallel cleanup subsystem.
+
+Acknowledgement is not deletion, and unread records are not retained
+indefinitely. An expired result is unavailable, not pending. A hard metadata
+horizon eventually makes an old X indistinguishable from unknown, honestly and
+without a permanent tombstone guarantee. Eligibility and fencing metadata must
+not be deleted before their acceptance/late-reply obligations end, and an
+expired final must never be resurrected. Data deletion is not database-file
+shrinkage or secure erasure: do not run `VACUUM` on every command or treat
+`auto_vacuum` as a TTL mechanism ([SQLite `auto_vacuum`](https://sqlite.org/pragma.html#pragma_auto_vacuum),
+[SQLite serverless operation](https://www.sqlite.org/zeroconf.html)).
+
+Beyond the proposed default below, exact clock boundaries, configuration
+validation, cleanup batch bounds, restart behavior, and cleanup/read races are
+pre-code gates. The design must say which prompt, metadata, body, attention,
+and acknowledgement state survives expiry, when an expired revision can no
+longer reopen attention, and how identity rebinding affects a view. These are
+not fixed invented policy values in this document.
+
+The proposed interpretation of three months is exactly 90 days for retained X
+content/metadata/attention horizon. It should reuse the existing global config
+file, with the proposed key and default visible as:
+
+```json
+{
+  "exchange": {
+    "retentionDays": 90
+  }
+}
+```
+
+This is an unshipped config contract, not a new configuration system. The
+current seven-day final-body retention remains current until the X migration;
+TMT-50 must define how existing seven-day data transitions to the unified
+policy, without resurrecting expired or deleted bodies. Whether retention is
+anchored at creation, final submission, or another recorded event; the allowed
+range; whether a setting change affects existing records or only new ones; and
+the cleanup batch bound remain pre-code decisions. Ack and reads do not renew
+retention. The 180-second `talk` observer timeout and the reply acceptance
+window remain separate lifetimes.
+
+The following semantic scenarios are illustrative only, not final JSON schemas:
+
+| Operation                                       | Observable semantic outcome                                                                                                         |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `talk` succeeds and the final reply is accepted | Delivery/result succeeds, but the originator's X view remains unacknowledged until explicit ack.                                    |
+| `talk` times out, then ack, then a late reply   | Timeout releases only the observer; ack covers the current revision; the late reply creates a newer revision and reopens attention. |
+| `result` after the retention boundary           | The result is unavailable/expired, not pending; opportunistic cleanup may later remove eligible physical rows.                      |
+
+Each implementation slice must carry observable verification: service and
+repository tests for exact state/retention and failed-finalization behavior,
+multi-process races for single ack and `ack --all`, real Docker/mock-agent
+scenarios for talk/reply/result correlation and late replies, and packed-skill
+verification when any shipped command guidance changes. Reuse the existing
+request worker harness and E2E fixture; do not add tests for unshipped commands
+to the installed skill. The intended sequence is foundation/configuration
+work (TMT-46/TMT-29), bounded metadata/identity and attention slices, minimal
+MCP, then memory. Offline queue/lease work remains a separate future track.
+If pursued, an offline queue or lease is separate from X and is not an MCP
+prerequisite.
+
 TMT-24 implementation update: transport now prevents replay after an input
 stage may have acted, preserves the same `!` protection on fallback, reports
 `DELIVERY_UNCERTAIN`, and bounds argv-based capture. The current implementation
