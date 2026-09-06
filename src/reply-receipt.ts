@@ -1,6 +1,6 @@
-import { TextDecoder } from 'node:util';
 import type { RequestEndpoint } from './request-service.js';
 import { hasLoneSurrogate } from './domain/text-content.js';
+import { decodeStrictUtf8 } from './strict-utf8.js';
 
 export const MAX_REPLY_RECEIPT_LENGTH = 8192;
 const MAX_RECEIPT_STRING_BYTES = 4096;
@@ -118,9 +118,7 @@ export function decodeReplyReceipt(encoded: string, requestId?: string): ReplyRe
   }
   let decoded: string;
   try {
-    decoded = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
-      Buffer.from(encoded, 'base64url')
-    );
+    decoded = decodeStrictUtf8(Buffer.from(encoded, 'base64url'));
   } catch (error) {
     throw invalid('Response receipt is not valid UTF-8.', error);
   }
