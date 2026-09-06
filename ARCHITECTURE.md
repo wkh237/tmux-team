@@ -675,6 +675,10 @@ Default Claude installation preserves and warns about the old command; explicit
 force backs it up only after successful native skill installation. Broken old
 links remain observable. Custom installs never migrate provider defaults.
 Existing Claude plugin configuration and caches remain user-owned and untouched.
+Forced skill-target replacement stores collision-safe backups in the skills
+root's sibling `.tmt-skill-backups`, not among discoverable skill directories.
+This policy belongs to the shared link installer for native and custom targets;
+legacy command-file backups retain their existing adjacent-file behavior.
 
 The existing packed native verifier also invokes the packed viewer and default
 and custom installation in an isolated home. It verifies actual link contents,

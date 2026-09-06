@@ -174,5 +174,6 @@ If npm reports a permissions error, use a user-owned Node installation or
 version manager and avoid adding `sudo` blindly. If `tmt` is not found after
 installation, check the npm global prefix and that its `bin` directory is on
 `PATH`. If an integration path conflicts with unmanaged files, inspect the
-target first; `tmt install <provider> --force` creates a recoverable backup.
+target first; `tmt install <provider> --force` creates a recoverable backup
+outside the skills root and reports its path.
 After changing skills or provider setup, reload or restart the agent session.

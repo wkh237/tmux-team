@@ -360,7 +360,8 @@ Install the same native skill with `tmt install` (auto-detects supported agents)
 Claude uses `~/.claude/skills/tmux-team`; Codex and Gemini share
 `~/.agents/skills/tmux-team`. No plugin or separate command wrapper is needed.
 Claude's native skill can be invoked as `/tmux-team`. Inspect conflicts before
-using `--force`, which creates recoverable backups. An old Claude `commands/team.md`
+using `--force`, which creates recoverable skill backups outside the discovery root.
+An old Claude `commands/team.md`
 is preserved with a warning by default; explicit forced Claude installation can
 back it up after the native skill is installed. Plugin settings are never modified.
 Managed links follow package updates. `tmt upgrade` tracks npm `latest`, not

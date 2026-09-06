@@ -341,11 +341,18 @@ describe('cmdInstall', () => {
     await cmdInstall(ctx, 'claude');
 
     expect(fs.lstatSync(target).isSymbolicLink()).toBe(true);
+    expect(fs.readdirSync(path.dirname(target))).toEqual(['tmux-team']);
+    const skillBackupDirectory = path.join(
+      path.dirname(path.dirname(target)),
+      '.tmt-skill-backups'
+    );
     const backup = fs
-      .readdirSync(path.dirname(target))
+      .readdirSync(skillBackupDirectory)
       .find((entry) => entry.startsWith('tmux-team.backup-'));
     expect(backup).toBeDefined();
-    expect(fs.lstatSync(path.join(path.dirname(target), backup!)).isSymbolicLink()).toBe(true);
+    const backupPath = path.join(skillBackupDirectory, backup!);
+    expect(fs.lstatSync(backupPath).isSymbolicLink()).toBe(true);
+    expect(fs.readlinkSync(backupPath)).toBe(path.join(homeDir, 'missing-skill'));
   });
 
   it('keeps the legacy Claude command when forced native installation fails', async () => {
@@ -402,6 +409,8 @@ describe('cmdInstall', () => {
     fs.writeFileSync(target, 'local copy');
     const backup = ensureManagedLink(target, source, true);
     expect(backup).toBeDefined();
+    expect(path.dirname(backup!)).toBe(path.join(testDir, '.tmt-skill-backups'));
+    expect(fs.readdirSync(path.dirname(target))).toEqual(['skill']);
     expect(fs.readFileSync(backup!, 'utf8')).toBe('local copy');
     expect(fs.realpathSync(target)).toBe(fs.realpathSync(source));
   });
@@ -416,6 +425,29 @@ describe('cmdInstall', () => {
     expect(backup).toBeDefined();
     expect(fs.lstatSync(backup!).isSymbolicLink()).toBe(true);
     expect(fs.realpathSync(target)).toBe(fs.realpathSync(source));
+  });
+
+  it('uses the next collision-safe managed skill backup name', async () => {
+    const { ensureManagedLink } = await import('../skill-installation.js');
+    const source = path.join(testDir, 'source-directory');
+    const target = path.join(testDir, 'nested', 'skill');
+    const backupDirectory = path.join(testDir, '.tmt-skill-backups');
+    fs.mkdirSync(source);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, 'local copy');
+    fs.mkdirSync(backupDirectory, { recursive: true });
+    fs.writeFileSync(path.join(backupDirectory, 'skill.backup-1234'), 'existing backup');
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1234);
+    try {
+      const backup = ensureManagedLink(target, source, true);
+      expect(backup).toBe(path.join(backupDirectory, 'skill.backup-1234-1'));
+      expect(fs.readFileSync(backup!, 'utf8')).toBe('local copy');
+      expect(fs.readFileSync(path.join(backupDirectory, 'skill.backup-1234'), 'utf8')).toBe(
+        'existing backup'
+      );
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('installs all integrations while sharing one Open Agent skill link', async () => {
@@ -522,12 +554,16 @@ describe('cmdInstall', () => {
     expect(fs.readFileSync(path.join(customDirectory, 'sibling.txt'), 'utf8')).toBe('keep');
     expect(fs.readFileSync(legacyClaude, 'utf8')).toBe('legacy Claude command');
     expect(fs.existsSync(path.join(legacy, 'SKILL.md'))).toBe(true);
+    expect(
+      fs.readdirSync(customDirectory).some((entry) => entry.startsWith('tmux-team.backup-'))
+    ).toBe(false);
+    const skillBackupDirectory = path.join(path.dirname(customDirectory), '.tmt-skill-backups');
     const backup = fs
-      .readdirSync(customDirectory)
+      .readdirSync(skillBackupDirectory)
       .find((entry) => entry.startsWith('tmux-team.backup-'));
     expect(backup).toBeDefined();
-    expect(fs.statSync(path.join(customDirectory, backup!)).isDirectory()).toBe(true);
-    expect(fs.readFileSync(path.join(customDirectory, backup!, 'user.md'), 'utf8')).toBe(
+    expect(fs.statSync(path.join(skillBackupDirectory, backup!)).isDirectory()).toBe(true);
+    expect(fs.readFileSync(path.join(skillBackupDirectory, backup!, 'user.md'), 'utf8')).toBe(
       'user-owned content'
     );
   });

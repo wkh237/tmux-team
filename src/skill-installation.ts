@@ -127,6 +127,12 @@ export function backupPath(target: string): string {
   return candidate;
 }
 
+function managedSkillBackupPath(target: string): string {
+  const backupDirectory = path.join(path.dirname(path.dirname(target)), '.tmt-skill-backups');
+  fs.mkdirSync(backupDirectory, { recursive: true });
+  return backupPath(path.join(backupDirectory, path.basename(target)));
+}
+
 function resolvedPathForComparison(value: string): string {
   const absolute = path.resolve(value);
   let current = absolute;
@@ -174,7 +180,7 @@ export function ensureManagedLink(
     if (!force) {
       throw new Error(`Refusing to replace existing unmanaged path: ${target} (use --force)`);
     }
-    backup = backupPath(target);
+    backup = managedSkillBackupPath(target);
     fs.renameSync(target, backup);
   }
   fs.mkdirSync(path.dirname(target), { recursive: true });

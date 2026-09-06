@@ -48,6 +48,8 @@ arbitrary custom folders.
 
 Existing unmanaged targets are preserved by default. Inspect a conflict before
 using `tmt install <provider> --force`; replacement creates a recoverable backup.
+Skill target backups are stored in a sibling `.tmt-skill-backups` directory
+outside the skills root so agents do not discover them as duplicate skills.
 The installer reports backup paths. Do not delete the source package or your
 identity database to repair a skill link.
 
