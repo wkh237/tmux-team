@@ -6,6 +6,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { runPackedCommand } from './packed-command.mjs';
+import { verifyPackedArtifact } from './packed-artifact-policy.mjs';
 
 function usage() {
   console.log(`verify-packed-native-install
@@ -16,7 +19,8 @@ Usage:
 
 The verifier installs the packed package into an isolated temporary project,
 blocks compiler fallback, loads better-sqlite3's native binding, and executes
-an FTS5 query, and verifies bundled skill viewing and isolated installation.
+an FTS5 query, verifies application migrations and role persistence, rejects
+test-only package artifacts, and verifies bundled skills and isolated installation.
 `);
 }
 
@@ -49,10 +53,10 @@ function parseArgs(argv) {
 }
 
 function findNpm() {
-  return execFileSync('which', ['npm'], { encoding: 'utf8' }).trim();
+  return execFileSync('which', ['npm'], { encoding: 'utf8', timeout: 5_000 }).trim();
 }
 
-function installPackage({ projectDirectory, tarball, cacheDirectory }) {
+function installPackage({ projectDirectory, tarball, cacheDirectory, env }) {
   const npmPath = findNpm();
   const result = spawnSync(
     npmPath,
@@ -60,9 +64,12 @@ function installPackage({ projectDirectory, tarball, cacheDirectory }) {
     {
       cwd: projectDirectory,
       encoding: 'utf8',
+      timeout: 120_000,
+      killSignal: 'SIGKILL',
       env: {
-        ...process.env,
+        ...env,
         npm_config_cache: cacheDirectory,
+        npm_config_userconfig: path.join(env.HOME, '.npmrc'),
       },
     }
   );
@@ -127,46 +134,42 @@ function loadAndVerifySqlite(projectDirectory, expectedLibc) {
   }
 }
 
-function verifyPackedCli(projectDirectory) {
-  const executable = path.join(projectDirectory, 'node_modules', '.bin', 'tmt');
-  const result = spawnSync(executable, ['--version'], {
-    cwd: projectDirectory,
-    encoding: 'utf8',
-    env: { ...process.env, TMUX_TEAM_HOME: path.join(projectDirectory, 'tmt-home') },
-  });
-  if (result.error) throw result.error;
-  if (result.status !== 0 || !/^\d+\.\d+\.\d+(?:-[\w.]+)?\s*$/.test(result.stdout ?? '')) {
-    throw new Error(
-      `Packed tmt executable failed (exit ${result.status}).\n${result.stdout ?? ''}${result.stderr ?? ''}`
-    );
-  }
-}
-
-function verifyPackedSkills(projectDirectory) {
-  const executable = path.join(projectDirectory, 'node_modules', '.bin', 'tmt');
-  const home = path.join(projectDirectory, 'skill-home');
+function isolatedEnvironment(projectDirectory) {
+  const home = path.join(projectDirectory, 'home');
   fs.mkdirSync(home);
+  const temporaryDirectory = path.join(home, 'tmp');
+  fs.mkdirSync(temporaryDirectory);
   const env = {
     ...process.env,
     HOME: home,
     CODEX_HOME: path.join(home, '.codex'),
     XDG_CONFIG_HOME: path.join(home, '.config'),
+    XDG_CACHE_HOME: path.join(home, '.cache'),
+    TMUX_TEAM_HOME: path.join(home, 'tmt'),
+    TMPDIR: temporaryDirectory,
   };
-  for (const key of ['TMUX', 'TMUX_PANE', 'TMUX_TEAM_HOME']) delete env[key];
-  const run = (args, expectedStatus = 0) => {
-    const result = spawnSync(executable, args, {
+  for (const key of ['TMUX', 'TMUX_PANE', 'NODE_OPTIONS', 'NODE_PATH']) delete env[key];
+  return env;
+}
+
+function verifyPackedCli(projectDirectory, env) {
+  const executable = path.join(projectDirectory, 'node_modules', '.bin', 'tmt');
+  const output = runPackedCommand(executable, ['--version'], {
+    cwd: projectDirectory,
+    env,
+  });
+  assert.match(output, /^\d+\.\d+\.\d+(?:-[\w.]+)?\s*$/);
+}
+
+function verifyPackedSkills(projectDirectory, env, providers) {
+  const executable = path.join(projectDirectory, 'node_modules', '.bin', 'tmt');
+  const home = env.HOME;
+  const run = (args, expectedStatus = 0) =>
+    runPackedCommand(executable, args, {
       cwd: projectDirectory,
       env,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 10_000,
-      maxBuffer: 1024 * 1024,
+      expectedStatus,
     });
-    if (result.error) throw result.error;
-    assert.equal(result.status, expectedStatus, `Packed skill command failed: ${result.stderr}`);
-    assert.equal(result.stderr, '', 'Packed skill command emitted unexpected diagnostics');
-    return result.stdout;
-  };
 
   const packageRoot = path.join(projectDirectory, 'node_modules', 'tmux-team');
   const source = path.join(packageRoot, 'skills', 'tmux-team', 'SKILL.md');
@@ -181,7 +184,7 @@ function verifyPackedSkills(projectDirectory) {
   const installed = JSON.parse(run(['install', 'all', '--json']));
   assert.deepEqual(
     installed.installed.map((item) => item.agent),
-    ['claude', 'codex', 'gemini']
+    providers
   );
   const universal = path.join(home, '.agents', 'skills', 'tmux-team');
   const claude = path.join(home, '.claude', 'commands', 'team.md');
@@ -228,18 +231,38 @@ function main() {
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-packed-'));
   const projectDirectory = path.join(temporaryRoot, 'project');
   const cacheDirectory = path.join(temporaryRoot, 'npm-cache');
-  fs.mkdirSync(projectDirectory);
-  fs.mkdirSync(cacheDirectory);
   try {
+    fs.mkdirSync(projectDirectory);
+    fs.mkdirSync(cacheDirectory);
     fs.writeFileSync(
       path.join(projectDirectory, 'package.json'),
       JSON.stringify({ name: 'tmux-team-packed-install-check', private: true, version: '0.0.0' }) +
         '\n'
     );
-    installPackage({ projectDirectory, tarball, cacheDirectory });
+    const env = isolatedEnvironment(projectDirectory);
+    installPackage({ projectDirectory, tarball, cacheDirectory, env });
+    const packageRoot = path.join(projectDirectory, 'node_modules', 'tmux-team');
+    verifyPackedArtifact(packageRoot);
+    const installedRequire = createRequire(path.join(packageRoot, 'package.json'));
+    const loader = pathToFileURL(installedRequire.resolve('tsx/esm')).href;
     loadAndVerifySqlite(projectDirectory, options.expectedLibc);
-    verifyPackedCli(projectDirectory);
-    verifyPackedSkills(projectDirectory);
+    verifyPackedCli(projectDirectory, env);
+    const runNode = (args, timeoutMs = 10_000) =>
+      runPackedCommand(process.execPath, ['--import', loader, ...args], {
+        cwd: projectDirectory,
+        env,
+        timeoutMs,
+      });
+    const providers = JSON.parse(
+      runNode([
+        '--input-type=module',
+        '--eval',
+        `const { SKILL_AGENTS } = await import(${JSON.stringify(pathToFileURL(path.join(packageRoot, 'src/skill-installation.ts')).href)}); console.log(JSON.stringify(SKILL_AGENTS));`,
+      ])
+    );
+    verifyPackedSkills(projectDirectory, env, providers);
+    const probe = fileURLToPath(new URL('./packed-storage-probe.mjs', import.meta.url));
+    assert.equal(runNode([probe, packageRoot], 60_000).trim(), 'Packed storage verified.');
     console.log(
       `Packed install verified: ${process.platform}/${process.arch}/${
         options.expectedLibc === 'auto' ? 'detected libc' : options.expectedLibc

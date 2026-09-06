@@ -51,8 +51,10 @@
   ],
   "files": [
     "bin",
-    "src",
-    "skills"
+    "skills",
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "!src/test-support/**"
   ],
   "dependencies": {
     "better-sqlite3": "^13.0.3",

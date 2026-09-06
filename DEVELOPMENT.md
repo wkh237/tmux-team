@@ -193,7 +193,27 @@ The same verifier exercises `learn --skill` and default/custom skill installs
 from the packed executable in an isolated home. It compares actual source bytes,
 checks managed links and repeated no-op, preserves an unrelated sibling, and
 changes only the disposable installed source to prove update visibility. This
-does not substitute for application storage/migration verification in TMT-29.
+is followed by application storage verification through the same packed CLI.
+
+`scripts/packed-storage-probe.mjs` runs with the installed package's TypeScript
+loader and imports only that package's runtime owners. Its first storage action
+is a missing-name role read through the public CLI. It compares the resulting
+migration history with the installed migration manifest, seeds only an identity
+through the existing repository, and verifies role writes/reads/clear across
+CLI processes. Repository read paths also exercise the remaining current tables.
+An incompatible future history must fail without erasing history or role data.
+Manifest equality alone does not prove schema behavior, nor does this smoke
+replace the detailed migration/concurrency suites.
+
+`scripts/packed-artifact-policy.mjs` checks the installed artifact, rejecting
+test sources and worker fixtures while requiring the runtime and bundled skills.
+Package allowlist exclusions are verified against actual packed contents, not
+assumed from their syntax. When changing these checks, exercise a deliberately
+broken artifact and confirm the verifier process fails and its temporary root
+is removed. A unit assertion that accepts any CLI error is not that evidence.
+CLI/probe subprocesses share `scripts/packed-command.mjs` for bounded execution,
+exact status and stderr checking. Homes, temporary/cache roots and tmux caller
+environment are isolated; cleanup encloses partial setup as well as verification.
 
 Example:
 
