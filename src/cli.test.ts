@@ -4,6 +4,18 @@ import type { CreateContextOptions } from './context.js';
 import { createDefaultConfig } from './config-settings.js';
 
 const unusedRequestService: Context['requestService'] = {
+  listExchanges() {
+    throw new Error('Unexpected request service access.');
+  },
+  showExchange() {
+    throw new Error('Unexpected request service access.');
+  },
+  acknowledgeExchange() {
+    throw new Error('Unexpected request service access.');
+  },
+  acknowledgeAllExchanges() {
+    throw new Error('Unexpected request service access.');
+  },
   prepare() {
     throw new Error('Unexpected request service access.');
   },
@@ -111,6 +123,7 @@ const handlers = {
   cmdUnbind: vi.fn(),
   cmdRole: vi.fn(),
   cmdIdentity: vi.fn(),
+  cmdExchange: vi.fn(),
   cmdReply: vi.fn(),
   cmdResult: vi.fn(),
 };
@@ -139,6 +152,7 @@ vi.mock('./commands/whoami.js', () => ({ cmdWhoami: handlers.cmdWhoami }));
 vi.mock('./commands/unbind.js', () => ({ cmdUnbind: handlers.cmdUnbind }));
 vi.mock('./commands/role.js', () => ({ cmdRole: handlers.cmdRole }));
 vi.mock('./commands/identity.js', () => ({ cmdIdentity: handlers.cmdIdentity }));
+vi.mock('./commands/exchange.js', () => ({ cmdExchange: handlers.cmdExchange }));
 vi.mock('./commands/reply.js', () => ({ cmdReply: handlers.cmdReply }));
 vi.mock('./commands/result.js', () => ({ cmdResult: handlers.cmdResult }));
 
@@ -209,6 +223,18 @@ describe('cli', () => {
     contextFactory.mockImplementation(() => ctx);
     expect(await runCli(['learn'])).toBe(0);
     expect(learnSpy).toHaveBeenCalled();
+  });
+
+  it('routes ackall through the typed exchange handler with storage capability', async () => {
+    const ctx = makeStubContext();
+    contextFactory.mockImplementation(() => ctx);
+    expect(await runCli(['x', 'ackall', '--identity', 'Alice'])).toBe(0);
+    expect(handlers.cmdExchange).toHaveBeenCalledWith(ctx, {
+      kind: 'exchange',
+      operation: 'ackall',
+      selector: { value: 'Alice', kind: 'identity', explicit: true },
+    });
+    expect(contextFactory).toHaveBeenCalledWith(expect.objectContaining({ capability: 'storage' }));
   });
 
   it('prints JSON error when --json and a command throws', async () => {

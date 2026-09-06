@@ -1,5 +1,15 @@
 import type { IdentitySelector } from '../identity-context.js';
 
+export type ExchangeRequest = {
+  readonly kind: 'exchange';
+  readonly selector?: IdentitySelector;
+} & (
+  | { readonly operation: 'list'; readonly limit?: number; readonly after?: number }
+  | { readonly operation: 'show'; readonly requestId: string }
+  | { readonly operation: 'ack'; readonly requestId: string; readonly revision: number }
+  | { readonly operation: 'ackall' }
+);
+
 export type IdentityRequest = { readonly kind: 'identity' } & (
   | { readonly operation: 'create' | 'show'; readonly name: string }
   | { readonly operation: 'list' }

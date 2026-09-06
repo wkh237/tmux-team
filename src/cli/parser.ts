@@ -4,6 +4,7 @@ import type { Flags } from '../types.js';
 import type { IdentitySelector } from '../identity-context.js';
 import type {
   ConfigRequest,
+  ExchangeRequest,
   IdentityRequest,
   PreambleRequest,
   ReplyRequest,
@@ -12,6 +13,7 @@ import type {
   TalkRequest,
 } from './requests.js';
 import { validateReplyRequestId } from '../reply-receipt.js';
+import { MAX_EXCHANGE_LIST_LIMIT } from '../request-attention.js';
 import {
   MAX_CAPTURE_LINES,
   isValidCaptureLines,
@@ -33,6 +35,7 @@ export type ParsedInvocation =
   | TalkRequest
   | { readonly kind: 'check'; readonly target: IdentitySelector; readonly lines?: number }
   | ConfigRequest
+  | ExchangeRequest
   | IdentityRequest
   | PreambleRequest
   | ReplyRequest
@@ -93,6 +96,9 @@ interface CommandOptions extends CommonOptions {
   skill?: boolean;
   help?: boolean;
   version?: boolean;
+  limit?: string;
+  after?: string;
+  revision?: string;
 }
 
 interface Capture {
@@ -169,6 +175,12 @@ const optionSpecs = {
   message: { flags: '--message <text>', description: 'Submit inline content' },
   dir: { flags: '--dir <path>', description: 'Install skills in this directory' },
   skill: { flags: '--skill', description: 'Print the bundled universal skill' },
+  limit: {
+    flags: '--limit <count>',
+    description: `Maximum exchanges to list (1-${MAX_EXCHANGE_LIST_LIMIT})`,
+  },
+  after: { flags: '--after <revision>', description: 'List revisions after this cursor' },
+  revision: { flags: '--revision <revision>', description: 'Acknowledge this observed revision' },
 } satisfies Record<string, OptionSpec>;
 
 type OptionName = keyof typeof optionSpecs;
@@ -203,6 +215,7 @@ export interface CliCommandOptionMetadata {
   readonly short?: string;
   readonly long?: string;
   readonly required: boolean;
+  readonly mandatory: boolean;
   readonly optional: boolean;
   readonly variadic: boolean;
   readonly description?: string;
@@ -248,6 +261,7 @@ function projectCommand(command: Command, helper: Help, parent?: Command): CliCo
       short: registered.short,
       long: registered.long,
       required: registered.required,
+      mandatory: registered.mandatory,
       optional: registered.optional,
       variadic: registered.variadic,
       description: registered.description,
@@ -332,6 +346,24 @@ function selector(value: string, explicit: boolean): IdentitySelector {
   return { value, kind: explicit || !isPaneTarget(value) ? 'identity' : 'pane', explicit };
 }
 
+function exchangeInteger(
+  value: string,
+  name: string,
+  minimum: number,
+  maximum = Number.MAX_SAFE_INTEGER
+): number {
+  const parsed = Number(value);
+  if (
+    !/^\d+$/.test(value) ||
+    !Number.isSafeInteger(parsed) ||
+    parsed < minimum ||
+    parsed > maximum
+  ) {
+    throw new CliParseError(`${name} must be a decimal integer between ${minimum} and ${maximum}.`);
+  }
+  return parsed;
+}
+
 function capabilityFor(invocation: ParsedInvocation): ParsedMetadata['capability'] {
   switch (invocation.kind) {
     case 'help':
@@ -341,6 +373,7 @@ function capabilityFor(invocation: ParsedInvocation): ParsedMetadata['capability
       return 'none';
     case 'config':
     case 'identity':
+    case 'exchange':
     case 'install':
       return 'storage';
     case 'preamble':
@@ -697,6 +730,67 @@ function setupProgram(capture: Capture): Command {
   register(preambleClear, generalOptions);
   preambleClear.action(function (agent: string) {
     action(this, { kind: 'preamble', operation: 'clear', agent });
+  });
+  const exchangeOptions: readonly OptionName[] = ['json', 'identity'];
+  const exchange = register(
+    program.command('x').description('Inspect and acknowledge identity-scoped exchanges'),
+    [...exchangeOptions, 'limit', 'after']
+  );
+  const listExchanges = function (this: Command): void {
+    const options = commandOptions(this);
+    action(this, {
+      kind: 'exchange',
+      operation: 'list',
+      ...(options.identity !== undefined && { selector: selector(options.identity, true) }),
+      ...(options.limit !== undefined && {
+        limit: exchangeInteger(options.limit, '--limit', 1, MAX_EXCHANGE_LIST_LIMIT),
+      }),
+      ...(options.after !== undefined && { after: exchangeInteger(options.after, '--after', 0) }),
+    });
+  };
+  exchange.action(listExchanges);
+  register(exchange.command('list').description('List unacknowledged exchanges'), [
+    ...exchangeOptions,
+    'limit',
+    'after',
+  ]).action(listExchanges);
+  register(
+    exchange.command('show').description('Show retained exchange content').argument('<request-id>'),
+    exchangeOptions
+  ).action(function (requestId: string) {
+    const options = commandOptions(this);
+    action(this, {
+      kind: 'exchange',
+      operation: 'show',
+      requestId,
+      ...(options.identity !== undefined && { selector: selector(options.identity, true) }),
+    });
+  });
+  const acknowledge = exchange
+    .command('ack')
+    .description('Acknowledge an observed exchange revision')
+    .argument('<request-id>');
+  registerOptions(acknowledge, [...exchangeOptions, 'revision'], ['revision']);
+  acknowledge.action(function (requestId: string) {
+    const options = commandOptions(this);
+    action(this, {
+      kind: 'exchange',
+      operation: 'ack',
+      requestId,
+      revision: exchangeInteger(options.revision!, '--revision', 1),
+      ...(options.identity !== undefined && { selector: selector(options.identity, true) }),
+    });
+  });
+  register(
+    exchange.command('ackall').description('Acknowledge the current identity snapshot'),
+    exchangeOptions
+  ).action(function () {
+    const options = commandOptions(this);
+    action(this, {
+      kind: 'exchange',
+      operation: 'ackall',
+      ...(options.identity !== undefined && { selector: selector(options.identity, true) }),
+    });
   });
   const identity = storageOnly(
     program.command('identity').description('Create and discover durable identities')

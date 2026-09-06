@@ -59,7 +59,10 @@ function imports(text: string): string[] {
 
 function violations(file: string, text: string): string[] {
   const application =
-    file.endsWith('-service.ts') || file === 'identity-context.ts' || file === 'target-resolver.ts';
+    file.endsWith('-service.ts') ||
+    file === 'identity-context.ts' ||
+    file === 'target-resolver.ts' ||
+    file === 'request-attention.ts';
   return imports(text).flatMap((specifier) => {
     const target = specifier.startsWith('.')
       ? path.posix.normalize(path.posix.join(path.posix.dirname(file), specifier))
@@ -137,6 +140,9 @@ describe('maintained application dependency boundaries', () => {
       violations('cli/parser.ts', "import type { Request } from '../commands/role.js';")
     ).toHaveLength(1);
     expect(violations('domain/example.ts', "import fs from 'node:fs';")).toHaveLength(1);
+    expect(
+      violations('request-attention.ts', "import { open } from './storage/sqlite-adapter.js';")
+    ).toHaveLength(1);
   });
 
   it('allows composition ownership, dispatcher routing and pure domain reuse', () => {

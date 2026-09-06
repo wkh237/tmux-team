@@ -22,6 +22,60 @@ const receipt = encodeReplyReceipt({
 });
 
 describe('declarative CLI parser', () => {
+  it('parses exchange actions as storage-only requests without requiring a prior list', () => {
+    const metadata = getCliCommandMetadata().commands.find((command) => command.name === 'x')!;
+    expect(
+      metadata.commands
+        .find((command) => command.name === 'ack')
+        ?.options.find((option) => option.name === 'revision')?.mandatory
+    ).toBe(true);
+    expect(
+      metadata.commands
+        .find((command) => command.name === 'list')
+        ?.options.find((option) => option.name === 'limit')?.mandatory
+    ).toBe(false);
+    expect(parseArgs(['x']).invocation).toEqual({ kind: 'exchange', operation: 'list' });
+    const parsed = parseArgs(['x', 'ackall', '--identity', 'Alice', '--json']);
+    expect(parsed.invocation).toEqual({
+      kind: 'exchange',
+      operation: 'ackall',
+      selector: { value: 'Alice', kind: 'identity', explicit: true },
+    });
+    expect(parsed.metadata.capability).toBe('storage');
+    expect(parseArgs(['x', 'list', '--limit', '200', '--after', '0']).invocation).toEqual({
+      kind: 'exchange',
+      operation: 'list',
+      limit: 200,
+      after: 0,
+    });
+    expect(parseArgs(['x', 'ack', 'request-1', '--revision', '2']).invocation).toEqual({
+      kind: 'exchange',
+      operation: 'ack',
+      requestId: 'request-1',
+      revision: 2,
+    });
+  });
+
+  it.each([
+    ['x', 'ack', '--all'],
+    ['x', 'ack', 'request-1'],
+    ['x', 'ackall', '--revision', '2'],
+    ['x', 'ackall', '--limit', '2'],
+    ['x', '--after', '2', 'ackall'],
+    ['x', 'show'],
+    ['x', 'show', 'a', 'b'],
+    ['x', 'list', '--limit', '0'],
+    ['x', 'list', '--limit', '201'],
+    ['x', 'list', '--after', '-1'],
+    ['x', 'list', '--after', '1e3'],
+    ['x', 'ack', 'a', '--revision', '0'],
+    ['x', 'ack', 'a', '--revision', '9007199254740992'],
+    ['x', '--verbose'],
+    ['--identity', 'Alice', 'x'],
+  ])('rejects invalid exchange grammar: %j', (...args) => {
+    expect(() => parseArgs(args)).toThrow(CliParseError);
+  });
+
   it('parses explicit durable identity operations as storage-only requests', () => {
     for (const operation of ['create', 'show'] as const) {
       const parsed = parseArgs(['identity', operation, 'Alice', '--json']);

@@ -60,6 +60,7 @@ describe('SQLite storage adapter', () => {
       'identity_preambles',
       'preamble_counters',
       'request_attempts',
+      'request_attention_identities',
       'request_responses',
       'role_profiles',
     ]);
