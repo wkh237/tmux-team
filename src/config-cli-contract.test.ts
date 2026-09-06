@@ -27,6 +27,7 @@ function seedReply(sandbox: Sandbox, requestId: string): string {
     const service = createRequestService({ repository, now: () => Date.now() });
     const prepared = service.prepare({
       requestId,
+      message: `message for ${requestId}`,
       endpoint,
       wait: false,
       expiresAtMs: Date.now() + 60 * 60 * 1000,

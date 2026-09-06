@@ -69,6 +69,7 @@ function createCtx(
       bindPane: vi.fn(),
       unbindCurrent: vi.fn(),
       currentIdentity: vi.fn(),
+      resolveIdentity: vi.fn(),
       activeIdentities: vi.fn(() => []),
       resolveActive: vi.fn(),
       reconcile: vi.fn(),

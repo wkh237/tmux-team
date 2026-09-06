@@ -1,19 +1,28 @@
 // Shared target resolution for commands that address one pane.
 
 import { isPaneTarget, normalizeName } from './domain/names.js';
+import type { DurableIdentity, TmuxBinding } from './domain/identity.js';
 import type { ActiveRegistration } from './domain/types.js';
+
+/** Internal active target projection carrying the evidence used by delivery. */
+export interface TargetIdentity extends ActiveRegistration {
+  readonly evidence?: {
+    readonly identity: DurableIdentity;
+    readonly binding: TmuxBinding;
+  };
+}
 
 export interface ResolvedTarget {
   readonly input: string;
   readonly paneId: string;
-  readonly identity?: ActiveRegistration;
+  readonly identity?: TargetIdentity;
   readonly kind: 'pane' | 'identity';
 }
 
 /** The minimum capability needed to resolve a user-facing pane or identity target. */
 export interface TargetResolverPort {
   readonly resolvePaneTarget: (target: string) => string | null;
-  readonly listGlobalIdentities: () => ActiveRegistration[];
+  readonly listGlobalIdentities: () => TargetIdentity[];
 }
 
 export type TargetResolutionErrorCode = 'PANE_NOT_FOUND' | 'NAME_NOT_FOUND';
@@ -92,7 +101,7 @@ export function resolveTarget(resolver: TargetResolverPort, input: string): Targ
   };
 }
 
-export function sortedGlobalIdentities(resolver: TargetResolverPort): ActiveRegistration[] {
+export function sortedGlobalIdentities(resolver: TargetResolverPort): TargetIdentity[] {
   return [...resolver.listGlobalIdentities()].sort(
     (a, b) =>
       normalizeName(a.canonicalName || a.name).localeCompare(

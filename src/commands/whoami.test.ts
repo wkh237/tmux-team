@@ -36,6 +36,7 @@ function context(json = false): Context {
         lastVerifiedAt: 'now',
       },
     })),
+    resolveIdentity: vi.fn(),
     activeIdentities: vi.fn(() => []),
     resolveActive: vi.fn(),
     reconcile: vi.fn(),

@@ -19,6 +19,18 @@ import { decodeReplyReceipt } from '../reply-receipt.js';
 import { MAX_OBSERVER_TIMEOUT_SECONDS, MAX_TIMER_DELAY_MS } from '../domain/interaction-limits.js';
 import { createDefaultConfig } from '../config-settings.js';
 import { cmdTalk } from './talk.js';
+import type { TalkRequest } from '../cli/requests.js';
+import { isPaneTarget } from '../domain/names.js';
+import { MAX_REQUEST_CONTENT_BYTES } from '../domain/request-content.js';
+import { IdentityServiceError } from '../identity-service.js';
+
+function talkRequest(target: string, message: string): TalkRequest {
+  return {
+    kind: 'talk',
+    target: { value: target, kind: isPaneTarget(target) ? 'pane' : 'identity' },
+    message,
+  };
+}
 
 const ENDPOINT = {
   serverId: 'server-test',
@@ -105,6 +117,7 @@ function createUI(): TestUI {
 }
 
 function activeIdentity(name: string, paneId: string) {
+  const panePid = ENDPOINT.panePid + Number(paneId.slice(1)) - 1;
   return {
     identity: {
       id: `identity-${name}`,
@@ -122,11 +135,27 @@ function activeIdentity(name: string, paneId: string) {
       socketPath: ENDPOINT.socketPath,
       serverPid: ENDPOINT.serverPid,
       serverStartTime: ENDPOINT.serverStartTime,
-      panePid: ENDPOINT.panePid,
+      panePid,
       boundAt: 'now',
       lastVerifiedAt: 'now',
     },
-    pane: { id: paneId, command: name, suggestedName: name },
+    pane: {
+      id: paneId,
+      command: name,
+      suggestedName: name,
+      panePid,
+      metadata: {
+        version: 1 as const,
+        globalIdentity: {
+          name,
+          canonicalName: name,
+          identityId: `identity-${name}`,
+          bindingId: `binding-${name}`,
+          serverId: ENDPOINT.serverId,
+          panePid,
+        },
+      },
+    },
   };
 }
 
@@ -158,9 +187,9 @@ function createMockTmux(options: { readonly onSend?: (message: string) => void }
         serverStartTime: ENDPOINT.serverStartTime,
       },
       panes: [
-        { id: '%1', command: 'claude', panePid: ENDPOINT.panePid, suggestedName: 'claude' },
-        { id: '%2', command: 'codex', panePid: 457, suggestedName: 'codex' },
-        { id: '%3', command: 'gemini', panePid: 458, suggestedName: 'gemini' },
+        activeIdentity('claude', '%1').pane,
+        activeIdentity('codex', '%2').pane,
+        activeIdentity('gemini', '%3').pane,
         { id: '%9', command: 'test-agent', panePid: 459, suggestedName: null },
       ],
     }),
@@ -247,6 +276,7 @@ function createContext(
       bindPane: vi.fn(),
       unbindCurrent: vi.fn(),
       currentIdentity: vi.fn(),
+      resolveIdentity: vi.fn(() => ({ status: 'required' as const })),
       activeIdentities: vi.fn(() =>
         (overrides.identities ?? ['claude', 'codex', 'gemini']).map((name, index) =>
           activeIdentity(name, `%${index + 1}`)
@@ -319,6 +349,178 @@ function stateSnapshot(root: string): {
 }
 
 describe('cmdTalk durable completion', () => {
+  it.each(['unknown', 'verified', 'explicit'] as const)(
+    'persists %s originator separately from recipient and exact original text',
+    async (kind) => {
+      const root = temporaryDirectory('tmt-talk-context-');
+      const fixture = requestFixture(createPaths(root).databaseFile);
+      const tmux = createMockTmux();
+      const ctx = createContext(root, { tmux, flags: { detach: true } });
+      const originator = fixture.repository.findByCanonicalName('codex')!;
+      ctx.identityService.resolveIdentity = vi.fn(() =>
+        kind === 'unknown' ? { status: 'required' } : { status: 'bound', identity: originator }
+      );
+      // Unicode and control characters are exact payload fixtures, not prose conventions.
+      const message = '\ufeffif (!ready)\r\n\u0000日本語 😀\n  ';
+      const request: TalkRequest = {
+        ...talkRequest('%1', message),
+        ...(kind === 'explicit' && {
+          originator: { value: 'codex', kind: 'identity', explicit: true } as const,
+        }),
+      };
+      await cmdTalk(ctx, request);
+      const attempt = onlyAttempt(fixture.service);
+      expect(attempt.originator).toEqual(
+        kind === 'unknown' ? { kind } : { kind, identityId: originator.id }
+      );
+      expect(attempt.recipientIdentityId).toBe('identity-claude');
+      const context = fixture.service.getRequestContext(attempt.requestId);
+      expect(context?.prompt).toEqual({
+        status: 'retained',
+        message,
+        messageBytes: Buffer.byteLength(message),
+        expiresAtMs: attempt.preparedAtMs + attempt.retentionDays * 86_400_000,
+      });
+      expect(tmux.sends[0]?.message).toContain('[SYSTEM: Be concise]');
+      expect(tmux.sends[0]?.message).toContain('<tmt-reply>');
+      expect(attempt).not.toHaveProperty('message');
+      expect(attempt).not.toHaveProperty('messageBytes');
+      expect(ctx.identityService.resolveIdentity).toHaveBeenCalledOnce();
+      expect(ctx.identityService.resolveIdentity).toHaveBeenCalledWith(request.originator);
+      expect((ctx.ui as TestUI).jsonOutput).toEqual([
+        {
+          status: 'sent',
+          requestId: attempt.requestId,
+          target: '%1',
+          pane: '%1',
+          identity: { name: 'claude', canonicalName: 'claude' },
+        },
+      ]);
+    }
+  );
+
+  it.each([
+    { label: 'lone surrogate', message: '\ud800', code: 'REQUEST_INPUT_INVALID' },
+    {
+      label: 'over byte cap',
+      message: 'x'.repeat(MAX_REQUEST_CONTENT_BYTES + 1),
+      code: 'REQUEST_INPUT_TOO_LARGE',
+    },
+  ])(
+    'rejects $label before any target, originator, delay or storage effect',
+    async ({ message, code }) => {
+      const root = temporaryDirectory('tmt-talk-invalid-original-');
+      const ctx = createContext(root, { flags: { detach: true, delay: 1 } });
+      const before = stateSnapshot(root);
+      const target = vi.spyOn(ctx.tmux, 'resolvePaneTarget');
+      const sleep = vi.fn(async () => undefined);
+      await expect(cmdTalk(ctx, talkRequest('%1', message), { sleep })).rejects.toMatchObject({
+        exitCode: 1,
+      });
+      expect((ctx.ui as TestUI).jsonOutput).toEqual([
+        { error: { code, message: expect.any(String) } },
+      ]);
+      expect(target).not.toHaveBeenCalled();
+      expect(ctx.identityService.activeIdentities).not.toHaveBeenCalled();
+      expect(ctx.identityService.resolveIdentity).not.toHaveBeenCalled();
+      expect(sleep).not.toHaveBeenCalled();
+      expect(stateSnapshot(root)).toEqual(before);
+    }
+  );
+
+  it.each([
+    { status: 'not-found' as const, code: 'NAME_NOT_FOUND', exitCode: 3 },
+    { status: 'ambiguous' as const, code: 'IDENTITY_AMBIGUOUS', exitCode: 1 },
+  ])(
+    'rejects $status originator without falling back or preparing',
+    async ({ status, code, exitCode }) => {
+      const root = temporaryDirectory('tmt-talk-originator-error-');
+      const tmux = createMockTmux();
+      const ctx = createContext(root, { tmux, flags: { detach: true } });
+      ctx.identityService.resolveIdentity = vi.fn(() => ({ status }));
+      const before = stateSnapshot(root);
+      const request = {
+        ...talkRequest('claude', 'must not send'),
+        originator: { value: 'missing', kind: 'identity' as const, explicit: true },
+      };
+      await expect(cmdTalk(ctx, request)).rejects.toMatchObject({ exitCode });
+      expect((ctx.ui as TestUI).jsonOutput).toEqual([
+        { error: { code, message: expect.any(String) } },
+      ]);
+      expect(tmux.sends).toEqual([]);
+      expect(stateSnapshot(root)).toEqual(before);
+    }
+  );
+
+  it('reports recipient errors before looking up an invalid originator', async () => {
+    const root = temporaryDirectory('tmt-talk-selection-order-');
+    const ctx = createContext(root, { flags: { detach: true } });
+    const before = stateSnapshot(root);
+    await expect(
+      cmdTalk(ctx, {
+        ...talkRequest('missing-recipient', 'must not send'),
+        originator: { value: 'missing-originator', kind: 'identity', explicit: true },
+      })
+    ).rejects.toMatchObject({ exitCode: 3 });
+    expect((ctx.ui as TestUI).jsonOutput).toEqual([
+      { error: { code: 'NAME_NOT_FOUND', message: "Identity 'missing-recipient' is not active." } },
+    ]);
+    expect(ctx.identityService.resolveIdentity).not.toHaveBeenCalled();
+    expect(stateSnapshot(root)).toEqual(before);
+  });
+
+  it('does not silently anonymize an originator reconciliation failure', async () => {
+    const root = temporaryDirectory('tmt-talk-originator-reconcile-');
+    const tmux = createMockTmux();
+    const ctx = createContext(root, { tmux, flags: { detach: true } });
+    ctx.identityService.resolveIdentity = vi.fn(() => {
+      throw new IdentityServiceError('RECONCILIATION_FAILED', 'Could not inspect caller.');
+    });
+    const before = stateSnapshot(root);
+    await expect(cmdTalk(ctx, talkRequest('claude', 'must not send'))).rejects.toMatchObject({
+      exitCode: 1,
+    });
+    expect((ctx.ui as TestUI).jsonOutput).toEqual([
+      { error: { code: 'RECONCILIATION_FAILED', message: 'Could not inspect caller.' } },
+    ]);
+    expect(tmux.sends).toEqual([]);
+    expect(stateSnapshot(root)).toEqual(before);
+  });
+
+  it.each([
+    'serverId',
+    'socketPath',
+    'serverPid',
+    'serverStartTime',
+    'panePid',
+    'identityId',
+    'bindingId',
+  ] as const)(
+    'rejects changed recipient %s evidence before attempt/cadence/send',
+    async (field) => {
+      const root = temporaryDirectory('tmt-talk-recipient-race-');
+      const tmux = createMockTmux();
+      const original = tmux.getEndpointSnapshot!();
+      const snapshot = { ...original, server: { ...original.server } };
+      if (field === 'panePid') snapshot.panes[0]!.panePid! += 1;
+      else if (field === 'identityId' || field === 'bindingId')
+        snapshot.panes[0]!.metadata!.globalIdentity![field] = 'replacement';
+      else if (field === 'serverPid') snapshot.server.serverPid += 1;
+      else snapshot.server[field] = 'replacement';
+      tmux.getEndpointSnapshot = () => snapshot;
+      const ctx = createContext(root, { tmux, flags: { detach: true } });
+      const before = stateSnapshot(root);
+      await expect(cmdTalk(ctx, talkRequest('claude', 'must not send'))).rejects.toMatchObject({
+        exitCode: 1,
+      });
+      expect((ctx.ui as TestUI).jsonOutput).toEqual([
+        { error: { code: 'RECONCILIATION_FAILED', message: expect.any(String) } },
+      ]);
+      expect(tmux.sends).toEqual([]);
+      expect(stateSnapshot(root)).toEqual(before);
+    }
+  );
+
   it('sends an exact receipt instruction and returns the durable body without capture', async () => {
     const root = temporaryDirectory('tmt-talk-success-');
     const fixture = requestFixture(createPaths(root).databaseFile);
@@ -328,7 +530,7 @@ describe('cmdTalk durable completion', () => {
         submitFor(fixture.service, attemptFromInstruction(fixture.service, message), body),
     });
     const ctx = createContext(root, { tmux });
-    await cmdTalk(ctx, 'claude', 'Hello!');
+    await cmdTalk(ctx, talkRequest('claude', 'Hello!'));
     const attempt = onlyAttempt(fixture.service);
     expect((ctx.ui as TestUI).jsonOutput).toEqual([
       expect.objectContaining({
@@ -364,7 +566,7 @@ describe('cmdTalk durable completion', () => {
     const fixture = requestFixture(createPaths(root).databaseFile);
     const tmux = createMockTmux();
     const ctx = createContext(root, { tmux, flags: { detach: true } });
-    await cmdTalk(ctx, 'claude', 'Hello');
+    await cmdTalk(ctx, talkRequest('claude', 'Hello'));
     const attempt = onlyAttempt(fixture.service);
     expect((ctx.ui as TestUI).jsonOutput).toEqual([
       expect.objectContaining({
@@ -390,7 +592,7 @@ describe('cmdTalk durable completion', () => {
       tmux: createMockTmux(),
       flags: { detach: true },
     });
-    await cmdTalk(ctx, 'claude', 'Hello');
+    await cmdTalk(ctx, talkRequest('claude', 'Hello'));
     expect(getResponse).not.toHaveBeenCalled();
   });
 
@@ -398,6 +600,7 @@ describe('cmdTalk durable completion', () => {
     const root = temporaryDirectory('tmt-talk-overlap-');
     const fixture = requestFixture(createPaths(root).databaseFile);
     const existing = fixture.service.prepare({
+      message: 'Existing request',
       requestId: 'existing-request',
       endpoint: ENDPOINT,
       wait: true,
@@ -415,7 +618,7 @@ describe('cmdTalk durable completion', () => {
       ui: warningUI,
       flags: { json: false },
     });
-    await cmdTalk(warningCtx, 'claude', 'Hello');
+    await cmdTalk(warningCtx, talkRequest('claude', 'Hello'));
     expect(warningUI.warnings.join('\n')).toContain('existing-request');
 
     const forceUI = createUI();
@@ -428,7 +631,7 @@ describe('cmdTalk durable completion', () => {
       ui: forceUI,
       flags: { json: false, force: true },
     });
-    await cmdTalk(forceCtx, 'claude', 'Hello');
+    await cmdTalk(forceCtx, talkRequest('claude', 'Hello'));
     expect(forceUI.warnings).toEqual([]);
   });
 
@@ -436,6 +639,7 @@ describe('cmdTalk durable completion', () => {
     const root = temporaryDirectory('tmt-talk-overlap-json-');
     const fixture = requestFixture(createPaths(root).databaseFile);
     const existing = fixture.service.prepare({
+      message: 'Existing request',
       requestId: 'existing-json-request',
       endpoint: ENDPOINT,
       wait: true,
@@ -448,7 +652,7 @@ describe('cmdTalk durable completion', () => {
         submitFor(fixture.service, attemptFromInstruction(fixture.service, message), 'ok'),
     });
     const ctx = createContext(root, { tmux, ui, flags: { json: true } });
-    await cmdTalk(ctx, 'claude', 'Hello');
+    await cmdTalk(ctx, talkRequest('claude', 'Hello'));
     expect(ui.warnings).toEqual([]);
     expect(ui.jsonOutput).toHaveLength(1);
   });
@@ -473,7 +677,7 @@ describe('cmdTalk durable completion', () => {
         ui,
         flags: { json: false, ...(detach ? { detach: true } : {}) },
       });
-      await cmdTalk(ctx, 'claude', 'Hello');
+      await cmdTalk(ctx, talkRequest('claude', 'Hello'));
       const requestId = onlyAttempt(fixture.service).requestId;
       expect(ui.info).toHaveBeenCalledWith(expect.stringContaining(requestId));
       expect(ui.info).toHaveBeenCalledWith(expect.stringContaining('result'));
@@ -490,7 +694,7 @@ describe('cmdTalk durable completion', () => {
       flags: { json: false, timeout: 0.01 },
       config: createConfig({ pollInterval: 0.001 }),
     });
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+    await expect(cmdTalk(ctx, talkRequest('claude', 'Hello'))).rejects.toMatchObject({
       exitCode: ExitCodes.TIMEOUT,
     });
     const requestId = onlyAttempt(fixture.service).requestId;
@@ -506,7 +710,7 @@ describe('cmdTalk durable completion', () => {
         submitFor(fixture.service, attemptFromInstruction(fixture.service, message), 'ok'),
     });
     const ctx = createContext(root, { tmux });
-    await cmdTalk(ctx, 'claude', 'Hello');
+    await cmdTalk(ctx, talkRequest('claude', 'Hello'));
     expect(tmux.sends).toHaveLength(1);
     expect(tmux.sends[0]?.pane).toBe('%1');
     expect(tmux.sends[0]?.message).toContain('[SYSTEM: Be concise]');
@@ -534,7 +738,7 @@ describe('cmdTalk durable completion', () => {
         tmux,
         config: createConfig({ preambleEvery: every }),
       });
-      await cmdTalk(ctx, 'claude', `message-${index}`);
+      await cmdTalk(ctx, talkRequest('claude', `message-${index}`));
       expect(tmux.sends[index]?.message.includes('[SYSTEM: Be concise]')).toBe(expected[index]);
     }
     const snapshot = stateSnapshot(root);
@@ -558,7 +762,7 @@ describe('cmdTalk durable completion', () => {
       tmux: namedTmux,
       preambleService: namedPreamble,
     });
-    await cmdTalk(namedCtx, 'Claude', 'Hello');
+    await cmdTalk(namedCtx, talkRequest('Claude', 'Hello'));
     expect(namedPreamble.show).toHaveBeenCalledWith('claude');
     expect(namedTmux.sends[0]?.message).toContain('[SYSTEM: Be concise]');
 
@@ -577,7 +781,7 @@ describe('cmdTalk durable completion', () => {
       tmux: boundTmux,
       preambleService: boundPreamble,
     });
-    await cmdTalk(boundCtx, '%1', 'Hello');
+    await cmdTalk(boundCtx, talkRequest('%1', 'Hello'));
     expect(boundPreamble.show).toHaveBeenCalledWith('claude');
     expect(boundTmux.sends[0]?.message).toContain('[SYSTEM: Be concise]');
 
@@ -596,7 +800,7 @@ describe('cmdTalk durable completion', () => {
       tmux: unboundTmux,
       preambleService: unboundPreamble,
     });
-    await cmdTalk(unboundCtx, '%9', 'Hello');
+    await cmdTalk(unboundCtx, talkRequest('%9', 'Hello'));
     expect(unboundPreamble.show).not.toHaveBeenCalled();
     expect(unboundTmux.sends[0]?.message).not.toContain('[SYSTEM:');
   });
@@ -623,10 +827,13 @@ describe('cmdTalk durable completion', () => {
           ...(variant.preambleMode ? { preambleMode: variant.preambleMode } : {}),
         },
       });
-      await cmdTalk(ctx, 'claude', 'Hello');
+      await cmdTalk(ctx, talkRequest('claude', 'Hello'));
       expect(preambleService.show).not.toHaveBeenCalled();
       expect(stateSnapshot(root).cadence).toEqual([]);
       expect(tmux.sends[0]?.message).toMatch(/^Hello\n\n<tmt-reply>/);
+      const attempt = onlyAttempt(fixture.service);
+      expect(attempt.recipientIdentityId).toBe('identity-claude');
+      expect(attempt.identityId).toBeUndefined();
     }
   });
 
@@ -644,7 +851,7 @@ describe('cmdTalk durable completion', () => {
       flags: { noPreamble: true },
       tmux: createMockTmux(),
     });
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+    await expect(cmdTalk(ctx, talkRequest('claude', 'Hello'))).rejects.toMatchObject({
       exitCode: ExitCodes.ERROR,
     });
     expect(stateSnapshot(root).cadence).toEqual([]);
@@ -659,7 +866,7 @@ describe('cmdTalk durable completion', () => {
         submitFor(fixture.service, attemptFromInstruction(fixture.service, message), 'ok'),
     });
     const ctx = createContext(root, { tmux, flags: { noPreamble: true } });
-    await cmdTalk(ctx, '%9', 'if (!ready) Hello!');
+    await cmdTalk(ctx, talkRequest('%9', 'if (!ready) Hello!'));
     expect(tmux.sends[0]?.message).toContain('if (!ready) Hello!');
   });
 
@@ -677,7 +884,7 @@ describe('cmdTalk durable completion', () => {
         ),
     });
     const ctx = createContext(root, { tmux, flags: { delay: 2, timeout: 1 } });
-    await cmdTalk(ctx, 'claude', 'Hello', {
+    await cmdTalk(ctx, talkRequest('claude', 'Hello'), {
       now: () => clock,
       sleep: async (milliseconds) => {
         sleeps.push(milliseconds);
@@ -705,7 +912,7 @@ describe('cmdTalk durable completion', () => {
       },
     });
 
-    await cmdTalk(ctx, 'claude', 'Hello', {
+    await cmdTalk(ctx, talkRequest('claude', 'Hello'), {
       sleep: async (milliseconds) => {
         sleeps.push(milliseconds);
       },
@@ -726,7 +933,7 @@ describe('cmdTalk durable completion', () => {
       config: createConfig({ pollInterval: 0 }),
     });
 
-    await cmdTalk(ctx, 'claude', 'Detached');
+    await cmdTalk(ctx, talkRequest('claude', 'Detached'));
 
     expect(tmux.sends).toHaveLength(1);
     expect(onlyAttempt(fixture.service).status).toBe('sent');
@@ -767,7 +974,7 @@ describe('cmdTalk durable completion', () => {
       flags,
       config: createConfig(config),
     });
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+    await expect(cmdTalk(ctx, talkRequest('claude', 'Hello'))).rejects.toMatchObject({
       exitCode: ExitCodes.ERROR,
     });
     expect(tmux.sends).toEqual([]);
@@ -787,7 +994,7 @@ describe('cmdTalk durable completion', () => {
     const tmux = createMockTmux();
     const ctx = createContext(root, { tmux, requestService: service });
     const before = stateSnapshot(root);
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+    await expect(cmdTalk(ctx, talkRequest('claude', 'Hello'))).rejects.toMatchObject({
       exitCode: ExitCodes.ERROR,
     });
     expect(tmux.sends).toHaveLength(0);
@@ -808,7 +1015,7 @@ describe('cmdTalk durable completion', () => {
       throw new TmuxDeliveryError('paste');
     });
     const ctx = createContext(root, { tmux });
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+    await expect(cmdTalk(ctx, talkRequest('claude', 'Hello'))).rejects.toMatchObject({
       exitCode: ExitCodes.ERROR,
     });
     expect(tmux.send).toHaveBeenCalledTimes(1);
@@ -831,7 +1038,7 @@ describe('cmdTalk durable completion', () => {
       flags: { timeout: 0.01 },
       config: createConfig({ pollInterval: 0.001 }),
     });
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+    await expect(cmdTalk(ctx, talkRequest('claude', 'Hello'))).rejects.toMatchObject({
       exitCode: ExitCodes.TIMEOUT,
     });
     const timeout = (ctx.ui as TestUI).jsonOutput[0] as Record<string, unknown>;
@@ -862,7 +1069,7 @@ describe('cmdTalk durable completion', () => {
     const listenersBefore = process.listenerCount('SIGINT');
     try {
       await expect(
-        cmdTalk(ctx, 'claude', 'Hello', {
+        cmdTalk(ctx, talkRequest('claude', 'Hello'), {
           now: () => 50_000,
           sleep: async () => {
             if (!interrupted) {
@@ -900,7 +1107,7 @@ describe('cmdTalk durable completion', () => {
       flags: { timeout: 0.01 },
       config: createConfig({ pollInterval: 0.001 }),
     });
-    const promise = cmdTalk(ctx, 'claude', 'Hello', {
+    const promise = cmdTalk(ctx, talkRequest('claude', 'Hello'), {
       now: () => clock,
       sleep: async () => {
         clock = 1_010;
@@ -925,7 +1132,7 @@ describe('cmdTalk durable completion', () => {
       config: createConfig({ pollInterval: 10 }),
     });
     try {
-      const pending = cmdTalk(ctx, 'claude', 'Hello');
+      const pending = cmdTalk(ctx, talkRequest('claude', 'Hello'));
       await Promise.resolve();
       expect(vi.getTimerCount()).toBeGreaterThan(0);
       process.emit('SIGINT');
@@ -952,7 +1159,10 @@ describe('cmdTalk durable completion', () => {
       config: createConfig({ pollInterval: 0.001 }),
     });
     await expect(
-      cmdTalk(ctx, 'claude', 'Hello', { now: () => clock, sleep: async () => undefined })
+      cmdTalk(ctx, talkRequest('claude', 'Hello'), {
+        now: () => clock,
+        sleep: async () => undefined,
+      })
     ).rejects.toMatchObject({ exitCode: ExitCodes.TIMEOUT });
     expect(tmux.captureCalls).toBe(0);
     expect(onlyAttempt(fixture.service).waitActive).toBe(false);
@@ -972,7 +1182,7 @@ describe('cmdTalk durable completion', () => {
     });
     const ctx = createContext(root, { tmux, requestService: service });
 
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+    await expect(cmdTalk(ctx, talkRequest('claude', 'Hello'))).rejects.toMatchObject({
       exitCode: ExitCodes.ERROR,
     });
     const attempt = onlyAttempt(fixture.service);
@@ -1009,7 +1219,7 @@ describe('cmdTalk durable completion', () => {
       config: createConfig({ pollInterval: 0.001 }),
     });
 
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+    await expect(cmdTalk(ctx, talkRequest('claude', 'Hello'))).rejects.toMatchObject({
       exitCode: ExitCodes.ERROR,
     });
     const attempt = onlyAttempt(fixture.service);
@@ -1039,7 +1249,7 @@ describe('cmdTalk durable completion', () => {
     });
     const ctx = createContext(root, { tmux, requestService: service });
 
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+    await expect(cmdTalk(ctx, talkRequest('claude', 'Hello'))).rejects.toMatchObject({
       exitCode: ExitCodes.ERROR,
     });
     const attempt = onlyAttempt(fixture.service);
@@ -1076,7 +1286,7 @@ describe('cmdTalk durable completion', () => {
       config: createConfig({ pollInterval: 0.001 }),
     });
     await expect(
-      cmdTalk(ctx, 'claude', 'Hello', {
+      cmdTalk(ctx, talkRequest('claude', 'Hello'), {
         now: () => clock,
         sleep: async () => undefined,
       })
@@ -1099,7 +1309,7 @@ describe('cmdTalk durable completion', () => {
     const tmux = createMockTmux();
     const ctx = createContext(root, { tmux, requestService: service });
     const before = stateSnapshot(root);
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+    await expect(cmdTalk(ctx, talkRequest('claude', 'Hello'))).rejects.toMatchObject({
       exitCode: ExitCodes.ERROR,
     });
     expect(tmux.sends).toHaveLength(0);
@@ -1114,7 +1324,7 @@ describe('cmdTalk durable completion', () => {
     const uuid = vi.spyOn(crypto, 'randomUUID').mockReturnValue(requestId);
     const ctx = createContext(root, { tmux });
     try {
-      await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+      await expect(cmdTalk(ctx, talkRequest('claude', 'Hello'))).rejects.toMatchObject({
         exitCode: ExitCodes.ERROR,
       });
       expect(tmux.sends).toHaveLength(0);
@@ -1132,6 +1342,7 @@ describe('cmdTalk durable completion', () => {
     const root = temporaryDirectory('tmt-talk-cleanup-');
     const fixture = requestFixture(createPaths(root).databaseFile);
     const prepared = fixture.service.prepare({
+      message: 'Existing request',
       requestId: 'other-request',
       endpoint: ENDPOINT,
       wait: true,
@@ -1143,7 +1354,7 @@ describe('cmdTalk durable completion', () => {
       throw new Error('unexpected send failure');
     });
     const ctx = createContext(root, { tmux });
-    await expect(cmdTalk(ctx, 'claude', 'Hello')).rejects.toMatchObject({
+    await expect(cmdTalk(ctx, talkRequest('claude', 'Hello'))).rejects.toMatchObject({
       exitCode: ExitCodes.ERROR,
     });
     expect(fixture.service.getAttempt(prepared.attemptId)?.waitActive).toBe(true);

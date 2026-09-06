@@ -30,6 +30,7 @@ function context(json = false): Context {
     bindPane: vi.fn(() => identity()),
     unbindCurrent: vi.fn(),
     currentIdentity: vi.fn(),
+    resolveIdentity: vi.fn(),
     activeIdentities: vi.fn(() => []),
     resolveActive: vi.fn(),
     reconcile: vi.fn(),

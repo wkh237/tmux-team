@@ -5,6 +5,11 @@ import {
   type ValidatedResponseBody,
 } from './domain/response.js';
 import {
+  RequestInputError,
+  validateRequestMessage,
+  type ValidatedRequestMessage,
+} from './domain/request-content.js';
+import {
   addExchangeRetentionMs,
   assertExchangeRetentionDays,
   DEFAULT_EXCHANGE_RETENTION_DAYS,
@@ -25,6 +30,10 @@ export type RequestSettlement = Extract<
   'sent' | 'uncertain' | 'definitely_failed'
 >;
 
+export type RequestOriginator =
+  | { readonly kind: 'unknown' }
+  | { readonly kind: 'explicit' | 'verified'; readonly identityId: string };
+
 /** The endpoint instance a request was prepared for. Pane IDs are not enough: they can be reused. */
 export interface RequestEndpoint {
   readonly serverId: string;
@@ -38,6 +47,8 @@ export interface RequestEndpoint {
 export interface RequestAttemptRecord extends RequestEndpoint {
   readonly attemptId: string;
   readonly requestId: string;
+  readonly originator: RequestOriginator;
+  readonly recipientIdentityId?: string;
   readonly nonce?: string;
   readonly identityId?: string;
   readonly waitActive: boolean;
@@ -78,14 +89,45 @@ export interface RequestResponseRecord {
 
 export interface RequestPreparationInput {
   readonly requestId: string;
+  readonly message: string;
   readonly nonce?: string;
   readonly endpoint: RequestEndpoint;
   readonly wait: boolean;
   readonly expiresAtMs: number;
+  readonly originator?: RequestOriginator;
+  readonly recipientIdentityId?: string;
   readonly preamble?: {
     readonly identityId: string;
     readonly every: number;
   };
+}
+
+export type RequestPrompt =
+  | {
+      readonly status: 'retained';
+      readonly message: string;
+      readonly messageBytes: number;
+      readonly expiresAtMs: number;
+    }
+  | { readonly status: 'expired'; readonly expiresAtMs: number }
+  | { readonly status: 'unavailable' };
+
+export interface RequestContext {
+  readonly attempt: RequestAttemptRecord;
+  readonly prompt: RequestPrompt;
+}
+
+export interface RequestPromptStorage {
+  readonly message: string;
+  readonly messageBytes: number;
+  readonly expiresAtMs: number;
+}
+
+export interface RawRequestContext {
+  readonly attempt: RequestAttemptRecord;
+  readonly promptMessage?: string;
+  readonly promptMessageBytes?: number;
+  readonly promptExpiresAtMs?: number;
 }
 
 export interface RequestPreparation {
@@ -97,9 +139,10 @@ export interface RequestPreparation {
 
 export interface RequestRepository {
   withImmediateTransaction<T>(operation: () => T): T;
-  createAttempt(attempt: RequestAttemptRecord): void;
+  createAttempt(attempt: RequestAttemptRecord, prompt?: RequestPromptStorage): void;
   findAttempt(attemptId: string): RequestAttemptRecord | undefined;
   findAttemptByRequestId(requestId: string): RequestAttemptRecord | undefined;
+  findRequestContext(requestId: string): RawRequestContext | undefined;
   findResponse(requestId: string): RequestResponseRecord | undefined;
   /** Must run inside the caller's immediate transaction with marker insertion. */
   createResponse(response: RequestResponseRecord): void;
@@ -118,6 +161,7 @@ export interface RequestRepository {
   setPreambleCount(identityId: string, count: number, nowMs: number): void;
   deleteRetained(nowMs: number, limit: number): void;
   deleteRetainedResponses(nowMs: number, limit: number): void;
+  clearExpiredPrompts(nowMs: number, limit: number): void;
   listExpiredAttempts(nowMs: number, limit: number): RequestAttemptRecord[];
   listAttempts(): RequestAttemptRecord[];
 }
@@ -132,6 +176,7 @@ export interface RequestService {
   listAttempts(): RequestAttemptRecord[];
   submitResponse(input: RequestResponseSubmission): RequestResponseRecord;
   getResponse(requestId: string): RequestResponseRecord | undefined;
+  getRequestContext(requestId: string): RequestContext | undefined;
 }
 
 export const REQUEST_RETENTION_MS = EXCHANGE_METADATA_SETTLEMENT_FLOOR_MS;
@@ -228,16 +273,47 @@ function addMilliseconds(value: number, delta: number, label: string): number {
   return value + delta;
 }
 
-function validatePreparation(input: RequestPreparationInput): void {
+function validateOriginator(originator: RequestOriginator | undefined): void {
+  if (originator === undefined) return;
+  if (!originator || typeof originator !== 'object') {
+    throw new RequestInputError('REQUEST_INPUT_INVALID', 'Request originator is invalid.');
+  }
+  if (originator.kind === 'unknown') {
+    if ('identityId' in originator && originator.identityId !== undefined) {
+      throw new RequestInputError(
+        'REQUEST_INPUT_INVALID',
+        'Unknown request originators cannot include an identity ID.'
+      );
+    }
+    return;
+  }
+  if (originator.kind !== 'explicit' && originator.kind !== 'verified') {
+    throw new RequestInputError('REQUEST_INPUT_INVALID', 'Request originator is invalid.');
+  }
+  if (typeof originator.identityId !== 'string' || originator.identityId.length === 0) {
+    throw new RequestInputError(
+      'REQUEST_INPUT_INVALID',
+      'Selected request originators require an identity ID.'
+    );
+  }
+}
+
+function validatePreparation(input: RequestPreparationInput): ValidatedRequestMessage {
   assertString(input.requestId, 'requestId');
+  const message = validateRequestMessage(input.message);
   if (input.nonce !== undefined) assertString(input.nonce, 'nonce');
   validateEndpoint(input.endpoint);
   if (typeof input.wait !== 'boolean') throw new Error('wait must be boolean.');
   assertPositiveInteger(input.expiresAtMs, 'expiresAtMs');
+  validateOriginator(input.originator);
+  if (input.recipientIdentityId !== undefined) {
+    assertString(input.recipientIdentityId, 'recipientIdentityId');
+  }
   if (input.preamble) {
     assertString(input.preamble.identityId, 'preamble.identityId');
     assertPositiveInteger(input.preamble.every, 'preamble.every');
   }
+  return message;
 }
 
 function makeAttemptId(): string {
@@ -322,6 +398,7 @@ export function createRequestService(options: {
         );
       }
     }
+    repository.clearExpiredPrompts(currentMs, CLEANUP_BATCH_SIZE);
     repository.deleteRetainedResponses(currentMs, CLEANUP_BATCH_SIZE);
     repository.deleteRetained(currentMs, CLEANUP_BATCH_SIZE);
   };
@@ -335,7 +412,7 @@ export function createRequestService(options: {
 
   return {
     prepare(input) {
-      validatePreparation(input);
+      const validatedMessage = validatePreparation(input);
       const retentionDays = getRetentionDays();
       assertExchangeRetentionDays(retentionDays);
       const attemptId = makeAttemptId();
@@ -344,8 +421,9 @@ export function createRequestService(options: {
         const currentMs = readNow();
         const minimumExpiry = addMilliseconds(currentMs, REQUEST_MIN_EXPIRY_MS, 'minimum expiry');
         const expiresAtMs = Math.max(input.expiresAtMs, minimumExpiry);
+        const messageExpiresAtMs = addExchangeRetentionMs(currentMs, retentionDays);
         const retentionExpiresAtMs = Math.max(
-          addExchangeRetentionMs(currentMs, retentionDays),
+          messageExpiresAtMs,
           addMilliseconds(currentMs, RESPONSE_ACCEPTANCE_WINDOW_MS, 'response acceptance deadline'),
           addMilliseconds(expiresAtMs, REQUEST_RETENTION_MS, 'settlement retention floor')
         );
@@ -367,22 +445,31 @@ export function createRequestService(options: {
           cadenceReserved = true;
         }
 
-        repository.createAttempt({
-          attemptId,
-          requestId: input.requestId,
-          ...(input.nonce !== undefined && { nonce: input.nonce }),
-          ...input.endpoint,
-          ...(input.preamble && { identityId: input.preamble.identityId }),
-          waitActive: input.wait,
-          status: 'prepared',
-          ...(input.preamble && { preambleEvery: input.preamble.every }),
-          injectPreamble,
-          cadenceReserved,
-          preparedAtMs: currentMs,
-          expiresAtMs,
-          retentionDays,
-          retentionExpiresAtMs,
-        });
+        repository.createAttempt(
+          {
+            attemptId,
+            requestId: input.requestId,
+            originator: input.originator ?? { kind: 'unknown' },
+            ...(input.recipientIdentityId && { recipientIdentityId: input.recipientIdentityId }),
+            ...(input.nonce !== undefined && { nonce: input.nonce }),
+            ...input.endpoint,
+            ...(input.preamble && { identityId: input.preamble.identityId }),
+            waitActive: input.wait,
+            status: 'prepared',
+            ...(input.preamble && { preambleEvery: input.preamble.every }),
+            injectPreamble,
+            cadenceReserved,
+            preparedAtMs: currentMs,
+            expiresAtMs,
+            retentionDays,
+            retentionExpiresAtMs,
+          },
+          {
+            message: validatedMessage.message,
+            messageBytes: validatedMessage.messageBytes,
+            expiresAtMs: messageExpiresAtMs,
+          }
+        );
 
         return {
           attemptId,
@@ -617,6 +704,36 @@ export function createRequestService(options: {
       return readWithCleanup((currentMs) => {
         const response = repository.findResponse(requestId);
         return response && !isResponseExpired(response, currentMs) ? response : undefined;
+      });
+    },
+
+    getRequestContext(requestId) {
+      assertString(requestId, 'requestId');
+      return readWithCleanup((currentMs): RequestContext | undefined => {
+        const raw = repository.findRequestContext(requestId);
+        if (!raw || currentMs >= raw.attempt.retentionExpiresAtMs) return undefined;
+        const expiresAtMs = raw.promptExpiresAtMs;
+        if (expiresAtMs === undefined) {
+          return { attempt: raw.attempt, prompt: { status: 'unavailable' } };
+        }
+        // The expiry marker survives physical scrubbing. A subsequent clock
+        // rollback cannot turn a deleted prompt into historical unknown data.
+        if (
+          currentMs >= expiresAtMs ||
+          raw.promptMessage === undefined ||
+          raw.promptMessageBytes === undefined
+        ) {
+          return { attempt: raw.attempt, prompt: { status: 'expired', expiresAtMs } };
+        }
+        return {
+          attempt: raw.attempt,
+          prompt: {
+            status: 'retained',
+            message: raw.promptMessage,
+            messageBytes: raw.promptMessageBytes,
+            expiresAtMs,
+          },
+        };
       });
     },
   };

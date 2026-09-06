@@ -77,7 +77,11 @@ describe('application dispatcher', () => {
     await dispatchCommand(ctx, parsed({ kind: 'learn', skill: true }));
     expect(handlers.cmdInit).toHaveBeenCalledWith(ctx);
     expect(handlers.cmdList).toHaveBeenCalledWith(ctx, 'claude');
-    expect(handlers.cmdTalk).toHaveBeenCalledWith(ctx, 'claude', 'hello');
+    expect(handlers.cmdTalk).toHaveBeenCalledWith(ctx, {
+      kind: 'talk',
+      target,
+      message: 'hello',
+    });
     expect(handlers.cmdCheck).toHaveBeenCalledWith(ctx, 'claude', 20);
     expect(handlers.cmdConfig).toHaveBeenCalledWith(
       ctx,
@@ -100,6 +104,19 @@ describe('application dispatcher', () => {
       expect.objectContaining({ kind: 'result', requestId: 'request-1' })
     );
     expect(handlers.cmdLearn).toHaveBeenLastCalledWith(true);
+  });
+
+  it('passes the separate explicit originator through without flattening the talk request', async () => {
+    const ctx = {} as Context;
+    const request = {
+      kind: 'talk' as const,
+      target: { value: 'recipient', kind: 'identity' as const },
+      message: 'original message',
+      originator: { value: 'originator', kind: 'identity' as const, explicit: true },
+    };
+    await dispatchCommand(ctx, parsed(request));
+    expect(handlers.cmdTalk).toHaveBeenCalledOnce();
+    expect(handlers.cmdTalk).toHaveBeenCalledWith(ctx, request);
   });
 
   it('does not route presentation-only invocations to application services', async () => {

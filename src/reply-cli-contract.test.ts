@@ -56,6 +56,7 @@ function seedAttempt(sandbox: Sandbox, requestId: string, options: SeedOptions =
     });
     const prepared = service.prepare({
       requestId,
+      message: `message for ${requestId}`,
       endpoint,
       wait: options.wait ?? false,
       expiresAtMs: options.expired ? now + 1 : now + 60 * 60 * 1000,
@@ -584,10 +585,23 @@ describe('real reply/result CLI process contract', () => {
           repository.close();
         }
         const before = stateSnapshot(sandbox, seeded.requestId);
+        expect(before.attempt).toMatchObject({
+          message_text: `message for ${seeded.requestId}`,
+        });
         const result = await runCli(sandbox, ['result', seeded.requestId, '--json']);
         expect(result.status).toBe(3);
         expectError(result, 'RESPONSE_NOT_AVAILABLE');
         expect(result.stdout).not.toContain('retained but expired');
+        const afterResult = stateSnapshot(sandbox, seeded.requestId);
+        expect(afterResult).toEqual({
+          ...before,
+          attempt: {
+            ...(before.attempt as Record<string, unknown>),
+            message_text: null,
+            message_bytes: null,
+          },
+          response: undefined,
+        });
         const retry = await runCli(
           sandbox,
           ['reply', seeded.requestId, '--receipt', seeded.receipt, '--stdin', '--json'],
@@ -596,7 +610,7 @@ describe('real reply/result CLI process contract', () => {
         expect(retry.status).toBe(1);
         expectError(retry, 'RESPONSE_EXPIRED');
         expect(stateSnapshot(sandbox, seeded.requestId)).toEqual({
-          ...before,
+          ...afterResult,
           response: undefined,
         });
       })

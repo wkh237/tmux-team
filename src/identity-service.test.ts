@@ -3,8 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createIdentityService, identityAwareTmux } from './identity-service.js';
-import { IdentityServiceError } from './identity-service.js';
+import {
+  assertTargetIdentityEvidence,
+  createIdentityService,
+  identityAwareTmux,
+  IdentityServiceError,
+} from './identity-service.js';
 import { openIdentityRepository } from './storage/identity-repository.js';
 import type { DurableIdentity, TmuxBinding } from './domain/identity.js';
 import type { PaneInfo, Paths, Tmux, TmuxEndpointSnapshot } from './types.js';
@@ -185,6 +189,55 @@ describe('durable identity service', () => {
     expect(resolvePaneTarget).not.toHaveBeenCalled();
   });
 
+  it('resolves explicit durable identities without consulting tmux', () => {
+    const test = fixture();
+    const service = createTestService(test);
+    const identity = service.bindCurrent('explicit');
+    const currentPane = vi.spyOn(test.tmux, 'getCurrentPaneId');
+    const snapshot = vi.spyOn(test.tmux, 'getEndpointSnapshot');
+
+    expect(
+      service.resolveIdentity({ value: ' EXPLICIT ', kind: 'identity', explicit: true })
+    ).toEqual({ status: 'bound', identity });
+    expect(service.resolveIdentity({ value: 'missing', kind: 'identity', explicit: true })).toEqual(
+      { status: 'not-found' }
+    );
+    expect(currentPane).not.toHaveBeenCalled();
+    expect(snapshot).not.toHaveBeenCalled();
+  });
+
+  it('requires an implicit identity when the caller has no verified binding', () => {
+    const test = fixture();
+    test.tmux.getCurrentPaneId = () => null;
+    const service = createTestService(test);
+
+    expect(service.resolveIdentity()).toEqual({ status: 'required' });
+  });
+
+  it('fails closed for ambiguous implicit identity evidence', () => {
+    const test = fixture();
+    const base = openIdentityRepository(test.paths.databaseFile);
+    repositories.push(base);
+    const service = createIdentityService({ tmux: test.tmux, repository: base });
+    service.bindCurrent('ambiguous');
+    const ambiguousRepository = {
+      ...base,
+      findBindings: () => {
+        const bindings = base.findBindings();
+        return [...bindings, ...bindings];
+      },
+    };
+    const ambiguousService = createIdentityService({
+      tmux: test.tmux,
+      repository: ambiguousRepository,
+    });
+
+    expect(ambiguousService.resolveIdentity()).toEqual({ status: 'ambiguous' });
+    expect(() => ambiguousService.currentIdentity()).toThrow(
+      expect.objectContaining({ code: 'IDENTITY_AMBIGUOUS' })
+    );
+  });
+
   it('creates one durable identity and a verified transient binding', () => {
     const test = fixture();
     const service = createTestService(test);
@@ -195,12 +248,65 @@ describe('durable identity service', () => {
       identity: { id: first.id, name: 'Ｇｅｍｉｎｉ' },
     });
     expect(identityAwareTmux(test.tmux, service).listGlobalIdentities()).toEqual([
-      { name: 'Ｇｅｍｉｎｉ', canonicalName: 'gemini', paneId: '%1' },
+      expect.objectContaining({ name: 'Ｇｅｍｉｎｉ', canonicalName: 'gemini', paneId: '%1' }),
     ]);
     const repository = openIdentityRepository(test.paths.databaseFile);
     expect(repository.listIdentities()).toHaveLength(1);
     expect(repository.findBindings()).toHaveLength(1);
     repository.close();
+  });
+
+  it('asserts target identity evidence against a fresh endpoint snapshot', () => {
+    const test = fixture();
+    const service = createTestService(test);
+    const identity = service.bindCurrent('evidence');
+    const runtime = identityAwareTmux(test.tmux, service);
+    const target = runtime.listGlobalIdentities()[0];
+    const snapshot = test.tmux.getEndpointSnapshot!();
+    const evidence = target?.evidence;
+    if (!target || !evidence) throw new Error('Expected target identity evidence.');
+
+    expect(() => assertTargetIdentityEvidence(target, snapshot)).not.toThrow();
+    expect(() =>
+      assertTargetIdentityEvidence({ ...target, evidence: undefined }, snapshot)
+    ).toThrow(expect.objectContaining({ code: 'RECONCILIATION_FAILED' }));
+    const mismatches: Array<[string, TmuxEndpointSnapshot]> = [
+      ['server ID', { ...snapshot, server: { ...snapshot.server, serverId: 'server-other' } }],
+      ['socket path', { ...snapshot, server: { ...snapshot.server, socketPath: '/tmp/other' } }],
+      [
+        'server PID',
+        { ...snapshot, server: { ...snapshot.server, serverPid: snapshot.server.serverPid + 1 } },
+      ],
+      [
+        'server start time',
+        { ...snapshot, server: { ...snapshot.server, serverStartTime: 'start-other' } },
+      ],
+      [
+        'pane PID',
+        {
+          ...snapshot,
+          panes: snapshot.panes.map((pane) =>
+            pane.id === target.paneId ? { ...pane, panePid: (pane.panePid ?? 0) + 1 } : pane
+          ),
+        },
+      ],
+      ['rebound pane', { ...snapshot, panes: [{ ...test.pane, id: '%2' }] }],
+      [
+        'durable marker',
+        {
+          ...snapshot,
+          panes: snapshot.panes.map((pane) =>
+            pane.id === target.paneId ? { ...pane, metadata: undefined } : pane
+          ),
+        },
+      ],
+    ];
+    for (const [label, mismatch] of mismatches) {
+      expect(() => assertTargetIdentityEvidence(target, mismatch), label).toThrow(
+        expect.objectContaining({ code: 'RECONCILIATION_FAILED' })
+      );
+    }
+    expect(evidence.identity).toEqual(identity);
   });
 
   it('does not let reconciliation delete a binding while metadata is publishing', () => {

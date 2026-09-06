@@ -2,7 +2,9 @@ import type Database from 'better-sqlite3';
 import { EXCHANGE_METADATA_SETTLEMENT_FLOOR_MS } from '../domain/exchange-retention.js';
 import type {
   RequestAttemptRecord,
+  RawRequestContext,
   RequestEndpoint,
+  RequestPromptStorage,
   RequestResponseRecord,
   RequestRepository,
 } from '../request-service.js';
@@ -12,6 +14,9 @@ type SqliteDatabase = Database.Database;
 type AttemptRow = {
   attempt_id: string;
   request_id: string;
+  originator_kind: 'unknown' | 'explicit' | 'verified';
+  originator_identity_id: string | null;
+  recipient_identity_id: string | null;
   nonce: string | null;
   identity_id: string | null;
   server_id: string;
@@ -35,6 +40,12 @@ type AttemptRow = {
   retention_expires_at_ms: number;
 };
 
+type RequestContextRow = AttemptRow & {
+  message_text: string | null;
+  message_bytes: number | null;
+  message_expires_at_ms: number | null;
+};
+
 type ResponseRow = {
   request_id: string;
   attempt_id: string;
@@ -51,7 +62,8 @@ type ResponseRow = {
 };
 
 const ATTEMPT_COLUMNS = `
-  attempt_id, request_id, nonce, identity_id, server_id, socket_path, server_pid,
+  attempt_id, request_id, originator_kind, originator_identity_id, recipient_identity_id,
+  nonce, identity_id, server_id, socket_path, server_pid,
   server_start_time, pane_id, pane_pid, wait_active, status, preamble_every,
   inject_preamble, cadence_reserved, prepared_at_ms, sending_at_ms, settled_at_ms,
   wait_released_at_ms, response_submitted_at_ms, expires_at_ms, retention_days,
@@ -67,6 +79,11 @@ function mapAttempt(row: AttemptRow): RequestAttemptRecord {
   return {
     attemptId: row.attempt_id,
     requestId: row.request_id,
+    originator:
+      row.originator_kind === 'unknown'
+        ? { kind: 'unknown' }
+        : { kind: row.originator_kind, identityId: row.originator_identity_id! },
+    ...(row.recipient_identity_id !== null && { recipientIdentityId: row.recipient_identity_id }),
     ...(row.nonce !== null && { nonce: row.nonce }),
     ...(row.identity_id !== null && { identityId: row.identity_id }),
     serverId: row.server_id,
@@ -154,24 +171,42 @@ function getResponse(database: SqliteDatabase, requestId: string): ResponseRow |
     .get(requestId) as ResponseRow | undefined;
 }
 
+function mapRequestContext(row: RequestContextRow): RawRequestContext {
+  return {
+    attempt: mapAttempt(row),
+    ...(row.message_text !== null && { promptMessage: row.message_text }),
+    ...(row.message_bytes !== null && { promptMessageBytes: row.message_bytes }),
+    ...(row.message_expires_at_ms !== null && { promptExpiresAtMs: row.message_expires_at_ms }),
+  };
+}
+
 export function createRequestRepository(
   requireOpen: () => SqliteDatabase
 ): Omit<RequestRepository, 'withImmediateTransaction'> {
   return {
-    createAttempt(attempt) {
+    createAttempt(attempt, prompt?: RequestPromptStorage) {
       requireOpen()
         .prepare(
           `INSERT INTO request_attempts (
-             attempt_id, request_id, nonce, identity_id, server_id, socket_path, server_pid,
+             attempt_id, request_id, originator_kind, originator_identity_id, recipient_identity_id,
+             nonce, identity_id, server_id, socket_path, server_pid,
              server_start_time, pane_id, pane_pid, wait_active, status, preamble_every,
              inject_preamble, cadence_reserved, prepared_at_ms, sending_at_ms, settled_at_ms,
              wait_released_at_ms, response_submitted_at_ms, expires_at_ms, retention_days,
-             retention_expires_at_ms
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+             retention_expires_at_ms, message_text, message_bytes, message_expires_at_ms
+           ) VALUES (
+             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+             ?, ?, ?, ?, ?, ?, ?,
+             ?, ?
+           )`
         )
         .run(
           attempt.attemptId,
           attempt.requestId,
+          attempt.originator.kind,
+          attempt.originator.kind === 'unknown' ? null : attempt.originator.identityId,
+          attempt.recipientIdentityId ?? null,
           attempt.nonce ?? null,
           attempt.identityId ?? null,
           attempt.serverId,
@@ -192,7 +227,10 @@ export function createRequestRepository(
           attempt.responseSubmittedAtMs ?? null,
           attempt.expiresAtMs,
           attempt.retentionDays,
-          attempt.retentionExpiresAtMs
+          attempt.retentionExpiresAtMs,
+          prompt?.message ?? null,
+          prompt?.messageBytes ?? null,
+          prompt?.expiresAtMs ?? null
         );
     },
 
@@ -206,6 +244,16 @@ export function createRequestRepository(
         .prepare(`SELECT ${ATTEMPT_COLUMNS} FROM request_attempts WHERE request_id = ?`)
         .get(requestId) as AttemptRow | undefined;
       return row ? mapAttempt(row) : undefined;
+    },
+
+    findRequestContext(requestId) {
+      const row = requireOpen()
+        .prepare(
+          `SELECT ${ATTEMPT_COLUMNS}, message_text, message_bytes, message_expires_at_ms
+           FROM request_attempts WHERE request_id = ?`
+        )
+        .get(requestId) as RequestContextRow | undefined;
+      return row ? mapRequestContext(row) : undefined;
     },
 
     findResponse(requestId) {
@@ -380,6 +428,25 @@ export function createRequestRepository(
              SELECT request_id FROM request_responses
              WHERE response_expires_at_ms <= ?
              ORDER BY response_expires_at_ms, request_id
+             LIMIT ?
+           )`
+        )
+        .run(nowMs, checkedBatchLimit);
+    },
+
+    clearExpiredPrompts(nowMs, limit) {
+      const checkedBatchLimit = checkedLimit(limit);
+      if (!Number.isSafeInteger(nowMs) || nowMs <= 0) {
+        throw new Error('Prompt retention cutoff is outside the supported range.');
+      }
+      requireOpen()
+        .prepare(
+          `UPDATE request_attempts
+           SET message_text = NULL, message_bytes = NULL
+           WHERE attempt_id IN (
+             SELECT attempt_id FROM request_attempts
+             WHERE message_text IS NOT NULL AND message_expires_at_ms <= ?
+             ORDER BY message_expires_at_ms, attempt_id
              LIMIT ?
            )`
         )

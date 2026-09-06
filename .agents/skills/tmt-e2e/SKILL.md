@@ -22,6 +22,7 @@ Do not optimize for a passing suite or a larger test count. Every scenario must 
 - Cover distinct boundaries and failure modes instead of repeating equivalent happy paths.
 - Exercise the subject under test rather than recreating its logic in the harness. Mock agents are allowed because they are deterministic peers; `tmt` and tmux themselves stay real.
 - Assert causal output and durable state. Terminal-echoed input is not proof that a mock agent processed a request; wait for agent-produced output and corroborate it with the structured event log or metadata.
+- Keep observation independent of the action being scheduled. Request-service reads can trigger housekeeping; use read-only SQL/repository snapshots when proving cleanup ordering, expiry, or state preservation. Compare original stored messages separately from composed/protected transport text.
 - Include negative paths for exit-code propagation, invalid operations, timeouts, partial startup, and thrown scenario errors when those risks are relevant.
 - Use bounded polling for observable state changes. Do not use fixed sleeps to hide races or make a flaky scenario appear stable.
 - Verify state preservation after failed operations and verify cleanup with observable absence, not only by calling a cleanup function.

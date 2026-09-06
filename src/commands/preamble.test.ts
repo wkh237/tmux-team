@@ -61,6 +61,7 @@ function createContext(service: PreambleService, flags: Partial<Context['flags']
       bindPane: vi.fn(),
       unbindCurrent: vi.fn(),
       currentIdentity: vi.fn(),
+      resolveIdentity: vi.fn(),
       activeIdentities: vi.fn(() => []),
       resolveActive: vi.fn(),
       reconcile: vi.fn(),

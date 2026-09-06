@@ -68,11 +68,12 @@ acceptance deadline and attempt-expiry-plus-24-hour settlement floor. An actual
 nonexpired settlement protects its own floor; first final submission extends
 metadata through that body's expiry. Reads, housekeeping, waiter release and
 identical retries do not renew retention. Metadata cannot be pruned ahead of a
-retained final or still-eligible reply. No prompts or attention are stored yet.
+retained final or still-eligible reply. TMT-55 retains original prompts and
+provenance as described below; attention remains unshipped.
 
 Service-owned request/result reads apply logical expiry independently of physical
 cleanup. Opportunistic cleanup uses deterministic limited batches in a short
-transaction: up to 100 expired-attempt transitions, 100 final deletions and 100
+transaction: up to 100 expired-attempt transitions, 100 prompt scrubs, 100 final deletions and 100
 metadata deletions. Batch failure rolls back and propagates through the existing
 error boundary. Repeated invocations drain backlog; no invocation means no
 scheduled deletion. Deadlines are fixed UTC wall-clock values. Clock rollback
@@ -179,11 +180,11 @@ serialization, exactly-once processing, inbox and remote authentication are
 still outside scope. User-installed skills teach full submission first, then
 a truthful work/tests/blockers summary; failed submission is never success.
 
-## Future TMT Exchange direction (unshipped)
+## TMT Exchange foundation and future attention direction
 
 This section is the canonical future design direction for a TMT Exchange (X).
-TMT-54's retention foundation is implemented as described above; provenance,
-prompt storage and attention below remain unshipped. The current `talk`,
+TMT-54's retention foundation and TMT-55's provenance/original context are
+implemented; identity-scoped attention below remains unshipped. The current `talk`,
 `reply`, `result`, and diagnostic `check`
 contracts above remain authoritative until bounded implementation issues land.
 
@@ -206,20 +207,51 @@ conflicting body remains a conflict. A late accepted reply can create the final
 body or reopen an unacknowledged attention revision; it never overwrites an
 existing final body.
 
-The proposed record needs explicit provenance for its originator/sender,
-recipient, request, attempts, final reply, and bounded acknowledgement state. Current
-attempt rows do not retain the prompt or sender identity: `identity_id` is
-currently target preamble/cadence state, while `talk`'s `identity` field is
-recipient presentation. Future implementation must not guess either value from
-a pane, name, receipt, or old file. The exact original prompt, whether it is
-retained at all, its byte limits, privacy/redaction rules, and its retention
-period are pre-code design gates. Existing migrations remain provenance; no
-guessed backfill is allowed. Anonymous existing `talk` and `result` flows must
-continue to work. Proposed `x` commands select the originator's data with
+Migration 7 adds independent originator selection kind (unknown, explicit or
+verified), optional originator UUID and recipient UUID. Existing `identity_id`
+remains target preamble/cadence state, while public `talk.identity` remains
+recipient presentation. Historical rows keep unknown provenance and NULL
+original context; no pane, cadence, name, receipt or old-file backfill occurs.
+
+New preparation requires exact original message text, before preamble, receipt
+instruction or `!` protection. The existing service validates well-formed Unicode
+and a 1,048,576 UTF-8 byte inclusive limit through a primitive shared with response
+validation. Empty, BOM, CR/LF, NUL and Unicode are preserved, without role/preamble
+normalization. Request wrappers retain `REQUEST_INPUT_INVALID` and
+`REQUEST_INPUT_TOO_LARGE` (exit 1). CLI argument limits still apply; no talk
+file/stdin option is added. Validation follows config/timing checks and precedes
+target effects, then originator selection, cadence and transport.
+
+`talk <target> <message> --identity <existing-name>` (and `send`) selects an
+existing durable originator even when offline, overriding implicit caller
+selection. The option is command-local, not a global flag or recipient selector.
+Omission records a verified caller when present, otherwise unknown; anonymous
+talk/result still work. Unknown explicit selection is NAME_NOT_FOUND (exit 3);
+ambiguous or reconciliation failures stop before sending (exit 1).
+The internal target projection retains the independently verified recipient UUID
+even with no preamble, and rechecks identity/binding markers and full server/pane
+evidence against the fresh pre-preparation snapshot. A changed observation rejects
+before persistence/cadence/send; later rebinding never rewrites recorded IDs.
+This does not authenticate authorship or guarantee which identity later processes input.
+
+Original messages are retained locally, always on for new preparation in this
+slice; avoid secrets. There is no upload, indexing, redaction, encryption or
+secure-erasure claim. Their fixed expiry is preparation plus the frozen policy,
+not the extendable metadata horizon. Final submission cannot renew the prompt.
+General metadata/list queries exclude prompt text/bytes. A focused internal
+getRequestContext(requestId) read returns one retained attempt and a prompt
+status: retained with exact message, byte count and expiry; expired with expiry;
+or unavailable for historical content. Unknown/expired metadata returns no
+record. Equality is expired even outside the bounded physical scrub batch.
+The shared cleanup transaction scrubs at most 100 ordered indexed expired
+prompts, retaining their expiry markers. It neither renews nor acknowledges.
+There is no new public context output before TMT-51.
+
+Proposed `x` commands select the originator's data with
 `--identity <name>` through the shared durable selector. Omission requires a
 verified caller identity; outside that context it fails rather than guessing.
-Selection is local attribution, not authentication. The `talk` sender-identity
-grammar is not finalized; it must preserve anonymous live request-ID flows.
+Selection is local attribution, not authentication. This proposed required
+identity for `x` does not change talk's deliberate anonymous-caller exception.
 
 The future attention contract is identity-scoped and explicit:
 
@@ -259,7 +291,7 @@ client may use live tmux delivery and the same SQLite-backed reply path without
 requiring caller identity or an inbox; authenticated remote access is separate.
 
 TMT-54 owns the shared frozen policy, metadata/final horizons and bounded
-housekeeping. TMT-55 must specify prompt privacy and validation and consume the
+housekeeping. TMT-55 supplies prompt privacy/validation and consumes the
 preparation-anchored horizon; TMT-51 must define attention/ack and
 unavailable-versus-pending projections through that same owner. Do not add a
 parallel cleanup subsystem. SQLite has no autonomous TTL scheduler, so no daemon,
@@ -315,7 +347,7 @@ scenarios for talk/reply/result correlation and late replies, and packed-skill
 verification when any shipped command guidance changes. Reuse the existing
 request worker harness and E2E fixture; do not add tests for unshipped commands
 to the installed skill. Foundation/configuration work (TMT-46/TMT-29) is complete.
-The remaining sequence is bounded provenance/context, identity and attention slices, minimal
+The remaining sequence is bounded identity and attention slices, minimal
 MCP, then memory. Offline queue/lease work remains a separate future track.
 If pursued, an offline queue or lease is separate from X and is not an MCP
 prerequisite.

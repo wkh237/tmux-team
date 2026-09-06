@@ -125,6 +125,7 @@ function createCtx(
     })),
     unbindCurrent: vi.fn(),
     currentIdentity: vi.fn(),
+    resolveIdentity: vi.fn(),
     activeIdentities: vi.fn(() => registrations.map(activeIdentity)),
     resolveActive: vi.fn(),
     reconcile: vi.fn(),

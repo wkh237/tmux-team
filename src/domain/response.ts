@@ -1,4 +1,4 @@
-import { hasLoneSurrogate } from './text-content.js';
+import { validateExactText } from './exact-text.js';
 
 /** Final response bodies are bounded independently from role/preamble content. */
 export const MAX_RESPONSE_BYTES = 1024 * 1024;
@@ -30,21 +30,20 @@ export interface ValidatedResponseBody {
 
 /** Validate without normalizing: final response text is an exact immutable payload. */
 export function validateResponseBody(value: unknown): ValidatedResponseBody {
-  if (typeof value !== 'string') {
-    throw new ResponseError('RESPONSE_INPUT_INVALID', 'Response body must be a string.');
-  }
-  if (hasLoneSurrogate(value)) {
+  const validated = validateExactText(value, MAX_RESPONSE_BYTES);
+  if (!validated.ok) {
+    if (validated.issue === 'TOO_LARGE') {
+      throw new ResponseError(
+        'RESPONSE_INPUT_TOO_LARGE',
+        `Response body must not exceed ${MAX_RESPONSE_BYTES} UTF-8 bytes.`
+      );
+    }
     throw new ResponseError(
       'RESPONSE_INPUT_INVALID',
-      'Response body must contain well-formed Unicode.'
+      typeof value === 'string'
+        ? 'Response body must contain well-formed Unicode.'
+        : 'Response body must be a string.'
     );
   }
-  const bodyBytes = Buffer.byteLength(value, 'utf8');
-  if (bodyBytes > MAX_RESPONSE_BYTES) {
-    throw new ResponseError(
-      'RESPONSE_INPUT_TOO_LARGE',
-      `Response body must not exceed ${MAX_RESPONSE_BYTES} UTF-8 bytes.`
-    );
-  }
-  return { body: value, bodyBytes };
+  return { body: validated.text, bodyBytes: validated.bytes };
 }

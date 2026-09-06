@@ -30,6 +30,9 @@ const unusedRequestService: Context['requestService'] = {
   getResponse() {
     throw new Error('Unexpected request service access.');
   },
+  getRequestContext() {
+    throw new Error('Unexpected request service access.');
+  },
 };
 
 function makeStubContext(): Context {
@@ -58,6 +61,7 @@ function makeStubContext(): Context {
       bindPane: vi.fn(),
       unbindCurrent: vi.fn(),
       currentIdentity: vi.fn(),
+      resolveIdentity: vi.fn(),
       activeIdentities: vi.fn(() => []),
       resolveActive: vi.fn(),
       reconcile: vi.fn(),
