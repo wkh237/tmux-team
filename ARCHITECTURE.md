@@ -523,7 +523,17 @@ The existing packed native verifier also invokes the packed viewer and default
 and custom installation in an isolated home. It verifies actual link contents,
 repeat no-op, unrelated sibling preservation and source-update visibility;
 unit/CLI contract tests cover conflicts, backups and invalid input. This does
-not close TMT-29's separate packed application-storage/migration acceptance.
+not replace the storage/concurrency suites.
+
+The packed verifier additionally checks the actual installed inventory and runs
+an isolated storage probe using the installed TypeScript loader and runtime
+modules. Public role commands initialize storage and prove cross-process profile
+persistence; only identity seeding uses the existing repository API. Exact
+installed migration-manifest comparison is paired with repository/schema reads,
+and incompatible history must fail without resetting data. This is verification
+infrastructure, not another migration runner or application service. Test files
+and test-support workers are excluded from the package; runtime TypeScript and
+standalone skills remain distributed. Plugin projections remain repository-based.
 
 ## Current module map
 
@@ -622,7 +632,6 @@ a gap is resolved; do not leave a permanent exception or label a proposal as shi
 
 | Gap                                                                                                 | Owning issue                                                                                                                                                           |
 | --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Packed verification does not yet prove application migrations or exclude test-only artifacts.       | [TMT-53](https://linear.app/tigerpig-dev/issue/TMT-53), under [TMT-29](https://linear.app/tigerpig-dev/issue/TMT-29)                                                   |
 | Non-tmux identity management, memory and durable inbox are future capabilities, not installed APIs. | [TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30), [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16) |
 
 ## Maintenance contract

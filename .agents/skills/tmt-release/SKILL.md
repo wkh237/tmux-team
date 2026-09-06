@@ -20,6 +20,10 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
 
 ## Promotion and prerelease checks
 
+- Follow DEVELOPMENT's packed native-install verification for artifact changes.
+  Verify the installed application's schema and behavior, not only driver loading
+  or manifest equality. Keep broken-artifact failure and cleanup evidence; do not
+  seed schema through checkout test helpers or ship test-only sources.
 - Promotion requires passing Code quality, Unit tests, and Docker E2E checks.
 - Tags, GitHub Releases, npm publishing, and npm dist-tags are separate operations that require explicit authorization; this skill never assumes permission for them.
 - Update user-facing installation or channel documentation whenever a version change would make it inaccurate.
