@@ -69,7 +69,7 @@ nonexpired settlement protects its own floor; first final submission extends
 metadata through that body's expiry. Reads, housekeeping, waiter release and
 identical retries do not renew retention. Metadata cannot be pruned ahead of a
 retained final or still-eligible reply. TMT-55 retains original prompts and
-provenance as described below; attention remains unshipped.
+provenance as described below; TMT-51 adds identity-scoped attention.
 
 Service-owned request/result reads apply logical expiry independently of physical
 cleanup. Opportunistic cleanup uses deterministic limited batches in a short
@@ -180,14 +180,14 @@ serialization, exactly-once processing, inbox and remote authentication are
 still outside scope. User-installed skills teach full submission first, then
 a truthful work/tests/blockers summary; failed submission is never success.
 
-## TMT Exchange foundation and future attention direction
+## TMT Exchange foundation and attention
 
-This section is the canonical future design direction for a TMT Exchange (X).
+This section is the canonical contract for a TMT Exchange (X).
 TMT-54's retention foundation and TMT-55's provenance/original context are
 implemented. TMT-30 also supplies explicit storage-only identity create/show/list;
-identity-scoped attention below remains unshipped. The current `talk`,
+TMT-51 supplies identity-scoped attention below. The current `talk`,
 `reply`, `result`, and diagnostic `check`
-contracts above remain authoritative until bounded implementation issues land.
+contracts above remain unchanged.
 
 Planning and bounded follow-up ownership are tracked by [TMT-49](https://linear.app/tigerpig-dev/issue/TMT-49),
 [TMT-50](https://linear.app/tigerpig-dev/issue/TMT-50), with retention in
@@ -249,25 +249,25 @@ or unavailable for historical content. Unknown/expired metadata returns no
 record. Equality is expired even outside the bounded physical scrub batch.
 The shared cleanup transaction scrubs at most 100 ordered indexed expired
 prompts, retaining their expiry markers. It neither renews nor acknowledges.
-There is no new public context output before TMT-51.
+`x show` reuses that projection for identity-scoped public context.
 
-Proposed `x` commands select the originator's data with
+`x` commands select the originator's data with
 `--identity <name>` through the shared durable selector. Omission requires a
 verified caller identity; outside that context it fails rather than guessing.
-Selection is local attribution, not authentication. This proposed required
+Selection is local attribution, not authentication. This required
 identity for `x` does not change talk's deliberate anonymous-caller exception.
 
-The future attention contract is identity-scoped and explicit:
+The attention contract is identity-scoped and explicit:
 
 - A read, including `result`, `x show`, or an unacknowledged listing, never
   mutates attention state or acknowledges a revision. Service-owned reads may
   perform logical-expiry checks and bounded housekeeping; `check` remains a
   diagnostic command whose existing reconciliation behavior is separate.
-- The default proposed unacknowledged view is scoped to the originator. The
+- The default unacknowledged view is scoped to the originator. The
   recipient's responsibility to submit a result is distinct from the
   originator's responsibility to acknowledge it; a recipient view must not be
   inferred from the current result command.
-- A proposed `tmt x ack <request-id>` acknowledges the current observed
+- `tmt x ack <request-id> --revision <revision>` acknowledges the exact observed
   attention revision for the selected identity. If the X is still pending,
   this acknowledges only the progress observed at that point; it does not
   claim a successful task or cancel delivery.
@@ -275,7 +275,7 @@ The future attention contract is identity-scoped and explicit:
   revision and reopens the X for that identity. A single ack must use a
   revision/high-water compare-and-swap so it cannot acknowledge a newer result
   that was committed after the caller's observation.
-- A proposed `tmt x ack --all` must take one bounded, atomic snapshot of the
+- `tmt x ackall` takes one bounded, atomic snapshot of the
   selected identity's eligible revisions. Results committed concurrently after
   that snapshot remain unacknowledged and cannot be hidden by the batch.
 - An X is settled only when it has a final reply and its current attention
@@ -283,9 +283,49 @@ The future attention contract is identity-scoped and explicit:
   acknowledged as an exception for attention management, but that is not
   successful work or a delivered result.
 
-The proposed command surface is `tmt x list`, `tmt x show <request-id>`,
-`tmt x ack <request-id>`, and `tmt x ack --all`; all are unshipped proposals.
-Proposed `tmt x` is equivalent to `tmt x list`; both spellings are unshipped.
+The command surface is `tmt x list`, `tmt x show <request-id>`,
+`tmt x ack <request-id> --revision <revision>`, and `tmt x ackall`.
+`tmt x` is equivalent to `tmt x list`. All accept command-local `--identity`
+and `--json`; only list accepts `--limit` and `--after`, and only ack accepts
+the mandatory `--revision`. Old `ack --all` and batch tokens are rejected.
+
+Migration 8 assigns deterministic initial revisions to already known v7 originators
+ordered by preparation time and request ID. Unknown/anonymous provenance stays
+outside identity attention. Per-originator counters survive request cleanup;
+revision exhaustion rolls back the whole request/final write. Preparation and
+the first accepted final are the only revision events. Delivery transitions,
+waiter release, cleanup, reads and identical retries do not advance them.
+
+Ackall needs no previous list: inside the existing immediate transaction it
+advances one identity's acknowledged-through watermark to its latest revision.
+It neither enumerates nor counts nor updates individual requests. A writer
+committed before that snapshot is included; a later writer allocates a higher
+revision. Each invocation takes a new snapshot. Single ack compares the supplied
+revision inside the transaction and never advances the identity watermark.
+
+List returns `{identity,items,nextAfter}` with at most 50 items by default
+(`--limit` 1..200). `--after` is a nonnegative decimal safe integer (default 0).
+Rows are ordered by increasing revision and only unacknowledged retained metadata
+is returned. One extra metadata-only row detects continuation: `nextAfter` is
+the last returned revision when more exist, otherwise null. This is a live view;
+deduplicate by request ID and restart at 0 to refresh. No body is loaded by list.
+
+Summary fields are `requestId`, nullable `recipientIdentityId`, `preparedAtMs`,
+`delivery`, `final`, `revision`, `acknowledged`, `settled`, `retentionExpiresAtMs`.
+Final is `not_submitted`, `retained` (submission time, bytes and expiry), `expired`
+(submission time and expiry), or `unavailable` (marker exists but eligible body
+is absent). Missing final is not evidence that a task is running. Show returns
+`{identity,exchange}` and adds `prompt` plus exact `final.response` when retained.
+Attempt IDs, receipts and endpoint evidence are not exposed.
+
+Ack returns `{identity,requestId,revision,acknowledged:true,changed}`; a repeat at
+the current already-effective revision has changed:false. Ackall returns
+`{identity,acknowledgedThrough}`, not a count or a claim that every body was read.
+Stale revision is `X_REVISION_CONFLICT` (exit 5). Unknown, anonymous, wrong-owner
+and metadata-expired IDs share `X_NOT_FOUND` (exit 3). Invalid runtime parameters
+use `X_INPUT_INVALID` (exit 1); revision overflow uses `X_REVISION_EXHAUSTED` (1).
+Unexpected failures use sanitized `X_ERROR` (1); shared identity errors remain.
+
 `talk`, `reply`, and `result` remain the verbs for sending, submitting, and
 reading. `check` remains a pane diagnostic only. Timeout and interruption
 remain observer-only: they do not cancel or complete X, and the existing
@@ -296,7 +336,7 @@ requiring caller identity or an inbox; authenticated remote access is separate.
 
 TMT-54 owns the shared frozen policy, metadata/final horizons and bounded
 housekeeping. TMT-55 supplies prompt privacy/validation and consumes the
-preparation-anchored horizon; TMT-51 must define attention/ack and
+preparation-anchored horizon; TMT-51 defines attention/ack and
 unavailable-versus-pending projections through that same owner. Do not add a
 parallel cleanup subsystem. SQLite has no autonomous TTL scheduler, so no daemon,
 cron, network service or punctual physical-deletion promise is introduced.
@@ -346,12 +386,12 @@ The following semantic scenarios are illustrative only, not final JSON schemas:
 
 Each implementation slice must carry observable verification: service and
 repository tests for exact state/retention and failed-finalization behavior,
-multi-process races for single ack and `ack --all`, real Docker/mock-agent
+multi-process races for single ack and `ackall`, real Docker/mock-agent
 scenarios for talk/reply/result correlation and late replies, and packed-skill
 verification when any shipped command guidance changes. Reuse the existing
 request worker harness and E2E fixture; do not add tests for unshipped commands
 to the installed skill. Foundation/configuration work (TMT-46/TMT-29) is complete.
-The remaining sequence is bounded attention, minimal
+After attention delivery and verification, the remaining sequence is minimal
 MCP, then memory. Offline queue/lease work remains a separate future track.
 If pursued, an offline queue or lease is separate from X and is not an MCP
 prerequisite.

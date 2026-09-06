@@ -89,10 +89,10 @@ require complete submission before a short truthful user summary. Delivery of a
 reply is not success of the requested task. Inbox, daemon, MCP/remote connectivity
 and memory remain outside this implementation.
 
-The same document contains the canonical **future TMT Exchange direction**.
+The same document contains the canonical **TMT Exchange contract**.
 Exchange (X) extends this request service and SQLite boundary with bounded
-original context and originator/recipient provenance. Attention revisions and
-identity-scoped explicit acknowledgement remain future work. It does not authorize a duplicate
+original context and originator/recipient provenance, attention revisions and
+identity-scoped explicit acknowledgement. It does not authorize a duplicate
 service or database, a new X-specific ID format, guessed identity backfill, or
 changes to the shipped `talk`/`reply`/`result` verbs. Reads do not acknowledge;
 service-owned reads may perform logical expiry and bounded opportunistic cleanup;
@@ -104,7 +104,7 @@ current map and the linked section in sync as each bounded future slice is
 implemented. TMT-54 supplies the retention foundation through the existing
 global config's `exchange.retentionDays`, default 90 days. Each new request
 freezes its policy; the migration preserves seven-day retention for existing
-requests and bodies. TMT-55 supplies original prompts and provenance; attention remains unshipped.
+requests and bodies. TMT-55 supplies original prompts and provenance; TMT-51 adds attention.
 The default 180-second talk observer timeout
 and the reply submission window are distinct from data retention.
 
@@ -243,7 +243,7 @@ Deadlines use UTC wall time, not a sliding timer. Clock rollback does not change
 stored deadlines but can delay logical expiry while data is still physically
 present. Deletion is not file shrinkage or secure erasure; no per-call VACUUM
 or automatic clock-repair mechanism is provided. Identity/profile/cadence data
-are outside Exchange content cleanup. Attention remains a future slice consuming
+are outside Exchange content cleanup. Attention consumes
 this owner rather than copying its policy.
 
 ### Original request context and provenance
@@ -285,8 +285,8 @@ The existing service's focused getRequestContext(requestId) read returns a retai
 attempt and a retained/expired/unavailable prompt projection. Empty retained text
 is distinct from unavailable historical context. Logically expired metadata or
 unknown requests return no record. Reads share readWithCleanup's clock and
-transaction, without current config or tmux. This is internal until the attention
-slice defines user-facing inspection, not a second service or public inbox.
+transaction, without current config or tmux. Identity-scoped x show reuses this
+prompt projection, not a second service or public inbox.
 
 Prompt expiry is preparedAtMs plus the frozen duration, never the potentially
 extended metadata horizon. Late replies, reads, settlement and retries cannot
@@ -461,7 +461,35 @@ results and exposes only UUID/name/canonical name, not timestamps or endpoint
 evidence. It is distinct from active-pane presentation. Creation/discovery is
 not login, exclusive caller ownership, authentication, an endpoint or a listener.
 Anonymous talk and request-ID results remain available; identity-scoped attention
-is still a separate future slice.
+requires explicit or verified originator provenance.
+
+### Exchange attention ownership
+
+The typed `exchange` request dispatches `x` list/show/ack/ackall through a thin
+command into the existing RequestService and composed RequestRepository.
+`request-attention.ts` owns attention types and projections, not another service
+or connection. Identity resolution uses the shared selector/error boundary before
+request-service acquisition. Explicit selectors never execute tmux; all X actions
+use storage-only Context capability and avoid unrelated configuration.
+
+Migration 8 adds per-request revision/ack metadata and one per-originator counter
+and acknowledged-through watermark. Known preparation and first final submission
+advance revisions atomically with their existing writes. Delivery transitions,
+reads, expiry, retries and waiter release do not. Counters survive content cleanup;
+overflow fails closed. Historical unknown provenance is never inferred.
+
+List performs ordered, indexed, metadata-only keyset reads, fetching at most
+limit+1 rows (default 50, maximum 200). The live cursor may revisit a request whose
+final receives a new revision. Show shares retained prompt/final projection and
+logical expiry. Neither read acknowledges or renews retention.
+
+Single ack checks the exact observed revision inside the immediate transaction.
+Ackall takes its own current transaction snapshot and advances one identity
+watermark, without enumerating requests, counting them, or requiring client
+tokens/batches. Later commits receive higher revisions and remain unacknowledged.
+Effective acknowledgment is the maximum of individual and identity-wide values.
+Settled means final marker plus acknowledged revision, not successful work or
+retained body. No second inbox, recipient queue, event log or memory layer is added.
 
 ## Binding publication and recovery
 
@@ -756,9 +784,9 @@ These links identify owners of unresolved work, not permission to widen an
 unrelated PR. Update this section and the current map in the delivering PR when
 a gap is resolved; do not leave a permanent exception or label a proposal as shipped.
 
-| Gap                                                                                       | Owning issue                                                                                                                                                           |
-| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Identity attention, memory and durable inbox are future capabilities, not installed APIs. | [TMT-51](https://linear.app/tigerpig-dev/issue/TMT-51), [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16) |
+| Gap                                                                                   | Owning issue                                                                                                   |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Memory and an offline recipient inbox remain future capabilities, not installed APIs. | [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16) |
 
 ## Maintenance contract
 

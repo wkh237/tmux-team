@@ -21,6 +21,7 @@ const REQUIRED_TABLES = Object.freeze([
   'preamble_counters',
   'request_attempts',
   'request_responses',
+  'request_attention_identities',
 ]);
 
 function packageModule(packageRoot, relativePath) {
@@ -203,6 +204,93 @@ async function main() {
   } finally {
     repositoryProbe.close();
   }
+
+  // Seed through the installed service, then exercise only public packed CLI
+  // attention/reply operations. No live pane or test-only module is required.
+  const { createRequestService } = await packageModule(
+    resolvedPackageRoot,
+    'src/request-service.ts'
+  );
+  const { encodeReplyReceipt } = await packageModule(resolvedPackageRoot, 'src/reply-receipt.ts');
+  const attentionRepository = openIdentityRepository(paths.databaseFile);
+  const requestId = 'packed-attention-request';
+  const endpoint = {
+    serverId: 'packed',
+    socketPath: '/packed-probe.sock',
+    serverPid: 1,
+    serverStartTime: 'packed-start',
+    paneId: '%1',
+    panePid: 2,
+  };
+  let attempt;
+  try {
+    const requests = createRequestService({ repository: attentionRepository });
+    attempt = requests.prepare({
+      requestId,
+      message: 'Packed original π',
+      endpoint,
+      wait: false,
+      expiresAtMs: Date.now() + 60_000,
+      originator: { kind: 'explicit', identityId: identity.id },
+    });
+    requests.beginSend(attempt.attemptId);
+  } finally {
+    attentionRepository.close();
+  }
+  const attentionArgs = ['--identity', IDENTITY_NAME, '--json'];
+  assert.deepEqual(await runJson(executable, ['x', 'ackall', ...attentionArgs], environment), {
+    identity,
+    acknowledgedThrough: 1,
+  });
+  assert.deepEqual(await runJson(executable, ['x', ...attentionArgs], environment), {
+    identity,
+    items: [],
+    nextAfter: null,
+  });
+  const receipt = encodeReplyReceipt({
+    version: 1,
+    requestId,
+    attemptId: attempt.attemptId,
+    endpoint,
+  });
+  const body = 'Packed final π\nComplete result';
+  await runJson(
+    executable,
+    ['reply', requestId, '--receipt', receipt, '--message', body, '--json'],
+    environment
+  );
+  const reopened = await runJson(executable, ['x', ...attentionArgs], environment);
+  assert.equal(reopened.items.length, 1);
+  assert.equal(reopened.items[0].requestId, requestId);
+  assert.equal(reopened.items[0].revision, 2);
+  assert.equal(reopened.items[0].acknowledged, false);
+  assert.equal(reopened.items[0].settled, false);
+  assert.equal(Object.hasOwn(reopened.items[0], 'attemptId'), false);
+  assert.equal(Object.hasOwn(reopened.items[0].final, 'response'), false);
+  const shown = await runJson(executable, ['x', 'show', requestId, ...attentionArgs], environment);
+  assert.equal(shown.exchange.prompt.message, 'Packed original π');
+  assert.equal(shown.exchange.final.response, body);
+  const stale = await runJson(
+    executable,
+    ['x', 'ack', requestId, '--revision', '1', ...attentionArgs],
+    environment,
+    5
+  );
+  assert.equal(stale.error.code, 'X_REVISION_CONFLICT');
+  assert.deepEqual(
+    await runJson(
+      executable,
+      ['x', 'ack', requestId, '--revision', '2', ...attentionArgs],
+      environment
+    ),
+    { identity, requestId, revision: 2, acknowledged: true, changed: true }
+  );
+  const settled = await runJson(
+    executable,
+    ['x', 'show', requestId, ...attentionArgs],
+    environment
+  );
+  assert.equal(settled.exchange.settled, true);
 
   const roleSet = await runJson(
     executable,

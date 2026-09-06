@@ -15,6 +15,7 @@ import { cmdWhoami } from '../commands/whoami.js';
 import { cmdUnbind } from '../commands/unbind.js';
 import { cmdRole } from '../commands/role.js';
 import { cmdIdentity } from '../commands/identity.js';
+import { cmdExchange } from '../commands/exchange.js';
 import { cmdReply } from '../commands/reply.js';
 import { cmdResult } from '../commands/result.js';
 import type { ParsedArgs, ParsedInvocation } from './parser.js';
@@ -56,6 +57,8 @@ export async function dispatchCommand(ctx: Context, parsed: ParsedArgs): Promise
       return cmdRole(ctx, request);
     case 'identity':
       return cmdIdentity(ctx, request);
+    case 'exchange':
+      return cmdExchange(ctx, request);
     case 'reply':
       return cmdReply(ctx, request);
     case 'result':

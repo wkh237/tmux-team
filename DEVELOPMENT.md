@@ -228,6 +228,11 @@ is a missing-name role read through the public CLI. It compares the resulting
 migration history with the installed migration manifest, creates and discovers
 an identity through the public identity CLI (including canonical idempotence), and verifies role writes/reads/clear across
 CLI processes. Repository read paths also exercise the remaining current tables.
+The attention smoke seeds one request through the installed RequestService, then
+uses public packed ackall before any list, submits a public reply, verifies the
+late final reopens attention, rejects a stale ack and settles the current revision.
+It checks exact retained prompt/final text and absence of internal attempt evidence
+from list output. No live pane, checkout helper or test source is needed.
 An incompatible future history must fail without erasing history or role data.
 Manifest equality alone does not prove schema behavior, nor does this smoke
 replace the detailed migration/concurrency suites.

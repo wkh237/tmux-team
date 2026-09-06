@@ -797,4 +797,15 @@ describe('basic commands', () => {
     expect(output).toContain('whoami');
     expect(output).toContain('unbind');
   });
+
+  it('help distinguishes mandatory single-ack revision from optional pagination', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    cmdHelp();
+    const output = log.mock.calls.map((call) => call.join(' ')).join('\n');
+    expect(output).toContain('x ack <request-id> [--identity <name>] --revision <revision>');
+    expect(output).toContain('x ackall [--identity <name>]');
+    expect(output).toContain('[--limit <count>]');
+    expect(output).not.toContain('[--revision <revision>]');
+    expect(output).not.toContain('public context viewer yet');
+  });
 });

@@ -130,6 +130,17 @@ ${colors.yellow('CONFIGURATION SAFETY')}
   Final retention starts at submission. Reads/retries do not renew expiry;
   cleanup is bounded and opportunistic, not scheduled or secure erasure.
 
+${colors.yellow('EXCHANGE ATTENTION')}
+
+  tmt x --identity coordinator --json lists unacknowledged originated requests.
+  tmt x show <request-id> --identity coordinator --json shows retained context.
+  tmt x ack <request-id> --revision <revision> --identity coordinator acknowledges one observed revision.
+  tmt x ackall --identity coordinator acknowledges the current snapshot without a prior lookup.
+  Omit --identity only in a verified bound pane. Reads never acknowledge.
+  A later final reopens attention. Acknowledgment is not task success or cancellation.
+  List uses --limit (1-200, default 50) and --after with the returned nextAfter cursor.
+  This is local request recovery, not an offline recipient queue or authentication.
+
 ${colors.yellow('BEST PRACTICES')}
 
   1. ${colors.green('Submit a full reply before summarizing')} - terminal text is not completion

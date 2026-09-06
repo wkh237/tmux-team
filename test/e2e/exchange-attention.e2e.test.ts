@@ -1,0 +1,277 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { withE2EFixture, type CliResult, type E2EFixture } from './harness.js';
+
+interface PublicIdentity {
+  readonly id: string;
+  readonly name: string;
+  readonly canonicalName: string;
+}
+
+interface TalkResult {
+  readonly status?: string;
+  readonly requestId?: string;
+  readonly error?: { readonly code?: string };
+}
+
+function success<T>(result: CliResult<T>): T {
+  expect(result.code, result.stderr || result.stdout).toBe(0);
+  expect(result.stderr).toBe('');
+  expect(result.json).toBeDefined();
+  return result.json as T;
+}
+
+function malformedConfig(fixture: E2EFixture): { global: string; local: string } {
+  const global = '{ malformed exchange config';
+  const local = '{ malformed local exchange config';
+  fs.writeFileSync(path.join(fixture.globalDir, 'config.json'), global);
+  fs.writeFileSync(path.join(fixture.workspace, 'tmux-team.json'), local);
+  return { global, local };
+}
+
+async function calibrateOfflineTmuxGuard(fixture: E2EFixture): Promise<void> {
+  const calibration = await fixture.runJsonCli(['list'], { withoutTmux: true });
+  expect(calibration.code).toBe(1);
+  expect(fs.existsSync(fixture.forbiddenTmuxLogPath)).toBe(true);
+  fs.rmSync(fixture.forbiddenTmuxLogPath, { force: true });
+}
+
+describe.sequential('Exchange attention through the real Docker/tmux fixture', () => {
+  it('ackall works before any list, late finals reopen attention, and explicit/implicit identity access survives rebind', async () => {
+    await withE2EFixture(
+      async (fixture) => {
+        const created = success(
+          await fixture.runJsonCli<{ identity: PublicIdentity; created: boolean }>(
+            ['identity', 'create', 'Alice'],
+            { withoutTmux: true }
+          )
+        );
+        expect(created.created).toBe(true);
+        await calibrateOfflineTmuxGuard(fixture);
+
+        const detached = success(
+          await fixture.runJsonCli<TalkResult>([
+            'talk',
+            fixture.pane,
+            'late attention final',
+            '--identity',
+            'alice',
+            '--no-preamble',
+            '--detach',
+          ])
+        );
+        expect(detached).toMatchObject({
+          status: 'sent',
+          requestId: expect.stringMatching(/^req_/),
+        });
+        const requestId = detached.requestId!;
+        await fixture.waitForEvent(
+          (event) => event.event === 'request' && event.requestId === requestId
+        );
+
+        // The acknowledgement is intentionally the first exchange read: ackall must use only
+        // the identity watermark and cannot depend on a preceding list or body lookup.
+        const acknowledged = success(
+          await fixture.runJsonCli<{ identity: PublicIdentity; acknowledgedThrough: number }>(
+            ['x', 'ackall', '--identity', 'alice'],
+            { withoutTmux: true }
+          )
+        );
+        expect(acknowledged.identity).toEqual(created.identity);
+        expect(acknowledged.acknowledgedThrough).toBeGreaterThan(0);
+
+        const configs = malformedConfig(fixture);
+        fixture.releaseReplyGate(requestId);
+        const submitted = await fixture.waitForEvent(
+          (event) => event.event === 'submitted' && event.requestId === requestId,
+          5_000
+        );
+        expect(submitted.body).toBe('mock-agent response: late attention final');
+
+        const reopened = success<{
+          identity: PublicIdentity;
+          items: Array<Record<string, unknown>>;
+          nextAfter: number | null;
+        }>(await fixture.runJsonCli(['x', 'list', '--identity', 'alice'], { withoutTmux: true }));
+        expect(reopened.identity).toEqual(created.identity);
+        expect(reopened.items).toEqual([
+          expect.objectContaining({
+            requestId,
+            acknowledged: false,
+            final: {
+              status: 'retained',
+              bodyBytes: Buffer.byteLength(submitted.body!),
+              submittedAtMs: expect.any(Number),
+              expiresAtMs: expect.any(Number),
+            },
+          }),
+        ]);
+        expect(JSON.stringify(reopened)).not.toContain('attemptId');
+        expect(JSON.stringify(reopened)).not.toContain('socketPath');
+
+        const exact = success<{
+          identity: PublicIdentity;
+          exchange: { final: { status: string; response?: string; bodyBytes?: number } };
+        }>(
+          await fixture.runJsonCli(['x', 'show', requestId, '--identity', 'alice'], {
+            withoutTmux: true,
+          })
+        );
+        expect(exact.identity).toEqual(created.identity);
+        expect(exact.exchange.final).toEqual({
+          status: 'retained',
+          response: submitted.body,
+          bodyBytes: Buffer.byteLength(submitted.body!),
+          submittedAtMs: expect.any(Number),
+          expiresAtMs: expect.any(Number),
+        });
+        expect(fs.existsSync(fixture.forbiddenTmuxLogPath)).toBe(false);
+
+        // Bind the same durable identity and prove omitted --identity uses verified caller
+        // evidence. The explicit offline path above never touched tmux or parsed config.
+        expect(success(await fixture.runJsonCli(['name', 'Alice']))).toEqual({
+          bound: true,
+          name: 'Alice',
+          pane: fixture.pane,
+        });
+        const implicit = success<{ items: Array<Record<string, unknown>> }>(
+          await fixture.runJsonCli(['x', 'list'])
+        );
+        expect(implicit.items.some((item) => item.requestId === requestId)).toBe(true);
+
+        const restarted = await fixture.restartServer();
+        expect(success(await fixture.runJsonCli(['name', 'alice']))).toEqual({
+          bound: true,
+          name: 'Alice',
+          pane: restarted.pane,
+        });
+        const afterRebind = success<{ identity: PublicIdentity }>(
+          await fixture.runJsonCli(['x', 'show', requestId])
+        );
+        expect(afterRebind.identity).toEqual(created.identity);
+
+        expect(fs.readFileSync(path.join(fixture.globalDir, 'config.json'), 'utf8')).toBe(
+          configs.global
+        );
+        expect(fs.readFileSync(path.join(fixture.workspace, 'tmux-team.json'), 'utf8')).toBe(
+          configs.local
+        );
+      },
+      { replyGate: true }
+    );
+  }, 45_000);
+  it('recovers a timed-out explicit exchange and shows the exact virtualized final body without reading the terminal', async () => {
+    await withE2EFixture(
+      async (fixture) => {
+        const created = success(
+          await fixture.runJsonCli<{ identity: PublicIdentity; created: boolean }>(
+            ['identity', 'create', 'VirtualizedOwner'],
+            { withoutTmux: true }
+          )
+        );
+        expect(created.created).toBe(true);
+        await calibrateOfflineTmuxGuard(fixture);
+        const token = 'exchange-virtualized-final-🙂-日本語';
+        const expectedBody = [
+          `VIRTUALIZED-BEGIN:${token}`,
+          ...Array.from(
+            { length: 200 },
+            (_, index) => `VIRTUALIZED-LINE-${String(index + 1).padStart(3, '0')}:${token}`
+          ),
+          `VIRTUALIZED-END:${token}`,
+        ].join('\n');
+
+        const timedOut = await fixture.runJsonCli<TalkResult>([
+          'talk',
+          fixture.pane,
+          token,
+          '--identity',
+          'virtualizedowner',
+          '--no-preamble',
+          '--timeout',
+          '1',
+        ]);
+        expect(timedOut.code).toBe(4);
+        expect(timedOut.json).toMatchObject({
+          status: 'timeout',
+          requestId: expect.stringMatching(/^req_[0-9a-f-]+$/),
+          error: { code: 'TIMEOUT' },
+        });
+        const requestId = timedOut.json?.requestId;
+        expect(requestId).toBeDefined();
+        expect(
+          fixture
+            .events()
+            .some((event) => event.event === 'submitted' && event.requestId === requestId)
+        ).toBe(false);
+        fixture.releaseReplyGate(requestId);
+        const submitted = await fixture.waitForEvent(
+          (event) => event.event === 'submitted' && event.requestId === requestId,
+          5_000
+        );
+        expect(submitted.body).toBe(expectedBody);
+
+        const listed = success<{
+          items: Array<{
+            requestId: string;
+            revision: number;
+            acknowledged: boolean;
+            final: Record<string, unknown>;
+          }>;
+        }>(
+          await fixture.runJsonCli(['x', 'list', '--identity', 'virtualizedowner'], {
+            withoutTmux: true,
+          })
+        );
+        const item = listed.items.find((candidate) => candidate.requestId === requestId);
+        expect(item).toMatchObject({
+          requestId,
+          acknowledged: false,
+          final: { status: 'retained', bodyBytes: Buffer.byteLength(expectedBody) },
+        });
+        expect(item?.revision).toBeGreaterThan(1);
+
+        const acked = success<{ changed: boolean; revision: number }>(
+          await fixture.runJsonCli(
+            [
+              'x',
+              'ack',
+              requestId!,
+              '--identity',
+              'virtualizedowner',
+              '--revision',
+              String(item!.revision),
+            ],
+            { withoutTmux: true }
+          )
+        );
+        expect(acked).toMatchObject({ changed: true, revision: item!.revision });
+
+        const shown = success<{
+          exchange: {
+            acknowledged: boolean;
+            settled: boolean;
+            final: { status: string; response?: string; bodyBytes?: number };
+          };
+        }>(
+          await fixture.runJsonCli(['x', 'show', requestId!, '--identity', 'virtualizedowner'], {
+            withoutTmux: true,
+          })
+        );
+        expect(shown.exchange.acknowledged).toBe(true);
+        expect(shown.exchange.settled).toBe(true);
+        expect(shown.exchange.final).toEqual({
+          status: 'retained',
+          response: expectedBody,
+          bodyBytes: Buffer.byteLength(expectedBody),
+          submittedAtMs: expect.any(Number),
+          expiresAtMs: expect.any(Number),
+        });
+        expect(fs.existsSync(fixture.forbiddenTmuxLogPath)).toBe(false);
+        expect(fixture.capture()).not.toContain(`VIRTUALIZED-LINE-100:${token}`);
+      },
+      { mode: 'virtualized', replyGate: true }
+    );
+  }, 30_000);
+});

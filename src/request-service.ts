@@ -16,6 +16,16 @@ import {
   EXCHANGE_METADATA_SETTLEMENT_FLOOR_MS,
   EXCHANGE_RESPONSE_ACCEPTANCE_WINDOW_MS,
 } from './domain/exchange-retention.js';
+import {
+  DEFAULT_EXCHANGE_LIST_LIMIT,
+  ExchangeAttentionError,
+  MAX_EXCHANGE_LIST_LIMIT,
+  projectExchangeFinalDetail,
+  projectExchangeSummary,
+  type ExchangeAttentionRepository,
+  type ExchangeDetail,
+  type ExchangeSummary,
+} from './request-attention.js';
 import type { TmuxEndpointSnapshot } from './types.js';
 
 export type RequestAttemptStatus =
@@ -137,9 +147,13 @@ export interface RequestPreparation {
   readonly previousRequestId?: string;
 }
 
-export interface RequestRepository {
+export interface RequestRepository extends ExchangeAttentionRepository {
   withImmediateTransaction<T>(operation: () => T): T;
-  createAttempt(attempt: RequestAttemptRecord, prompt?: RequestPromptStorage): void;
+  createAttempt(
+    attempt: RequestAttemptRecord,
+    prompt?: RequestPromptStorage,
+    attentionRevision?: number
+  ): void;
   findAttempt(attemptId: string): RequestAttemptRecord | undefined;
   findAttemptByRequestId(requestId: string): RequestAttemptRecord | undefined;
   findRequestContext(requestId: string): RawRequestContext | undefined;
@@ -177,6 +191,17 @@ export interface RequestService {
   submitResponse(input: RequestResponseSubmission): RequestResponseRecord;
   getResponse(requestId: string): RequestResponseRecord | undefined;
   getRequestContext(requestId: string): RequestContext | undefined;
+  listExchanges(
+    identityId: string,
+    options?: { readonly limit?: number; readonly after?: number }
+  ): { items: ExchangeSummary[]; nextAfter: number | null };
+  showExchange(identityId: string, requestId: string): ExchangeDetail;
+  acknowledgeExchange(
+    identityId: string,
+    requestId: string,
+    revision: number
+  ): { requestId: string; revision: number; acknowledged: true; changed: boolean };
+  acknowledgeAllExchanges(identityId: string): { acknowledgedThrough: number };
 }
 
 export const REQUEST_RETENTION_MS = EXCHANGE_METADATA_SETTLEMENT_FLOOR_MS;
@@ -188,6 +213,60 @@ function assertString(value: unknown, label: string): asserts value is string {
   if (typeof value !== 'string' || value.length === 0) {
     throw new Error(`${label} must be a non-empty string.`);
   }
+}
+
+function assertAttentionIdentity(value: unknown): asserts value is string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new ExchangeAttentionError('X_INPUT_INVALID', 'Identity ID must be a non-empty string.');
+  }
+}
+
+function assertAttentionRequest(value: unknown): asserts value is string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new ExchangeAttentionError('X_INPUT_INVALID', 'Request ID must be a non-empty string.');
+  }
+}
+
+function assertAttentionRevision(value: unknown): asserts value is number {
+  if (!Number.isSafeInteger(value) || (value as number) <= 0) {
+    throw new ExchangeAttentionError(
+      'X_INPUT_INVALID',
+      'Attention revision must be a positive safe integer.'
+    );
+  }
+}
+
+function attentionListOptions(options?: { readonly limit?: number; readonly after?: number }): {
+  limit: number;
+  after: number;
+} {
+  if (
+    options !== undefined &&
+    (typeof options !== 'object' || options === null || Array.isArray(options))
+  ) {
+    throw new ExchangeAttentionError('X_INPUT_INVALID', 'Exchange list options are invalid.');
+  }
+  const limit = options === undefined ? DEFAULT_EXCHANGE_LIST_LIMIT : options.limit;
+  const after = options === undefined ? 0 : options.after;
+  const effectiveLimit = limit === undefined ? DEFAULT_EXCHANGE_LIST_LIMIT : limit;
+  const effectiveAfter = after === undefined ? 0 : after;
+  if (
+    !Number.isSafeInteger(effectiveLimit) ||
+    effectiveLimit <= 0 ||
+    effectiveLimit > MAX_EXCHANGE_LIST_LIMIT
+  ) {
+    throw new ExchangeAttentionError(
+      'X_INPUT_INVALID',
+      `Exchange list limit must be an integer from 1 through ${MAX_EXCHANGE_LIST_LIMIT}.`
+    );
+  }
+  if (!Number.isSafeInteger(effectiveAfter) || effectiveAfter < 0) {
+    throw new ExchangeAttentionError(
+      'X_INPUT_INVALID',
+      'Exchange list cursor must be a non-negative safe integer.'
+    );
+  }
+  return { limit: effectiveLimit, after: effectiveAfter };
 }
 
 function assertPositiveInteger(value: unknown, label: string): asserts value is number {
@@ -410,6 +489,36 @@ export function createRequestService(options: {
       return read(currentMs);
     });
 
+  const projectRequestContext = (
+    requestId: string,
+    currentMs: number
+  ): RequestContext | undefined => {
+    const raw = repository.findRequestContext(requestId);
+    if (!raw || currentMs >= raw.attempt.retentionExpiresAtMs) return undefined;
+    const expiresAtMs = raw.promptExpiresAtMs;
+    if (expiresAtMs === undefined) {
+      return { attempt: raw.attempt, prompt: { status: 'unavailable' } };
+    }
+    // The expiry marker survives physical scrubbing. A subsequent clock
+    // rollback cannot turn a deleted prompt into historical unknown data.
+    if (
+      currentMs >= expiresAtMs ||
+      raw.promptMessage === undefined ||
+      raw.promptMessageBytes === undefined
+    ) {
+      return { attempt: raw.attempt, prompt: { status: 'expired', expiresAtMs } };
+    }
+    return {
+      attempt: raw.attempt,
+      prompt: {
+        status: 'retained',
+        message: raw.promptMessage,
+        messageBytes: raw.promptMessageBytes,
+        expiresAtMs,
+      },
+    };
+  };
+
   return {
     prepare(input) {
       const validatedMessage = validatePreparation(input);
@@ -431,6 +540,10 @@ export function createRequestService(options: {
         if (repository.findResponse(input.requestId)) {
           throw new Error(`Request '${input.requestId}' already has a retained response.`);
         }
+        const attentionRevision =
+          input.originator && input.originator.kind !== 'unknown'
+            ? repository.reserveAttentionRevision(input.originator.identityId)
+            : undefined;
         const previousRequestId = repository.findActiveRequest(input.endpoint);
         let injectPreamble = false;
         let cadenceReserved = false;
@@ -468,7 +581,8 @@ export function createRequestService(options: {
             message: validatedMessage.message,
             messageBytes: validatedMessage.messageBytes,
             expiresAtMs: messageExpiresAtMs,
-          }
+          },
+          attentionRevision
         );
 
         return {
@@ -687,6 +801,7 @@ export function createRequestService(options: {
           responseExpiresAtMs: addExchangeRetentionMs(currentMs, attempt.retentionDays),
         };
         repository.createResponse(response);
+        repository.advanceAttentionRevision(input.requestId);
         return response;
       });
     },
@@ -709,32 +824,72 @@ export function createRequestService(options: {
 
     getRequestContext(requestId) {
       assertString(requestId, 'requestId');
-      return readWithCleanup((currentMs): RequestContext | undefined => {
-        const raw = repository.findRequestContext(requestId);
-        if (!raw || currentMs >= raw.attempt.retentionExpiresAtMs) return undefined;
-        const expiresAtMs = raw.promptExpiresAtMs;
-        if (expiresAtMs === undefined) {
-          return { attempt: raw.attempt, prompt: { status: 'unavailable' } };
-        }
-        // The expiry marker survives physical scrubbing. A subsequent clock
-        // rollback cannot turn a deleted prompt into historical unknown data.
-        if (
-          currentMs >= expiresAtMs ||
-          raw.promptMessage === undefined ||
-          raw.promptMessageBytes === undefined
-        ) {
-          return { attempt: raw.attempt, prompt: { status: 'expired', expiresAtMs } };
-        }
+      return readWithCleanup((currentMs) => projectRequestContext(requestId, currentMs));
+    },
+
+    listExchanges(identityId, options) {
+      assertAttentionIdentity(identityId);
+      const { limit, after } = attentionListOptions(options);
+      return readWithCleanup((currentMs) => {
+        const records = repository.listExchangeAttention(identityId, after, limit + 1, currentMs);
+        const items = records
+          .slice(0, limit)
+          .map((record) => projectExchangeSummary(record, currentMs));
         return {
-          attempt: raw.attempt,
-          prompt: {
-            status: 'retained',
-            message: raw.promptMessage,
-            messageBytes: raw.promptMessageBytes,
-            expiresAtMs,
-          },
+          items,
+          nextAfter: records.length > limit ? (items.at(-1)?.revision ?? null) : null,
         };
       });
+    },
+
+    showExchange(identityId, requestId) {
+      assertAttentionIdentity(identityId);
+      assertAttentionRequest(requestId);
+      return readWithCleanup((currentMs): ExchangeDetail => {
+        const record = repository.findExchangeAttention(identityId, requestId);
+        if (!record) {
+          throw new ExchangeAttentionError(
+            'X_NOT_FOUND',
+            `Exchange '${requestId}' was not found for identity '${identityId}'.`
+          );
+        }
+        const context = projectRequestContext(requestId, currentMs);
+        if (!context) {
+          throw new ExchangeAttentionError(
+            'X_NOT_FOUND',
+            `Exchange '${requestId}' is no longer retained.`
+          );
+        }
+        const response = repository.findResponse(requestId);
+        return projectExchangeFinalDetail(
+          projectExchangeSummary(record, currentMs),
+          context,
+          response,
+          currentMs
+        );
+      });
+    },
+
+    acknowledgeExchange(identityId, requestId, revision) {
+      assertAttentionIdentity(identityId);
+      assertAttentionRequest(requestId);
+      assertAttentionRevision(revision);
+      return readWithCleanup((currentMs) => {
+        const result = repository.acknowledgeExchange(identityId, requestId, revision, currentMs);
+        return {
+          requestId,
+          revision,
+          acknowledged: true as const,
+          changed: result.changed,
+        };
+      });
+    },
+
+    acknowledgeAllExchanges(identityId) {
+      assertAttentionIdentity(identityId);
+      return readWithCleanup((currentMs) => ({
+        acknowledgedThrough: repository.acknowledgeAllExchanges(identityId, currentMs),
+      }));
     },
   };
 }

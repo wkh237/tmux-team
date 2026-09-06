@@ -155,8 +155,8 @@ well-formed Unicode; empty text is valid. Invalid/oversized text returns
 Shell/OS argument limits still apply; talk has no file/stdin input option.
 Prompt expiry starts at preparation and is not extended by a late final or read.
 Historical context is unavailable, never reconstructed from a terminal.
-Context inspection is internal until the attention feature ships; do not invent
-an `x`/inbox command. No upload, encryption or secure-erasure guarantee is made.
+Use identity-scoped `x show` for retained context; there is no offline recipient
+inbox. No upload, encryption or secure-erasure guarantee is made.
 
 The observer clock starts immediately before send, after pre-send delay and
 preparation. Transport/Enter time counts; synchronous transport cannot be
@@ -192,7 +192,43 @@ cannot receive talk: bind a live pane with `add`, `name` or `this` first.
 Names are required for create/show; omission never selects the current pane.
 Invalid names return `INVALID_NAME` (exit 1); valid missing show names return
 `NAME_NOT_FOUND` (exit 3). Creation does not alter anonymous talk or request-ID
-result access. There is no identity rename/delete, listener or attention command.
+result access. There is no identity rename/delete or listener command.
+
+## Exchange attention
+
+Use X to recover requests originated by your durable identity, including after
+timeout, detach, pane loss or process restart. Outside a verified bound pane,
+select an existing identity explicitly. This is local attribution, not authentication.
+
+```bash
+tmt x --identity coordinator --json
+tmt x show <request-id> --identity coordinator --json
+tmt x ack <request-id> --revision <revision> --identity coordinator --json
+tmt x ackall --identity coordinator --json
+```
+
+Bare `x` means `x list`: unacknowledged retained metadata only, without loading
+prompt or final bodies. `--limit` defaults to 50 (1-200); `--after` defaults to 0.
+Follow non-null `nextAfter` with `--after`; this is a live revision cursor, not
+a frozen snapshot. Deduplicate by request ID; restart at 0 to refresh.
+
+List/show never acknowledge. Single `ack` requires the exact current revision
+from list/show; a stale revision returns `X_REVISION_CONFLICT` (exit 5).
+`ackall` needs no prior list, token or batching: it acknowledges the identity's
+current write-transaction snapshot and returns `acknowledgedThrough`, not a count.
+It does not claim you read every result. A new request or first final committed
+after that snapshot remains unacknowledged. Each repeat takes a new snapshot.
+
+Delivery and final are independent. `not_submitted` does not mean a task is
+running; a final may be `retained`, `expired` or `unavailable`. Show exposes exact
+retained prompt `message` and final `response`. Acknowledgment neither cancels
+work nor deletes content nor asserts success. Settled means a final was submitted
+and its current revision acknowledged, even if its body later expires.
+
+Unknown, anonymous, wrong-originator and metadata-expired X records return
+`X_NOT_FOUND` (exit 3). Missing caller identity returns `IDENTITY_REQUIRED` (exit 1).
+Reads and acknowledgments never renew retention. This is not an offline recipient
+queue, memory search or remote access; `talk` still needs a live destination.
 
 ## Role profiles
 

@@ -58,7 +58,14 @@ export function requireDurableIdentity(
   context: DurableIdentityContext,
   selector?: IdentitySelector
 ): DurableIdentity {
-  const resolution = resolveDurableIdentity(context, selector);
+  return requireIdentityResolution(resolveDurableIdentity(context, selector), selector);
+}
+
+/** Convert a shared resolution into the common selection error contract. */
+export function requireIdentityResolution(
+  resolution: DurableIdentityResolution,
+  selector?: IdentitySelector
+): DurableIdentity {
   if (resolution.status === 'not-found') {
     throw new IdentitySelectionError(
       'NAME_NOT_FOUND',

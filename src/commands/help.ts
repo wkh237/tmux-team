@@ -62,7 +62,7 @@ function childRows(parent: CliCommandMetadata): string {
     .filter((child) => !child.hidden)
     .map((child) => {
       const options = commandOptions(child)
-        .map((option) => `[${option.flags}]`)
+        .map((option) => (option.mandatory ? option.flags : `[${option.flags}]`))
         .join(' ');
       const suffix = options ? ` ${options}` : '';
       return `  tmt ${colors.green(`${parent.name} ${commandUsage(child)}${suffix}`)}`;
@@ -80,6 +80,7 @@ export function cmdHelp(config?: HelpConfig): void {
   const result = requiredCommand(metadata, 'result');
   const role = requiredCommand(metadata, 'role');
   const identity = requiredCommand(metadata, 'identity');
+  const exchange = requiredCommand(metadata, 'x');
   const learn = requiredCommand(metadata, 'learn');
   const learnSkill = learn.options.find((option) => option.name === 'skill');
   if (!learnSkill) throw new Error('CLI metadata is missing learn --skill');
@@ -126,6 +127,13 @@ ${childRows(identity)}
   Identity list includes unbound identities; ordinary list shows active destinations.
   No login, automatic binding, presence claim or authentication is implied.
 
+${colors.yellow('EXCHANGE ATTENTION USAGE')}
+${childRows(exchange)}
+  Bare x lists unacknowledged exchanges; use --identity outside a verified bound pane.
+  List accepts --limit (1-200, default 50) and --after (default 0).
+  ack requires --revision from list/show; ackall needs no prior lookup.
+  Reads never acknowledge. A later final reopens attention; acknowledgment is not task success.
+
 ${colors.yellow('ROLE USAGE')}
 ${childRows(role)}
   Omit --identity only in a verified bound pane; explicit offline identities are supported.
@@ -146,7 +154,7 @@ ${commandOptions(talk).map(formatOption).join('\n')}
   Original messages are retained locally for the frozen duration; avoid secrets.
   Exact well-formed Unicode is bounded to 1 MiB before preamble/instructions/protection.
   Invalid/oversized text: REQUEST_INPUT_INVALID/REQUEST_INPUT_TOO_LARGE (exit 1).
-  OS argument limits apply; talk has no file/stdin source or public context viewer yet.
+  OS argument limits apply; talk has no file/stdin source. Use x show for retained context.
   --debug shows diagnostic output.
 
 ${colors.yellow('CHECK OPTIONS')}

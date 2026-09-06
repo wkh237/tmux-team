@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { EXCHANGE_METADATA_SETTLEMENT_FLOOR_MS } from '../domain/exchange-retention.js';
+import { ExchangeAttentionError, type ExchangeAttentionRecord } from '../request-attention.js';
 import type {
   RequestAttemptRecord,
   RawRequestContext,
@@ -38,6 +39,8 @@ type AttemptRow = {
   expires_at_ms: number;
   retention_days: number;
   retention_expires_at_ms: number;
+  attention_revision: number;
+  attention_acknowledged_revision: number;
 };
 
 type RequestContextRow = AttemptRow & {
@@ -67,8 +70,18 @@ const ATTEMPT_COLUMNS = `
   server_start_time, pane_id, pane_pid, wait_active, status, preamble_every,
   inject_preamble, cadence_reserved, prepared_at_ms, sending_at_ms, settled_at_ms,
   wait_released_at_ms, response_submitted_at_ms, expires_at_ms, retention_days,
-  retention_expires_at_ms
+  retention_expires_at_ms, attention_revision, attention_acknowledged_revision
 `;
+const QUALIFIED_ATTEMPT_COLUMNS = ATTEMPT_COLUMNS.split(',')
+  .map((column) => `a.${column.trim()}`)
+  .join(', ');
+
+type AttentionRow = AttemptRow & {
+  acknowledged_through: number;
+  response_metadata_submitted_at_ms: number | null;
+  response_metadata_body_bytes: number | null;
+  response_metadata_expires_at_ms: number | null;
+};
 
 const RESPONSE_COLUMNS = `
   request_id, attempt_id, server_id, socket_path, server_pid, server_start_time,
@@ -180,11 +193,229 @@ function mapRequestContext(row: RequestContextRow): RawRequestContext {
   };
 }
 
+function mapAttention(row: AttentionRow): ExchangeAttentionRecord {
+  if (row.originator_identity_id === null || row.attention_revision === null) {
+    throw new Error(`Request '${row.request_id}' has no exchange attention provenance.`);
+  }
+  const responseMetadata =
+    row.response_metadata_submitted_at_ms !== null &&
+    row.response_metadata_expires_at_ms !== null &&
+    row.response_metadata_body_bytes !== null
+      ? {
+          submittedAtMs: row.response_metadata_submitted_at_ms,
+          bodyBytes: row.response_metadata_body_bytes,
+          expiresAtMs: row.response_metadata_expires_at_ms,
+        }
+      : undefined;
+  return {
+    originatorIdentityId: row.originator_identity_id,
+    requestId: row.request_id,
+    attemptId: row.attempt_id,
+    revision: row.attention_revision,
+    acknowledgedRevision: row.attention_acknowledged_revision,
+    acknowledgedThrough: row.acknowledged_through,
+    attempt: mapAttempt(row),
+    ...(responseMetadata && { responseMetadata }),
+  };
+}
+
+function attentionSelect(where: string): string {
+  return `SELECT ${QUALIFIED_ATTEMPT_COLUMNS},
+      state.acknowledged_through,
+      response.submitted_at_ms AS response_metadata_submitted_at_ms,
+      response.body_bytes AS response_metadata_body_bytes,
+      response.response_expires_at_ms AS response_metadata_expires_at_ms
+    FROM request_attempts AS a
+    JOIN request_attention_identities AS state
+      ON state.identity_id = a.originator_identity_id
+    LEFT JOIN request_responses AS response ON response.request_id = a.request_id
+    WHERE ${where}`;
+}
+
+function allocateAttentionRevision(database: SqliteDatabase, identityId: string): number {
+  const row = database
+    .prepare('SELECT latest_revision FROM request_attention_identities WHERE identity_id = ?')
+    .get(identityId) as { latest_revision: number } | undefined;
+  if (!row) {
+    database
+      .prepare(
+        `INSERT INTO request_attention_identities
+           (identity_id, latest_revision, acknowledged_through)
+         VALUES (?, 1, 0)`
+      )
+      .run(identityId);
+    return 1;
+  }
+  if (row.latest_revision >= Number.MAX_SAFE_INTEGER) {
+    throw new ExchangeAttentionError(
+      'X_REVISION_EXHAUSTED',
+      `Exchange attention revision counter for identity '${identityId}' is exhausted.`
+    );
+  }
+  const revision = row.latest_revision + 1;
+  const result = database
+    .prepare(
+      `UPDATE request_attention_identities
+       SET latest_revision = ?
+       WHERE identity_id = ? AND latest_revision = ?`
+    )
+    .run(revision, identityId, row.latest_revision);
+  if (result.changes !== 1) {
+    throw new Error(
+      `Exchange attention counter for identity '${identityId}' changed unexpectedly.`
+    );
+  }
+  return revision;
+}
+
 export function createRequestRepository(
   requireOpen: () => SqliteDatabase
 ): Omit<RequestRepository, 'withImmediateTransaction'> {
   return {
-    createAttempt(attempt, prompt?: RequestPromptStorage) {
+    reserveAttentionRevision(identityId) {
+      return allocateAttentionRevision(requireOpen(), identityId);
+    },
+
+    advanceAttentionRevision(requestId) {
+      const database = requireOpen();
+      const request = database
+        .prepare(
+          `SELECT originator_identity_id, attention_revision, response_submitted_at_ms
+           FROM request_attempts WHERE request_id = ?`
+        )
+        .get(requestId) as
+        | {
+            originator_identity_id: string | null;
+            attention_revision: number | null;
+            response_submitted_at_ms: number | null;
+          }
+        | undefined;
+      if (
+        !request ||
+        request.originator_identity_id === null ||
+        request.attention_revision === null ||
+        request.response_submitted_at_ms === null
+      ) {
+        return;
+      }
+      const nextRevision = allocateAttentionRevision(database, request.originator_identity_id);
+      const updated = database
+        .prepare(
+          `UPDATE request_attempts
+           SET attention_revision = ?
+           WHERE request_id = ? AND attention_revision = ?`
+        )
+        .run(nextRevision, requestId, request.attention_revision);
+      if (updated.changes !== 1) {
+        throw new Error(`Request '${requestId}' attention revision changed unexpectedly.`);
+      }
+    },
+
+    findExchangeAttention(identityId, requestId) {
+      const row = requireOpen()
+        .prepare(
+          attentionSelect(
+            'a.originator_identity_id = ? AND a.request_id = ? AND a.attention_revision > 0'
+          )
+        )
+        .get(identityId, requestId) as AttentionRow | undefined;
+      return row ? mapAttention(row) : undefined;
+    },
+
+    listExchangeAttention(identityId, afterRevision, limit, nowMs) {
+      const rows = requireOpen()
+        .prepare(
+          `${attentionSelect(
+            `a.originator_identity_id = ?
+             AND a.attention_revision > 0
+             AND a.attention_revision > ?
+             AND a.retention_expires_at_ms > ?
+             AND a.attention_acknowledged_revision < a.attention_revision
+             AND state.acknowledged_through < a.attention_revision`
+          )}
+           ORDER BY a.attention_revision, a.request_id
+           LIMIT ?`
+        )
+        .all(identityId, afterRevision, nowMs, limit) as AttentionRow[];
+      return rows.map(mapAttention);
+    },
+
+    acknowledgeExchange(identityId, requestId, revision, nowMs) {
+      const database = requireOpen();
+      const row = database
+        .prepare(
+          `SELECT attention_revision, attention_acknowledged_revision, retention_expires_at_ms,
+                  originator_identity_id
+           FROM request_attempts
+           WHERE originator_identity_id = ? AND request_id = ? AND attention_revision > 0`
+        )
+        .get(identityId, requestId) as
+        | {
+            attention_revision: number;
+            attention_acknowledged_revision: number;
+            retention_expires_at_ms: number;
+            originator_identity_id: string;
+          }
+        | undefined;
+      if (!row || row.retention_expires_at_ms <= nowMs) {
+        throw new ExchangeAttentionError(
+          'X_NOT_FOUND',
+          `Exchange '${requestId}' was not found for identity '${identityId}'.`
+        );
+      }
+      if (row.attention_revision !== revision) {
+        throw new ExchangeAttentionError(
+          'X_REVISION_CONFLICT',
+          `Exchange '${requestId}' is at revision ${row.attention_revision}, not ${revision}.`
+        );
+      }
+      const state = database
+        .prepare(
+          'SELECT acknowledged_through FROM request_attention_identities WHERE identity_id = ?'
+        )
+        .get(identityId) as { acknowledged_through: number } | undefined;
+      if (!state) {
+        throw new Error(`Exchange attention state for identity '${identityId}' is missing.`);
+      }
+      if (
+        state.acknowledged_through >= revision ||
+        row.attention_acknowledged_revision >= revision
+      ) {
+        return { currentRevision: revision, changed: false };
+      }
+      const result = database
+        .prepare(
+          `UPDATE request_attempts
+           SET attention_acknowledged_revision = ?
+           WHERE originator_identity_id = ? AND request_id = ?
+             AND attention_revision = ? AND attention_acknowledged_revision < ?`
+        )
+        .run(revision, identityId, requestId, revision, revision);
+      return { currentRevision: revision, changed: result.changes === 1 };
+    },
+
+    acknowledgeAllExchanges(identityId) {
+      const database = requireOpen();
+      const row = database
+        .prepare('SELECT latest_revision FROM request_attention_identities WHERE identity_id = ?')
+        .get(identityId) as { latest_revision: number } | undefined;
+      if (!row) return 0;
+      const result = database
+        .prepare(
+          `UPDATE request_attention_identities
+           SET acknowledged_through = MAX(acknowledged_through, latest_revision)
+           WHERE identity_id = ?`
+        )
+        .run(identityId);
+      if (result.changes !== 1) {
+        throw new Error(
+          `Exchange attention state for identity '${identityId}' changed unexpectedly.`
+        );
+      }
+      return row.latest_revision;
+    },
+
+    createAttempt(attempt, prompt?: RequestPromptStorage, attentionRevision?: number) {
       requireOpen()
         .prepare(
           `INSERT INTO request_attempts (
@@ -193,12 +424,13 @@ export function createRequestRepository(
              server_start_time, pane_id, pane_pid, wait_active, status, preamble_every,
              inject_preamble, cadence_reserved, prepared_at_ms, sending_at_ms, settled_at_ms,
              wait_released_at_ms, response_submitted_at_ms, expires_at_ms, retention_days,
-             retention_expires_at_ms, message_text, message_bytes, message_expires_at_ms
+             retention_expires_at_ms, attention_revision, attention_acknowledged_revision,
+             message_text, message_bytes, message_expires_at_ms
            ) VALUES (
              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-             ?, ?, ?, ?, ?, ?, ?,
-             ?, ?
+             ?, ?, ?, ?, ?, ?, ?, ?,
+             ?, ?, ?
            )`
         )
         .run(
@@ -228,6 +460,8 @@ export function createRequestRepository(
           attempt.expiresAtMs,
           attempt.retentionDays,
           attempt.retentionExpiresAtMs,
+          attentionRevision ?? 0,
+          0,
           prompt?.message ?? null,
           prompt?.messageBytes ?? null,
           prompt?.expiresAtMs ?? null

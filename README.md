@@ -136,7 +136,7 @@ attribute a request; a recipient still needs a live bound pane. `tmt list`
 continues to show active destinations, not every stored identity. Create/show
 require a name: invalid names return `INVALID_NAME` (exit 1), while a valid
 missing show name returns `NAME_NOT_FOUND` (exit 3). No identity deletion,
-rename, attention view or listener is added.
+rename or listener is added by identity creation/discovery.
 
 ## Commands
 
@@ -204,12 +204,47 @@ of well-formed Unicode; empty text is valid, while operating-system argument
 limits still apply. Invalid/oversized input returns `REQUEST_INPUT_INVALID` or
 `REQUEST_INPUT_TOO_LARGE` (exit 1) before target effects. No talk file/stdin source
 is introduced. Historical requests have unavailable original context; nothing
-is reconstructed from a pane. Context inspection is currently internal, not a
-new inbox or `x` command. Existing talk/result output remains unchanged.
+is reconstructed from a pane. Use `x show` for identity-scoped retained context.
+Existing talk/result output remains unchanged.
 
 `--wait` is retired. `--lines` belongs to diagnostic `check`, not `talk`.
 Time accepts seconds or ms/s suffixes. Stored mode and maxCaptureLines values
 are inert and preserved; `config clear mode` removes only the obsolete local key.
+
+### Exchange attention and recovery
+
+X lists retained requests originated by a durable identity, so recovery does not
+depend on remembering individual request IDs or retaining a terminal transcript.
+
+```bash
+tmt x --identity coordinator --json
+tmt x show <request-id> --identity coordinator --json
+tmt x ack <request-id> --revision <revision> --identity coordinator --json
+tmt x ackall --identity coordinator --json
+```
+
+Omit `--identity` only in a verified bound pane. Explicit access works outside
+tmux, even while another pane uses that identity; selection is not authentication.
+Anonymous historical requests cannot be inferred into an identity view.
+
+Bare `x` is `x list`: only unacknowledged metadata, without prompt/final bodies.
+Use `--limit` (1..200, default 50) and follow non-null `nextAfter` with `--after`.
+This is a live revision cursor: a new final can move a request forward; deduplicate
+by request ID and restart at 0 to refresh. Show includes exact retained context.
+
+Reads never acknowledge. Single ack requires the observed revision and rejects
+a stale one with `X_REVISION_CONFLICT` (exit 5). `ackall` requires no prior lookup
+or token; it acknowledges the current transaction snapshot and returns
+`acknowledgedThrough`, not a count or a claim that every body was read. Later
+requests/finals remain unacknowledged. Each repeat takes a new snapshot.
+
+Delivery and final are separate: `not_submitted` is not proof a task is running;
+a submitted final can be retained, expired or unavailable. Settled means a final
+was submitted and its revision acknowledged, not that the task succeeded.
+Acknowledgment does not cancel work, delete content or renew retention. A pending
+request acknowledged now reappears when its first final arrives. Unknown,
+wrong-originator, anonymous and metadata-expired records return `X_NOT_FOUND`
+(exit 3). This is not an offline recipient queue, listener or memory search.
 
 ### Durable replies and results
 
