@@ -141,13 +141,118 @@ describe('real reply/result CLI process contract', () => {
   );
 
   it(
+    'submits an exact inline body, including empty and Unicode text, through the same final service',
+    { timeout: 15_000 },
+    () =>
+      withSandbox(async (sandbox) => {
+        const seeded = seedAttempt(sandbox, 'request-inline-cli', { reservePreamble: true });
+        const body = '\ufeffinline\r\n  日本語 😀  ';
+        const submitted = await runCli(sandbox, [
+          'reply',
+          seeded.requestId,
+          '--receipt',
+          seeded.receipt,
+          '--message',
+          body,
+          '--json',
+        ]);
+        expect(submitted.status).toBe(0);
+        expect(parseWholeStdout(submitted)).toMatchObject({
+          status: 'submitted',
+          requestId: seeded.requestId,
+          bodyBytes: Buffer.byteLength(body),
+        });
+
+        const result = await runCli(sandbox, ['result', seeded.requestId, '--json']);
+        expect(parseWholeStdout(result)).toMatchObject({
+          status: 'completed',
+          requestId: seeded.requestId,
+          response: body,
+          bodyBytes: Buffer.byteLength(body),
+        });
+
+        const empty = seedAttempt(sandbox, 'request-inline-empty');
+        const emptyResult = await runCli(sandbox, [
+          'reply',
+          empty.requestId,
+          '--receipt',
+          empty.receipt,
+          '--message',
+          '',
+          '--json',
+        ]);
+        expect(emptyResult.status).toBe(0);
+        expect(parseWholeStdout(emptyResult)).toMatchObject({
+          status: 'submitted',
+          requestId: empty.requestId,
+          bodyBytes: 0,
+        });
+        const emptyRetrieved = await runCli(sandbox, ['result', empty.requestId, '--json']);
+        expect(emptyRetrieved.status).toBe(0);
+        expect(parseWholeStdout(emptyRetrieved)).toMatchObject({
+          status: 'completed',
+          requestId: empty.requestId,
+          response: '',
+          bodyBytes: 0,
+        });
+
+        const leading = seedAttempt(sandbox, 'request-inline-leading');
+        const leadingResult = await runCli(sandbox, [
+          'reply',
+          leading.requestId,
+          '--receipt',
+          leading.receipt,
+          '--message=-leading text',
+          '--json',
+        ]);
+        expect(leadingResult.status).toBe(0);
+        expect(parseWholeStdout(leadingResult)).toMatchObject({
+          status: 'submitted',
+          requestId: leading.requestId,
+          bodyBytes: Buffer.byteLength('-leading text'),
+        });
+        const leadingRetrieved = await runCli(sandbox, ['result', leading.requestId, '--json']);
+        expect(parseWholeStdout(leadingRetrieved)).toMatchObject({
+          status: 'completed',
+          requestId: leading.requestId,
+          response: '-leading text',
+        });
+
+        const flagLooking = seedAttempt(sandbox, 'request-inline-flag-looking');
+        const flagLookingResult = await runCli(sandbox, [
+          'reply',
+          flagLooking.requestId,
+          '--receipt',
+          flagLooking.receipt,
+          '--message=--json',
+          '--json',
+        ]);
+        expect(flagLookingResult.status).toBe(0);
+        expect(parseWholeStdout(flagLookingResult)).toMatchObject({
+          status: 'submitted',
+          requestId: flagLooking.requestId,
+          bodyBytes: Buffer.byteLength('--json'),
+        });
+        const flagLookingRetrieved = await runCli(sandbox, [
+          'result',
+          flagLooking.requestId,
+          '--json',
+        ]);
+        expect(parseWholeStdout(flagLookingRetrieved)).toMatchObject({
+          status: 'completed',
+          requestId: flagLooking.requestId,
+          response: '--json',
+        });
+      })
+  );
+
+  it(
     'keeps identical retries idempotent and conflicting replies unchanged',
     { timeout: 15_000 },
     () =>
       withSandbox(async (sandbox) => {
         const seeded = seedAttempt(sandbox, 'request-idempotent', { reservePreamble: true });
         const original = temporaryFile(sandbox, 'original.txt', 'original\r\n日本語');
-        const conflict = temporaryFile(sandbox, 'conflict.txt', 'different');
         try {
           const first = await runCli(sandbox, [
             'reply',
@@ -166,8 +271,8 @@ describe('real reply/result CLI process contract', () => {
             seeded.requestId,
             '--receipt',
             seeded.receipt,
-            '--file',
-            original,
+            '--message',
+            'original\r\n日本語',
             '--json',
           ]);
           expect(second.status).toBe(0);
@@ -181,8 +286,8 @@ describe('real reply/result CLI process contract', () => {
             seeded.requestId,
             '--receipt',
             seeded.receipt,
-            '--file',
-            conflict,
+            '--message',
+            'different',
             '--json',
           ]);
           expect(rejected.status).toBe(5);
@@ -196,7 +301,6 @@ describe('real reply/result CLI process contract', () => {
           });
         } finally {
           fs.rmSync(original, { force: true });
-          fs.rmSync(conflict, { force: true });
         }
       })
   );

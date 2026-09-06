@@ -11,8 +11,10 @@ const logPath = process.env.TMT_MOCK_LOG;
 const cliPath = process.env.TMT_E2E_CLI_PATH;
 const virtualizedLineCount = 200;
 const maxReplyOutputBytes = 64 * 1024;
+const maxInlineReplyBytes = 4 * 1024;
 const replyChildren = new Set();
 const replyGate = process.env.TMT_MOCK_REPLY_GATE;
+const replyInput = process.env.TMT_MOCK_REPLY_INPUT ?? 'stdin';
 
 function appendEvent(event) {
   if (!logPath) return;
@@ -56,13 +58,8 @@ function renderDurableSurface(body, requestId) {
   process.stdout.write(`\u001b[2J\u001b[3J\u001b[H${visibleLines}\nRESPONSE-END-${requestId}\n`);
 }
 
-function parseField(line, name) {
-  const match = line.match(new RegExp(`^${name}=(\\S+)$`, 'i'));
-  return match?.[1];
-}
-
 function parseCommand(line) {
-  const match = line.match(/^stdin-command=tmt\s+reply\s+(\S+)\s+--receipt\s+(\S+)\s+--stdin\s*$/);
+  const match = line.match(/^tmt reply (\S+) --receipt (\S+) --message <text>$/);
   return match ? { requestId: match[1], receipt: match[2] } : undefined;
 }
 
@@ -99,10 +96,20 @@ function killReplyChild(child) {
 
 function runReply(requestId, receipt, body) {
   if (!cliPath) throw new Error('TMT_E2E_CLI_PATH is required for durable mock replies.');
+  if (replyInput !== 'stdin' && replyInput !== 'message') {
+    throw new Error(`Unsupported mock reply input mode '${replyInput}'.`);
+  }
+  if (
+    replyInput === 'message' &&
+    (Buffer.byteLength(body, 'utf8') > maxInlineReplyBytes || body.includes('\u0000'))
+  ) {
+    throw new Error('Inline mock reply body exceeds the bounded fixture grammar.');
+  }
+  const inputArgs = replyInput === 'message' ? ['--message', body] : ['--stdin'];
   return new Promise((resolve) => {
     const child = spawn(
       process.execPath,
-      [cliPath, 'reply', requestId, '--receipt', receipt, '--stdin', '--json'],
+      [cliPath, 'reply', requestId, '--receipt', receipt, ...inputArgs, '--json'],
       {
         cwd: process.cwd(),
         env: { ...process.env },
@@ -111,7 +118,14 @@ function runReply(requestId, receipt, body) {
       }
     );
     replyChildren.add(child);
-    appendEvent({ event: 'child-start', requestId, childPid: child.pid, mode, pid: process.pid });
+    appendEvent({
+      event: 'child-start',
+      requestId,
+      childPid: child.pid,
+      replyInput,
+      mode,
+      pid: process.pid,
+    });
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     let stdout = '';
@@ -175,7 +189,10 @@ function runReply(requestId, receipt, body) {
         stderr += `${error instanceof Error ? error.message : String(error)}\n`;
       }
     });
-    if (process.env.TMT_MOCK_HOLD_REPLY_EOF !== '1') child.stdin.end(body, 'utf8');
+    if (replyInput === 'message' || process.env.TMT_MOCK_HOLD_REPLY_EOF !== '1') {
+      if (replyInput === 'message') child.stdin.end();
+      else child.stdin.end(body, 'utf8');
+    }
   });
 }
 
@@ -281,6 +298,7 @@ function submit(requestId, receipt, body, message) {
 const input = readline.createInterface({ input: process.stdin, terminal: false });
 let messageLines = [];
 let frame;
+let guidancePending = false;
 
 appendEvent({ event: 'ready', mode, pid: process.pid });
 
@@ -290,28 +308,35 @@ input.on('line', (line) => {
     return;
   }
 
-  if (line === '[TMT-DURABLE-REPLY v1 BEGIN]') {
-    frame = { requestId: undefined, receipt: undefined, command: undefined };
+  if (guidancePending) {
+    if (line === '<tmt-reply>') {
+      appendEvent({ event: 'failure', stage: 'frame-guidance', mode, pid: process.pid });
+      guidancePending = false;
+      frame = { lines: [] };
+      return;
+    }
+    guidancePending = false;
+    return;
+  }
+
+  if (line === '<tmt-reply>') {
+    frame = { lines: [] };
     return;
   }
   if (frame) {
-    if (line === '[TMT-DURABLE-REPLY v1 END]') {
+    if (line === '</tmt-reply>') {
       const current = frame;
       frame = undefined;
+      guidancePending = true;
       const message = messageLines.join('\n').trim();
       messageLines = [];
-      if (
-        !current.requestId ||
-        !current.receipt ||
-        !current.command ||
-        current.command.requestId !== current.requestId ||
-        current.command.receipt !== current.receipt
-      ) {
+      const command = current.lines.length === 1 ? parseCommand(current.lines[0]) : undefined;
+      if (!command) {
         appendEvent({ event: 'failure', stage: 'frame', mode, pid: process.pid });
         return;
       }
-      const requestId = current.requestId;
-      const receipt = current.receipt;
+      const requestId = command.requestId;
+      const receipt = command.receipt;
       appendEvent({ event: 'request', message, requestId, receipt, mode, pid: process.pid });
       if (mode === 'silent') {
         appendEvent({ event: 'silent', message, requestId, mode, pid: process.pid });
@@ -338,12 +363,7 @@ input.on('line', (line) => {
       scheduleReply(requestId, receipt, body, message);
       return;
     }
-    const requestId = parseField(line, 'request-id');
-    const receipt = parseField(line, 'receipt');
-    if (requestId) frame.requestId = requestId;
-    if (receipt) frame.receipt = receipt;
-    const command = parseCommand(line);
-    if (command) frame.command = command;
+    frame.lines.push(line);
     return;
   }
 

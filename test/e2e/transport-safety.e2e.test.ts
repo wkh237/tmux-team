@@ -222,6 +222,44 @@ describe.sequential('TMT-24 safe transport', () => {
     );
   }, 30_000);
 
+  it('preserves the single-receipt reply frame across protected transport', async () => {
+    await withE2EFixture(
+      async (fixture) => {
+        const message = protectedMessage();
+        const sent = await fixture.runJsonCli<TalkResult>([
+          'talk',
+          fixture.pane,
+          message,
+          '--no-preamble',
+          '--detach',
+        ]);
+        expect(sent).toMatchObject({ code: 0, json: { status: 'sent' } });
+        await waitForInput(fixture, fixture.panePid, '</tmt-reply>');
+
+        const lines = fixture
+          .events()
+          .filter((event) => event.event === 'input' && event.pid === fixture.panePid)
+          .map((event) => event.line);
+        expect(lines).toContain('！ protected bang');
+        const begin = lines.indexOf('<tmt-reply>');
+        const end = lines.indexOf('</tmt-reply>');
+        expect(begin).toBeGreaterThanOrEqual(0);
+        expect(end).toBeGreaterThan(begin);
+        const frame = lines.slice(begin, end + 1);
+        expect(frame).toHaveLength(3);
+        expect(frame[0]).toBe('<tmt-reply>');
+        expect(frame[2]).toBe('</tmt-reply>');
+        expect(frame[1]).toMatch(
+          /^tmt reply req_[0-9a-f-]+ --receipt [A-Za-z0-9_-]+ --message <text>$/
+        );
+        const receipt = frame[1]?.match(/--receipt (\S+) --message/)?.[1];
+        expect(receipt).toBeTruthy();
+        expect(lines.filter((line) => line?.includes(receipt ?? '')).length).toBe(1);
+      },
+      { mode: 'input-log' }
+    );
+  });
+
   it('clears wait request state after an uncertain submit', async () => {
     await withE2EFixture(
       async (fixture) => {

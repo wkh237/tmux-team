@@ -78,9 +78,11 @@ ${colors.yellow('TALK OPTIONS')}
   ${colors.green('--debug')}                     Show debug output
 
 ${colors.yellow('REPLY / RESULT')}
-  tmt reply <request-id> --receipt <receipt> (--file <path> | --stdin) [--json]
+  tmt reply <request-id> --receipt <receipt> (--message <text> | --file <path> | --stdin) [--json]
   tmt result <request-id> [--json]
   Use exactly one input source and the request ID/receipt from the talk instruction.
+  Quote short inline text; use --message='-text' for a leading hyphen.
+  Use file/stdin for large bodies or NUL; operating-system argv limits apply.
   Do not invent a receipt, select the latest request, or infer a current pane.
   A recipient must submit a final; markers, idle output and summaries do not complete talk.
   Reply/result work without tmux on the same local database; check is diagnostic only.

@@ -32,10 +32,13 @@ ${colors.yellow('ESSENTIAL COMMANDS')}
 ${colors.yellow('DURABLE REPLIES AND RESULTS')}
 
   When TMT supplies an exact receipt, submit a complete response without tmux:
+  ${colors.cyan("tmt reply <request-id> --receipt <receipt> --message 'Review complete.'")}
   ${colors.cyan('tmt reply <request-id> --receipt <receipt> --file response.md')}
   ${colors.cyan('tmt reply <request-id> --receipt <receipt> --stdin < response.md')}
   ${colors.cyan('tmt result <request-id> --json')}
 
+  Short replies can use --message; quote for the shell and use --message='-text'
+  for a leading hyphen. Use file/stdin for large bodies or NUL (argv limits apply).
   Use exactly one input source and never manufacture a receipt, select the
   latest request, or infer a pane. talk supplies the exact request ID/receipt
   for both default wait and detached requests. Submission confirms result

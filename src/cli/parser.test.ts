@@ -315,6 +315,39 @@ describe('declarative CLI parser', () => {
       receipt,
       stdin: true,
     });
+    expect(
+      parseArgs(['reply', 'request-1', '--receipt', receipt, '--message', 'inline response'])
+        .invocation
+    ).toEqual({
+      kind: 'reply',
+      requestId: 'request-1',
+      receipt,
+      message: 'inline response',
+    });
+    expect(
+      parseArgs(['reply', 'request-1', '--receipt', receipt, '--message', '']).invocation
+    ).toEqual({
+      kind: 'reply',
+      requestId: 'request-1',
+      receipt,
+      message: '',
+    });
+    expect(
+      parseArgs(['reply', 'request-1', '--receipt', receipt, '--message=-leading text']).invocation
+    ).toEqual({
+      kind: 'reply',
+      requestId: 'request-1',
+      receipt,
+      message: '-leading text',
+    });
+    expect(
+      parseArgs(['reply', 'request-1', '--receipt', receipt, '--message=--json']).invocation
+    ).toEqual({
+      kind: 'reply',
+      requestId: 'request-1',
+      receipt,
+      message: '--json',
+    });
     expect(parseArgs(['result', 'request-1', '--json'])).toMatchObject({
       invocation: { kind: 'result', requestId: 'request-1' },
       metadata: expect.objectContaining({ capability: 'storage', commandPath: ['result'] }),
@@ -325,6 +358,8 @@ describe('declarative CLI parser', () => {
     const invalid = [
       ['reply', 'request-1', '--receipt', receipt],
       ['reply', 'request-1', '--receipt', receipt, '--file', '/tmp/reply', '--stdin'],
+      ['reply', 'request-1', '--receipt', receipt, '--file', '/tmp/reply', '--message', 'inline'],
+      ['reply', 'request-1', '--receipt', receipt, '--stdin', '--message', 'inline'],
       ['reply', 'request-1', '--receipt', receipt, '--wait', '--stdin'],
       ['reply', 'request-1', '--receipt', receipt, '--team', 'legacy', '--stdin'],
       ['--wait', 'reply', 'request-1', '--receipt', receipt, '--stdin'],

@@ -55,6 +55,55 @@ describe.sequential('TMT-39 durable talk contract', () => {
     );
   });
 
+  it('submits an exact Unicode and whitespace body through the inline public reply', async () => {
+    const body = '  日本語🙂\t\nline two  \r\n';
+    await withE2EFixture(
+      async (fixture) => {
+        const talk = await fixture.runJsonCli<TalkResult>([
+          'talk',
+          fixture.pane,
+          'inline public reply request',
+          '--no-preamble',
+          '--timeout',
+          '8',
+        ]);
+        expect(talk.code, talk.stderr || talk.stdout).toBe(0);
+        expect(talk.json).toMatchObject({
+          status: 'completed',
+          response: body,
+          bodyBytes: Buffer.byteLength(body),
+        });
+
+        const requestId = talk.json?.requestId ?? '';
+        const child = await fixture.waitForEvent(
+          (event) => event.event === 'child-start' && event.requestId === requestId
+        );
+        expect(child.replyInput).toBe('message');
+        const submitted = await fixture.waitForEvent(
+          (event) => event.event === 'submitted' && event.requestId === requestId
+        );
+        expect(submitted.body).toBe(body);
+        expect(submitted.bodyBytes).toBe(Buffer.byteLength(body));
+
+        const result = await fixture.runJsonCli<ResultOutput>(['result', requestId]);
+        expect(result).toMatchObject({
+          code: 0,
+          json: {
+            status: 'completed',
+            requestId,
+            response: body,
+            bodyBytes: Buffer.byteLength(body),
+            submittedAtMs: talk.json?.submittedAtMs,
+          },
+        });
+      },
+      {
+        replyInput: 'message',
+        responseBodyBase64: Buffer.from(body, 'utf8').toString('base64'),
+      }
+    );
+  });
+
   it('accepts the exact one-megabyte UTF-8 boundary and rejects one byte over it', async () => {
     const boundary = '🙂'.repeat(Math.floor((1024 * 1024) / 4)) + 'a'.repeat((1024 * 1024) % 4);
     await withE2EFixture(

@@ -77,6 +77,7 @@ interface CommandOptions extends CommonOptions {
   global?: boolean;
   identity?: string;
   file?: string;
+  message?: string;
 }
 
 interface Capture {
@@ -287,7 +288,9 @@ function setupProgram(capture: Capture): Command {
     return false;
   };
   const rejectIrrelevantStorageOptions = (command: Command, kind: 'reply' | 'result'): void => {
-    const allowed = new Set(kind === 'reply' ? ['json', 'receipt', 'file', 'stdin'] : ['json']);
+    const allowed = new Set(
+      kind === 'reply' ? ['json', 'receipt', 'file', 'stdin', 'message'] : ['json']
+    );
     const seen = new Set<string>();
     let current: Command | null = command;
     while (current) {
@@ -451,7 +454,8 @@ function setupProgram(capture: Capture): Command {
   const reply = storageOnly(program.command('reply').argument('<request-id>'))
     .requiredOption('--receipt <receipt>')
     .option('--file <path>')
-    .option('--stdin');
+    .option('--stdin')
+    .option('--message <text>');
   reply.action(function (requestId: string) {
     rejectIrrelevantStorageOptions(this, 'reply');
     try {
@@ -465,16 +469,24 @@ function setupProgram(capture: Capture): Command {
     };
     const hasFile = options.file !== undefined;
     const hasStdin = options.stdin === true;
-    if (hasFile === hasStdin || options.receipt === undefined) {
+    const hasMessage = options.message !== undefined;
+    if (
+      [hasFile, hasStdin, hasMessage].filter(Boolean).length !== 1 ||
+      options.receipt === undefined
+    ) {
       throw new CliParseError(
-        'Usage: tmux-team reply <request-id> --receipt <receipt> (--file <path> | --stdin) [--json]'
+        'Usage: tmux-team reply <request-id> --receipt <receipt> (--file <path> | --stdin | --message <text>) [--json]'
       );
     }
     action(this, {
       kind: 'reply',
       requestId,
       receipt: options.receipt,
-      ...(hasFile ? { file: options.file! } : { stdin: true }),
+      ...(hasFile
+        ? { file: options.file! }
+        : hasStdin
+          ? { stdin: true }
+          : { message: options.message! }),
     });
   });
   const result = storageOnly(program.command('result').argument('<request-id>'));

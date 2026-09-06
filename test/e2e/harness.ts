@@ -39,6 +39,7 @@ export interface MockEvent {
   stage?: string;
   exitCode?: number;
   childPid?: number;
+  replyInput?: 'stdin' | 'message';
   error?: { code?: string; message?: string };
   mode?: string;
   pid?: number;
@@ -91,6 +92,7 @@ export interface E2EFixtureOptions {
   responseBodyBase64?: string;
   responseBytes?: number;
   responseMultibyte?: boolean;
+  replyInput?: 'stdin' | 'message';
   replyDelayMs?: number;
   replyGate?: boolean;
   replyFailure?: boolean;
@@ -281,6 +283,7 @@ exit ${'$'}status
       if (options.responseBytes !== undefined)
         this.env.TMT_MOCK_RESPONSE_BYTES = String(options.responseBytes);
       if (options.responseMultibyte) this.env.TMT_MOCK_RESPONSE_MULTIBYTE = '1';
+      if (options.replyInput !== undefined) this.env.TMT_MOCK_REPLY_INPUT = options.replyInput;
       if (options.replyDelayMs !== undefined)
         this.env.TMT_MOCK_REPLY_DELAY_MS = String(options.replyDelayMs);
       if (options.replyGate) {
