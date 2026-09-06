@@ -79,12 +79,18 @@ describe('cmdInstall', () => {
   const originalHome = process.env.HOME;
   const originalTmux = process.env.TMUX;
   const originalCodexHome = process.env.CODEX_HOME;
+  const originalPiDirectory = process.env.PI_CODING_AGENT_DIR;
+  const originalXdgDirectory = process.env.XDG_CONFIG_HOME;
+  const originalOpenCodeDirectory = process.env.OPENCODE_CONFIG_DIR;
 
   beforeEach(() => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-install-'));
     homeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-home-'));
     process.env.HOME = homeDir;
     process.env.CODEX_HOME = path.join(homeDir, '.codex');
+    delete process.env.PI_CODING_AGENT_DIR;
+    delete process.env.XDG_CONFIG_HOME;
+    delete process.env.OPENCODE_CONFIG_DIR;
     delete process.env.TMUX;
   });
 
@@ -92,6 +98,12 @@ describe('cmdInstall', () => {
     process.env.HOME = originalHome;
     process.env.TMUX = originalTmux;
     process.env.CODEX_HOME = originalCodexHome;
+    if (originalPiDirectory === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = originalPiDirectory;
+    if (originalXdgDirectory === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = originalXdgDirectory;
+    if (originalOpenCodeDirectory === undefined) delete process.env.OPENCODE_CONFIG_DIR;
+    else process.env.OPENCODE_CONFIG_DIR = originalOpenCodeDirectory;
     fs.rmSync(testDir, { recursive: true, force: true });
     fs.rmSync(homeDir, { recursive: true, force: true });
     vi.doUnmock('../skill-installation.js');
@@ -251,6 +263,80 @@ describe('cmdInstall', () => {
     const ctx = createCtx(testDir, { flags: { force: true } });
     await cmdInstall(ctx);
     expect(fs.existsSync(path.join(homeDir, '.claude', 'skills', 'tmux-team'))).toBe(true);
+  });
+
+  it('detects provider directories and binaries without treating shared state as Codex', async () => {
+    vi.resetModules();
+    vi.doMock('node:os', () => ({
+      default: { homedir: () => homeDir },
+      homedir: () => homeDir,
+    }));
+    const previousPath = process.env.PATH;
+    const previousPiDirectory = process.env.PI_CODING_AGENT_DIR;
+    const previousXdgDirectory = process.env.XDG_CONFIG_HOME;
+    const previousOpenCodeDirectory = process.env.OPENCODE_CONFIG_DIR;
+    const emptyPath = path.join(testDir, 'empty-bin');
+    fs.mkdirSync(emptyPath);
+    process.env.PATH = emptyPath;
+    delete process.env.PI_CODING_AGENT_DIR;
+    delete process.env.XDG_CONFIG_HOME;
+    delete process.env.OPENCODE_CONFIG_DIR;
+    try {
+      const { detectEnvironment } = await import('./install.js');
+      const directoryCases = [
+        ['agy', path.join(homeDir, '.gemini', 'config')],
+        ['pi', path.join(homeDir, '.pi', 'agent')],
+        ['opencode', path.join(homeDir, '.config', 'opencode')],
+      ] as const;
+      for (const [agent, directory] of directoryCases) {
+        fs.mkdirSync(directory, { recursive: true });
+        // The existing broad Gemini marker also covers Antigravity's nested
+        // ~/.gemini/config directory; this is intentional compatibility.
+        expect(detectEnvironment()).toEqual(agent === 'agy' ? ['gemini', 'agy'] : [agent]);
+        fs.rmSync(directory, { recursive: true, force: true });
+        if (agent === 'agy')
+          fs.rmSync(path.join(homeDir, '.gemini'), { recursive: true, force: true });
+      }
+
+      fs.mkdirSync(path.join(homeDir, '.agents'), { recursive: true });
+      process.env.CODEX_HOME = path.join(homeDir, '.agents');
+      expect(detectEnvironment()).toEqual([]);
+      fs.rmSync(path.join(homeDir, '.agents'), { recursive: true, force: true });
+      process.env.CODEX_HOME = path.join(homeDir, '.codex');
+
+      const overridePiDirectory = path.join(testDir, 'custom-pi-agent');
+      process.env.PI_CODING_AGENT_DIR = overridePiDirectory;
+      fs.mkdirSync(overridePiDirectory, { recursive: true });
+      expect(detectEnvironment()).toEqual(['pi']);
+      fs.rmSync(overridePiDirectory, { recursive: true, force: true });
+
+      const overrideXdgDirectory = path.join(testDir, 'custom-xdg');
+      process.env.XDG_CONFIG_HOME = overrideXdgDirectory;
+      fs.mkdirSync(path.join(overrideXdgDirectory, 'opencode'), { recursive: true });
+      expect(detectEnvironment()).toEqual(['opencode']);
+      fs.rmSync(overrideXdgDirectory, { recursive: true, force: true });
+
+      const overrideOpenCodeDirectory = path.join(testDir, 'custom-opencode');
+      process.env.OPENCODE_CONFIG_DIR = overrideOpenCodeDirectory;
+      fs.mkdirSync(overrideOpenCodeDirectory, { recursive: true });
+      expect(detectEnvironment()).toEqual(['opencode']);
+      fs.rmSync(overrideOpenCodeDirectory, { recursive: true, force: true });
+
+      for (const agent of ['agy', 'pi', 'opencode'] as const) {
+        fs.writeFileSync(path.join(emptyPath, agent), 'not executed');
+        expect(detectEnvironment()).toEqual([agent]);
+        fs.rmSync(path.join(emptyPath, agent));
+      }
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      if (previousPiDirectory === undefined) delete process.env.PI_CODING_AGENT_DIR;
+      else process.env.PI_CODING_AGENT_DIR = previousPiDirectory;
+      if (previousXdgDirectory === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = previousXdgDirectory;
+      if (previousOpenCodeDirectory === undefined) delete process.env.OPENCODE_CONFIG_DIR;
+      else process.env.OPENCODE_CONFIG_DIR = previousOpenCodeDirectory;
+    }
   });
 
   it('installs all detected environments without prompting', async () => {

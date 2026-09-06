@@ -632,8 +632,11 @@ unwritable output streams are outside the one-document guarantee.
 ## Bundled skill viewing and installation
 
 All providers install the single canonical `skills/tmux-team/SKILL.md` directory.
-Claude links it at `~/.claude/skills/tmux-team`; Codex and Gemini share
-`~/.agents/skills/tmux-team`. There are no generated provider copies, command
+Claude links it at `~/.claude/skills/tmux-team`; Codex, Gemini and OpenCode share
+`~/.agents/skills/tmux-team`. Antigravity CLI uses
+`~/.gemini/config/skills/tmux-team`; Pi uses `~/.pi/agent/skills/tmux-team`,
+respecting `PI_CODING_AGENT_DIR`. Pi's native target supports the verified 0.85.0
+loader without assuming newer shared-directory discovery. There are no generated provider copies, command
 wrappers, marketplace manifests or plugin assets. Native Claude skill invocation
 is `/tmux-team`, not a separately maintained slash-command contract.
 The educational learn guide points to the canonical viewer and grammar-backed
@@ -643,6 +646,13 @@ The ordered provider list and its derived type live in `skill-installation.ts`.
 Installer acceptance, install-all expansion and completion consume that owner;
 provider environment detection and Codex-specific backup rules remain installer
 policies. Command and option grammar still belongs to the parser.
+Detection uses provider-specific directory or executable evidence, not the mere
+presence of the shared `.agents` directory. OpenCode detection respects its explicit
+configuration directory override before the XDG root; its skill link remains shared. No-provider installation
+uses the neutral universal config and omits `agent` from the result instead of
+inventing a Codex installation. Explicit selectors do not require a provider binary.
+All installation modes are non-interactive; none installs provider applications,
+edits provider settings, bypasses permissions, or reloads active conversations.
 
 `learn --skill` emits the exact bundled universal `SKILL.md`, without startup
 checks, ANSI formatting, or an added newline. It is text-only and rejects JSON
@@ -653,7 +663,7 @@ the invocation directory. It is mutually exclusive with an explicit provider
 or `all`; empty directory input is rejected before effects. Custom mode links
 the universal skill and never migrates default-provider paths. Existing managed
 links are no-ops; unmanaged paths are refused unless explicit force requests a
-recoverable adjacent backup. Unrelated siblings remain outside the operation.
+recoverable backup outside the skills root. Unrelated siblings remain outside the operation.
 Before mutation, source/destination overlap is rejected, including destination
 parents that alias the bundled source through symlinks. Force is not permission
 to move the installed package source or create a recursive self-link.
@@ -669,6 +679,8 @@ custom-install registry, arbitrary folder scan, provider plugin update or agent
 reload is implied. Links follow source updates at the same package path; reinstall
 explicitly after relocation. Automatic drift inspection covers known defaults only,
 and npm version checking is not an alpha-channel skill version tracker.
+Managed-target drift inspection enumerates the provider path owner and deduplicates
+shared targets, rather than separately maintaining a Claude/Codex-only path list.
 
 The retired Claude command path is shared by installer and drift inspection.
 Default Claude installation preserves and warns about the old command; explicit

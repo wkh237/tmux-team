@@ -197,6 +197,17 @@ Provider names and ordering belong to `src/skill-installation.ts`. Installation
 and completion consume that inventory; provider detection and legacy-backup
 policy remain in their existing adapters. Test derivation with an altered
 inventory, not only matching copies of the current provider names.
+Cover every explicit provider target, directory/executable auto-detection,
+provider overrides and the neutral no-provider fallback with isolated homes.
+Shared `.agents` presence alone must not invent Codex detection. Drift tests
+must catch new provider targets and deduplicate shared paths. Packed verification
+must independently compare expected paths and exact installed contents, including
+fallback JSON without a provider, no-op reinstall and safe conflict handling.
+When claiming provider compatibility, record the actual provider version and
+loader or live discovery evidence separately from TMT's filesystem tests.
+Use provider-native locations when the supported installed baseline does not
+discover newer shared paths; never add a second content source or silently edit
+provider configuration to make a smoke test pass.
 
 ## Packed native-install verification
 

@@ -4,7 +4,7 @@
 
 import { readFileSync } from 'node:fs';
 import { colors } from '../ui.js';
-import { getUniversalSkillFile } from '../skill-installation.js';
+import { getUniversalSkillFile, SKILL_AGENTS } from '../skill-installation.js';
 
 export function cmdLearn(skill = false): void {
   if (skill) {
@@ -20,6 +20,13 @@ ${colors.yellow('WHAT IS TMUX-TEAM?')}
   communicate with each other through active global identities.
 
 ${colors.yellow('CORE CONCEPT')}
+
+  Install agent guidance with tmt install (non-interactive), or choose a provider:
+  ${SKILL_AGENTS.join(', ')}. Use tmt install all for every supported provider.
+  With none detected, install places the shared skill without claiming a provider.
+  After updating the CLI, run tmt install and reload or restart the agent.
+  Existing conversations should read tmt learn --skill for current instructions.
+  Installing a skill does not install an agent application or grant permissions.
 
   A recipient runs in a tmux pane; the caller does not have to. When you talk:
   1. Your message is pasted via a tmux buffer

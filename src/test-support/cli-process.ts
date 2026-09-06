@@ -52,6 +52,16 @@ export function createSandbox(): Sandbox {
     mkdirSync(home);
 
     const globalDir = path.join(xdgConfigHome, 'tmux-team');
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      HOME: home,
+      XDG_CONFIG_HOME: xdgConfigHome,
+      CODEX_HOME: path.join(home, '.codex'),
+    };
+    // Provider-specific overrides must not make contract tests write outside
+    // their isolated home directory.
+    delete env.PI_CODING_AGENT_DIR;
+    delete env.OPENCODE_CONFIG_DIR;
     return {
       root,
       cwd,
@@ -61,12 +71,7 @@ export function createSandbox(): Sandbox {
       globalConfig: path.join(globalDir, 'config.json'),
       database: path.join(globalDir, 'tmux-team.db'),
       localConfig: path.join(cwd, 'tmux-team.json'),
-      env: {
-        ...process.env,
-        HOME: home,
-        XDG_CONFIG_HOME: xdgConfigHome,
-        CODEX_HOME: path.join(home, '.codex'),
-      },
+      env,
     };
   } catch (error) {
     rmSync(root, { recursive: true, force: true });

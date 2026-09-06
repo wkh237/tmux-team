@@ -314,7 +314,7 @@ tmt unbind                            # remove the current pane identity
 tmt talk <target> "message"          # target a global name or pane
 tmt check <target> [lines]
 tmt list [target]                     # list identities or one pane
-tmt install [claude|codex|gemini|all]
+tmt install [claude|codex|gemini|agy|pi|opencode|all]
 tmt upgrade
 ```
 
@@ -357,8 +357,14 @@ Avoid sending secrets or credentials to another pane. For a requested send
 delay, use `--delay` rather than introducing a separate shell sleep.
 
 Install the same native skill with `tmt install` (auto-detects supported agents).
-Claude uses `~/.claude/skills/tmux-team`; Codex and Gemini share
-`~/.agents/skills/tmux-team`. No plugin or separate command wrapper is needed.
+Claude uses `~/.claude/skills/tmux-team`; Codex, Gemini and OpenCode share
+`~/.agents/skills/tmux-team`. Antigravity CLI (`agy`) uses
+`~/.gemini/config/skills/tmux-team`; Pi uses `~/.pi/agent/skills/tmux-team`
+(or `<PI_CODING_AGENT_DIR>/skills/tmux-team` when configured).
+All targets link the same bundled content. No plugin or separate command wrapper is needed.
+Installation is non-interactive; `--json` is supported. With no detected provider,
+the shared target is installed and its result omits `agent`. This does not install
+an agent application. An existing `.agents` directory alone is not provider evidence.
 Claude's native skill can be invoked as `/tmux-team`. Inspect conflicts before
 using `--force`, which creates recoverable skill backups outside the discovery root.
 An old Claude `commands/team.md`
@@ -366,6 +372,11 @@ is preserved with a warning by default; explicit forced Claude installation can
 back it up after the native skill is installed. Plugin settings are never modified.
 Managed links follow package updates. `tmt upgrade` tracks npm `latest`, not
 commit-pinned previews; follow the selected release's installation instructions.
+After upgrading the CLI, run `tmt install` and reload or restart the agent.
+For an existing conversation, run `tmt learn --skill` and read its complete output
+before using remembered commands. Pi can load `/skill:tmux-team`; OpenCode uses
+its `skill` tool. Installation does not bypass provider permissions or guarantee
+that a running conversation has refreshed its instructions.
 
 ## Configuration safety
 
@@ -422,7 +433,7 @@ options; `--verbose` and `--debug` are not supported there.
 
 `tmt learn --skill` prints the exact bundled universal skill; plain `tmt learn`
 shows the guide. Both are text-only. Install default integrations with
-`tmt install [claude|codex|gemini|all]`, or choose a skills root explicitly:
+`tmt install [claude|codex|gemini|agy|pi|opencode|all]`, or choose a skills root explicitly:
 
 ```bash
 tmt install --dir ./my-skills

@@ -134,13 +134,13 @@ function loadAndVerifySqlite(projectDirectory, expectedLibc) {
   }
 }
 
-function isolatedEnvironment(projectDirectory) {
-  const home = path.join(projectDirectory, 'home');
+function createIsolatedHomeEnvironment(projectDirectory, name, baseEnv = process.env) {
+  const home = path.join(projectDirectory, name);
   fs.mkdirSync(home);
   const temporaryDirectory = path.join(home, 'tmp');
   fs.mkdirSync(temporaryDirectory);
   const env = {
-    ...process.env,
+    ...baseEnv,
     HOME: home,
     CODEX_HOME: path.join(home, '.codex'),
     XDG_CONFIG_HOME: path.join(home, '.config'),
@@ -148,7 +148,15 @@ function isolatedEnvironment(projectDirectory) {
     TMUX_TEAM_HOME: path.join(home, 'tmt'),
     TMPDIR: temporaryDirectory,
   };
-  for (const key of ['TMUX', 'TMUX_PANE', 'NODE_OPTIONS', 'NODE_PATH']) delete env[key];
+  for (const key of ['TMUX', 'TMUX_PANE', 'NODE_OPTIONS', 'NODE_PATH', 'OPENCODE_CONFIG_DIR']) {
+    delete env[key];
+  }
+  return { home, env };
+}
+
+function isolatedEnvironment(projectDirectory) {
+  const { home, env } = createIsolatedHomeEnvironment(projectDirectory, 'home');
+  env.PI_CODING_AGENT_DIR = path.join(home, '.pi', 'agent');
   return env;
 }
 
@@ -164,10 +172,10 @@ function verifyPackedCli(projectDirectory, env) {
 function verifyPackedSkills(projectDirectory, env, providers) {
   const executable = path.join(projectDirectory, 'node_modules', '.bin', 'tmt');
   const home = env.HOME;
-  const run = (args, expectedStatus = 0) =>
+  const run = (args, expectedStatus = 0, commandEnv = env) =>
     runPackedCommand(executable, args, {
       cwd: projectDirectory,
-      env,
+      env: commandEnv,
       expectedStatus,
     });
 
@@ -194,23 +202,25 @@ function verifyPackedSkills(projectDirectory, env, providers) {
     installed.installed.map((item) => item.agent),
     providers
   );
+  const providerTargets = {
+    agy: path.join(home, '.gemini', 'config', 'skills', 'tmux-team'),
+    claude: path.join(home, '.claude', 'skills', 'tmux-team'),
+    codex: path.join(home, '.agents', 'skills', 'tmux-team'),
+    gemini: path.join(home, '.agents', 'skills', 'tmux-team'),
+    opencode: path.join(home, '.agents', 'skills', 'tmux-team'),
+    pi: path.join(home, '.pi', 'agent', 'skills', 'tmux-team'),
+  };
   assert.deepEqual(
     Object.fromEntries(installed.installed.map((item) => [item.agent, item.target])),
-    {
-      claude: path.join(home, '.claude', 'skills', 'tmux-team'),
-      codex: path.join(home, '.agents', 'skills', 'tmux-team'),
-      gemini: path.join(home, '.agents', 'skills', 'tmux-team'),
-    },
+    providerTargets,
     'Provider installs must use only the canonical skill targets'
   );
-  const universal = path.join(home, '.agents', 'skills', 'tmux-team');
-  const claude = path.join(home, '.claude', 'skills', 'tmux-team');
-  assert.ok(fs.lstatSync(universal).isSymbolicLink());
-  assert.equal(fs.readFileSync(path.join(universal, 'SKILL.md'), 'utf8'), content);
-  assert.ok(fs.lstatSync(claude).isSymbolicLink());
-  assert.equal(fs.readFileSync(path.join(claude, 'SKILL.md'), 'utf8'), content);
-  assert.equal(fs.realpathSync(universal), fs.realpathSync(path.dirname(source)));
-  assert.equal(fs.realpathSync(claude), fs.realpathSync(path.dirname(source)));
+  for (const target of Object.values(providerTargets)) {
+    assert.ok(fs.lstatSync(target).isSymbolicLink());
+    assert.equal(fs.readFileSync(path.join(target, 'SKILL.md'), 'utf8'), content);
+    assert.equal(fs.realpathSync(target), fs.realpathSync(path.dirname(source)));
+  }
+  const claude = providerTargets.claude;
   assert.ok(fs.existsSync(legacyClaudeCommand), 'The legacy Claude command should be preserved');
   const legacyContent = fs.readFileSync(legacyClaudeCommand, 'utf8');
   assert.equal(legacyContent, 'legacy Claude command\n');
@@ -296,13 +306,68 @@ function verifyPackedSkills(projectDirectory, env, providers) {
   assert.ok(fs.lstatSync(target).isSymbolicLink());
   assert.equal(fs.readFileSync(sibling, 'utf8'), 'preserve this sibling');
 
+  for (const [provider, name] of [
+    ['agy', 'agy-home'],
+    ['opencode', 'opencode-home'],
+  ]) {
+    const { home: providerHome, env: providerEnv } = createIsolatedHomeEnvironment(
+      projectDirectory,
+      name,
+      env
+    );
+    providerEnv.PI_CODING_AGENT_DIR = path.join(providerHome, '.pi', 'agent');
+    const target =
+      provider === 'agy'
+        ? path.join(providerHome, '.gemini', 'config', 'skills', 'tmux-team')
+        : path.join(providerHome, '.agents', 'skills', 'tmux-team');
+    const result = JSON.parse(run(['install', provider, '--json'], 0, providerEnv));
+    assert.deepEqual(result.installed, [{ agent: provider, target, changed: true }]);
+    assert.ok(fs.lstatSync(target).isSymbolicLink());
+    assert.equal(fs.realpathSync(target), fs.realpathSync(path.dirname(source)));
+  }
+  const { home: piHome, env: piEnv } = createIsolatedHomeEnvironment(
+    projectDirectory,
+    'pi-home',
+    env
+  );
+  const piAgentRoot = path.join(piHome, 'custom-pi-agent');
+  piEnv.PI_CODING_AGENT_DIR = piAgentRoot;
+  const piTarget = path.join(piAgentRoot, 'skills', 'tmux-team');
+  const piInstall = JSON.parse(run(['install', 'pi', '--json'], 0, piEnv));
+  assert.deepEqual(piInstall.installed, [{ agent: 'pi', target: piTarget, changed: true }]);
+  assert.ok(fs.lstatSync(piTarget).isSymbolicLink());
+  assert.equal(fs.realpathSync(piTarget), fs.realpathSync(path.dirname(source)));
+  assert.equal(fs.existsSync(path.join(piHome, '.pi')), false);
+
+  const { home: fallbackHome, env: fallbackEnv } = createIsolatedHomeEnvironment(
+    projectDirectory,
+    'fallback-home',
+    env
+  );
+  fallbackEnv.PI_CODING_AGENT_DIR = path.join(fallbackHome, '.pi', 'agent');
+  // Keep the packed executable's shebang working while excluding agent
+  // commands from PATH, so detection has no provider signals to observe.
+  const fallbackBin = path.join(fallbackHome, 'bin');
+  fs.mkdirSync(fallbackBin);
+  fs.symlinkSync(process.execPath, path.join(fallbackBin, 'node'));
+  fallbackEnv.PATH = fallbackBin;
+  const fallback = JSON.parse(run(['install', '--json'], 0, fallbackEnv));
+  const fallbackTarget = path.join(fallbackHome, '.agents', 'skills', 'tmux-team');
+  assert.deepEqual(fallback.installed, [{ target: fallbackTarget, changed: true }]);
+  assert.ok(fs.lstatSync(fallbackTarget).isSymbolicLink());
+  assert.equal(fs.realpathSync(fallbackTarget), fs.realpathSync(path.dirname(source)));
+  for (const providerDirectory of ['.claude', '.codex', '.gemini', '.pi']) {
+    assert.equal(fs.existsSync(path.join(fallbackHome, providerDirectory)), false);
+  }
+
   // Only the disposable installed package is changed, proving links and the
   // viewer follow source updates without writing to the host's installed skill.
   const updated = `${content}\nPacked verification update.\n`;
   fs.writeFileSync(source, updated);
   assert.equal(fs.readFileSync(path.join(target, 'SKILL.md'), 'utf8'), updated);
-  assert.equal(fs.readFileSync(path.join(universal, 'SKILL.md'), 'utf8'), updated);
-  assert.equal(fs.readFileSync(path.join(claude, 'SKILL.md'), 'utf8'), updated);
+  for (const providerTarget of new Set(Object.values(providerTargets))) {
+    assert.equal(fs.readFileSync(path.join(providerTarget, 'SKILL.md'), 'utf8'), updated);
+  }
   assert.equal(run(['learn', '--skill']), updated);
 }
 

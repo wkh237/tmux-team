@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import https from 'node:https';
 import os from 'node:os';
@@ -11,6 +11,25 @@ import {
   runStartupChecks,
 } from './update-check.js';
 import type { Context } from './types.js';
+
+const ambientPiDirectory = process.env.PI_CODING_AGENT_DIR;
+const ambientXdgDirectory = process.env.XDG_CONFIG_HOME;
+const ambientOpenCodeDirectory = process.env.OPENCODE_CONFIG_DIR;
+
+beforeEach(() => {
+  delete process.env.PI_CODING_AGENT_DIR;
+  delete process.env.XDG_CONFIG_HOME;
+  delete process.env.OPENCODE_CONFIG_DIR;
+});
+
+afterEach(() => {
+  if (ambientPiDirectory === undefined) delete process.env.PI_CODING_AGENT_DIR;
+  else process.env.PI_CODING_AGENT_DIR = ambientPiDirectory;
+  if (ambientXdgDirectory === undefined) delete process.env.XDG_CONFIG_HOME;
+  else process.env.XDG_CONFIG_HOME = ambientXdgDirectory;
+  if (ambientOpenCodeDirectory === undefined) delete process.env.OPENCODE_CONFIG_DIR;
+  else process.env.OPENCODE_CONFIG_DIR = ambientOpenCodeDirectory;
+});
 
 describe('local installation drift', () => {
   let temp = '';
@@ -46,6 +65,24 @@ describe('local installation drift', () => {
         (issue) => issue.path === wrongTarget && issue.kind === 'wrong-link'
       )
     ).toBe(true);
+    const wrongAgyTarget = path.join(home, '.gemini', 'config', 'skills', 'tmux-team');
+    fs.mkdirSync(path.dirname(wrongAgyTarget), { recursive: true });
+    fs.symlinkSync(wrongSource, wrongAgyTarget);
+    const wrongPiTarget = path.join(home, '.pi', 'agent', 'skills', 'tmux-team');
+    fs.mkdirSync(path.dirname(wrongPiTarget), { recursive: true });
+    fs.symlinkSync(wrongSource, wrongPiTarget);
+    const extendedIssues = inspectLocalDrift({ home, root });
+    expect(extendedIssues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: wrongAgyTarget, kind: 'wrong-link' }),
+        expect.objectContaining({ path: wrongPiTarget, kind: 'wrong-link' }),
+      ])
+    );
+    expect(
+      extendedIssues.filter(
+        (issue) => issue.path === path.join(home, '.agents', 'skills', 'tmux-team')
+      )
+    ).toHaveLength(1);
     const customCodexHome = path.join(temp, 'custom-codex');
     fs.mkdirSync(path.join(customCodexHome, 'skills', 'tmux-team'), { recursive: true });
     fs.writeFileSync(path.join(customCodexHome, 'skills', 'tmux-team', 'SKILL.md'), 'old');
