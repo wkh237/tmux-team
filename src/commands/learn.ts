@@ -116,5 +116,8 @@ ${colors.yellow('BEST PRACTICES')}
 ${colors.yellow('NEXT STEP')}
 
   Run ${colors.cyan('tmux-team list')} to see active global identities.
+  Run ${colors.cyan('tmt learn --skill')} for the canonical agent guidance,
+  including offline role profiles and complete command safety contracts.
+  Use ${colors.cyan('tmt help')} for the current command and option inventory.
 `);
 }

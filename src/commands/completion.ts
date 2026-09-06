@@ -3,11 +3,10 @@
 // ─────────────────────────────────────────────────────────────
 
 import { getCliCommandMetadata, type CliCommandMetadata } from '../cli/parser.js';
+import { ALL_SKILL_TARGET, SKILL_AGENTS } from '../skill-installation.js';
 import { colors } from '../ui.js';
 
-// Provider names are intentionally a separate feature inventory. TMT29 owns
-// provider/skill discovery; command grammar owns the command and option list.
-const INSTALL_TARGETS = ['claude', 'codex', 'gemini', 'all'];
+const INSTALL_TARGETS = [...SKILL_AGENTS, ALL_SKILL_TARGET];
 const COMPLETION_SHELLS = ['zsh', 'bash'];
 const IDENTITY_COMMANDS = new Set(['talk', 'send', 'check', 'read']);
 

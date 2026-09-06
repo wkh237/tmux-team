@@ -1,6 +1,21 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { getLegacyCodexDirectories } from './skill-installation.js';
+import {
+  ALL_SKILL_TARGET,
+  getLegacyCodexDirectories,
+  getSkillConfigs,
+  isSkillAgent,
+  SKILL_AGENTS,
+} from './skill-installation.js';
+
+describe('skill-installation provider inventory', () => {
+  it('derives the typed provider set and skill config keys from one ordered list', () => {
+    expect(SKILL_AGENTS).toEqual(['claude', 'codex', 'gemini']);
+    expect(SKILL_AGENTS.every((agent) => isSkillAgent(agent))).toBe(true);
+    expect(isSkillAgent(ALL_SKILL_TARGET)).toBe(false);
+    expect(Object.keys(getSkillConfigs('/package', '/home'))).toEqual([...SKILL_AGENTS]);
+  });
+});
 
 describe('skill-installation legacy candidate resolution', () => {
   it('deduplicates equivalent paths in candidate order when CODEX_HOME matches default .codex', () => {

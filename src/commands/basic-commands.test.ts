@@ -21,6 +21,7 @@ import type { ConfigRequest, PreambleRequest } from '../cli/requests.js';
 import { cmdCompletion } from './completion.js';
 import { cmdHelp } from './help.js';
 import { cmdLearn } from './learn.js';
+import { ALL_SKILL_TARGET, SKILL_AGENTS } from '../skill-installation.js';
 
 const preambleRequest = (
   operation: PreambleRequest['operation'],
@@ -700,6 +701,11 @@ describe('basic commands', () => {
       for (const token of testCase.required) expect(result.stdout, label).toContain(token);
       for (const token of testCase.absent) expect(result.stdout, label).not.toContain(token);
     }
+    const bashInstallTargets = runBashCompletion(['tmux-team', 'install', ''], 2);
+    expect(bashInstallTargets.status).toBe(0);
+    for (const target of [...SKILL_AGENTS, ALL_SKILL_TARGET]) {
+      expect(bashInstallTargets.stdout).toContain(target);
+    }
 
     logSpy.mockClear();
     cmdCompletion('zsh');
@@ -732,10 +738,38 @@ describe('basic commands', () => {
       for (const token of testCase.required) expect(result.stdout, label).toContain(token);
       for (const token of testCase.absent) expect(result.stdout, label).not.toContain(token);
     }
+    const zshInstallTargets = runZshCompletion(['tmux-team', 'install', ''], 3);
+    expect(zshInstallTargets.status).toBe(0);
+    for (const target of [...SKILL_AGENTS, ALL_SKILL_TARGET]) {
+      expect(zshInstallTargets.stdout).toContain(target);
+    }
 
     logSpy.mockClear();
     cmdCompletion();
     expect(logSpy.mock.calls.join('\n')).toContain('Shell Completion Setup');
+  });
+
+  it('derives completion install targets from the shared provider inventory', async () => {
+    vi.resetModules();
+    const reorderedAgents = ['gemini', 'claude'] as const;
+    vi.doMock('../skill-installation.js', async () => {
+      const actual = await vi.importActual<typeof import('../skill-installation.js')>(
+        '../skill-installation.js'
+      );
+      return { ...actual, SKILL_AGENTS: reorderedAgents };
+    });
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    try {
+      const { cmdCompletion: mockedCompletion } = await import('./completion.js');
+      mockedCompletion('bash');
+      const output = logSpy.mock.calls.join('\n');
+      expect(output).toContain('gemini claude all');
+      expect(output).not.toContain('claude codex gemini all');
+    } finally {
+      logSpy.mockRestore();
+      vi.doUnmock('../skill-installation.js');
+    }
   });
 
   it('cmdHelp/cmdLearn print output', () => {

@@ -553,7 +553,14 @@ Install the plugin:
 /plugin install tmux-team@tmux-team
 ```
 
-### /team Commands
+### Claude entry points
+
+`tmt install claude` installs the standalone `/team` command. The marketplace
+plugin retains its `tmux-team` namespace: `/tmux-team:team` for coordination,
+`/tmux-team:learn` for guidance, and `/tmux-team:tmux-team` for the bundled skill.
+Plugin entry points are namespaced according to the
+[Claude plugin contract](https://code.claude.com/docs/en/plugins).
+The following examples use the standalone command:
 
 | Command                        | What it does                                   |
 | ------------------------------ | ---------------------------------------------- |
@@ -569,8 +576,9 @@ Examples:
 /team list
 ```
 
-`/team talk` follows the same wait and timeout options as `tmt talk`. Run
-`/learn` once per session to teach Claude the full workflow.
+`/team talk` follows the same wait and timeout options as `tmt talk`. With the
+plugin, use `/tmux-team:learn` for guidance. The CLI's `tmt learn --skill`
+shows the canonical guidance without requiring the plugin.
 
 ## Learn More
 

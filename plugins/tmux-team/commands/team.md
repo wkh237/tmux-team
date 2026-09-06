@@ -3,38 +3,65 @@ allowed-tools: Bash(tmt:*), Bash(tmux-team:*)
 description: Talk to peer agents in different tmux panes
 ---
 
-You are working in a multi-agent tmux environment with other AI agents running in different tmux panes. The user wants you to coordinate with them.
+You are working in a multi-agent tmux environment with other agents running in different panes.
 
-## Your Task
+## Task routing
 
-Interpret the user's request: $ARGUMENTS
+Interpret the user's request: $ARGUMENTS and use the `tmux-team` CLI to coordinate with the requested agent.
 
-Based on what the user wants, use the tmux-team CLI to coordinate with other agents.
+# tmux-team
 
-## How to Coordinate
+Use `tmt` (the short alias for `tmux-team`) when the user asks you to communicate with another agent in a tmux pane.
 
-To send a message to a global identity or direct pane target and wait for a
-response:
-tmt talk <target> "<message>" --json
+SQLite owns durable identities and profiles independently of the working
+directory. Active presence also requires matching live tmux binding metadata.
 
-To see available agents:
-tmt list
-tmt name <global-name>
-tmt this <global-name>
-tmt add <pane-target> <global-name>
-tmt whoami
-tmt unbind
+## Delivery safety
 
-Identities are global across working directories. `list`, `talk`, and `check`
-accept either a global name or a direct pane target (`%pane_id`, `window.pane`,
-or `session:window.pane`). The name `all` is an ordinary identity, not a
-special destination. The `add` order is pane target first, then global name;
-the old name-first order is rejected with a usage error.
+Normal delivery pastes a tmux buffer, waits for the configured paste-to-Enter
+delay, then sends Enter to submit the message.
 
-## Durable result replies
+`talk` converts ASCII `!` to fullwidth `！` on both normal and fallback input
+paths to protect coding-agent shell/bash-mode shortcuts. Line breaks are
+preserved, but text such as `if (!ready)` is not delivered byte-for-byte. Do not
+assume bracketed paste or an agent's identity name makes literal `!` safe.
 
-When TMT gives you a receipt, submit the complete response through the
-storage-only result adapter:
+`DELIVERY_UNCERTAIN` (exit 1) means input or Enter may already have reached the
+pane. JSON includes the failed `stage`. Do not automatically resend: inspect
+with `tmt check <target>` and establish whether work started before deciding
+what to do next. Missing visible output is not proof that nothing executed.
+Successful submission also does not guarantee exactly-once agent processing.
+
+`talk` waits for the complete durable reply by default. It never treats terminal
+markers, idle output, a summary, or process exit as completion. A cooperating
+recipient must invoke `tmt reply`; otherwise there is no final result yet.
+`check` is only a diagnostic snapshot, not correlated result retrieval.
+Its positional count or `--lines` accepts integers from 0 through 2147483647;
+zero captures the visible pane. Invalid counts are rejected, not clamped.
+Invalid configured capture counts also fail before target lookup or capture.
+
+## JSON results and failures
+
+With `--json`, parse the entire stdout as one JSON document. Errors contain
+`error.code` and `error.message`; stderr is reserved for optional diagnostics.
+Check the exit status too: missing targets use 3, timeout 4, and conflicts 5.
+Successful commands without a detailed result return `{ok:true}`.
+
+Timeout returns `status: "timeout"`, `requestId`, target/pane correlation and
+`error: {code: "TIMEOUT", message: "..."}` (exit 4). There is no partial response,
+nonce, end marker or truncation flag. Use `tmt result <request-id> --json` later.
+Timeout and interruption end only the observer, never recipient work. A
+`CLEANUP_ERROR` does not undo effects; preserve the request ID and inspect before
+retrying. Missing visible output is not permission to resend.
+
+`help`, `version`, `completion` and `learn` are text-only and reject
+`--json` with `JSON_UNSUPPORTED`; run them without that flag. `upgrade`
+also rejects JSON mode because it streams installer output.
+
+## Durable replies and results
+
+When TMT supplies an exact receipt, submit the complete result through the
+storage-only adapters:
 
 ```bash
 tmt reply <request-id> --receipt <receipt> --message 'Review complete.'
@@ -56,72 +83,201 @@ rendering and are not terminal-output completion markers. Replace the message
 placeholder with your complete response, or use file/stdin with the same
 request ID and receipt.
 
-Use exactly one input source and the request ID/receipt supplied by `talk`,
-including detached requests. Never manufacture a receipt, look up the latest
-request, or infer a current pane. A successful submission confirms delivery of the
-body, not success of the requested task, so give a truthful summary only
-after submission.
+Use exactly one input source and the exact request ID/receipt supplied in the
+received `talk` instruction, including detached requests. Never manufacture a
+receipt, select the latest request, or infer a current pane. Both `reply` and
+`result` are storage-only and work without a live pane on this same local
+TMT database; this is not an inbox, listener, remote transport or authentication.
+
+Reply input is one exact valid UTF-8 body up to 1 MiB, preserving empty,
+whitespace, BOM, NUL, CR/LF, Unicode, and marker-like text. Stdin is
+EOF-driven with a five-second input deadline. Successful submission means the
+result was delivered, not that the task succeeded; show a brief truthful
+summary only after submission, never as completion evidence.
 
 An identical retry for the same request and attempt keeps the original
-submission timestamp. A different body is a conflict and cannot replace the
-stored response.
+`submittedAtMs`; a different body is a conflict and cannot replace the stored
+response.
 
 The receipt is local correlation, not remote authentication. Accepted bodies
-are retained for seven days from submission; identical retry is safe only
-while retained with the same receipt and body, not indefinitely. A missing
-result does not cancel the work. Surface failed submission without a success
-summary, and do not resubmit if final summarization fails after acceptance.
+are retained for seven days from submission; an identical retry is safe only
+while that body is retained and with the same receipt and body, not
+indefinitely. A missing result does not cancel the work. Surface a failed
+submission without a success summary; if final summarization fails after
+acceptance, do not resubmit.
 
-The body is exact valid UTF-8 up to 1 MiB, including empty, whitespace, BOM,
-NUL, CR/LF, Unicode, and marker-like text. Stdin is EOF-driven with a five-
-second input deadline. `result` reports `RESPONSE_NOT_AVAILABLE` (exit 3) for
-pending, unknown, or expired bodies; input errors exit 1, input timeout exits
-4, and conflicts exit 5. JSON unavailable output is
+With `--json`, reply success is `{status:"submitted",requestId,bodyBytes,submittedAtMs}`
+and result success is `{status:"completed",requestId,response,bodyBytes,submittedAtMs}`.
+Unavailable JSON is
 `{status:"unavailable",requestId,error:{code:"RESPONSE_NOT_AVAILABLE",message}}`.
+`result` reports `RESPONSE_NOT_AVAILABLE` (exit 3) for pending, unknown, or
+expired bodies. Input errors exit 1, input timeout is `RESPONSE_INPUT_TIMEOUT`
+(exit 4), and conflicts exit 5. Receipts, endpoints, and raw bodies are not
+echoed in acknowledgements.
 
-## Examples
+## Calling an agent
 
-User says: "tell codex to review the auth module"
-You run: tmt talk codex "Please review the auth module and share your findings" --json
-
-User says: "ask gemini about the test coverage"
-You run: tmt talk gemini "What is the current test coverage status?" --json
-
-User says: "ask codex to review the refactor"
-You run: tmt talk codex "Please review the refactor before I continue." --json
-
-## Options
-
-Talk waits for a complete durable final by default (180 seconds unless configured).
-Timeout accepts positive seconds or ms/s suffixes, at most 24 hours. For longer work:
-
-tmt talk <target> "<message>" --timeout 300 --json
-
-Use `--detach` instead of explicit timeout to return the request ID after sending.
-`--wait` is retired; `--lines` belongs to diagnostic `check`, not `talk`.
-Stored mode settings are inert; `config clear mode` removes only the local key.
-
-## If talk times out
-
-Preserve the request ID and retrieve the final later:
+`tmt talk <target> "message" [--timeout <time> | --detach] [--json]` waits for
+one durable final by default. The default is 180 seconds unless
+`defaults.timeout` is configured. Time accepts positive seconds or `ms`/`s`
+suffixes, at most 24 hours. Do not combine explicit timeout with detach.
+Pre-send delay accepts zero or a positive finite value, up to 2,147,483,647 ms.
+`--wait` is retired and rejected; `--lines` applies to check, not talk.
+Stored wait/polling mode settings are inert; `config clear mode` removes
+only the explicit local obsolete key, without migrating other settings.
 
 ```bash
+tmt talk reviewer "Review this patch" --timeout 300 --json
+tmt talk reviewer "Run the agreed tests" --detach --json
 tmt result <request-id> --json
-tmt check <target> 200  # diagnostics only, not full result retrieval
+tmt check reviewer 200  # diagnostics only
 ```
 
-Timeout and interruption end only the observer, not recipient work. Transport/Enter
-time counts after preparation/delay, but synchronous transport cannot be cancelled
-mid-operation. No reply means no durable final; idle output, markers and summaries
-do not complete a request. Same-pane input serialization is not guaranteed.
+Detached success is `{status:"sent",requestId,target,pane,identity?}`, not task
+completion. Completed talk adds the exact `response`, `bodyBytes` and
+`submittedAtMs` to request/target/pane correlation. Preserve that request ID.
 
-## Important
+The observer clock starts immediately before send, after pre-send delay and
+preparation. Transport/Enter time counts; synchronous transport cannot be
+cancelled mid-operation. A response read at or crossing the deadline is not
+accepted by that observer; it may still be retrieved with result afterward.
+Do not resend simply because a caller timed out or was interrupted.
 
-- Wait by default, or detach and use `result` later; do not automatically resend
-  on timeout, cleanup failure or `DELIVERY_UNCERTAIN` (exit 1).
-- Craft clear, specific messages for the other agent
-- Preserve multiline messages and do not send pane input without authorization
-- After receiving a response, summarize it for the user
+Craft clear, specific requests. After receiving a durable response, summarize
+the result for the user without treating submission alone as task success.
+
+## Role profiles
+
+Roles are stored profiles, not automatically injected instructions. Select an
+existing durable identity explicitly when working outside tmux:
+
+```bash
+tmt role show --identity reviewer --json
+tmt role set "Review correctness before style." --identity reviewer --json
+tmt role set --file role.md --identity reviewer --json
+tmt role clear --identity reviewer --json
+```
+
+Choose inline content or `--file`, not both. Omit `--identity` only when the
+caller has a verified live tmux identity; otherwise use explicit selection.
+Unknown names fail with `NAME_NOT_FOUND`; selecting a name does not create or
+bind it. An existing identity without a profile returns `role: null` in JSON.
+Clear removes only the profile, not the identity. Explicit access works while
+unbound and does not load unrelated configuration. Use `preamble` separately
+when text should be injected into messages; role edits never change it.
+
+## Identity preambles
+
+Preambles are separate from role profiles and belong to existing durable global
+identities. These commands work without tmux, even when the identity is unbound:
+
+```bash
+tmt preamble show                    # list stored preambles
+tmt preamble show reviewer
+tmt preamble set reviewer "Review correctness before style."
+tmt preamble clear reviewer
+```
+
+Names are explicit; omitting the name lists preambles, not the caller's data.
+Unknown identities fail with `NAME_NOT_FOUND`; bind the intended identity
+explicitly rather than treating a pane ID or an old registration as its name.
+Use `clear`, not blank `set`. Content is limited to 65,536 UTF-8 bytes.
+
+`talk` uses the resolved identity's preamble for both names and bound pane
+targets; unnamed panes get none. Role text is never injected automatically.
+`--no-preamble`, disabled `preambleMode`, or `preambleEvery 0` skips injection.
+Frequency N uses transactional SQLite reservations at effective counts 1, 1+N,
+... for each identity. Sent, uncertain, and pending attempts consume a slot;
+proven unsent attempts refund only future decisions. Overlapping failures can
+therefore differ from exact successful-send spacing; already prepared messages
+never change. The SQLite cadence starts fresh; old JSON state is ignored and
+left untouched.
+
+Concurrent waits retain separate request records and remain advisory, not a
+single-flight lock. Timeout or interruption ends only that waiter; it does not
+cancel the recipient or undo sent cadence. `REQUEST_STATE_ERROR` (exit 1) can
+occur after possible delivery: follow its inspection guidance, never infer that
+retrying is safe. Replies are correlated independently, but same-pane input
+serialization and exactly-once agent processing are not guaranteed.
+
+Old JSON/workspace-metadata preambles are ignored, not migrated or deleted.
+Reapply intended text explicitly with `preamble set`. Preamble changes persist
+across folders, unbind and pane/server restart; clearing one does not clear its
+identity or role.
+
+## Committed identity retention
+
+Once identity creation commits, a later binding failure does not delete the
+identity. A valid new name tried on an occupied pane can therefore return
+`PANE_ALREADY_BOUND` (exit 5) while leaving that name unbound in SQLite.
+It is not an active `list`/`talk` destination, but explicit `role --identity`
+and `preamble` commands can access it. A later successful bind reuses its UUID
+and profiles. Invalid names and missing preflight panes create no identity.
+Do not treat a failed bind as permission to delete data or try unrelated names.
+
+## Commands
+
+`name`, `this`, `whoami` and `unbind` require matching live `TMUX` and
+`TMUX_PANE` caller context. Missing, malformed or stale context returns
+`PANE_NOT_FOUND` (exit 3), not the default pane's identity. Implicit `role`
+access returns `IDENTITY_REQUIRED` (exit 1). Do not fabricate caller variables:
+outside tmux, use explicit `add <pane-target> <global-name>`, `talk <target>`,
+`check <target>`, or `role show|set|clear --identity <name>`. Explicit selection
+does not bind or authenticate the caller.
+
+```bash
+tmt list
+tmt name <global-name>               # bind the current pane globally
+tmt this <global-name>               # exact supported alias for `name`
+tmt add <pane-target> <global-name>  # bind an explicit pane by stable `%pane_id`
+tmt whoami                            # show the current pane identity
+tmt unbind                            # remove the current pane identity
+tmt talk <target> "message"          # target a global name or pane
+tmt check <target> [lines]
+tmt list [target]                     # list identities or one pane
+tmt install [claude|codex|gemini|all]
+tmt upgrade
+```
+
+`name`, `this`, and `add` manage one global identity per pane. Names can be
+undeclared identities; they do not need to match a configured role. `add`
+accepts `%pane_id`, `window.pane`, or `session:window.pane` and stores the
+resolved stable `%pane_id`. There is no daemon. A pane title update is only a
+best-effort side effect and is not a separate command or API.
+
+Global identities are independent of the current working directory. `talk`,
+`check`, and `list` accept either a global name or a direct pane target. The
+name `all` is an ordinary identity; it is not a special destination. The
+current `add` order is `tmt add <pane-target> <global-name>`; the older
+name-first order is rejected with a usage error.
+
+Names are unique across servers sharing the same local TMT database, but
+`list`, `talk`, and `check` discover and address only the current tmux server.
+A `%pane_id` is stable within a server, not unique across servers. Routine
+reads preserve bindings on other sockets. Binding a foreign live name fails
+with `NAME_ALREADY_ACTIVE` (exit 5); an unverifiable foreign endpoint fails
+with `RECONCILIATION_FAILED` (exit 1). Do not delete the binding to bypass an
+uncertain check. Rebinding a proven stale endpoint retains its identity and
+profile; no cross-server routing or daemon is provided.
+
+Earlier name-only v5 pane markers are not automatically imported into durable
+identities. Use `name`, `this`, or `add` explicitly to bind such a pane. Invalid
+metadata is not active presence; do not delete durable data or old files to
+repair it. Direct pane targeting remains separate from identity discovery.
+
+V5 does not support `update`, `remove`/`rm`, or `migrate`. Use explicit binding
+commands above; `unbind` only detaches the current pane and retains its durable
+identity/profile. Do not delete old user files as a migration workaround.
+
+`talk` sends text to another pane and can cause external input there. Only use
+it when the user has requested that communication or the surrounding task
+clearly authorizes it; do not infer permission for unrelated changes. Use
+`--timeout <time>` to bound the default wait, `--detach` to return a request ID
+after sending, and `--delay <seconds>` to delay sending.
+Avoid sending secrets or credentials to another pane. For a requested send
+delay, use `--delay` rather than introducing a separate shell sleep.
+
+Install integrations with `tmt install` (auto-detects supported agents) or `tmt install all --force` to refresh managed links. Upgrade the CLI with `tmt upgrade`; managed links automatically use the updated bundled skill. Run install when an integration is missing or has drifted.
 
 ## Configuration safety
 
@@ -132,6 +288,8 @@ a local override. Numeric writes require decimal digits only: no suffixes,
 fractions, signs, or whitespace. Zero disables preamble injection or removes
 the paste-to-Enter delay. Preamble frequency is bounded to a safe integer;
 paste delay is at most 2147483647 milliseconds.
+The default paste-to-Enter delay is 500 milliseconds; `config show` reports
+the effective value after global and local overrides.
 
 Invalid known fields in a loaded config return `CONFIG_ERROR` (exit 1) before
 talk/check effects, even when another layer would override them. Unknown and

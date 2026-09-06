@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import type { Context, Flags, Paths, ResolvedConfig, Tmux, UI } from '../types.js';
 import { ExitCodes } from '../exits.js';
+import { ALL_SKILL_TARGET, SKILL_AGENTS } from '../skill-installation.js';
 
 function createMockUI(): UI {
   return {
@@ -132,6 +133,9 @@ describe('cmdInstall', () => {
     const { cmdInstall } = await import('./install.js');
     const ctx = createCtx(testDir);
     await expect(cmdInstall(ctx, 'nope')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(ctx.ui.info).toHaveBeenCalledWith(
+      `Supported agents: ${[...SKILL_AGENTS, ALL_SKILL_TARGET].join(', ')}`
+    );
   });
 
   it('installs the universal skill when no environment is detected', async () => {
@@ -264,13 +268,32 @@ describe('cmdInstall', () => {
     const { cmdInstall } = await import('./install.js');
     const ctx = createCtx(testDir, { flags: { force: true } });
     await cmdInstall(ctx, 'all');
-    expect(ctx.ui.success).toHaveBeenCalledTimes(3);
+    expect(ctx.ui.success).toHaveBeenCalledTimes(SKILL_AGENTS.length);
     expect(
       fs.lstatSync(path.join(homeDir, '.agents', 'skills', 'tmux-team')).isSymbolicLink()
     ).toBe(true);
     expect(
       fs.lstatSync(path.join(homeDir, '.claude', 'commands', 'team.md')).isSymbolicLink()
     ).toBe(true);
+  });
+
+  it('derives install-all order from the shared provider inventory', async () => {
+    vi.resetModules();
+    const reorderedAgents = ['gemini', 'claude'] as const;
+    vi.doMock('../skill-installation.js', async () => {
+      const actual = await vi.importActual<typeof import('../skill-installation.js')>(
+        '../skill-installation.js'
+      );
+      return { ...actual, SKILL_AGENTS: reorderedAgents };
+    });
+
+    const { cmdInstall } = await import('./install.js');
+    const ctx = createCtx(testDir, { flags: { force: true, json: true } });
+    await cmdInstall(ctx, 'all');
+
+    expect(ctx.ui.json).toHaveBeenCalledWith({
+      installed: reorderedAgents.map((agent) => expect.objectContaining({ agent, changed: true })),
+    });
   });
 
   it('returns machine-readable output in JSON mode', async () => {

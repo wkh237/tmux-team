@@ -9,12 +9,22 @@ You are working in a multi-agent tmux environment. Use the `tmux-team` CLI to co
 
 ## When to Use This Skill
 
-- Delegating specialized tasks to other agents (e.g., "Ask Codex to review this code")
-- Sending messages to a named identity or pane target
+- Delegating specialized tasks to other agents
+- Sending a message to a named identity or pane target
 - Checking responses from agents you've messaged
-- Coordinating parallel work across multiple agents
+- Coordinating parallel work across panes
+
+# tmux-team
+
+Use `tmt` (the short alias for `tmux-team`) when the user asks you to communicate with another agent in a tmux pane.
+
+SQLite owns durable identities and profiles independently of the working
+directory. Active presence also requires matching live tmux binding metadata.
 
 ## Delivery safety
+
+Normal delivery pastes a tmux buffer, waits for the configured paste-to-Enter
+delay, then sends Enter to submit the message.
 
 `talk` converts ASCII `!` to fullwidth `！` on both normal and fallback input
 paths to protect coding-agent shell/bash-mode shortcuts. Line breaks are
@@ -138,6 +148,29 @@ cancelled mid-operation. A response read at or crossing the deadline is not
 accepted by that observer; it may still be retrieved with result afterward.
 Do not resend simply because a caller timed out or was interrupted.
 
+Craft clear, specific requests. After receiving a durable response, summarize
+the result for the user without treating submission alone as task success.
+
+## Role profiles
+
+Roles are stored profiles, not automatically injected instructions. Select an
+existing durable identity explicitly when working outside tmux:
+
+```bash
+tmt role show --identity reviewer --json
+tmt role set "Review correctness before style." --identity reviewer --json
+tmt role set --file role.md --identity reviewer --json
+tmt role clear --identity reviewer --json
+```
+
+Choose inline content or `--file`, not both. Omit `--identity` only when the
+caller has a verified live tmux identity; otherwise use explicit selection.
+Unknown names fail with `NAME_NOT_FOUND`; selecting a name does not create or
+bind it. An existing identity without a profile returns `role: null` in JSON.
+Clear removes only the profile, not the identity. Explicit access works while
+unbound and does not load unrelated configuration. Use `preamble` separately
+when text should be injected into messages; role edits never change it.
+
 ## Identity preambles
 
 Preambles are separate from role profiles and belong to existing durable global
@@ -198,51 +231,58 @@ outside tmux, use explicit `add <pane-target> <global-name>`, `talk <target>`,
 does not bind or authenticate the caller.
 
 ```bash
-# Send and wait for the durable final response
-tmt talk codex "your message"
-tmt talk gemini "your message" --timeout 120
-
-# Send to an identity or direct pane target
-tmt talk codex "message"
-tmt talk %12 "message"
-
-# List active identities, or inspect one pane
 tmt list
-tmt list %12
-tmt name backend                 # bind the current pane globally
-tmt this reviewer                # exact alias for `name`
-tmt add %12 backend              # bind an explicit pane by stable pane ID
-tmt whoami
-tmt unbind
+tmt name <global-name>               # bind the current pane globally
+tmt this <global-name>               # exact supported alias for `name`
+tmt add <pane-target> <global-name>  # bind an explicit pane by stable `%pane_id`
+tmt whoami                            # show the current pane identity
+tmt unbind                            # remove the current pane identity
+tmt talk <target> "message"          # target a global name or pane
+tmt check <target> [lines]
+tmt list [target]                     # list identities or one pane
+tmt install [claude|codex|gemini|all]
+tmt upgrade
 ```
 
-## Workflow
+`name`, `this`, and `add` manage one global identity per pane. Names can be
+undeclared identities; they do not need to match a configured role. `add`
+accepts `%pane_id`, `window.pane`, or `session:window.pane` and stores the
+resolved stable `%pane_id`. There is no daemon. A pane title update is only a
+best-effort side effect and is not a separate command or API.
 
-Talk waits until the agent submits its complete final response:
+Global identities are independent of the current working directory. `talk`,
+`check`, and `list` accept either a global name or a direct pane target. The
+name `all` is an ordinary identity; it is not a special destination. The
+current `add` order is `tmt add <pane-target> <global-name>`; the older
+name-first order is rejected with a usage error.
 
-```bash
-tmux-team talk codex "Review this authentication code" --json
-# On timeout, preserve the request ID and retrieve it with tmt result later.
-```
+Names are unique across servers sharing the same local TMT database, but
+`list`, `talk`, and `check` discover and address only the current tmux server.
+A `%pane_id` is stable within a server, not unique across servers. Routine
+reads preserve bindings on other sockets. Binding a foreign live name fails
+with `NAME_ALREADY_ACTIVE` (exit 5); an unverifiable foreign endpoint fails
+with `RECONCILIATION_FAILED` (exit 1). Do not delete the binding to bypass an
+uncertain check. Rebinding a proven stale endpoint retains its identity and
+profile; no cross-server routing or daemon is provided.
 
-## Tips
+Earlier name-only v5 pane markers are not automatically imported into durable
+identities. Use `name`, `this`, or `add` explicitly to bind such a pane. Invalid
+metadata is not active presence; do not delete durable data or old files to
+repair it. Direct pane targeting remains separate from identity discovery.
 
-- Wait by default or use `--detach`; use `result` after a timeout and `check`
-  only for diagnostics.
-- `tmt name` binds a global identity; `tmt this` is its exact supported alias.
-  `tmt whoami` inspects the current binding and `tmt unbind` removes it.
-- `tmt talk`, `tmt check`, and `tmt list` accept either a global name or a
-  direct pane target. The name `all` is an ordinary identity, not a special
-  destination.
-- `tmt add` uses `<pane-target> <global-name>`. The legacy name-first order is
-  rejected with a usage error.
-- tmux-team is CLI-only and has no daemon or background service. SQLite owns
-  durable identities and preambles; active bindings must agree with live tmux
-  evidence and metadata. Pane titles are best-effort presentation only.
-- Preserve multiline text. Sending input to another pane is an external action
-  and requires user authorization; do not infer permission to send commands.
-- Install integrations with `tmt install`. `tmt upgrade` updates the package;
-  managed skill links then use the new bundled files automatically.
+V5 does not support `update`, `remove`/`rm`, or `migrate`. Use explicit binding
+commands above; `unbind` only detaches the current pane and retains its durable
+identity/profile. Do not delete old user files as a migration workaround.
+
+`talk` sends text to another pane and can cause external input there. Only use
+it when the user has requested that communication or the surrounding task
+clearly authorizes it; do not infer permission for unrelated changes. Use
+`--timeout <time>` to bound the default wait, `--detach` to return a request ID
+after sending, and `--delay <seconds>` to delay sending.
+Avoid sending secrets or credentials to another pane. For a requested send
+delay, use `--delay` rather than introducing a separate shell sleep.
+
+Install integrations with `tmt install` (auto-detects supported agents) or `tmt install all --force` to refresh managed links. Upgrade the CLI with `tmt upgrade`; managed links automatically use the updated bundled skill. Run install when an integration is missing or has drifted.
 
 ## Configuration safety
 
@@ -253,6 +293,8 @@ a local override. Numeric writes require decimal digits only: no suffixes,
 fractions, signs, or whitespace. Zero disables preamble injection or removes
 the paste-to-Enter delay. Preamble frequency is bounded to a safe integer;
 paste delay is at most 2147483647 milliseconds.
+The default paste-to-Enter delay is 500 milliseconds; `config show` reports
+the effective value after global and local overrides.
 
 Invalid known fields in a loaded config return `CONFIG_ERROR` (exit 1) before
 talk/check effects, even when another layer would override them. Unknown and

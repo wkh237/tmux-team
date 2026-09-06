@@ -19,11 +19,13 @@
     "e2e:lint": "oxlint test/e2e/ scripts/*.mjs",
     "e2e:format:check": "prettier --check test/e2e/ scripts/*.mjs tsconfig.e2e.json",
     "docs:format:check": "prettier --check --ignore-path .gitignore AGENTS.md ARCHITECTURE.md CONVENTIONS.md DEVELOPMENT.md \".agents/skills/**/SKILL.md\" .github/pull_request_template.md",
+    "skills:generate": "node scripts/skill-projections.mjs write",
+    "skills:check": "node scripts/skill-projections.mjs check",
     "lint:fix": "oxlint src/ --fix",
     "format": "prettier --write src/",
     "format:check": "prettier --check src/",
     "type:check": "tsc --noEmit",
-    "check": "pnpm type:check && pnpm e2e:typecheck && pnpm lint && pnpm e2e:lint && pnpm format:check && pnpm e2e:format:check && pnpm docs:format:check"
+    "check": "pnpm type:check && pnpm e2e:typecheck && pnpm lint && pnpm e2e:lint && pnpm format:check && pnpm e2e:format:check && pnpm docs:format:check && pnpm skills:check"
   },
   "keywords": [
     "tmux",
