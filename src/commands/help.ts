@@ -5,14 +5,83 @@
 import { colors } from '../ui.js';
 import { VERSION } from '../version.js';
 import { MAX_CAPTURE_LINES, MAX_TIMER_DELAY_MS } from '../domain/interaction-limits.js';
+import {
+  getCliCommandMetadata,
+  type CliCommandMetadata,
+  type CliCommandOptionMetadata,
+} from '../cli/parser.js';
 
 export interface HelpConfig {
   timeout?: number;
   showIntro?: boolean;
 }
 
+function commandUsage(command: CliCommandMetadata): string {
+  const usage = command.usage.replace(/^\[options\]\s*/, '').trim();
+  const childNames = command.commands.map((child) => child.name).join('|');
+  const childUsage = childNames ? `[${childNames}]` : '';
+  const argumentsUsage =
+    usage
+      .replace('[command]', childUsage)
+      .replace('<command>', childNames ? `<${childNames}>` : '') || childUsage;
+  const aliases = command.aliases.length > 0 ? ` (alias: ${command.aliases.join(', ')})` : '';
+  return `${command.name}${argumentsUsage ? ` ${argumentsUsage}` : ''}${aliases}`;
+}
+
+function findCommand(root: CliCommandMetadata, name: string): CliCommandMetadata | undefined {
+  return root.commands.find((command) => command.name === name);
+}
+
+function requiredCommand(root: CliCommandMetadata, name: string): CliCommandMetadata {
+  const command = findCommand(root, name);
+  if (!command) throw new Error(`CLI metadata is missing command: ${name}`);
+  return command;
+}
+
+function formatOption(option: CliCommandOptionMetadata): string {
+  const description = option.description ? ` ${option.description}` : '';
+  return `  ${colors.green(option.flags)}${description}`;
+}
+
+function commandOptions(command: CliCommandMetadata): readonly CliCommandOptionMetadata[] {
+  return command.options.filter((option) => !option.hidden && !option.rootAllowed);
+}
+
+function commandRows(root: CliCommandMetadata): string {
+  return root.commands
+    .filter((command) => !command.hidden)
+    .map((command) => {
+      const description = command.description ? ` ${command.description}` : '';
+      return `  ${colors.green(commandUsage(command))}${description}`;
+    })
+    .join('\n');
+}
+
+function childRows(parent: CliCommandMetadata): string {
+  return parent.commands
+    .filter((child) => !child.hidden)
+    .map((child) => {
+      const options = commandOptions(child)
+        .map((option) => `[${option.flags}]`)
+        .join(' ');
+      const suffix = options ? ` ${options}` : '';
+      return `  tmt ${colors.green(`${parent.name} ${commandUsage(child)}${suffix}`)}`;
+    })
+    .join('\n');
+}
+
 export function cmdHelp(config?: HelpConfig): void {
   const timeout = config?.timeout ?? 180;
+  const metadata = getCliCommandMetadata();
+  const rootOptions = metadata.options.filter((option) => !option.hidden && option.rootAllowed);
+  const talk = requiredCommand(metadata, 'talk');
+  const check = requiredCommand(metadata, 'check');
+  const reply = requiredCommand(metadata, 'reply');
+  const result = requiredCommand(metadata, 'result');
+  const role = requiredCommand(metadata, 'role');
+  const learn = requiredCommand(metadata, 'learn');
+  const learnSkill = learn.options.find((option) => option.name === 'skill');
+  if (!learnSkill) throw new Error('CLI metadata is missing learn --skill');
 
   // Show intro highlight when running just `tmux-team` with no args
   if (config?.showIntro) {
@@ -34,26 +103,8 @@ ${colors.yellow('USAGE')}
   tmt <command> [arguments]
 
 ${colors.yellow('COMMANDS')}
-  ${colors.green('talk')} <target> <message>     Send message to an identity or pane
-  ${colors.green('check')} <target> [lines]      Capture output from agent's pane
-  ${colors.green('reply')} <request-id>         Submit a complete result with a receipt
-  ${colors.green('result')} <request-id>        Retrieve a retained result
-  ${colors.green('list')} [target]                List active identities or pane status
-  ${colors.green('add')} <pane-target> <global-name> Bind an explicit pane identity
-  ${colors.green('this')} <global-name>       Bind the current pane (alias of name)
-  ${colors.green('name')} <global-name>       Bind the current pane identity
-  ${colors.green('whoami')}                   Show the current pane identity
-  ${colors.green('unbind')}                   Remove the current pane identity
-  ${colors.green('install')} [claude|codex|gemini|all] Install/refresh agent skills
-  ${colors.green('upgrade')}                     Upgrade tmux-team (links update automatically)
-  ${colors.green('init')}                        Create empty tmux-team.json
-  ${colors.green('config')} [show|set|clear]     View/modify settings
-  ${colors.green('preamble')} [show|set|clear]   Manage durable identity preambles
-  ${colors.green('role')} <show|set|clear>      Manage durable identity role profiles
-  ${colors.green('completion')}                  Output shell completion script
-  ${colors.green('learn')}                       Show educational guide
-  ${colors.green('learn --skill')}               Print the exact bundled universal skill
-  ${colors.green('help')}                        Show this help message
+${commandRows(metadata)}
+  ${colors.green(`learn ${learnSkill.flags}`)} Print the exact bundled universal skill
 
 ${colors.yellow('SKILL INSTALLATION')}
   tmt install --dir <skills-root> [--force] [--json]
@@ -63,16 +114,14 @@ ${colors.yellow('SKILL INSTALLATION')}
   Automatic drift reminders cover default paths, not custom folders.
 
 ${colors.yellow('OPTIONS')}
-  ${colors.green('--json')}                      Output in JSON format
-  ${colors.green('--verbose')}                   Show detailed output
-  ${colors.green('--force')}                     Skip warnings
+${rootOptions.map(formatOption).join('\n')}
+  JSON is available only for commands with a JSON result; text-only commands
+  such as help, completion and learn do not provide a universal JSON form.
 
 ${colors.yellow('ROLE USAGE')}
-  tmt role show [--identity <name>]
-  tmt role set <profile> [--identity <name>]
-  tmt role set --file <path> [--identity <name>]
-  tmt role clear [--identity <name>]
+${childRows(role)}
   Omit --identity only in a verified bound pane; explicit offline identities are supported.
+  role set accepts either inline content or --file, never both; --identity selects the durable identity.
 
 ${colors.yellow('CALLER CONTEXT')}
   name, this, whoami and unbind require matching live TMUX/TMUX_PANE context.
@@ -80,19 +129,19 @@ ${colors.yellow('CALLER CONTEXT')}
   Outside tmux, use explicit add/talk/check targets or role --identity <name>.
 
 ${colors.yellow('TALK OPTIONS')}
-  ${colors.green('--delay')} <seconds>           Wait before sending (0 through ${MAX_TIMER_DELAY_MS}ms)
-  ${colors.green('--timeout')} <time>            Observer bound (current: ${timeout}s; positive, at most 24h)
-  ${colors.green('--detach')}                    Return request ID after sending; no explicit --timeout
-  ${colors.green('--no-preamble')}               Skip agent preamble for this message
-  ${colors.green('--debug')}                     Show debug output
+${commandOptions(talk).map(formatOption).join('\n')}
+  Delay is bounded to 0 through ${MAX_TIMER_DELAY_MS}ms; timeout is positive and at most 24h.
+  --detach returns a request ID after sending; --no-preamble skips the agent preamble.
+  --debug shows diagnostic output.
 
 ${colors.yellow('CHECK OPTIONS')}
-  check/read <target> [lines] or --lines <count>: integer 0 through ${MAX_CAPTURE_LINES}.
+  ${commandUsage(check)}; --lines accepts an integer 0 through ${MAX_CAPTURE_LINES}.
+  ${commandOptions(check).map(formatOption).join('\n')}
   Zero captures the visible pane. Invalid CLI/configured counts are rejected.
 
 ${colors.yellow('REPLY / RESULT')}
-  tmt reply <request-id> --receipt <receipt> (--message <text> | --file <path> | --stdin) [--json]
-  tmt result <request-id> [--json]
+  tmt ${commandUsage(reply)} --receipt <receipt> (--message <text> | --file <path> | --stdin) [--json]
+  tmt ${commandUsage(result)} [--json]
   Use exactly one input source and the request ID/receipt from the talk instruction.
   Quote short inline text; use --message='-text' for a leading hyphen.
   Use file/stdin for large bodies or NUL; operating-system argv limits apply.

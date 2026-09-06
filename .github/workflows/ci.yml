@@ -44,6 +44,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22.23.2
+      - name: Install shell test dependency
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y zsh
       - name: Activate pinned pnpm
         run: corepack enable && corepack prepare pnpm@10.33.0 --activate
       - name: Install dependencies

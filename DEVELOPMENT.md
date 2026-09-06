@@ -41,6 +41,11 @@ pnpm test:watch
 pnpm test:run
 ```
 
+The completion renderer tests execute both Bash and Zsh probes. Local test
+environments need `bash` and `zsh`; the unit-test CI job installs the Zsh
+package explicitly because the hosted runner shell set is not a project
+dependency guarantee.
+
 - Docker-backed CLI/tmux end-to-end tests:
 
 ```bash

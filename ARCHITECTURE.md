@@ -241,7 +241,7 @@ Check validates its effective capture count before target lookup: integers
 Invalid runtime counts return `INVALID_CAPTURE_LINES` (exit 1), without capture
 or reconciliation. These argument limits do not replace tmux's existing
 one-second timeout and 4 MiB output bound. Config loading/writing consolidation
-and command-option ownership remain TMT-46 and TMT-22 work respectively.
+remains TMT-46 work.
 
 The parser rejects retired `--wait`, talk `--lines`, and explicit
 `--timeout`/`--detach` combinations before Context effects. `send` follows the
@@ -379,6 +379,21 @@ cover direct literal imports/re-exports in maintained production sources; they
 are not a complete semantic dependency or dynamically computed-import analysis.
 
 ## CLI output and lifecycle
+
+The Commander registrations in `src/cli/parser.ts` own command arguments,
+aliases and option acceptance. Help and shell completion project that grammar
+instead of maintaining independent command/option inventories. Recognition of
+historically common options at the root preserves meaningful pre-command
+placement; the selected command still rejects unrelated options before Context
+creation. Command-local options remain local. Hidden retired or unsupported
+options are rejection contracts, not advertised capabilities.
+
+Parser diagnostics use parsed option values and sources rather than searching
+raw argv for flag-like strings. Literal payloads and option values do not enable
+JSON or debug output. Root help/version requests undergo the same option
+validation before text-only JSON rejection. Reply/result retain their narrow
+option contracts; an ignored `--config` path override is rejected rather than
+stored in the typed flags or silently changing configuration precedence.
 
 The invocation runner owns parsing, initialization, startup checks, dispatch and
 final disposal. Context remains the sole repository lifetime owner; the runner
@@ -536,11 +551,11 @@ These links identify owners of unresolved work, not permission to widen an
 unrelated PR. Update this section and the current map in the delivering PR when
 a gap is resolved; do not leave a permanent exception or label a proposal as shipped.
 
-| Gap                                                                                                  | Owning issue                                                                                                                                                           |
-| ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Numeric/flag validation needs hardening.                                                             | [TMT-22](https://linear.app/tigerpig-dev/issue/TMT-22)                                                                                                                 |
-| Shipped skill/help inventories drift; packed verification does not yet prove application migrations. | [TMT-29](https://linear.app/tigerpig-dev/issue/TMT-29)                                                                                                                 |
-| Non-tmux identity management, memory and durable inbox are future capabilities, not installed APIs.  | [TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30), [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16) |
+| Gap                                                                                                      | Owning issue                                                                                                                                                           |
+| -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Configuration defaults and loaded-setting validation remain split.                                       | [TMT-46](https://linear.app/tigerpig-dev/issue/TMT-46)                                                                                                                 |
+| Shipped skill/provider inventories drift; packed verification does not yet prove application migrations. | [TMT-29](https://linear.app/tigerpig-dev/issue/TMT-29)                                                                                                                 |
+| Non-tmux identity management, memory and durable inbox are future capabilities, not installed APIs.      | [TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30), [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16) |
 
 ## Maintenance contract
 

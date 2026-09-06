@@ -52,7 +52,6 @@ export interface Flags {
   json: boolean;
   verbose: boolean;
   debug?: boolean;
-  config?: string;
   force?: boolean;
   delay?: number; // seconds
   detach?: boolean;

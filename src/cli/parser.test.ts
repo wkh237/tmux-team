@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CliParseError, parseArgs } from './parser.js';
+import { CliParseError, getCliCommandMetadata, parseArgs } from './parser.js';
 import { encodeReplyReceipt } from '../reply-receipt.js';
 import {
   MAX_CAPTURE_LINES,
@@ -121,6 +121,63 @@ describe('declarative CLI parser', () => {
   it('applies no-preamble regardless of whether it appears before or after talk', () => {
     expect(parseArgs(['--no-preamble', 'talk', 'claude', 'hello']).flags.noPreamble).toBe(true);
     expect(parseArgs(['talk', 'claude', 'hello', '--no-preamble']).flags.noPreamble).toBe(true);
+  });
+
+  it('does not reinterpret a required option value as another option', () => {
+    const parsed = parseArgs(['talk', 'peer', '--team', '--no-preamble', 'message']);
+    expect(parsed.invocation).toMatchObject({ kind: 'talk', message: 'message' });
+    expect(parsed.flags.noPreamble).toBeUndefined();
+    expect(parsed.metadata.unsupportedTeam).toBe(true);
+  });
+
+  it('rejects the unconsumed config option at the selected command boundary', () => {
+    expect(() => parseArgs(['learn', '--config', '/tmp/tmt.json'])).toThrow(
+      "Unknown option '--config' for learn."
+    );
+    expect(() => parseArgs(['role', 'show', '--timeout', '2'])).toThrow(
+      "Unknown option '--timeout' for show."
+    );
+  });
+
+  it('enforces command-local option ownership while retaining aliases and root placement', () => {
+    expect(parseArgs(['talk', 'peer', 'message', '--force']).flags.force).toBe(true);
+    expect(parseArgs(['install', '--force']).flags.force).toBe(true);
+    expect(parseArgs(['--timeout', '2', 'send', 'peer', 'message']).flags.timeout).toBe(2);
+    expect(parseArgs(['read', 'peer', '--lines', '0']).invocation).toMatchObject({ lines: 0 });
+    for (const args of [
+      ['list', '--force'],
+      ['name', 'Alice', '--force'],
+      ['role', 'show', '--force'],
+      ['list', '--delay', '1'],
+      ['role', 'show', '--no-preamble'],
+      ['read', 'peer', '--timeout', '2'],
+    ]) {
+      expect(() => parseArgs(args)).toThrow(CliParseError);
+    }
+  });
+
+  it('projects help and completion metadata from the Commander tree', () => {
+    const metadata = getCliCommandMetadata();
+    const talk = metadata.commands.find((command) => command.name === 'talk');
+    const check = metadata.commands.find((command) => command.name === 'check');
+    expect(talk?.description).toBe('Send a message to an identity or pane');
+    expect(check?.description).toBe('Capture output from an agent pane');
+    expect(talk?.options.some((option) => option.long === '--timeout')).toBe(true);
+    expect(talk?.options.some((option) => option.long === '--lines')).toBe(false);
+    expect(check?.options.some((option) => option.long === '--lines')).toBe(true);
+    expect(
+      metadata.commands
+        .find((command) => command.name === 'learn')
+        ?.options.some((option) => option.long === '--config')
+    ).toBe(false);
+    expect(metadata.options.some((option) => option.long === '--timeout')).toBe(true);
+    expect(metadata.options.some((option) => option.long === '--config')).toBe(true);
+    expect(metadata.options.find((option) => option.long === '--config')).toMatchObject({
+      hidden: true,
+      rootRecognized: true,
+      rootAllowed: false,
+    });
+    expect(metadata.commands.find((command) => command.name === 'team')?.hidden).toBe(true);
   });
 
   it.each([
@@ -259,6 +316,36 @@ describe('declarative CLI parser', () => {
     expect(() => parseArgs(['--json', 'config', 'set', 'mode'])).toThrow(CliParseError);
   });
 
+  it('does not mistake a later command-shaped operand for the unknown command', () => {
+    expect(() => parseArgs(['no-command', 'talk'])).toThrow(
+      "Unknown command: no-command. Run 'tmux-team help' for usage."
+    );
+    expect(() => parseArgs(['--timeout', 'check', 'talk', 'peer', 'message'])).toThrow(
+      'Invalid time format: check'
+    );
+    expect(() => parseArgs(['send'])).toThrow('Usage: tmux-team send <target> <message>');
+  });
+
+  it('rejects command-local options before a command and preserves diagnostic flags', () => {
+    for (const args of [
+      ['--receipt', 'receipt', 'reply', 'request-1'],
+      ['--dir', '/tmp/skills', 'install'],
+      ['--identity', 'Alice', 'role', 'show'],
+      ['--bogus', 'hello'],
+    ]) {
+      expect(() => parseArgs(args)).toThrow(`unknown option '${args[0]}'`);
+    }
+    try {
+      parseArgs(['--json', 'list', '--nope', '--debug', '--verbose']);
+      throw new Error('expected parse failure');
+    } catch (error) {
+      expect(error).toMatchObject({
+        name: 'CliParseError',
+        flags: { json: true, debug: true, verbose: true },
+      });
+    }
+  });
+
   it('supports top-level help and version with options before the special flag', () => {
     expect(parseArgs(['--json', '--help'])).toMatchObject({
       invocation: { kind: 'help', showIntro: false },
@@ -279,32 +366,12 @@ describe('declarative CLI parser', () => {
     });
   });
 
-  it('normalizes all common flags and records unsupported team scope', () => {
-    const parsed = parseArgs([
-      '--json',
-      '--verbose',
-      '--debug',
-      '--force',
-      '--config',
-      '/tmp/tmt.json',
-      '--delay',
-      '250ms',
-      '--timeout',
-      '3s',
-      '--detach',
-      '--team',
-      'legacy',
-      'list',
-    ]);
+  it('normalizes true globals and records unsupported team scope', () => {
+    const parsed = parseArgs(['--json', '--verbose', '--debug', '--team', 'legacy', 'list']);
     expect(parsed.flags).toMatchObject({
       json: true,
       verbose: true,
       debug: true,
-      force: true,
-      config: '/tmp/tmt.json',
-      delay: 0.25,
-      timeout: 3,
-      detach: true,
     });
     expect(parsed.metadata).toMatchObject({ unsupportedTeam: true, commandPath: ['list'] });
   });
