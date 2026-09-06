@@ -97,6 +97,15 @@ ${colors.yellow('GLOBAL IDENTITIES')}
   ${colors.dim('Legacy registry commands are retired; local settings and durable identity preambles remain.')}
   ${colors.dim('tmux-team is CLI-only; there is no daemon to run.')}
 
+${colors.yellow('CONFIGURATION SAFETY')}
+
+  Use tmt config show --json for resolved settings and config paths.
+  config set supports preambleMode, preambleEvery and pasteEnterDelayMs;
+  add --global for the global file. Numeric writes require decimal digits,
+  not fractions or suffixes. Invalid loaded settings return CONFIG_ERROR
+  before talk/check effects. Fix the reported field, not the whole file.
+  Storage-only reply/result remain usable with malformed configuration.
+
 ${colors.yellow('BEST PRACTICES')}
 
   1. ${colors.green('Submit a full reply before summarizing')} - terminal text is not completion

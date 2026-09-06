@@ -10,7 +10,7 @@ workflow, not end-user documentation for the `tmt` CLI.
 
 Read the repository guidance before planning work:
 
-- [`AGENTS.md`](../../../AGENTS.md) — mandatory audit, ownership, and lifecycle policy.
+- [`AGENTS.md`](../../../AGENTS.md) — pattern inspection, discretionary delegation, ownership, and lifecycle policy.
 - [`ARCHITECTURE.md`](../../../ARCHITECTURE.md) — current and target boundaries, legacy debt, and architecture change triggers.
 - [`CONVENTIONS.md`](../../../CONVENTIONS.md) — code and test style.
 - [`DEVELOPMENT.md`](../../../DEVELOPMENT.md) — commands and the focused verification matrix.
@@ -22,15 +22,19 @@ Read the repository guidance before planning work:
 1. Start from a tracked issue whose outcome, scope, acceptance criteria,
    dependencies, and project relationship are clear. Create its dedicated branch
    and worktree before implementation; follow AGENTS for state and commit attribution.
-2. Before editing, perform the required read-only repository pattern audit with
-   the delegated Luna reviewer at high reasoning effort. The primary reviewer
-   must accept or reject its findings before implementation starts and record
-   the disposition.
+2. Before editing, inspect relevant existing patterns locally or delegate a
+   read-only audit when it is worth the coordination and review effort. Keep
+   inspection proportional to the change; record material findings and their
+   disposition. Delegation is not mandatory. Prefer Luna for simple, bounded
+   tasks and large-scale detection or scanning.
 3. The primary reviewer owns the architecture design: define the affected
    boundary, inputs and outputs, risks, and reuse of existing ports/helpers
-   before assigning implementation.
-4. Assign bounded implementation work with explicit file ownership. Do not let
-   concurrent agents edit overlapping files.
+   before implementation.
+4. Implement directly or delegate according to total effort and coupling, not
+   a requirement to assign work. When delegating, set explicit file ownership,
+   constraints, and verification requirements. Do not let concurrent agents
+   edit overlapping files. Keep architectural and integration decisions with
+   the primary agent.
 5. The primary reviewer reviews every changed file and the relevant callers,
    fixtures, and tests. Passing reports or green CI are evidence, not a
    substitute for that review. Record findings, dispositions, and the reviewed

@@ -1,4 +1,4 @@
-import { ConfigParseError } from './config.js';
+import { ConfigParseError, ConfigValidationError } from './config.js';
 import { createContext, ExitCodes } from './context.js';
 import { cmdHelp, type HelpConfig } from './commands/help.js';
 import { cmdCompletion } from './commands/completion.js';
@@ -30,6 +30,9 @@ function errorMessage(error: unknown): string {
 
 function publicError(error: unknown): { code: string; message: string } {
   if (error instanceof ConfigParseError) {
+    return { code: 'CONFIG_ERROR', message: error.message };
+  }
+  if (error instanceof ConfigValidationError) {
     return { code: 'CONFIG_ERROR', message: error.message };
   }
   return { code: 'INTERNAL_ERROR', message: errorMessage(error) };

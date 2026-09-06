@@ -142,6 +142,20 @@ Use the E2E skill for integration/lifecycle changes, including its twice-run
 cleanup gate. Keep the existing CI jobs required even when a local check is not
 applicable; do not use this matrix to bypass branch protection.
 
+## Configuration verification
+
+Configuration changes use policy tables for known-field/type/range rules and
+real-file tests for rejected-update byte preservation and targeted repair.
+The CLI contract suite verifies complete JSON/exit behavior and storage-only
+reply/result independence from malformed settings. Docker scenarios preserve
+the no-tmux/no-storage assertions for invalid loaded configuration and exercise
+valid overrides through the public CLI and deterministic peer. A loader-level
+`CONFIG_ERROR` must not weaken the independent runtime capture/timing tests.
+Real CLI process tests must declare a bounded process-test timeout, following
+the existing CLI contract suites, rather than inheriting the one-second unit
+default. Keep child-process termination bounds and behavioral assertions intact;
+test-runner budgets are not production timeout policy.
+
 ## Packed native-install verification
 
 The packed native-install check verifies release artifacts. It installs the actual

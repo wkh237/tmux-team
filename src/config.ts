@@ -6,30 +6,28 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import type {
-  ConfigDefaults,
   GlobalConfig,
   LocalConfigFile,
   LocalSettings,
   ResolvedConfig,
   Paths,
 } from './types.js';
+import {
+  createDefaultConfig,
+  validateGlobalConfig,
+  validateLocalConfig,
+  validateGlobalConfigShape,
+  validateLocalConfigShape,
+  validateAndProjectGlobalConfig,
+  validateAndProjectLocalSettings,
+} from './config-settings.js';
+
+export { ConfigValidationError } from './config-settings.js';
 
 const CONFIG_FILENAME = 'config.json';
 const LOCAL_CONFIG_FILENAME = 'tmux-team.json';
 const STATE_FILENAME = 'state.json';
 const DATABASE_FILENAME = 'tmux-team.db';
-
-// Default configuration values
-const DEFAULT_CONFIG: GlobalConfig = {
-  preambleMode: 'always',
-  defaults: {
-    timeout: 180,
-    pollInterval: 1,
-    captureLines: 100,
-    preambleEvery: 3, // inject preamble every N messages
-    pasteEnterDelayMs: 500, // delay after paste before Enter
-  },
-};
 
 /**
  * Resolve the global config directory path using XDG spec with smart detection.
@@ -127,9 +125,9 @@ export class ConfigParseError extends Error {
   }
 }
 
-function loadJsonFile<T>(filePath: string): T | null {
+function loadJsonFile<T>(filePath: string): T | undefined {
   if (!fs.existsSync(filePath)) {
-    return null;
+    return undefined;
   }
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
@@ -149,38 +147,35 @@ function loadJsonFile<T>(filePath: string): T | null {
  * Note: CLI flags are applied by the caller after this function returns.
  */
 export function loadConfig(paths: Paths): ResolvedConfig {
-  // Start with defaults
-  const config: ResolvedConfig = {
-    ...DEFAULT_CONFIG,
-    defaults: { ...DEFAULT_CONFIG.defaults },
-  };
+  const config = createDefaultConfig();
 
   // Merge global config. Legacy mode and extraction-only maxCaptureLines are
   // intentionally ignored while remaining opaque in the raw file.
-  const globalConfig = loadJsonFile<Partial<GlobalConfig>>(paths.globalConfig);
-  if (globalConfig) {
-    if (globalConfig.preambleMode) config.preambleMode = globalConfig.preambleMode;
-    if (globalConfig.defaults) {
-      const rawDefaults = globalConfig.defaults as ConfigDefaults & {
-        readonly maxCaptureLines?: unknown;
-      };
-      const { maxCaptureLines: _obsoleteMaxCaptureLines, ...runtimeDefaults } = rawDefaults;
-      config.defaults = {
-        ...config.defaults,
-        ...(runtimeDefaults as Partial<ResolvedConfig['defaults']>),
-      };
+  const globalConfig = loadJsonFile<unknown>(paths.globalConfig);
+  if (globalConfig !== undefined) {
+    const knownGlobal = validateAndProjectGlobalConfig(globalConfig, paths.globalConfig);
+    if (knownGlobal.preambleMode !== undefined) {
+      config.preambleMode = knownGlobal.preambleMode;
+    }
+    if (knownGlobal.defaults) {
+      Object.assign(config.defaults, knownGlobal.defaults);
     }
   }
 
   // Load local settings. Other local JSON fields remain opaque and are never
   // imported into runtime identity or preamble state.
-  const localConfigFile = loadJsonFile<LocalConfigFile>(paths.localConfig);
-  if (localConfigFile) {
-    const localSettings = localConfigFile.$config;
+  const localConfigFile = loadJsonFile<unknown>(paths.localConfig);
+  if (localConfigFile !== undefined) {
+    const localSettings = validateAndProjectLocalSettings(
+      localConfigFile,
+      paths.localConfig
+    ).$config;
 
     // Merge local settings (override global)
     if (localSettings) {
-      if (localSettings.preambleMode) config.preambleMode = localSettings.preambleMode;
+      if (localSettings.preambleMode !== undefined) {
+        config.preambleMode = localSettings.preambleMode;
+      }
       if (localSettings.preambleEvery !== undefined) {
         config.defaults.preambleEvery = localSettings.preambleEvery;
       }
@@ -203,13 +198,17 @@ export function ensureGlobalDir(paths: Paths): void {
  * Load raw global config file (for editing).
  */
 export function loadGlobalConfig(paths: Paths): Partial<GlobalConfig> {
-  return loadJsonFile<Partial<GlobalConfig>>(paths.globalConfig) ?? {};
+  const config = loadJsonFile<unknown>(paths.globalConfig);
+  if (config === undefined) return {};
+  validateGlobalConfigShape(config, paths.globalConfig);
+  return config as Partial<GlobalConfig>;
 }
 
 /**
  * Save global config file.
  */
 export function saveGlobalConfig(paths: Paths, config: Partial<GlobalConfig>): void {
+  validateGlobalConfig(config, paths.globalConfig);
   ensureGlobalDir(paths);
   fs.writeFileSync(paths.globalConfig, JSON.stringify(config, null, 2) + '\n');
 }
@@ -218,13 +217,17 @@ export function saveGlobalConfig(paths: Paths, config: Partial<GlobalConfig>): v
  * Load raw local config file (for editing).
  */
 export function loadLocalConfigFile(paths: Paths): LocalConfigFile {
-  return loadJsonFile<LocalConfigFile>(paths.localConfig) ?? {};
+  const config = loadJsonFile<unknown>(paths.localConfig);
+  if (config === undefined) return {};
+  validateLocalConfigShape(config, paths.localConfig);
+  return config as LocalConfigFile;
 }
 
 /**
  * Save local config file (preserves both $config and pane entries).
  */
 export function saveLocalConfigFile(paths: Paths, configFile: LocalConfigFile): void {
+  validateLocalConfig(configFile, paths.localConfig);
   fs.writeFileSync(paths.localConfig, JSON.stringify(configFile, null, 2) + '\n');
 }
 

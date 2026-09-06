@@ -13,6 +13,7 @@ import {
   updateLocalSettings,
   clearLocalSettings,
 } from '../config.js';
+import { createDefaultGlobalDefaults, isValidConfigSettingValue } from '../config-settings.js';
 
 type EnumConfigKey = 'preambleMode';
 type NumericConfigKey = 'preambleEvery' | 'pasteEnterDelayMs';
@@ -22,24 +23,31 @@ const ENUM_KEYS: EnumConfigKey[] = ['preambleMode'];
 const NUMERIC_KEYS: NumericConfigKey[] = ['preambleEvery', 'pasteEnterDelayMs'];
 const VALID_KEYS: ConfigKey[] = [...ENUM_KEYS, ...NUMERIC_KEYS];
 
-const VALID_VALUES: Record<EnumConfigKey, string[]> = {
-  preambleMode: ['always', 'disabled'],
-};
-
 function isValidKey(key: string): key is ConfigKey {
   return VALID_KEYS.includes(key as ConfigKey);
 }
 
-function isEnumKey(key: ConfigKey): key is EnumConfigKey {
-  return ENUM_KEYS.includes(key as EnumConfigKey);
-}
+type ParsedSetting =
+  | { readonly key: EnumConfigKey; readonly value: 'always' | 'disabled' }
+  | { readonly key: NumericConfigKey; readonly value: number };
 
-function isNumericKey(key: ConfigKey): key is NumericConfigKey {
-  return NUMERIC_KEYS.includes(key as NumericConfigKey);
-}
-
-function isValidValue(key: EnumConfigKey, value: string): boolean {
-  return VALID_VALUES[key].includes(value);
+function parseSetting(key: ConfigKey, value: string): ParsedSetting {
+  if (key === 'preambleMode') {
+    if (!isValidConfigSettingValue(key, value)) {
+      throw new Error(`Invalid value for ${key}: ${value}. Valid values: always, disabled`);
+    }
+    return { key, value: value as 'always' | 'disabled' };
+  }
+  if (value.length === 0 || /\D/u.test(value)) {
+    throw new Error(`Invalid value for ${key}: ${value}. Must be a non-negative integer.`);
+  }
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || !isValidConfigSettingValue(key, parsed)) {
+    throw new Error(
+      `Invalid value for ${key}: ${value}. Must be a supported non-negative integer.`
+    );
+  }
+  return { key, value: parsed };
 }
 
 /**
@@ -133,65 +141,40 @@ function setConfig(ctx: Context, key: string, value: string, global: boolean): v
 
   const validKey = key as ConfigKey;
 
-  // Validate enum keys
-  if (isEnumKey(validKey)) {
-    if (!isValidValue(validKey, value)) {
-      ctx.ui.error(
-        `Invalid value for ${key}: ${value}. Valid values: ${VALID_VALUES[validKey].join(', ')}`
-      );
-      ctx.exit(ExitCodes.ERROR);
-    }
-  }
-
-  // Validate numeric keys
-  if (isNumericKey(validKey)) {
-    const numValue = parseInt(value, 10);
-    if (isNaN(numValue) || numValue < 0) {
-      ctx.ui.error(`Invalid value for ${key}: ${value}. Must be a non-negative integer.`);
-      ctx.exit(ExitCodes.ERROR);
-    }
+  let parsed: ParsedSetting;
+  try {
+    parsed = parseSetting(validKey, value);
+  } catch (error) {
+    ctx.ui.error(error instanceof Error ? error.message : String(error));
+    ctx.exit(ExitCodes.ERROR);
   }
 
   if (global) {
     // Set in global config
     const globalConfig = loadGlobalConfig(ctx.paths);
-    if (key === 'preambleMode') {
-      globalConfig.preambleMode = value as 'always' | 'disabled';
-    } else if (key === 'preambleEvery') {
+    if (parsed.key === 'preambleMode') {
+      globalConfig.preambleMode = parsed.value;
+    } else if (parsed.key === 'preambleEvery') {
       if (!globalConfig.defaults) {
-        globalConfig.defaults = {
-          timeout: 180,
-          pollInterval: 1,
-          captureLines: 100,
-          preambleEvery: parseInt(value, 10),
-          pasteEnterDelayMs: 500,
-        };
-      } else {
-        globalConfig.defaults.preambleEvery = parseInt(value, 10);
+        globalConfig.defaults = createDefaultGlobalDefaults();
       }
-    } else if (key === 'pasteEnterDelayMs') {
+      globalConfig.defaults.preambleEvery = parsed.value;
+    } else if (parsed.key === 'pasteEnterDelayMs') {
       if (!globalConfig.defaults) {
-        globalConfig.defaults = {
-          timeout: 180,
-          pollInterval: 1,
-          captureLines: 100,
-          preambleEvery: 3,
-          pasteEnterDelayMs: parseInt(value, 10),
-        };
-      } else {
-        globalConfig.defaults.pasteEnterDelayMs = parseInt(value, 10);
+        globalConfig.defaults = createDefaultGlobalDefaults();
       }
+      globalConfig.defaults.pasteEnterDelayMs = parsed.value;
     }
     saveGlobalConfig(ctx.paths, globalConfig);
     ctx.ui.success(`Set ${key}=${value} in global config`);
   } else {
     // Set in local config
-    if (key === 'preambleMode') {
-      updateLocalSettings(ctx.paths, { preambleMode: value as 'always' | 'disabled' });
-    } else if (key === 'preambleEvery') {
-      updateLocalSettings(ctx.paths, { preambleEvery: parseInt(value, 10) });
-    } else if (key === 'pasteEnterDelayMs') {
-      updateLocalSettings(ctx.paths, { pasteEnterDelayMs: parseInt(value, 10) });
+    if (parsed.key === 'preambleMode') {
+      updateLocalSettings(ctx.paths, { preambleMode: parsed.value });
+    } else if (parsed.key === 'preambleEvery') {
+      updateLocalSettings(ctx.paths, { preambleEvery: parsed.value });
+    } else if (parsed.key === 'pasteEnterDelayMs') {
+      updateLocalSettings(ctx.paths, { pasteEnterDelayMs: parsed.value });
     }
     ctx.ui.success(`Set ${key}=${value} in local config (repo override)`);
   }

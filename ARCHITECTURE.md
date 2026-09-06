@@ -258,8 +258,9 @@ Check validates its effective capture count before target lookup: integers
 0 through 2,147,483,647 are accepted, with zero preserving visible-pane capture.
 Invalid runtime counts return `INVALID_CAPTURE_LINES` (exit 1), without capture
 or reconciliation. These argument limits do not replace tmux's existing
-one-second timeout and 4 MiB output bound. Config loading/writing consolidation
-remains TMT-46 work.
+one-second timeout and 4 MiB output bound. Loaded-setting failures are rejected
+earlier by the shared configuration boundary described below; direct runtime
+command inputs retain their feature-specific validation and errors.
 
 The parser rejects retired `--wait`, talk `--lines`, and explicit
 `--timeout`/`--detach` combinations before Context effects. `send` follows the
@@ -283,6 +284,37 @@ not automatically rewritten. Explicit local `config clear mode` may remove
 that key; config set mode and global clear remain unsupported. captureLines
 still controls check diagnostics. Historical migrations/nonce columns stay
 unchanged; new talk attempts do not create a nonce.
+
+## Configuration policy and raw-file preservation
+
+`src/config.ts` owns path resolution and raw-file loading/writing;
+`src/config-settings.ts` owns fresh canonical defaults, known-setting validation
+and runtime projection. This focused policy reuses the pure
+capture/timing predicates in `domain/interaction-limits.ts`; commands do not
+copy default objects or use permissive `parseInt` conversion. CLI setter syntax
+is decimal integer text for its supported numeric keys, while loaded JSON
+paste delay retains the runtime's finite fractional-millisecond support.
+
+Global/local roots and supplied `defaults`/`$config` containers must be non-null
+objects, not arrays. Every supplied known value is validated before merging,
+including lower-tier values that would be overridden. Missing values use fresh
+defaults; nulls, strings and invalid enums are not coerced. Unknown and retired
+fields remain raw data and do not enter resolved runtime settings. Existing
+global/local precedence and path selection remain unchanged.
+
+Raw edit reads validate container shapes without first rejecting the value
+being repaired. Save validates the complete resulting destination before
+directory creation or writing; unrelated invalid known values still reject.
+Rejected updates preserve file bytes, while successful writes preserve unknown
+fields. This does not supply crash-atomic or concurrent JSON-file updates.
+Loaded shape/value errors join JSON errors at `CONFIG_ERROR` (exit 1), with
+file/field context; invalid setter arguments retain their existing command error.
+
+Context keeps settings lazy for storage-only capabilities. `reply`, `result`
+and explicit role access do not acquire a dependency on unrelated malformed
+configuration. Config-consuming talk/check fail before tmux or request storage;
+help retains its safe default fallback. Exchange retention configuration remains
+future TMT-50 work and must extend this owner instead of creating another loader.
 
 ## Caller context
 
@@ -574,7 +606,6 @@ a gap is resolved; do not leave a permanent exception or label a proposal as shi
 
 | Gap                                                                                                      | Owning issue                                                                                                                                                           |
 | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Configuration defaults and loaded-setting validation remain split.                                       | [TMT-46](https://linear.app/tigerpig-dev/issue/TMT-46)                                                                                                                 |
 | Shipped skill/provider inventories drift; packed verification does not yet prove application migrations. | [TMT-29](https://linear.app/tigerpig-dev/issue/TMT-29)                                                                                                                 |
 | Non-tmux identity management, memory and durable inbox are future capabilities, not installed APIs.      | [TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30), [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16) |
 

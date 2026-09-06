@@ -319,6 +319,34 @@ provider-specific cleanup. `check` is a diagnostic snapshot, not durable result
 retrieval. Same-pane input serialization is not guaranteed. See the
 [channel research and implementation plan](REQUEST-RESPONSE.md).
 
+## Configuration validation
+
+`tmt config show --json` reports the resolved values and selected config paths.
+The existing global `config.json` and local `tmux-team.json` `$config` retain
+their precedence; no new settings file is required.
+
+`config set` supports `preambleMode`, `preambleEvery`, and `pasteEnterDelayMs`.
+Use `--global` to write the global file; otherwise it writes a local override.
+Numeric setter input must contain decimal digits only, without suffixes,
+fractions, signs or whitespace. Zero disables preamble injection or the
+paste-to-Enter delay. Preamble frequency must be a safe integer; paste delay
+is bounded to 2,147,483,647 milliseconds.
+
+Loaded configuration validates each supplied known field before merging:
+timeout must be positive and at most 86,400 seconds, poll interval positive
+and finite, capture count an integer from zero through 2,147,483,647, and
+preamble mode either `always` or `disabled`. Loaded JSON paste delay may be
+fractional within its finite non-negative bound. Nulls and numeric strings
+are not defaults. Invalid settings return `CONFIG_ERROR` (exit 1), even if a
+higher tier would override them. Unknown/retired fields stay opaque in raw
+files and are excluded from runtime settings.
+
+Rejected updates preserve the original file; setting a bad field to a valid
+value can repair it, but another invalid known field still prevents saving.
+This is validation before writing, not a concurrent-write or crash-atomic
+guarantee. Storage-only `reply` and `result` remain independent of malformed
+settings. Fix the reported field rather than deleting unrelated configuration.
+
 ## Local SQLite storage
 
 TMT owns its local SQLite database. The database is deliberately local-file
