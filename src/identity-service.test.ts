@@ -130,6 +130,104 @@ describe('durable identity service', () => {
     );
   });
 
+  it('creates standalone identities idempotently without consulting tmux', () => {
+    const test = fixture();
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    repositories.push(repository);
+    const service = createIdentityService({ tmux: test.tmux, repository });
+    const bound = service.bindCurrent('Bound');
+    const role = repository.setRole(bound.id, 'bound profile');
+    const preamble = repository.setPreamble(bound.id, 'bound preamble');
+    const binding = repository.findBindings();
+    const snapshot = vi.spyOn(test.tmux, 'getEndpointSnapshot');
+    const currentPane = vi.spyOn(test.tmux, 'getCurrentPaneId');
+    const transaction = vi.spyOn(repository, 'withImmediateTransaction');
+
+    const first = service.createIdentity('  Standalone  ');
+    const second = service.createIdentity('standalone');
+    expect(service.createIdentity('BOUND')).toEqual({ identity: bound, created: false });
+
+    expect(first.created).toBe(true);
+    expect(first.identity).toMatchObject({
+      name: 'Standalone',
+      canonicalName: 'standalone',
+      id: expect.any(String),
+      createdAt: expect.any(String),
+      updatedAt: expect.any(String),
+    });
+    expect(first.identity.createdAt).toBe(first.identity.updatedAt);
+    expect(second).toEqual({ identity: first.identity, created: false });
+    expect(() => service.createIdentity('%2')).toThrowError(
+      expect.objectContaining({ code: 'INVALID_NAME' })
+    );
+    expect(transaction).toHaveBeenCalledTimes(3);
+    expect(snapshot).not.toHaveBeenCalled();
+    expect(currentPane).not.toHaveBeenCalled();
+    expect(repository.findBindings()).toEqual(binding);
+    expect(repository.findRole(bound.id)).toEqual(role);
+    expect(repository.findPreamble(bound.id)).toEqual(preamble);
+  });
+
+  it('rolls back a standalone identity insert when its immediate transaction fails', () => {
+    const test = fixture();
+    const base = openIdentityRepository(test.paths.databaseFile);
+    const repository = {
+      ...base,
+      withImmediateTransaction<T>(operation: () => T): T {
+        return base.withImmediateTransaction(() => {
+          operation();
+          throw new Error('abort after identity insert');
+        });
+      },
+    };
+    const service = createIdentityService({ tmux: test.tmux, repository });
+
+    try {
+      expect(() => service.createIdentity('rolled-back')).toThrow('abort after identity insert');
+      expect(base.findByCanonicalName('rolled-back')).toBeUndefined();
+    } finally {
+      base.close();
+    }
+  });
+
+  it('shows existing identities, rejects invalid names, and reports missing names', () => {
+    const test = fixture();
+    const service = createTestService(test);
+    // Fullwidth Latin tests canonical normalization without changing display text.
+    const identity = service.createIdentity(' Ａｌｉｃｅ ').identity;
+    const snapshot = vi.spyOn(test.tmux, 'getEndpointSnapshot');
+    const currentPane = vi.spyOn(test.tmux, 'getCurrentPaneId');
+
+    expect(service.showIdentity('alice')).toEqual(identity);
+    expect(() => service.showIdentity('missing')).toThrowError(
+      expect.objectContaining({ code: 'NAME_NOT_FOUND' })
+    );
+    expect(() => service.showIdentity('%1')).toThrowError(
+      expect.objectContaining({ code: 'INVALID_NAME' })
+    );
+    expect(snapshot).not.toHaveBeenCalled();
+    expect(currentPane).not.toHaveBeenCalled();
+  });
+
+  it('lists durable identities in canonical order with profiles and bindings intact', () => {
+    const test = fixture();
+    const service = createTestService(test);
+    const bound = service.bindCurrent('Zulu');
+    const repository = openIdentityRepository(test.paths.databaseFile);
+    repositories.push(repository);
+    repository.setRole(bound.id, 'keep this profile');
+    const snapshot = vi.spyOn(test.tmux, 'getEndpointSnapshot');
+    const currentPane = vi.spyOn(test.tmux, 'getCurrentPaneId');
+    const alpha = service.createIdentity('Alpha').identity;
+    const middle = service.createIdentity('middle').identity;
+
+    expect(service.listIdentities()).toEqual([alpha, middle, bound]);
+    expect(snapshot).not.toHaveBeenCalled();
+    expect(currentPane).not.toHaveBeenCalled();
+    expect(repository.findBindings()).toHaveLength(1);
+    expect(repository.findRole(bound.id)).toMatchObject({ content: 'keep this profile' });
+  });
+
   it('rejects invalid names before creating durable state', () => {
     const test = fixture();
     const service = createTestService(test);
@@ -1043,16 +1141,20 @@ describe('durable identity service', () => {
     const test = fixture();
     const base = openIdentityRepository(test.paths.databaseFile);
     const observer = openIdentityRepository(test.paths.databaseFile);
+    let observedSecondCommit = false;
     const repository = {
       ...base,
-      createIdentity(name: string, canonicalName: string) {
-        const identity = base.createIdentity(name, canonicalName);
-        // Observation alone must preserve the committed UUID; no profile row
-        // exists to trigger the former feature-specific deletion guards.
-        if (canonicalName === 'second') {
-          expect(observer.findByCanonicalName(canonicalName)).toEqual(identity);
+      withImmediateTransaction<T>(operation: () => T): T {
+        const result = base.withImmediateTransaction(operation);
+        if (!observedSecondCommit && observer.findByCanonicalName('second')) {
+          // The second identity transaction has committed before the
+          // separate binding publication transaction starts.
+          expect(observer.findByCanonicalName('second')).toEqual(
+            expect.objectContaining({ canonicalName: 'second' })
+          );
+          observedSecondCommit = true;
         }
-        return identity;
+        return result;
       },
     };
     const service = createIdentityService({ tmux: test.tmux, repository });
@@ -1061,6 +1163,7 @@ describe('durable identity service', () => {
       expect(() => service.bindCurrent('second')).toThrowError(
         new IdentityServiceError('PANE_ALREADY_BOUND', 'Pane is already bound to another name.')
       );
+      expect(observedSecondCommit).toBe(true);
       const identities = observer.listIdentities();
       expect(identities.map(({ canonicalName }) => canonicalName)).toEqual(['first', 'second']);
       expect(observer.findBindings()).toMatchObject([{ identityId: identities[0]?.id }]);

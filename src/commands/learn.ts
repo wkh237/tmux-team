@@ -21,7 +21,7 @@ ${colors.yellow('WHAT IS TMUX-TEAM?')}
 
 ${colors.yellow('CORE CONCEPT')}
 
-  Each agent runs in its own tmux pane. When you talk to another agent:
+  A recipient runs in a tmux pane; the caller does not have to. When you talk:
   1. Your message is pasted via a tmux buffer
   2. tmux-team waits briefly, then sends Enter to submit
   3. The recipient submits its complete final through tmt reply
@@ -34,6 +34,18 @@ ${colors.yellow('ESSENTIAL COMMANDS')}
   ${colors.green('tmux-team check')} <target> [lines]  Read pane output
   ${colors.green('tmux-team talk')} <target> "<msg>" --detach  Send without waiting
   ${colors.green('tmux-team result')} <request-id> --json      Retrieve a retained final
+
+${colors.yellow('DURABLE IDENTITIES')}
+
+  tmt identity create coordinator --json
+  tmt identity show coordinator --json
+  tmt identity list --json
+
+  These commands work inside or outside tmux. Repeated creation preserves the
+  existing UUID, display name, profiles and pane binding. Nothing logs in or
+  binds automatically. identity list includes unbound identities; ordinary
+  list shows active destinations. Use talk --identity coordinator for explicit
+  local attribution, not authentication. A recipient still needs a live pane.
 
 ${colors.yellow('DURABLE REPLIES AND RESULTS')}
 

@@ -109,6 +109,15 @@ function createCtx(
   const tmux = createMockTmux();
   const registrations = overrides?.identities ?? [];
   const identityService: IdentityService = {
+    createIdentity: vi.fn(() => {
+      throw new Error('Unexpected durable identity creation.');
+    }),
+    showIdentity: vi.fn(() => {
+      throw new Error('Unexpected durable identity lookup.');
+    }),
+    listIdentities: vi.fn(() => {
+      throw new Error('Unexpected durable identity listing.');
+    }),
     bindCurrent: vi.fn((name: string) => ({
       id: 'identity-id',
       name,

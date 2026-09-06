@@ -1,5 +1,10 @@
 import type { IdentitySelector } from '../identity-context.js';
 
+export type IdentityRequest = { readonly kind: 'identity' } & (
+  | { readonly operation: 'create' | 'show'; readonly name: string }
+  | { readonly operation: 'list' }
+);
+
 export interface ConfigRequest {
   readonly kind: 'config';
   readonly operation: 'show' | 'set' | 'clear';

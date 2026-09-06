@@ -1,4 +1,9 @@
-import type { DurableIdentity, RoleProfile, TmuxBinding } from './domain/identity.js';
+import type {
+  DurableIdentity,
+  PublicIdentity,
+  RoleProfile,
+  TmuxBinding,
+} from './domain/identity.js';
 import type { DurableIdentityResolution, IdentitySelector } from './identity-context.js';
 import type { PreambleService } from './preamble-service.js';
 import type { RequestService } from './request-service.js';
@@ -150,7 +155,15 @@ export type TmuxEndpointProbe =
   | { readonly status: 'dead' }
   | { readonly status: 'unknown' };
 
+export interface IdentityCreationResult {
+  readonly identity: DurableIdentity;
+  readonly created: boolean;
+}
+
 export interface IdentityService {
+  createIdentity(name: string): IdentityCreationResult;
+  showIdentity(name: string): DurableIdentity;
+  listIdentities(): DurableIdentity[];
   bindCurrent(name: string): DurableIdentity;
   bindPane(pane: string, name: string): DurableIdentity;
   unbindCurrent(): DurableIdentity | undefined;
@@ -173,7 +186,7 @@ export interface RoleService {
 }
 
 export interface RoleResult {
-  readonly identity: Pick<DurableIdentity, 'id' | 'name' | 'canonicalName'>;
+  readonly identity: PublicIdentity;
   readonly role: RoleProfile | null;
 }
 

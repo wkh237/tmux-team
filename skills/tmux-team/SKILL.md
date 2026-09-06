@@ -162,6 +162,33 @@ Do not resend simply because a caller timed out or was interrupted.
 Craft clear, specific requests. After receiving a durable response, summarize
 the result for the user without treating submission alone as task success.
 
+## Durable identity creation and discovery
+
+Use the same explicit commands inside or outside tmux:
+
+```bash
+tmt identity create coordinator --json
+tmt identity show coordinator --json
+tmt identity list --json
+```
+
+These commands use only local storage, without tmux or unrelated configuration.
+Create is idempotent for canonical-equivalent names: it preserves the existing
+UUID, original display name, profiles and any pane binding. It never logs in,
+binds a pane or takes over another caller's identity. Multiple local callers
+may explicitly select the same identity; this is not authentication.
+
+Create returns `{identity:{id,name,canonicalName},created}`; show returns
+`{identity:{id,name,canonicalName}}`; list returns `{identities:[...]}` in
+canonical-name order, including unbound identities. It does not report presence.
+Use ordinary `tmt list` for verified active destinations. A new identity alone
+cannot receive talk: bind a live pane with `add`, `name` or `this` first.
+
+Names are required for create/show; omission never selects the current pane.
+Invalid names return `INVALID_NAME` (exit 1); valid missing show names return
+`NAME_NOT_FOUND` (exit 3). Creation does not alter anonymous talk or request-ID
+result access. There is no identity rename/delete, listener or attention command.
+
 ## Role profiles
 
 Roles are stored profiles, not automatically injected instructions. Select an
@@ -195,8 +222,8 @@ tmt preamble clear reviewer
 ```
 
 Names are explicit; omitting the name lists preambles, not the caller's data.
-Unknown identities fail with `NAME_NOT_FOUND`; bind the intended identity
-explicitly rather than treating a pane ID or an old registration as its name.
+Unknown identities fail with `NAME_NOT_FOUND`; create the intended identity
+with `identity create` rather than treating a pane ID or an old registration as its name.
 Use `clear`, not blank `set`. Content is limited to 65,536 UTF-8 bytes.
 
 `talk` uses the resolved identity's preamble for both names and bound pane

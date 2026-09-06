@@ -65,6 +65,15 @@ function createCtx(
     config,
     tmux,
     identityService: {
+      createIdentity: vi.fn(() => {
+        throw new Error('Unexpected durable identity creation.');
+      }),
+      showIdentity: vi.fn(() => {
+        throw new Error('Unexpected durable identity lookup.');
+      }),
+      listIdentities: vi.fn(() => {
+        throw new Error('Unexpected durable identity listing.');
+      }),
       bindCurrent: vi.fn(),
       bindPane: vi.fn(),
       unbindCurrent: vi.fn(),

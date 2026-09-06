@@ -7,6 +7,17 @@ export interface DurableIdentity {
   readonly updatedAt: string;
 }
 
+/** Public identity fields safe to include in command results. */
+export type PublicIdentity = Pick<DurableIdentity, 'id' | 'name' | 'canonicalName'>;
+
+export function publicIdentity(identity: DurableIdentity): PublicIdentity {
+  return {
+    id: identity.id,
+    name: identity.name,
+    canonicalName: identity.canonicalName,
+  };
+}
+
 /** Transient evidence that a durable identity is bound to one tmux pane instance. */
 export interface TmuxBinding {
   readonly id: string;

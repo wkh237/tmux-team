@@ -79,6 +79,7 @@ export function cmdHelp(config?: HelpConfig): void {
   const reply = requiredCommand(metadata, 'reply');
   const result = requiredCommand(metadata, 'result');
   const role = requiredCommand(metadata, 'role');
+  const identity = requiredCommand(metadata, 'identity');
   const learn = requiredCommand(metadata, 'learn');
   const learnSkill = learn.options.find((option) => option.name === 'skill');
   if (!learnSkill) throw new Error('CLI metadata is missing learn --skill');
@@ -117,6 +118,13 @@ ${colors.yellow('OPTIONS')}
 ${rootOptions.map(formatOption).join('\n')}
   JSON is available only for commands with a JSON result; text-only commands
   such as help, completion and learn do not provide a universal JSON form.
+
+${colors.yellow('DURABLE IDENTITY USAGE')}
+${childRows(identity)}
+  Storage-only; works inside or outside tmux without loading unrelated configuration.
+  Create preserves an existing canonical name, UUID, profile and pane binding.
+  Identity list includes unbound identities; ordinary list shows active destinations.
+  No login, automatic binding, presence claim or authentication is implied.
 
 ${colors.yellow('ROLE USAGE')}
 ${childRows(role)}

@@ -1,4 +1,4 @@
-import type { DurableIdentity, RoleProfile } from './domain/identity.js';
+import { publicIdentity, type DurableIdentity, type RoleProfile } from './domain/identity.js';
 import {
   requireDurableIdentity,
   type DurableIdentityContext,
@@ -35,7 +35,7 @@ export function createRoleService(options: RoleServiceOptions): RoleService {
   const resolve = (selector?: IdentitySelector): DurableIdentity =>
     resolveIdentity(options.repository, options.currentIdentity, selector);
   const result = (identity: DurableIdentity): RoleResult => ({
-    identity: { id: identity.id, name: identity.name, canonicalName: identity.canonicalName },
+    identity: publicIdentity(identity),
     role: options.repository.findRole(identity.id) ?? null,
   });
   return {
@@ -45,7 +45,7 @@ export function createRoleService(options: RoleServiceOptions): RoleService {
     set(selector, content) {
       const identity = resolve(selector);
       return {
-        identity: { id: identity.id, name: identity.name, canonicalName: identity.canonicalName },
+        identity: publicIdentity(identity),
         role: options.repository.setRole(identity.id, normalizeRoleContent(content)),
       };
     },
@@ -53,7 +53,7 @@ export function createRoleService(options: RoleServiceOptions): RoleService {
       const identity = resolve(selector);
       options.repository.clearRole(identity.id);
       return {
-        identity: { id: identity.id, name: identity.name, canonicalName: identity.canonicalName },
+        identity: publicIdentity(identity),
         role: null,
       };
     },

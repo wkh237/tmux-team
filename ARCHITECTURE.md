@@ -440,6 +440,29 @@ choose a target or data owner. Talk's explicit originator selects local attribut
 without binding the caller. No listener, non-tmux
 identity binding, memory or inbox is implied by this boundary.
 
+## Standalone durable identity operations
+
+TMT-30 exposes explicit `identity create <name>`, `identity show <name>` and
+`identity list` through the existing IdentityService and SQLite repository.
+They use storage-only parser capabilities and never probe tmux, reconcile
+bindings, load unrelated configuration or infer an omitted name. Ordinary
+`list` keeps its verified active-presence contract.
+
+Standalone creation and binding reuse the same validated canonical creation
+primitive. An immediate transaction makes the standalone `created` result
+truthful under concurrent canonical collisions; repeated creation preserves
+the original UUID, display name, timestamps, profiles and binding. Binding
+retains its separate durable-identity and endpoint-publication commit points.
+Show validates names and uses the shared durable selector; ordered listing
+uses the existing repository query. No schema or dependency is added.
+
+The pure public identity projection in `domain/identity.ts` is shared with role
+results and exposes only UUID/name/canonical name, not timestamps or endpoint
+evidence. It is distinct from active-pane presentation. Creation/discovery is
+not login, exclusive caller ownership, authentication, an endpoint or a listener.
+Anonymous talk and request-ID results remain available; identity-scoped attention
+is still a separate future slice.
+
 ## Binding publication and recovery
 
 Identity creation and binding publication are distinct commit points. Invalid
@@ -631,7 +654,7 @@ not replace the storage/concurrency suites.
 The packed verifier additionally checks the actual installed inventory and runs
 an isolated storage probe using the installed TypeScript loader and runtime
 modules. Public role commands initialize storage and prove cross-process profile
-persistence; only identity seeding uses the existing repository API. Exact
+persistence; standalone identity creation/show/list use the public CLI as well. Exact
 installed migration-manifest comparison is paired with repository/schema reads,
 and incompatible history must fail without resetting data. This is verification
 infrastructure, not another migration runner or application service. Test files
@@ -647,7 +670,7 @@ standalone skills remain distributed. Plugin projections remain repository-based
 | [src/context.ts](src/context.ts), [src/types.ts](src/types.ts)                                                                                                             | Composition and lazy resource lifetime; shared UI, adapter, service and configuration contracts. The shared types module is not a dumping ground for new domain models. |
 | [src/commands/](src/commands/)                                                                                                                                             | CLI orchestration, error mapping and presentation. Some delivery policy still lives in commands; they are effectful adapters, not pure functions.                       |
 | [src/domain/](src/domain/)                                                                                                                                                 | Pure name validation, bounded text normalization, feature-specific errors and identity models; no alternate in-memory binding model.                                    |
-| [src/identity-service.ts](src/identity-service.ts)                                                                                                                         | Durable binding, presence, reconciliation and an application-owned identity repository port; supplies verified identities to the target resolver.                       |
+| [src/identity-service.ts](src/identity-service.ts)                                                                                                                         | Durable identity creation/discovery, binding, presence and reconciliation through one repository port; supplies verified identities to the target resolver.             |
 | [src/role-service.ts](src/role-service.ts), [src/identity-context.ts](src/identity-context.ts)                                                                             | Role use cases with an application-owned repository port and shared durable explicit/implicit identity selection.                                                       |
 | [src/target-resolver.ts](src/target-resolver.ts)                                                                                                                           | Shared name/pane resolution; pane-shaped arguments are resolved before names.                                                                                           |
 | [src/storage/](src/storage/)                                                                                                                                               | SQLite lifecycle, migrations, errors and SQL implementing composed application-owned repository ports; Context owns the CLI handle.                                     |
@@ -733,9 +756,9 @@ These links identify owners of unresolved work, not permission to widen an
 unrelated PR. Update this section and the current map in the delivering PR when
 a gap is resolved; do not leave a permanent exception or label a proposal as shipped.
 
-| Gap                                                                                                 | Owning issue                                                                                                                                                           |
-| --------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Non-tmux identity management, memory and durable inbox are future capabilities, not installed APIs. | [TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30), [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16) |
+| Gap                                                                                       | Owning issue                                                                                                                                                           |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity attention, memory and durable inbox are future capabilities, not installed APIs. | [TMT-51](https://linear.app/tigerpig-dev/issue/TMT-51), [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16) |
 
 ## Maintenance contract
 

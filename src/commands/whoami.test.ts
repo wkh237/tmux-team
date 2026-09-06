@@ -17,6 +17,15 @@ function identity(name = 'alice') {
 function context(json = false): Context {
   const current = { identity: identity() };
   const identityService: IdentityService = {
+    createIdentity: vi.fn(() => {
+      throw new Error('Unexpected durable identity creation.');
+    }),
+    showIdentity: vi.fn(() => {
+      throw new Error('Unexpected durable identity lookup.');
+    }),
+    listIdentities: vi.fn(() => {
+      throw new Error('Unexpected durable identity listing.');
+    }),
     bindCurrent: vi.fn(),
     bindPane: vi.fn(),
     unbindCurrent: vi.fn(() => identity()),

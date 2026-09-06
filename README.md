@@ -114,6 +114,30 @@ Find the current pane ID with:
 tmux display-message -p '#{pane_id}'
 ```
 
+## Durable identities without a pane
+
+The same commands work inside and outside tmux:
+
+```bash
+tmt identity create coordinator --json
+tmt identity show coordinator --json
+tmt identity list --json
+```
+
+Creation returns `{identity:{id,name,canonicalName},created}`. Repeating a
+canonical-equivalent name returns the same UUID and original display name with
+`created:false`, without changing a pane binding or profile. Show returns
+`{identity:{id,name,canonicalName}}`; list returns `{identities:[...]}` in
+canonical-name order, including unbound identities. These storage-only commands
+work even with no tmux server or malformed unrelated configuration.
+
+This does not log in or bind the caller. Use `talk --identity coordinator` to
+attribute a request; a recipient still needs a live bound pane. `tmt list`
+continues to show active destinations, not every stored identity. Create/show
+require a name: invalid names return `INVALID_NAME` (exit 1), while a valid
+missing show name returns `NAME_NOT_FOUND` (exit 3). No identity deletion,
+rename, attention view or listener is added.
+
 ## Commands
 
 View the exact bundled universal skill with `tmt learn --skill`; plain
