@@ -16,15 +16,23 @@ import {
 import { createDefaultGlobalDefaults, isValidConfigSettingValue } from '../config-settings.js';
 
 type EnumConfigKey = 'preambleMode';
-type NumericConfigKey = 'preambleEvery' | 'pasteEnterDelayMs';
+type NumericConfigKey = 'preambleEvery' | 'pasteEnterDelayMs' | 'exchange.retentionDays';
 type ConfigKey = EnumConfigKey | NumericConfigKey;
 
 const ENUM_KEYS: EnumConfigKey[] = ['preambleMode'];
-const NUMERIC_KEYS: NumericConfigKey[] = ['preambleEvery', 'pasteEnterDelayMs'];
+const NUMERIC_KEYS: NumericConfigKey[] = [
+  'preambleEvery',
+  'pasteEnterDelayMs',
+  'exchange.retentionDays',
+];
 const VALID_KEYS: ConfigKey[] = [...ENUM_KEYS, ...NUMERIC_KEYS];
 
 function isValidKey(key: string): key is ConfigKey {
   return VALID_KEYS.includes(key as ConfigKey);
+}
+
+function isGlobalOnlyKey(key: ConfigKey): key is 'exchange.retentionDays' {
+  return key === 'exchange.retentionDays';
 }
 
 type ParsedSetting =
@@ -65,6 +73,9 @@ function showConfig(ctx: Context): void {
         preambleEvery: ctx.config.defaults.preambleEvery,
         pasteEnterDelayMs: ctx.config.defaults.pasteEnterDelayMs,
         defaults: ctx.config.defaults,
+        exchange: {
+          retentionDays: ctx.config.exchange.retentionDays,
+        },
       },
       sources: {
         preambleMode: localSettings?.preambleMode
@@ -84,6 +95,9 @@ function showConfig(ctx: Context): void {
             : globalConfig.defaults?.pasteEnterDelayMs !== undefined
               ? 'global'
               : 'default',
+        exchange: {
+          retentionDays: globalConfig.exchange?.retentionDays !== undefined ? 'global' : 'default',
+        },
       },
       paths: {
         global: ctx.paths.globalConfig,
@@ -111,6 +125,8 @@ function showConfig(ctx: Context): void {
       : globalConfig.defaults?.pasteEnterDelayMs !== undefined
         ? '(global)'
         : '(default)';
+  const exchangeRetentionSource =
+    globalConfig.exchange?.retentionDays !== undefined ? '(global)' : '(default)';
 
   ctx.ui.info('Current configuration:\n');
   ctx.ui.table(
@@ -122,6 +138,11 @@ function showConfig(ctx: Context): void {
       ['defaults.timeout', String(ctx.config.defaults.timeout), '(global)'],
       ['defaults.pollInterval', String(ctx.config.defaults.pollInterval), '(global)'],
       ['defaults.captureLines', String(ctx.config.defaults.captureLines), '(global)'],
+      [
+        'exchange.retentionDays',
+        String(ctx.config.exchange.retentionDays),
+        exchangeRetentionSource,
+      ],
     ]
   );
 
@@ -140,6 +161,11 @@ function setConfig(ctx: Context, key: string, value: string, global: boolean): v
   }
 
   const validKey = key as ConfigKey;
+
+  if (!global && isGlobalOnlyKey(validKey)) {
+    ctx.ui.error(`${validKey} can only be set in global config with --global.`);
+    ctx.exit(ExitCodes.ERROR);
+  }
 
   let parsed: ParsedSetting;
   try {
@@ -164,6 +190,8 @@ function setConfig(ctx: Context, key: string, value: string, global: boolean): v
         globalConfig.defaults = createDefaultGlobalDefaults();
       }
       globalConfig.defaults.pasteEnterDelayMs = parsed.value;
+    } else if (parsed.key === 'exchange.retentionDays') {
+      globalConfig.exchange = { ...globalConfig.exchange, retentionDays: parsed.value };
     }
     saveGlobalConfig(ctx.paths, globalConfig);
     ctx.ui.success(`Set ${key}=${value} in global config`);
@@ -190,6 +218,11 @@ function clearConfig(ctx: Context, key?: string): void {
     const isObsoleteMode = key === 'mode';
     if (!isObsoleteMode && !isValidKey(key)) {
       ctx.ui.error(`Invalid key: ${key}. Valid keys: ${VALID_KEYS.join(', ')}`);
+      ctx.exit(ExitCodes.ERROR);
+    }
+
+    if (isValidKey(key) && isGlobalOnlyKey(key)) {
+      ctx.ui.error(`${key} is global-only and has no local override to clear.`);
       ctx.exit(ExitCodes.ERROR);
     }
 

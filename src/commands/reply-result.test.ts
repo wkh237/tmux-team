@@ -93,6 +93,7 @@ describe('reply and result command adapters', () => {
       body,
       bodyBytes: Buffer.byteLength(body),
       submittedAtMs: 99,
+      responseExpiresAtMs: 1_000,
     }));
     const ctx = createContext({ submitResponse });
 
@@ -122,6 +123,7 @@ describe('reply and result command adapters', () => {
       body,
       bodyBytes: Buffer.byteLength(body),
       submittedAtMs: 99,
+      responseExpiresAtMs: 1_000,
     }));
     const ctx = createContext({ submitResponse });
 
@@ -230,6 +232,7 @@ describe('reply and result command adapters', () => {
       body: '\ufeffbody\r\n日本語\u0000',
       bodyBytes: Buffer.byteLength('\ufeffbody\r\n日本語\u0000'),
       submittedAtMs: 123,
+      responseExpiresAtMs: 1_000,
     };
     const ctx = createContext({ getResponse: vi.fn(() => response) });
 

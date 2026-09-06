@@ -97,10 +97,12 @@ An identical retry for the same request and attempt keeps the original
 `submittedAtMs`; a different body is a conflict and cannot replace the stored
 response.
 
-The receipt is local correlation, not remote authentication. Accepted bodies
-are retained for seven days from submission; an identical retry is safe only
-while that body is retained and with the same receipt and body, not
-indefinitely. A missing result does not cancel the work. Surface a failed
+The receipt is local correlation, not remote authentication. New requests freeze
+the global retention policy at preparation (90 days by default). Accepted bodies
+use that duration from submission; pre-retention-migration requests and bodies
+keep seven days. Identical retries are safe only while the body is retained,
+with the same receipt and body; retries and reads never renew expiry.
+A missing result does not cancel the work. Surface a failed
 submission without a success summary; if final summarization fails after
 acceptance, do not resubmit.
 
@@ -288,6 +290,20 @@ the paste-to-Enter delay. Preamble frequency is bounded to a safe integer;
 paste delay is at most 2147483647 milliseconds.
 The default paste-to-Enter delay is 500 milliseconds; `config show` reports
 the effective value after global and local overrides.
+
+`tmt config set exchange.retentionDays 90 --global` sets the duration for new
+requests only, from 1 through 3650 integer days. It uses `exchange.retentionDays`
+in the same global config file. Local overrides and local `config clear` are
+not supported for this key. Changing it never extends existing data or changes
+the reply acceptance window or observer timeout. Results remain available
+without reading current configuration.
+
+Expired content is unavailable at its stored UTC deadline. Request/result
+operations perform bounded opportunistic cleanup; without an invocation there
+is no punctual physical deletion. A late accepted final has its own duration
+from submission, so metadata can outlive the original request horizon. Reads
+never acknowledge a result. Cleanup is not file shrinkage or secure erasure;
+wall-clock rollback can delay logical expiry while data remains stored.
 
 Invalid known fields in a loaded config return `CONFIG_ERROR` (exit 1) before
 talk/check effects, even when another layer would override them. Unknown and

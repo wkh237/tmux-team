@@ -17,6 +17,7 @@ describe('config settings policy', () => {
     const first = createDefaultConfig();
     const second = createDefaultConfig();
     first.defaults.timeout = 42;
+    first.exchange.retentionDays = 1;
     expect(second).toEqual({
       preambleMode: 'always',
       defaults: {
@@ -26,6 +27,7 @@ describe('config settings policy', () => {
         preambleEvery: 3,
         pasteEnterDelayMs: 500,
       },
+      exchange: { retentionDays: 90 },
     });
     expect(createDefaultGlobalDefaults()).toEqual(second.defaults);
   });
@@ -41,6 +43,8 @@ describe('config settings policy', () => {
     ['pasteEnterDelayMs', 0],
     ['pasteEnterDelayMs', 0.5],
     ['pasteEnterDelayMs', 2_147_483_647],
+    ['exchange.retentionDays', 1],
+    ['exchange.retentionDays', 3650],
   ] as const)('accepts %s=%s', (key, value) => {
     expect(isValidConfigSettingValue(key, value)).toBe(true);
   });
@@ -58,8 +62,26 @@ describe('config settings policy', () => {
     ['captureLines', 1.5],
     ['pasteEnterDelayMs', -1],
     ['pasteEnterDelayMs', 2_147_483_648],
+    ['exchange.retentionDays', 0],
+    ['exchange.retentionDays', 3651],
+    ['exchange.retentionDays', 1.5],
   ] as const)('rejects %s=%s', (key, value) => {
     expect(isValidConfigSettingValue(key, value)).toBe(false);
+  });
+
+  it.each([null, '90', -1, 0, 1.5, Infinity, NaN, Number.MAX_SAFE_INTEGER])(
+    'rejects malformed global retention without treating %j as a default',
+    (retentionDays) => {
+      expect(() =>
+        validateAndProjectGlobalConfig({ exchange: { retentionDays } }, file)
+      ).toThrowError(ConfigValidationError);
+    }
+  );
+
+  it.each([null, [], '90', 90])('rejects the invalid exchange container %j', (exchange) => {
+    expect(() => validateAndProjectGlobalConfig({ exchange }, file)).toThrowError(
+      ConfigValidationError
+    );
   });
 
   it('validates known values in global and local layers, including overridden values', () => {
@@ -68,6 +90,9 @@ describe('config settings policy', () => {
         { defaults: { timeout: 86_401 }, unrelated: { preserve: true } },
         file
       )
+    ).toThrowError(ConfigValidationError);
+    expect(() =>
+      validateAndProjectGlobalConfig({ exchange: { retentionDays: 3651 } }, file)
     ).toThrowError(ConfigValidationError);
     expect(() =>
       validateAndProjectLocalSettings({ $config: { preambleEvery: null } }, file)
@@ -81,13 +106,25 @@ describe('config settings policy', () => {
           preambleMode: 'disabled',
           mode: 'wait',
           defaults: { timeout: 120, maxCaptureLines: 999, future: true },
+          exchange: { retentionDays: 90, future: true },
         },
         file
       )
-    ).toEqual({ preambleMode: 'disabled', defaults: { timeout: 120 } });
+    ).toEqual({
+      preambleMode: 'disabled',
+      defaults: { timeout: 120 },
+      exchange: { retentionDays: 90 },
+    });
     expect(
       validateAndProjectLocalSettings(
-        { $config: { preambleMode: 'disabled', mode: 'wait', future: true } },
+        {
+          $config: {
+            preambleMode: 'disabled',
+            mode: 'wait',
+            future: true,
+            exchange: { retentionDays: 1 },
+          },
+        },
         file
       )
     ).toEqual({ $config: { preambleMode: 'disabled' } });
@@ -107,6 +144,9 @@ describe('config settings policy', () => {
 
   it('rejects malformed known containers while allowing unknown fields', () => {
     expect(() => validateGlobalConfigShape({ defaults: null }, file)).toThrowError(
+      ConfigValidationError
+    );
+    expect(() => validateGlobalConfigShape({ exchange: [] }, file)).toThrowError(
       ConfigValidationError
     );
     expect(() => validateLocalConfigShape({ $config: [] }, file)).toThrowError(

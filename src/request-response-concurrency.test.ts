@@ -19,6 +19,8 @@ import {
 
 const directories: string[] = [];
 const repositories: IdentityRepository[] = [];
+const BASE_NOW_MS = 1_700_000_000_000;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const endpoint: RequestEndpoint = {
   serverId: 'server-1',
@@ -45,6 +47,12 @@ interface WorkerMessage {
   readonly attempt?: {
     readonly status: string;
     readonly cadenceReserved: boolean;
+    readonly waitActive: boolean;
+    readonly responseSubmittedAtMs?: number;
+  };
+  readonly rawResponse?: {
+    readonly body: string;
+    readonly responseExpiresAtMs: number;
   };
   readonly cadence?: boolean;
 }
@@ -58,7 +66,11 @@ function raceFixture(): RaceFixture {
   const repository = openIdentityRepository(database);
   repositories.push(repository);
   const identity = repository.createIdentity('Alice', 'alice');
-  const service = createRequestService({ repository, now: () => 1_700_000_000_000 });
+  const service = createRequestService({
+    repository,
+    now: () => BASE_NOW_MS,
+    getRetentionDays: () => 7,
+  });
   return { database, barrier, identityId: identity.id, repository, service };
 }
 
@@ -100,6 +112,53 @@ function runWorker(
     variant,
     path.dirname(value.barrier)
   );
+}
+
+async function runOrderedRace(
+  value: RaceFixture,
+  schedule: 'late' | 'expiry',
+  finalFirst: boolean
+): Promise<WorkerMessage[]> {
+  const requestId = `request-cleanup-final-${schedule}-${finalFirst ? 'final-first' : 'cleanup-first'}`;
+  const attemptId = prepareSending(value, requestId);
+  const cleanup = runWorker(value, requestId, attemptId, 'cleanup', `cleanup-${schedule}-gated`);
+  const final = runWorker(
+    value,
+    requestId,
+    attemptId,
+    'final',
+    `submit-${schedule}-gated`,
+    `${schedule} final body`
+  );
+  const handles = [cleanup, final];
+  try {
+    await waitForFiles(
+      handles.map((handle) => path.join(value.barrier, `ready-${handle.variant}`)),
+      handles
+    );
+    const submitGate = `go-submit-${schedule}`;
+    const cleanupGate = `go-cleanup-${schedule}`;
+    if (finalFirst) {
+      fs.writeFileSync(path.join(value.barrier, submitGate), 'go');
+      const finalResult = await collectResults([final]);
+      fs.writeFileSync(path.join(value.barrier, cleanupGate), 'go');
+      const cleanupResult = await collectResults([cleanup]);
+      return [
+        workerMessage<WorkerMessage>(finalResult[0]!),
+        workerMessage<WorkerMessage>(cleanupResult[0]!),
+      ];
+    }
+    fs.writeFileSync(path.join(value.barrier, cleanupGate), 'go');
+    const cleanupResult = await collectResults([cleanup]);
+    fs.writeFileSync(path.join(value.barrier, submitGate), 'go');
+    const finalResult = await collectResults([final]);
+    return [
+      workerMessage<WorkerMessage>(cleanupResult[0]!),
+      workerMessage<WorkerMessage>(finalResult[0]!),
+    ];
+  } finally {
+    await stopWorkers(handles);
+  }
 }
 
 afterEach(() => {
@@ -249,5 +308,104 @@ describe('durable response multi-process races', () => {
     } finally {
       await stopWorkers(secondHandles);
     }
+  }, 60_000);
+
+  it('serializes cleanup and a late final in either order without refunding cadence', async () => {
+    const cleanupFirst = raceFixture();
+    const cleanupFirstMessages = await runOrderedRace(cleanupFirst, 'late', false);
+    expect(cleanupFirstMessages[0]).toMatchObject({
+      ok: true,
+      operation: 'cleanup',
+      attempt: { status: 'uncertain', waitActive: false, cadenceReserved: true },
+    });
+    expect(cleanupFirstMessages[1]).toMatchObject({
+      ok: true,
+      operation: 'submit',
+      attempt: {
+        status: 'uncertain',
+        waitActive: false,
+        cadenceReserved: true,
+        responseSubmittedAtMs: BASE_NOW_MS + 6 * DAY_MS,
+      },
+      rawResponse: {
+        body: 'late final body',
+        responseExpiresAtMs: BASE_NOW_MS + 13 * DAY_MS,
+      },
+    });
+    expect(
+      cleanupFirst.service.getResponse('request-cleanup-final-late-cleanup-first')
+    ).toMatchObject({
+      body: 'late final body',
+    });
+    expect(cleanupFirst.repository.getPreambleCount(cleanupFirst.identityId)).toBe(1);
+
+    const finalFirst = raceFixture();
+    const finalFirstMessages = await runOrderedRace(finalFirst, 'late', true);
+    expect(finalFirstMessages[0]).toMatchObject({
+      ok: true,
+      operation: 'submit',
+      attempt: {
+        status: 'sending',
+        waitActive: true,
+        cadenceReserved: true,
+        responseSubmittedAtMs: BASE_NOW_MS + 6 * DAY_MS,
+      },
+      rawResponse: {
+        body: 'late final body',
+        responseExpiresAtMs: BASE_NOW_MS + 13 * DAY_MS,
+      },
+    });
+    expect(finalFirstMessages[1]).toMatchObject({
+      ok: true,
+      operation: 'cleanup',
+      attempt: { status: 'uncertain', waitActive: false, cadenceReserved: true },
+      rawResponse: { body: 'late final body' },
+    });
+    expect(finalFirst.service.getResponse('request-cleanup-final-late-final-first')).toMatchObject({
+      body: 'late final body',
+    });
+    expect(finalFirst.repository.getPreambleCount(finalFirst.identityId)).toBe(1);
+  }, 60_000);
+
+  it('rejects finalization at equal expiry in either order without resurrecting a body or marker', async () => {
+    const cleanupFirst = raceFixture();
+    const cleanupFirstMessages = await runOrderedRace(cleanupFirst, 'expiry', false);
+    expect(cleanupFirstMessages[0]).toMatchObject({
+      ok: true,
+      operation: 'cleanup',
+      attempt: { status: 'uncertain', waitActive: false, cadenceReserved: true },
+      rawResponse: null,
+    });
+    expect(cleanupFirstMessages[1]).toMatchObject({
+      ok: false,
+      code: 'RESPONSE_EXPIRED',
+      attempt: { status: 'uncertain', waitActive: false, cadenceReserved: true },
+      rawResponse: null,
+    });
+    expect(cleanupFirstMessages[1]?.attempt?.responseSubmittedAtMs).toBeUndefined();
+    expect(
+      cleanupFirst.service.getResponse('request-cleanup-final-expiry-cleanup-first')
+    ).toBeUndefined();
+    expect(cleanupFirst.repository.getPreambleCount(cleanupFirst.identityId)).toBe(1);
+
+    const finalFirst = raceFixture();
+    const finalFirstMessages = await runOrderedRace(finalFirst, 'expiry', true);
+    expect(finalFirstMessages[0]).toMatchObject({
+      ok: false,
+      code: 'RESPONSE_EXPIRED',
+      attempt: { status: 'sending', waitActive: true, cadenceReserved: true },
+      rawResponse: null,
+    });
+    expect(finalFirstMessages[0]?.attempt?.responseSubmittedAtMs).toBeUndefined();
+    expect(finalFirstMessages[1]).toMatchObject({
+      ok: true,
+      operation: 'cleanup',
+      attempt: { status: 'uncertain', waitActive: false, cadenceReserved: true },
+      rawResponse: null,
+    });
+    expect(
+      finalFirst.service.getResponse('request-cleanup-final-expiry-final-first')
+    ).toBeUndefined();
+    expect(finalFirst.repository.getPreambleCount(finalFirst.identityId)).toBe(1);
   }, 60_000);
 });

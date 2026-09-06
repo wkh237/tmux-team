@@ -4,6 +4,13 @@ import {
   validateResponseBody,
   type ValidatedResponseBody,
 } from './domain/response.js';
+import {
+  addExchangeRetentionMs,
+  assertExchangeRetentionDays,
+  DEFAULT_EXCHANGE_RETENTION_DAYS,
+  EXCHANGE_METADATA_SETTLEMENT_FLOOR_MS,
+  EXCHANGE_RESPONSE_ACCEPTANCE_WINDOW_MS,
+} from './domain/exchange-retention.js';
 import type { TmuxEndpointSnapshot } from './types.js';
 
 export type RequestAttemptStatus =
@@ -45,6 +52,10 @@ export interface RequestAttemptRecord extends RequestEndpoint {
   /** Immutable completion tombstone retained with attempt metadata after body pruning. */
   readonly responseSubmittedAtMs?: number;
   readonly expiresAtMs: number;
+  /** Frozen policy used to retain this attempt and any response it accepts. */
+  readonly retentionDays: number;
+  /** Metadata horizon, extended only by a first explicit settlement or accepted final. */
+  readonly retentionExpiresAtMs: number;
 }
 
 export interface RequestResponseSubmission {
@@ -61,6 +72,8 @@ export interface RequestResponseRecord {
   readonly body: string;
   readonly bodyBytes: number;
   readonly submittedAtMs: number;
+  /** Independent logical/physical body horizon anchored at submission. */
+  readonly responseExpiresAtMs: number;
 }
 
 export interface RequestPreparationInput {
@@ -91,19 +104,21 @@ export interface RequestRepository {
   /** Must run inside the caller's immediate transaction with marker insertion. */
   createResponse(response: RequestResponseRecord): void;
   findActiveRequest(endpoint: RequestEndpoint): string | undefined;
+  /** A supplied horizon extends metadata atomically with an explicit settlement. */
   updateAttemptState(
     attemptId: string,
     expectedStatus: RequestAttemptStatus,
     status: RequestAttemptStatus,
     cadenceReserved: boolean,
-    nowMs: number
+    nowMs: number,
+    retentionExpiresAtMs?: number
   ): boolean;
   releaseWait(attemptId: string, nowMs: number): boolean;
   getPreambleCount(identityId: string): number;
   setPreambleCount(identityId: string, count: number, nowMs: number): void;
-  deleteRetained(nowMs: number, retentionMs: number, responseAcceptanceWindowMs: number): void;
-  deleteRetainedResponses(nowMs: number, retentionMs: number): void;
-  listExpiredAttempts(nowMs: number): RequestAttemptRecord[];
+  deleteRetained(nowMs: number, limit: number): void;
+  deleteRetainedResponses(nowMs: number, limit: number): void;
+  listExpiredAttempts(nowMs: number, limit: number): RequestAttemptRecord[];
   listAttempts(): RequestAttemptRecord[];
 }
 
@@ -119,10 +134,10 @@ export interface RequestService {
   getResponse(requestId: string): RequestResponseRecord | undefined;
 }
 
-export const REQUEST_RETENTION_MS = 24 * 60 * 60 * 1000;
+export const REQUEST_RETENTION_MS = EXCHANGE_METADATA_SETTLEMENT_FLOOR_MS;
 export const REQUEST_MIN_EXPIRY_MS = 60 * 60 * 1000;
-export const RESPONSE_ACCEPTANCE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
-export const RESPONSE_BODY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+export const RESPONSE_ACCEPTANCE_WINDOW_MS = EXCHANGE_RESPONSE_ACCEPTANCE_WINDOW_MS;
+export const CLEANUP_BATCH_SIZE = 100;
 
 function assertString(value: unknown, label: string): asserts value is string {
   if (typeof value !== 'string' || value.length === 0) {
@@ -190,10 +205,7 @@ function validateResponseInput(input: RequestResponseSubmission): ValidatedRespo
 }
 
 function isResponseExpired(response: RequestResponseRecord, currentMs: number): boolean {
-  return (
-    currentMs >= response.submittedAtMs &&
-    currentMs - response.submittedAtMs >= RESPONSE_BODY_RETENTION_MS
-  );
+  return currentMs >= response.responseExpiresAtMs;
 }
 
 function isPastResponseDeadline(attempt: RequestAttemptRecord, currentMs: number): boolean {
@@ -207,6 +219,9 @@ function isPastResponseDeadline(attempt: RequestAttemptRecord, currentMs: number
 }
 
 function addMilliseconds(value: number, delta: number, label: string): number {
+  if (!Number.isSafeInteger(value) || value <= 0 || !Number.isSafeInteger(delta) || delta < 0) {
+    throw new Error(`${label} is outside the supported range.`);
+  }
   if (value > Number.MAX_SAFE_INTEGER - delta) {
     throw new Error(`${label} is outside the supported range.`);
   }
@@ -255,10 +270,12 @@ export function endpointFromSnapshot(
 export function createRequestService(options: {
   readonly repository: RequestRepository;
   readonly now?: () => number;
+  readonly getRetentionDays?: () => number;
 }): RequestService {
   const { repository } = options;
   if (!repository) throw new Error('Request repository is required.');
   const now = options.now ?? Date.now;
+  const getRetentionDays = options.getRetentionDays ?? (() => DEFAULT_EXCHANGE_RETENTION_DAYS);
 
   const readNow = (): number => {
     const value = now();
@@ -275,21 +292,23 @@ export function createRequestService(options: {
 
   const transitionDefinitelyFailed = (
     attempt: RequestAttemptRecord,
-    currentMs: number
+    currentMs: number,
+    retentionExpiresAtMs?: number
   ): boolean => {
     const transitioned = repository.updateAttemptState(
       attempt.attemptId,
       attempt.status,
       'definitely_failed',
       false,
-      currentMs
+      currentMs,
+      retentionExpiresAtMs
     );
     if (transitioned) refundAttempt(attempt, currentMs);
     return transitioned;
   };
 
   const cleanupWithinTransaction = (currentMs: number): void => {
-    for (const attempt of repository.listExpiredAttempts(currentMs)) {
+    for (const attempt of repository.listExpiredAttempts(currentMs, CLEANUP_BATCH_SIZE)) {
       if (attempt.waitActive) repository.releaseWait(attempt.attemptId, currentMs);
       if (attempt.status === 'prepared') {
         transitionDefinitelyFailed(attempt, currentMs);
@@ -303,20 +322,33 @@ export function createRequestService(options: {
         );
       }
     }
-    repository.deleteRetainedResponses(currentMs, RESPONSE_BODY_RETENTION_MS);
-    repository.deleteRetained(currentMs, REQUEST_RETENTION_MS, RESPONSE_ACCEPTANCE_WINDOW_MS);
+    repository.deleteRetainedResponses(currentMs, CLEANUP_BATCH_SIZE);
+    repository.deleteRetained(currentMs, CLEANUP_BATCH_SIZE);
   };
+
+  const readWithCleanup = <T>(read: (currentMs: number) => T): T =>
+    repository.withImmediateTransaction(() => {
+      const currentMs = readNow();
+      cleanupWithinTransaction(currentMs);
+      return read(currentMs);
+    });
 
   return {
     prepare(input) {
       validatePreparation(input);
+      const retentionDays = getRetentionDays();
+      assertExchangeRetentionDays(retentionDays);
       const attemptId = makeAttemptId();
 
       return repository.withImmediateTransaction(() => {
         const currentMs = readNow();
         const minimumExpiry = addMilliseconds(currentMs, REQUEST_MIN_EXPIRY_MS, 'minimum expiry');
-        addMilliseconds(currentMs, RESPONSE_ACCEPTANCE_WINDOW_MS, 'response acceptance deadline');
         const expiresAtMs = Math.max(input.expiresAtMs, minimumExpiry);
+        const retentionExpiresAtMs = Math.max(
+          addExchangeRetentionMs(currentMs, retentionDays),
+          addMilliseconds(currentMs, RESPONSE_ACCEPTANCE_WINDOW_MS, 'response acceptance deadline'),
+          addMilliseconds(expiresAtMs, REQUEST_RETENTION_MS, 'settlement retention floor')
+        );
         cleanupWithinTransaction(currentMs);
         if (repository.findResponse(input.requestId)) {
           throw new Error(`Request '${input.requestId}' already has a retained response.`);
@@ -348,6 +380,8 @@ export function createRequestService(options: {
           cadenceReserved,
           preparedAtMs: currentMs,
           expiresAtMs,
+          retentionDays,
+          retentionExpiresAtMs,
         });
 
         return {
@@ -366,6 +400,9 @@ export function createRequestService(options: {
         const currentMs = readNow();
         const attempt = repository.findAttempt(attemptId);
         if (!attempt) throw new Error(`Request attempt '${attemptId}' was not found.`);
+        if (attempt.retentionExpiresAtMs <= currentMs) {
+          throw new Error(`Request attempt '${attemptId}' metadata has expired.`);
+        }
         if (attempt.status !== 'prepared') {
           throw new Error(`Request attempt '${attemptId}' is already ${attempt.status}.`);
         }
@@ -394,6 +431,12 @@ export function createRequestService(options: {
         const currentMs = readNow();
         const attempt = repository.findAttempt(attemptId);
         if (!attempt) throw new Error(`Request attempt '${attemptId}' was not found.`);
+        if (
+          currentMs >= attempt.retentionExpiresAtMs &&
+          (attempt.status === 'prepared' || attempt.status === 'sending')
+        ) {
+          throw new Error(`Request attempt '${attemptId}' metadata has expired.`);
+        }
         // An accepted reply prevents proving that the recipient was not reached;
         // a sending attempt therefore settles conservatively as uncertain.
         const cannotProveUnsent =
@@ -421,8 +464,14 @@ export function createRequestService(options: {
         ) {
           throw new Error(`Request attempt '${attemptId}' is still ${attempt.status}.`);
         }
+        // Only a new, explicit settlement earns this floor. Cleanup and repeat
+        // settlement calls must not renew the frozen metadata deadline.
+        const retentionExpiresAtMs = Math.max(
+          attempt.retentionExpiresAtMs,
+          addMilliseconds(currentMs, REQUEST_RETENTION_MS, 'settlement retention floor')
+        );
         if (effectiveOutcome === 'definitely_failed') {
-          if (!transitionDefinitelyFailed(attempt, currentMs)) {
+          if (!transitionDefinitelyFailed(attempt, currentMs, retentionExpiresAtMs)) {
             throw new Error(`Request attempt '${attemptId}' could not settle.`);
           }
         } else {
@@ -431,7 +480,8 @@ export function createRequestService(options: {
             attempt.status,
             effectiveOutcome,
             attempt.cadenceReserved,
-            currentMs
+            currentMs,
+            retentionExpiresAtMs
           );
           if (!transitioned) {
             throw new Error(`Request attempt '${attemptId}' could not settle.`);
@@ -456,11 +506,16 @@ export function createRequestService(options: {
 
     getAttempt(attemptId) {
       assertString(attemptId, 'attemptId');
-      return repository.findAttempt(attemptId);
+      return readWithCleanup((currentMs) => {
+        const attempt = repository.findAttempt(attemptId);
+        return attempt && currentMs < attempt.retentionExpiresAtMs ? attempt : undefined;
+      });
     },
 
     listAttempts() {
-      return repository.listAttempts();
+      return readWithCleanup((currentMs) =>
+        repository.listAttempts().filter((attempt) => currentMs < attempt.retentionExpiresAtMs)
+      );
     },
 
     submitResponse(input) {
@@ -542,6 +597,7 @@ export function createRequestService(options: {
           body: validated.body,
           bodyBytes: validated.bodyBytes,
           submittedAtMs: currentMs,
+          responseExpiresAtMs: addExchangeRetentionMs(currentMs, attempt.retentionDays),
         };
         repository.createResponse(response);
         return response;
@@ -558,9 +614,10 @@ export function createRequestService(options: {
           { cause: error }
         );
       }
-      const response = repository.findResponse(requestId);
-      if (!response) return undefined;
-      return isResponseExpired(response, readNow()) ? undefined : response;
+      return readWithCleanup((currentMs) => {
+        const response = repository.findResponse(requestId);
+        return response && !isResponseExpired(response, currentMs) ? response : undefined;
+      });
     },
   };
 }

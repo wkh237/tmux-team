@@ -47,6 +47,7 @@ function createCtx(
       preambleEvery: 3,
       pasteEnterDelayMs: 500,
     },
+    exchange: { retentionDays: 90 },
     ...configOverrides,
   };
   const tmux: Tmux = {
@@ -103,12 +104,16 @@ describe('cmdConfig', () => {
     expect(out.resolved).toBeTruthy();
     expect(out.sources).toBeTruthy();
     expect(out.paths).toBeTruthy();
+    expect(out.resolved.exchange.retentionDays).toBe(90);
+    expect(out.sources.exchange.retentionDays).toBe('default');
   });
 
   it('shows config as table in human mode', () => {
     const ctx = createCtx(testDir);
     cmdConfig(ctx, configRequest('show'));
     expect(ctx.ui.table).toHaveBeenCalled();
+    const tableCall = (ctx.ui.table as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(tableCall[1]).toContainEqual(['exchange.retentionDays', '90', '(default)']);
   });
 
   it('rejects invalid keys and values', () => {
@@ -155,6 +160,44 @@ describe('cmdConfig', () => {
     expect(saved.defaults.preambleEvery).toBe(5);
   });
 
+  it('sets global exchange retention and preserves unknown siblings', () => {
+    const ctx = createCtx(testDir);
+    fs.mkdirSync(ctx.paths.globalDir, { recursive: true });
+    fs.writeFileSync(
+      ctx.paths.globalConfig,
+      JSON.stringify({ keep: true, exchange: { future: { enabled: true } } })
+    );
+
+    cmdConfig(
+      ctx,
+      configRequest('set', { key: 'exchange.retentionDays', value: '3650', global: true })
+    );
+
+    expect(JSON.parse(fs.readFileSync(ctx.paths.globalConfig, 'utf8'))).toEqual({
+      keep: true,
+      exchange: { future: { enabled: true }, retentionDays: 3650 },
+    });
+  });
+
+  it('rejects local exchange retention writes and clears before changing bytes', () => {
+    const ctx = createCtx(testDir);
+    const original = JSON.stringify({ keep: true, $config: { exchange: { retentionDays: 1 } } });
+    fs.writeFileSync(ctx.paths.localConfig, original);
+
+    expect(() =>
+      cmdConfig(
+        ctx,
+        configRequest('set', { key: 'exchange.retentionDays', value: '90', global: false })
+      )
+    ).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(fs.readFileSync(ctx.paths.localConfig, 'utf8')).toBe(original);
+
+    expect(() =>
+      cmdConfig(ctx, configRequest('clear', { key: 'exchange.retentionDays', global: false }))
+    ).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(fs.readFileSync(ctx.paths.localConfig, 'utf8')).toBe(original);
+  });
+
   it('preserves an opaque global mode key during unrelated settings writes', () => {
     const ctx = createCtx(testDir);
     fs.mkdirSync(ctx.paths.globalDir, { recursive: true });
@@ -181,10 +224,12 @@ describe('cmdConfig', () => {
     expect(out.resolved).not.toHaveProperty('mode');
     expect(out.sources.preambleMode).toBe('local');
     expect(out.sources.preambleEvery).toBe('local');
+    expect(out.resolved.exchange.retentionDays).toBe(90);
+    expect(out.sources.exchange.retentionDays).toBe('default');
   });
 
   it('shows global source when only global config has settings', () => {
-    const ctx = createCtx(testDir, { json: true });
+    const ctx = createCtx(testDir, { json: true }, { exchange: { retentionDays: 30 } });
     // Create global config with settings
     fs.mkdirSync(ctx.paths.globalDir, { recursive: true });
     fs.writeFileSync(
@@ -193,12 +238,15 @@ describe('cmdConfig', () => {
         mode: 'wait',
         preambleMode: 'disabled',
         defaults: { preambleEvery: 7 },
+        exchange: { retentionDays: 30 },
       })
     );
     cmdConfig(ctx, configRequest('show'));
     const out = (ctx.ui as any).jsonCalls[0] as any;
     expect(out.sources.preambleMode).toBe('global');
     expect(out.sources.preambleEvery).toBe('global');
+    expect(out.resolved.exchange.retentionDays).toBe(30);
+    expect(out.sources.exchange.retentionDays).toBe('global');
   });
 
   it('shows default source when no config has settings', () => {
@@ -207,6 +255,25 @@ describe('cmdConfig', () => {
     const out = (ctx.ui as any).jsonCalls[0] as any;
     expect(out.sources.preambleMode).toBe('default');
     expect(out.sources.preambleEvery).toBe('default');
+    expect(out.resolved.exchange.retentionDays).toBe(90);
+    expect(out.sources.exchange.retentionDays).toBe('default');
+  });
+
+  it('does not project an opaque local exchange setting', () => {
+    const ctx = createCtx(testDir, { json: true });
+    fs.writeFileSync(
+      ctx.paths.localConfig,
+      JSON.stringify({
+        exchange: { retentionDays: 1 },
+        $config: { exchange: { retentionDays: 1 } },
+      })
+    );
+
+    cmdConfig(ctx, configRequest('show'));
+
+    const out = (ctx.ui as any).jsonCalls[0] as any;
+    expect(out.resolved.exchange.retentionDays).toBe(90);
+    expect(out.sources.exchange.retentionDays).toBe('default');
   });
 
   it('shows sources in table mode with local settings', () => {
@@ -236,6 +303,14 @@ describe('cmdConfig', () => {
     const ctx = createCtx(testDir);
     expect(() =>
       cmdConfig(ctx, configRequest('set', { key: 'mode', value: 'wait', global: true }))
+    ).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(fs.existsSync(ctx.paths.globalConfig)).toBe(false);
+  });
+
+  it.each(['0', '3651', '1.5', '1\n'])('rejects invalid exchange retention %j', (value) => {
+    const ctx = createCtx(testDir);
+    expect(() =>
+      cmdConfig(ctx, configRequest('set', { key: 'exchange.retentionDays', value, global: true }))
     ).toThrow(`exit(${ExitCodes.ERROR})`);
     expect(fs.existsSync(ctx.paths.globalConfig)).toBe(false);
   });

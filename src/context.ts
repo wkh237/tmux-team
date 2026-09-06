@@ -94,7 +94,12 @@ export function createContext(options: CreateContextOptions): Context {
   };
   const getRequestService = (): NonNullable<Context['requestService']> => {
     assertActive();
-    requestService ??= createRequestService({ repository: getIdentityRepository() });
+    requestService ??= createRequestService({
+      repository: getIdentityRepository(),
+      // Only preparation asks for current policy. Stored replies and results
+      // remain usable without loading unrelated current configuration.
+      getRetentionDays: () => getConfig().exchange.retentionDays,
+    });
     return requestService;
   };
   const dispose = (): void => {

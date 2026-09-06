@@ -12,6 +12,7 @@ import { PreambleContentError } from '../domain/preamble.js';
 import { ExitCodes } from '../exits.js';
 import { cmdPreamble } from './preamble.js';
 import type { PreambleRequest } from '../cli/requests.js';
+import { createDefaultConfig } from '../config-settings.js';
 
 const identity: DurableIdentity = {
   id: 'identity-alice',
@@ -45,16 +46,7 @@ function createContext(service: PreambleService, flags: Partial<Context['flags']
     argv: [],
     flags: { json: false, verbose: false, ...flags },
     ui,
-    config: {
-      preambleMode: 'always',
-      defaults: {
-        timeout: 180,
-        pollInterval: 1,
-        captureLines: 100,
-        preambleEvery: 3,
-        pasteEnterDelayMs: 500,
-      },
-    },
+    config: createDefaultConfig(),
     tmux: {
       send: vi.fn(),
       capture: vi.fn(),

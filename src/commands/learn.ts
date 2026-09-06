@@ -59,7 +59,8 @@ ${colors.yellow('DURABLE REPLIES AND RESULTS')}
   Identical retries keep the original submission timestamp; conflicting bodies
   cannot replace stored results.
   Receipts are local correlation, not remote authentication. Bodies are
-  retained seven days; retry only with the same receipt/body while retained.
+  retained for the request's frozen duration (90 days by default, seven for
+  pre-migration requests). Retry only with the same receipt/body while retained.
   Missing results do not cancel work. Surface failed submission without a
   success summary, and never resubmit after accepted delivery.
 
@@ -105,6 +106,11 @@ ${colors.yellow('CONFIGURATION SAFETY')}
   not fractions or suffixes. Invalid loaded settings return CONFIG_ERROR
   before talk/check effects. Fix the reported field, not the whole file.
   Storage-only reply/result remain usable with malformed configuration.
+  tmt config set exchange.retentionDays 90 --global sets 1..3650 integer days
+  for new requests only. Existing deadlines, reply eligibility and observer
+  timeouts are unchanged. Local overrides/clear are not supported for this key.
+  Final retention starts at submission. Reads/retries do not renew expiry;
+  cleanup is bounded and opportunistic, not scheduled or secure erasure.
 
 ${colors.yellow('BEST PRACTICES')}
 

@@ -4,6 +4,7 @@ import { cmdThis } from './this.js';
 import { cmdAdd } from './add.js';
 import { IdentityServiceError } from '../identity-service.js';
 import type { Context, IdentityService } from '../types.js';
+import { createDefaultConfig } from '../config-settings.js';
 
 function identity(name: string = 'Backend') {
   return {
@@ -33,6 +34,14 @@ function context(json = false): Context {
     resolveActive: vi.fn(),
     reconcile: vi.fn(),
   };
+  const config = createDefaultConfig();
+  config.defaults = {
+    ...config.defaults,
+    timeout: 1,
+    captureLines: 1,
+    preambleEvery: 1,
+    pasteEnterDelayMs: 0,
+  };
   return {
     argv: [],
     flags: { json, verbose: false },
@@ -44,16 +53,7 @@ function context(json = false): Context {
       table: vi.fn(),
       json: vi.fn(),
     },
-    config: {
-      preambleMode: 'always',
-      defaults: {
-        timeout: 1,
-        pollInterval: 1,
-        captureLines: 1,
-        preambleEvery: 1,
-        pasteEnterDelayMs: 0,
-      },
-    },
+    config,
     tmux,
     identityService,
     get requestService(): Context['requestService'] {

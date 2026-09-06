@@ -15,6 +15,15 @@ export interface AttemptRow {
   wait_active: number;
   status: string;
   inject_preamble: number;
+  retention_days: number;
+  retention_expires_at_ms: number;
+}
+
+export interface ResponseRow {
+  request_id: string;
+  body: string;
+  submitted_at_ms: number;
+  response_expires_at_ms: number;
 }
 
 /** Read committed state independently of the CLI's service and connection. */
@@ -41,4 +50,11 @@ export function preambleCounters(fixture: E2EFixture): Record<string, number> {
       .all() as Array<{ identity_id: string; reserved_count: number }>;
     return Object.fromEntries(rows.map((row) => [row.identity_id, row.reserved_count]));
   });
+}
+
+export function requestResponses(fixture: E2EFixture): ResponseRow[] {
+  return read(
+    fixture,
+    (database) => database.prepare('SELECT * FROM request_responses').all() as ResponseRow[]
+  );
 }

@@ -230,8 +230,10 @@ Retrying the identical body for the same request and attempt is idempotent and
 keeps the original `submittedAtMs`. A different body is a conflict; the
 stored response and timestamp remain unchanged.
 
-The receipt is local correlation, not remote authentication. Accepted bodies
-are retained for seven days from submission; identical retry is safe only
+The receipt is local correlation, not remote authentication. New requests freeze
+the global retention duration at preparation (90 days by default); accepted
+bodies use that duration from submission. Existing requests and bodies migrated
+from the earlier schema keep seven days. Identical retry is safe only
 while retained with the same receipt and body, not indefinitely. A missing
 result does not cancel the work. Surface failed submission without a success
 summary, and do not resubmit if final summarization fails after acceptance.
@@ -331,6 +333,26 @@ Numeric setter input must contain decimal digits only, without suffixes,
 fractions, signs or whitespace. Zero disables preamble injection or the
 paste-to-Enter delay. Preamble frequency must be a safe integer; paste delay
 is bounded to 2,147,483,647 milliseconds.
+
+Exchange retention is global-only:
+
+```bash
+tmt config set exchange.retentionDays 90 --global
+```
+
+The same global file stores `{"exchange":{"retentionDays":90}}`; valid values
+are integer days from 1 through 3650. `config show` reports the resolved duration
+and global/default source. Local fields do not override it; a local setter or
+`config clear exchange.retentionDays` is rejected. Changes affect newly prepared
+requests only, not existing records, reply eligibility or observer timeouts.
+
+Stored UTC deadlines determine logical expiry. Bounded cleanup runs during
+request/result operations, not on a background schedule. A final's retention
+starts at submission, so a late accepted reply can keep metadata longer than
+the original request horizon. Reads/retries do not renew retention or acknowledge
+results. Unread records do not live forever. Physical deletion may occur later;
+it does not promise database-file shrinkage or secure erasure. Wall-clock
+rollback can delay logical expiry while data remains physically stored.
 
 Loaded configuration validates each supplied known field before merging:
 timeout must be positive and at most 86,400 seconds, poll interval positive

@@ -36,6 +36,7 @@ interface SeedOptions {
   readonly expired?: boolean;
   readonly preparedAtMs?: number;
   readonly reservePreamble?: boolean;
+  readonly retentionDays?: number;
 }
 
 function seedAttempt(sandbox: Sandbox, requestId: string, options: SeedOptions = {}): SeededReply {
@@ -47,7 +48,12 @@ function seedAttempt(sandbox: Sandbox, requestId: string, options: SeedOptions =
       : undefined;
     const now =
       options.preparedAtMs ?? (options.expired ? Date.now() - 2 * 60 * 60 * 1000 : Date.now());
-    const service = createRequestService({ repository, now: () => now });
+    const retentionDays = options.retentionDays;
+    const service = createRequestService({
+      repository,
+      now: () => now,
+      ...(retentionDays !== undefined && { getRetentionDays: () => retentionDays }),
+    });
     const prepared = service.prepare({
       requestId,
       endpoint,
@@ -75,7 +81,7 @@ function seedAttempt(sandbox: Sandbox, requestId: string, options: SeedOptions =
   }
 }
 
-function stateSnapshot(sandbox: Sandbox, requestId: string): unknown {
+function stateSnapshot(sandbox: Sandbox, requestId: string) {
   const database = new Database(sandbox.database, { readonly: true });
   try {
     return {
@@ -557,10 +563,13 @@ describe('real reply/result CLI process contract', () => {
     { timeout: 15_000 },
     () =>
       withSandbox(async (sandbox) => {
-        const preparedAtMs = Date.now() - 8 * 24 * 60 * 60 * 1000;
+        // The one-day body is expired while the seven-day acceptance marker
+        // still prevents resurrection. Public result may physically prune it.
+        const preparedAtMs = Date.now() - 2 * 24 * 60 * 60 * 1000;
         const seeded = seedAttempt(sandbox, 'request-expired-body', {
           preparedAtMs,
           reservePreamble: true,
+          retentionDays: 1,
         });
         const repository = openIdentityRepository(sandbox.database);
         try {
@@ -586,7 +595,10 @@ describe('real reply/result CLI process contract', () => {
         );
         expect(retry.status).toBe(1);
         expectError(retry, 'RESPONSE_EXPIRED');
-        expect(stateSnapshot(sandbox, seeded.requestId)).toEqual(before);
+        expect(stateSnapshot(sandbox, seeded.requestId)).toEqual({
+          ...before,
+          response: undefined,
+        });
       })
   );
 
