@@ -42,7 +42,11 @@ export async function cmdReply(ctx: Context, request: ReplyRequest): Promise<voi
   try {
     const receipt = decodeReplyReceipt(request.receipt, request.requestId);
     const body =
-      request.file !== undefined ? readResponseFile(request.file) : await readResponseStdin();
+      request.file !== undefined
+        ? readResponseFile(request.file)
+        : request.stdin
+          ? await readResponseStdin()
+          : request.message;
     record = ctx.requestService.submitResponse({
       requestId: request.requestId,
       attemptId: receipt.attemptId,

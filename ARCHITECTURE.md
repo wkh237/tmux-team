@@ -154,7 +154,9 @@ and one exact valid Unicode body, bounded to 1,048,576 UTF-8 bytes. It accepts o
 live pane. `getResponse` returns the original body and association, not a capture.
 Empty bodies, whitespace, BOM, NUL, CR/LF and marker-like text are preserved.
 Role/preamble normalization is not applied; only the Unicode predicate is shared.
-The reply adapter decodes bounded file/stdin input before invoking this service.
+The reply adapter passes inline text or decodes bounded file/stdin input before
+invoking this service. All three sources share the service's exact-body
+validation; the CLI parser only enforces source selection.
 
 The same immediate transaction validates the fence and inserts the final plus its
 attempt's `responseSubmittedAtMs` marker. Retained identical retries return the
@@ -181,13 +183,18 @@ provider-specific state machine or alternate database is introduced.
 
 ### Explicit reply and result adapters
 
-`reply <request-id> --receipt <receipt> (--file <path> | --stdin)` submits one
+`reply <request-id> --receipt <receipt> (--message <text> | --file <path> | --stdin)` submits one
 complete final. `result <request-id>` reads a retained final without waiting.
 Both select storage-only Context capabilities: no live caller, pane reconciliation
 or tmux construction is required. Neither infers a request from a pane or name.
 `talk` generates the exact receipt after preparation and sends it inside the
 single recipient instruction frame, for both default waiting and detach. The
-frame bounds request instructions, not terminal output or result extraction.
+frame uses `<tmt-reply>` tags to group a single reply-command template, with
+the receipt included once. It does not promise hidden provider rendering or
+bound terminal output/result extraction. HTML comments are not used: their
+ASCII exclamation mark conflicts with the shared shell-mode protection.
+Only short submission/summary/error guidance travels with each request;
+input limits and retry/retention details remain in installed skills and help.
 An instruction/encoding failure before beginSend settles definitely_failed and
 releases its waiter, refunding cadence through the existing service.
 
@@ -205,7 +212,9 @@ role input share bounded file decoding, not feature limits or normalization.
 Stdin requires explicit `--stdin`, rejects a TTY, and completes only on EOF within
 five seconds and the 1 MiB body cap. Failure removes input listeners/timers and
 does not submit a partial body. Fatal UTF-8 decoding preserves BOM and exact text.
-No storage transaction spans either input path.
+Inline input may be explicitly empty and is never normalized. Shell quoting
+and operating-system argv limits apply; NUL and large bodies require file/stdin.
+No storage transaction spans input acquisition.
 
 Submission returns `status: submitted`, request ID, byte count and the original
 submission timestamp, including on an identical retry. Result JSON returns
@@ -399,8 +408,9 @@ unwritable output streams are outside the one-document guarantee.
 | [test/e2e/](test/e2e/), [scripts/](scripts/), [.github/workflows/ci.yml](.github/workflows/ci.yml)                                                                         | Docker fixtures/scenarios, orchestration/pack verification and CI. Unit tests are colocated with source; concurrency workers currently also live in `src/`.             |
 
 `src/commands/talk.ts` owns the bounded observer and existing request lifecycle
-composition. `src/talk-instruction.ts` owns recipient guidance only, using the
-shared response byte limit; it does not parse or infer terminal completion.
+composition. `src/talk-instruction.ts` owns concise recipient guidance only;
+input limits remain enforced by the shared response service. The instruction
+builder does not parse or infer terminal completion.
 The test mock independently recognizes the documented request instruction frame
 and invokes the public reply CLI, rather than importing a production response
 store or completing requests through a test-only endpoint.
@@ -458,12 +468,11 @@ These links identify owners of unresolved work, not permission to widen an
 unrelated PR. Update this section and the current map in the delivering PR when
 a gap is resolved; do not leave a permanent exception or label a proposal as shipped.
 
-| Gap                                                                                                                                     | Owning issue                                                                                                                                                           |
-| --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Numeric/flag validation needs hardening.                                                                                                | [TMT-22](https://linear.app/tigerpig-dev/issue/TMT-22)                                                                                                                 |
-| Terminal completion/extraction cannot guarantee a complete correlated body; the durable final service still needs live CLI integration. | [TMT-37](https://linear.app/tigerpig-dev/issue/TMT-37)                                                                                                                 |
-| Shipped skill/help inventories drift; packed verification does not yet prove application migrations.                                    | [TMT-29](https://linear.app/tigerpig-dev/issue/TMT-29)                                                                                                                 |
-| Non-tmux identity management, memory and durable inbox are future capabilities, not installed APIs.                                     | [TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30), [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16) |
+| Gap                                                                                                  | Owning issue                                                                                                                                                           |
+| ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Numeric/flag validation needs hardening.                                                             | [TMT-22](https://linear.app/tigerpig-dev/issue/TMT-22)                                                                                                                 |
+| Shipped skill/help inventories drift; packed verification does not yet prove application migrations. | [TMT-29](https://linear.app/tigerpig-dev/issue/TMT-29)                                                                                                                 |
+| Non-tmux identity management, memory and durable inbox are future capabilities, not installed APIs.  | [TMT-30](https://linear.app/tigerpig-dev/issue/TMT-30), [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16) |
 
 ## Maintenance contract
 

@@ -96,10 +96,24 @@ Same-pane input serialization and exactly-once processing are not guaranteed.
 When TMT supplies an exact receipt, submit a complete response without tmux:
 
 ```bash
+tmt reply <request-id> --receipt <receipt> --message 'Review complete.'
 tmt reply <request-id> --receipt <receipt> --file response.md
 tmt reply <request-id> --receipt <receipt> --stdin < response.md
 tmt result <request-id> --json
 ```
+
+Use `--message` for short replies, including an explicit empty string. Quote
+the body for your shell; use `--message='-leading text'` for a leading hyphen.
+Choose exactly one of `--message`, `--file`, or `--stdin`. Inline arguments
+have operating-system size limits and cannot contain NUL; use file/stdin for
+large bodies or NUL-containing text. All sources share the same exact-body
+validation and immutable submission rules.
+
+Received instructions group the reply command in `<tmt-reply>` tags, with the
+request ID and receipt supplied once. These tags do not guarantee hidden UI
+rendering and are not terminal-output completion markers. Replace the message
+placeholder with your complete response, or use file/stdin with the same
+request ID and receipt.
 
 Use exactly one input source and the exact request ID/receipt from the received
 talk instruction, including detached requests. Never manufacture a receipt,

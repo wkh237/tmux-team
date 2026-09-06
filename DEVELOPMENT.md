@@ -104,7 +104,7 @@ The live CLI consumes this same service; Docker/mock-agent scenarios verify
 request correlation and exact-body retrieval across the real CLI/tmux boundary.
 
 Reply adapter verification additionally exercises the real CLI in an isolated
-home and SQLite database, including file/stdin decoding, exact result text,
+home and SQLite database, including inline text and file/stdin decoding, exact result text,
 idempotent retry across invocations and rejection without partial finalization.
 Input tests cover EOF, byte/deadline limits and listener/descriptor cleanup.
 These storage-only checks do not substitute for live tmux cutover tests. The

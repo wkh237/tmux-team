@@ -116,25 +116,25 @@ tmux display-message -p '#{pane_id}'
 
 ## Commands
 
-| Command                                                           | Description                                                 |
-| ----------------------------------------------------------------- | ----------------------------------------------------------- |
-| `install [claude\|codex\|gemini\|all]`                            | Install or repair agent integrations                        |
-| `upgrade`                                                         | Upgrade tmux-team; managed skill links update automatically |
-| `name <global-name>`                                              | Bind the current pane to a global identity                  |
-| `this <global-name>`                                              | Exact supported alias for `name`                            |
-| `add <pane-target> <global-name>`                                 | Bind an explicit pane to a global identity                  |
-| `whoami`                                                          | Show the current pane's global identity, if any             |
-| `unbind`                                                          | Remove the current pane's global identity                   |
-| `role show [--identity <name>]`                                   | Read an identity's optional role profile                    |
-| `role set <profile> [--identity <name>]`                          | Replace an identity's role profile                          |
-| `role set --file <path> [--identity <name>]`                      | Replace a profile from a UTF-8 file                         |
-| `role clear [--identity <name>]`                                  | Remove only the role profile                                |
-| `talk <target> "msg"`                                             | Send a message to a global name or pane target              |
-| `check <target> [lines]`                                          | Read output from a global name or pane target               |
-| `reply <request-id> --receipt <receipt> (--file <path>\|--stdin)` | Submit a complete result                                    |
-| `result <request-id>`                                             | Retrieve a retained result or report it unavailable         |
-| `list [target]`                                                   | List active identities, or one target's pane status         |
-| `learn`                                                           | Show the educational guide                                  |
+| Command                                                                             | Description                                                 |
+| ----------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `install [claude\|codex\|gemini\|all]`                                              | Install or repair agent integrations                        |
+| `upgrade`                                                                           | Upgrade tmux-team; managed skill links update automatically |
+| `name <global-name>`                                                                | Bind the current pane to a global identity                  |
+| `this <global-name>`                                                                | Exact supported alias for `name`                            |
+| `add <pane-target> <global-name>`                                                   | Bind an explicit pane to a global identity                  |
+| `whoami`                                                                            | Show the current pane's global identity, if any             |
+| `unbind`                                                                            | Remove the current pane's global identity                   |
+| `role show [--identity <name>]`                                                     | Read an identity's optional role profile                    |
+| `role set <profile> [--identity <name>]`                                            | Replace an identity's role profile                          |
+| `role set --file <path> [--identity <name>]`                                        | Replace a profile from a UTF-8 file                         |
+| `role clear [--identity <name>]`                                                    | Remove only the role profile                                |
+| `talk <target> "msg"`                                                               | Send a message to a global name or pane target              |
+| `check <target> [lines]`                                                            | Read output from a global name or pane target               |
+| `reply <request-id> --receipt <receipt> (--message <text>\|--file <path>\|--stdin)` | Submit a complete result                                    |
+| `result <request-id>`                                                               | Retrieve a retained result or report it unavailable         |
+| `list [target]`                                                                     | List active identities, or one target's pane status         |
+| `learn`                                                                             | Show the educational guide                                  |
 
 `list` also has the `ls` alias. With no target it shows all active global
 identities. With a target it resolves a global name or direct pane target and
@@ -157,11 +157,25 @@ ID/receipt to the recipient, who must submit a reply. The storage-only result
 adapters work without tmux and can accept a late reply after a pane closes:
 
 ```bash
+tmt reply <request-id> --receipt <receipt> --message 'Review complete.'
 tmt reply <request-id> --receipt <receipt> --file response.md
 tmt reply <request-id> --receipt <receipt> --stdin < response.md
 tmt result <request-id>
 tmt result <request-id> --json
 ```
+
+Use `--message` for short replies, including an explicit empty string. Quote
+the body for your shell; use `--message='-leading text'` for a leading hyphen.
+Choose exactly one of `--message`, `--file`, or `--stdin`. Inline arguments
+have operating-system size limits and cannot contain NUL; use file/stdin for
+large bodies or NUL-containing text. All sources share the same exact-body
+validation and immutable submission rules.
+
+Received instructions group the reply command in `<tmt-reply>` tags, with the
+request ID and receipt supplied once. These tags do not guarantee hidden UI
+rendering and are not terminal-output completion markers. Replace the message
+placeholder with your complete response, or use file/stdin with the same
+request ID and receipt.
 
 Use exactly one input source. The receipt must be supplied by TMT; do not
 manufacture one, look up the latest request, or infer a current pane. Detached

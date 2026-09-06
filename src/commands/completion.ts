@@ -46,7 +46,7 @@ _tmux-team() {
         fi
         ;;
       reply)
-        compadd -- "--receipt" "--file" "--stdin" "--json"
+        compadd -- "--receipt" "--message" "--file" "--stdin" "--json"
         ;;
       result)
         compadd -- "--json"
@@ -67,7 +67,7 @@ _tmux-team() {
         compadd -- "--delay" "--detach" "--timeout"
         ;;
       reply)
-        compadd -- "--receipt" "--file" "--stdin" "--json"
+        compadd -- "--receipt" "--message" "--file" "--stdin" "--json"
         ;;
       result)
         compadd -- "--json"
@@ -99,7 +99,7 @@ const bashCompletion = `_tmux_team() {
         COMPREPLY=( $(compgen -W "\${agents}" -- \${cur}) )
         ;;
       reply)
-        COMPREPLY=( $(compgen -W "--receipt --file --stdin --json" -- \${cur}) )
+        COMPREPLY=( $(compgen -W "--receipt --message --file --stdin --json" -- \${cur}) )
         ;;
       result)
         COMPREPLY=( $(compgen -W "--json" -- \${cur}) )
@@ -120,7 +120,7 @@ const bashCompletion = `_tmux_team() {
         COMPREPLY=( $(compgen -W "--delay --detach --timeout" -- \${cur}) )
         ;;
       reply)
-        COMPREPLY=( $(compgen -W "--receipt --file --stdin --json" -- \${cur}) )
+        COMPREPLY=( $(compgen -W "--receipt --message --file --stdin --json" -- \${cur}) )
         ;;
       result)
         COMPREPLY=( $(compgen -W "--json" -- \${cur}) )

@@ -15,8 +15,9 @@ export type ReplyRequest = {
   readonly requestId: string;
   readonly receipt: string;
 } & (
-  | { readonly file: string; readonly stdin?: never }
-  | { readonly file?: never; readonly stdin: true }
+  | { readonly message: string; readonly file?: never; readonly stdin?: never }
+  | { readonly file: string; readonly message?: never; readonly stdin?: never }
+  | { readonly file?: never; readonly message?: never; readonly stdin: true }
 );
 
 export type ResultRequest = {

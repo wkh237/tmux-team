@@ -4,8 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import type { Context, UI } from '../types.js';
 import type { RequestService } from '../request-service.js';
-import { ResponseError } from '../domain/response.js';
+import { MAX_RESPONSE_BYTES, ResponseError } from '../domain/response.js';
 import { encodeReplyReceipt } from '../reply-receipt.js';
+import { createRequestService } from '../request-service.js';
+import { openIdentityRepository } from '../storage/identity-repository.js';
 import { cmdReply } from './reply.js';
 import { cmdResult } from './result.js';
 
@@ -108,6 +110,75 @@ describe('reply and result command adapters', () => {
     expect(JSON.stringify(ctx.output)).not.toContain(receipt);
     expect(JSON.stringify(ctx.output)).not.toContain(endpoint.socketPath);
   });
+
+  it('passes an inline message unchanged to the existing response service', async () => {
+    const body = '\ufeffinline\r\n  日本語  ';
+    const requestId = 'request-inline';
+    const receipt = encodeReplyReceipt({ version: 1, requestId, attemptId: 'attempt-1', endpoint });
+    const submitResponse = vi.fn(() => ({
+      requestId,
+      attemptId: 'attempt-1',
+      endpoint,
+      body,
+      bodyBytes: Buffer.byteLength(body),
+      submittedAtMs: 99,
+    }));
+    const ctx = createContext({ submitResponse });
+
+    await cmdReply(ctx, { kind: 'reply', requestId, receipt, message: body });
+
+    expect(submitResponse).toHaveBeenCalledWith({
+      requestId,
+      attemptId: 'attempt-1',
+      endpoint,
+      body,
+    });
+    expect(ctx.output).toEqual([
+      { status: 'submitted', requestId, bodyBytes: Buffer.byteLength(body), submittedAtMs: 99 },
+    ]);
+  });
+
+  it.each([
+    ['lone surrogate', '\ud800', 'RESPONSE_INPUT_INVALID'],
+    ['oversized body', 'x'.repeat(MAX_RESPONSE_BYTES + 1), 'RESPONSE_INPUT_TOO_LARGE'],
+  ])(
+    'leaves no final when the response service rejects an inline %s',
+    async (_name, body, code) => {
+      const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-inline-invalid-'));
+      let repository: ReturnType<typeof openIdentityRepository> | undefined;
+      try {
+        const database = path.join(directory, 'tmux-team.db');
+        repository = openIdentityRepository(database);
+        const service = createRequestService({ repository });
+        const requestId = `request-inline-invalid-${Date.now()}`;
+        const prepared = service.prepare({
+          requestId,
+          endpoint,
+          wait: false,
+          expiresAtMs: Date.now() + 60_000,
+        });
+        service.beginSend(prepared.attemptId);
+        service.settle(prepared.attemptId, 'sent');
+        const beforeAttempt = service.getAttempt(prepared.attemptId);
+        const receipt = encodeReplyReceipt({
+          version: 1,
+          requestId,
+          attemptId: prepared.attemptId,
+          endpoint,
+        });
+        const ctx = createContext(service);
+        await expect(
+          cmdReply(ctx, { kind: 'reply', requestId, receipt, message: body })
+        ).rejects.toMatchObject({ exitCode: 1 });
+        expect(service.getResponse(requestId)).toBeUndefined();
+        expect(service.getAttempt(prepared.attemptId)).toEqual(beforeAttempt);
+        expect(ctx.output).toEqual([{ error: { code, message: expect.any(String) } }]);
+      } finally {
+        repository?.close();
+        fs.rmSync(directory, { recursive: true, force: true });
+      }
+    }
+  );
 
   it('maps receipt and service errors without opening storage for invalid input', async () => {
     const submitResponse = vi.fn();

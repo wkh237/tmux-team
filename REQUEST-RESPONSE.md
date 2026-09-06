@@ -67,14 +67,14 @@ Rejected submissions preserve attempts, cadence and responses. Storage failures
 remain storage failures. No cancellation operation, retry routing policy or new
 CLI command is introduced by this service contract itself.
 
-### TMT-38 explicit CLI adapters
+### Explicit CLI adapters (TMT-38, extended by TMT-40)
 
 TMT-37 is split into TMT-38 (bounded submission/retrieval) and TMT-39 (default
 durable `talk`, obsolete-mode removal and the exact-body Docker cutover).
-TMT-38 adds:
+The current grammar includes TMT-40's inline source:
 
 ```text
-tmt reply <request-id> --receipt <receipt> (--file <path> | --stdin) [--json]
+tmt reply <request-id> --receipt <receipt> (--message <text> | --file <path> | --stdin) [--json]
 tmt result <request-id> [--json]
 ```
 
@@ -88,6 +88,17 @@ Files must resolve to regular files; symlinks are followed, and descriptors are
 closed after bounded reads. Explicit stdin requires EOF within five seconds.
 Both reject malformed UTF-8 and bodies beyond 1,048,576 bytes before submission,
 preserving empty text, BOM, NUL, CR/LF and whitespace without normalization.
+
+Inline `--message` passes its exact string to the same service validation.
+Exactly one source is required; an explicit empty inline string is valid.
+Shell quoting and OS argv size limits apply, and argv cannot contain NUL.
+Use file/stdin for larger or NUL-containing bodies.
+
+TMT-40 groups one reply command in `<tmt-reply>` tags, including the receipt
+once, with brief submission/summary/error guidance outside. This is request
+grouping, not a hidden UI promise or terminal-output boundary. HTML comments
+would conflict with ASCII `!` protection, which remains unchanged. Detailed
+input and retry rules remain in installed skills/help instead of every request.
 
 Reply success returns `status: submitted`, `requestId`, `bodyBytes` and
 `submittedAtMs`. Identical retries preserve the timestamp; different bodies

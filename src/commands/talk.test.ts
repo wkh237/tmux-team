@@ -272,8 +272,9 @@ function onlyAttempt(service: RequestService): RequestAttemptRecord {
 }
 
 function attemptFromInstruction(service: RequestService, message: string): RequestAttemptRecord {
-  const requestId = message.match(/^request-id=([^\n]+)$/m)?.[1];
-  const encodedReceipt = message.match(/^receipt=([^\n]+)$/m)?.[1];
+  const match = message.match(/^tmt reply (\S+) --receipt (\S+) --message <text>$/m);
+  const requestId = match?.[1];
+  const encodedReceipt = match?.[2];
   if (!requestId || !encodedReceipt) throw new Error('Durable receipt instruction is incomplete.');
   const receipt = decodeReplyReceipt(encodedReceipt, requestId);
   const attempt = service.getAttempt(receipt.attemptId);
@@ -341,12 +342,14 @@ describe('cmdTalk durable completion', () => {
     ]);
     expect(tmux.captureCalls).toBe(0);
     expect(tmux.sends[0]?.message).toContain(attempt.requestId);
-    expect(tmux.sends[0]?.message).toContain('tmt reply');
+    expect(tmux.sends[0]?.message).toContain('<tmt-reply>');
     expect(tmux.sends[0]?.message).toContain('--receipt');
-    expect(tmux.sends[0]?.message).toContain('--file');
-    expect(tmux.sends[0]?.message).toContain('--stdin');
-    expect(tmux.sends[0]?.message).toContain('body-limit-bytes=1048576');
-    const receipt = tmux.sends[0]?.message.match(/^receipt=([^\n]+)$/m)?.[1];
+    expect(tmux.sends[0]?.message).toContain('--message <text>');
+    expect(tmux.sends[0]?.message).not.toContain('--file');
+    expect(tmux.sends[0]?.message).not.toContain('--stdin');
+    const receipt = tmux.sends[0]?.message.match(
+      /^tmt reply \S+ --receipt (\S+) --message <text>$/m
+    )?.[1];
     expect(receipt).toBeTruthy();
     expect(decodeReplyReceipt(receipt!, attempt.requestId)).toMatchObject({
       version: 1,
@@ -624,7 +627,7 @@ describe('cmdTalk durable completion', () => {
       await cmdTalk(ctx, 'claude', 'Hello');
       expect(preambleService.show).not.toHaveBeenCalled();
       expect(stateSnapshot(root).cadence).toEqual([]);
-      expect(tmux.sends[0]?.message).toMatch(/^Hello\n\n\[TMT-DURABLE-REPLY v1 BEGIN\]/);
+      expect(tmux.sends[0]?.message).toMatch(/^Hello\n\n<tmt-reply>/);
     }
   });
 
