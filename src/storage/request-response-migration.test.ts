@@ -242,6 +242,7 @@ describe('request response migrations', () => {
       ...endpoint,
       attemptId: 'attempt-1',
       requestId: 'request-1',
+      originator: { kind: 'unknown' },
       nonce: 'nonce-1',
       identityId: identity.id,
       waitActive: false,
@@ -288,6 +289,7 @@ describe('request response migrations', () => {
     expect(repository.findAttempt('attempt-1')).toMatchObject({
       responseSubmittedAtMs: nowMs,
     });
+    expect(service.getRequestContext('request-1')?.prompt).toEqual({ status: 'unavailable' });
     repository.close();
 
     const reopened = openIdentityRepository(file);
@@ -401,6 +403,36 @@ describe('request response migrations', () => {
       retentionDays: LEGACY_EXCHANGE_RETENTION_DAYS,
       retentionExpiresAtMs: expected(unansweredAttempt),
     });
+  });
+
+  it('adds provenance and prompt columns from schema 6 without changing historical rows', () => {
+    const file = databaseFile();
+    seedSchema5Requests(file, [
+      {
+        attemptId: 'schema6-attempt',
+        requestId: 'schema6-request',
+        preparedAtMs,
+        expiresAtMs: preparedAtMs + 60 * 60 * 1000,
+        settledAtMs: preparedAtMs + 20,
+        submittedAtMs: preparedAtMs + 30,
+      },
+    ]);
+    const schema6 = openStorageWithMigrations(location(file), CURRENT_MIGRATIONS.slice(0, 6));
+    schema6.close();
+
+    const repository = openIdentityRepository(file);
+    repositories.push(repository);
+    expect(repository.findAttempt('schema6-attempt')).toMatchObject({
+      originator: { kind: 'unknown' },
+      retentionDays: LEGACY_EXCHANGE_RETENTION_DAYS,
+    });
+    expect(repository.findResponse('schema6-request')).toMatchObject({
+      responseExpiresAtMs: preparedAtMs + 30 + LEGACY_EXCHANGE_RETENTION_DAYS * RETENTION_DAY_MS,
+    });
+    expect(repository.findRequestContext('schema6-request')).not.toHaveProperty('promptMessage');
+    expect(repository.findRequestContext('schema6-request')).not.toHaveProperty(
+      'promptMessageBytes'
+    );
   });
 
   it('bounds migration arithmetic for valid historical timestamps near MAX_SAFE_INTEGER', () => {

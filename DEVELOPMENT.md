@@ -122,8 +122,14 @@ prove ordered index selection without a temporary full candidate sort.
 Cover retained finals beyond preparation horizons, unchanged idempotency timestamps, no
 metadata renewal from housekeeping, and cleanup/submission transaction races.
 Docker scenarios verify real config-to-preparation wiring and storage-only
-reply/result behavior after current configuration becomes invalid. Prompt and
-attention tests belong to their delivering slices, not this retention baseline.
+reply/result behavior after current configuration becomes invalid. Prompt-context
+tests additionally distinguish exact original text from composed/protected delivery,
+verified originator from explicit local attribution, and recipient UUID from cadence.
+Assert failed evidence checks preserve storage and cause no send. Context reads
+must distinguish empty, expired and historical unavailable text without loading
+all prompt bodies. Inspect scrub query plans without planner statistics and use
+non-mutating state oracles: calling a service read can itself run housekeeping
+and invalidate a claimed race ordering. Attention tests belong to TMT-51.
 
 Reply adapter verification additionally exercises the real CLI in an isolated
 home and SQLite database, including inline text and file/stdin decoding, exact result text,

@@ -69,6 +69,7 @@ function prepare(
 ): string {
   return value.service.prepare({
     requestId,
+    message: `message for ${requestId}`,
     endpoint: options.endpoint ?? value.endpoint,
     wait: options.wait ?? true,
     expiresAtMs: options.expiresAtMs ?? value.clock.value + 60 * 60 * 1000,
@@ -243,6 +244,7 @@ describe('durable request responses', () => {
       expect(() =>
         value.service.prepare({
           requestId: 'request-time-overflow',
+          message: 'overflow message',
           endpoint: value.endpoint,
           wait: true,
           expiresAtMs: Number.MAX_SAFE_INTEGER,
@@ -426,6 +428,7 @@ describe('durable request responses', () => {
     });
     const attemptId = service.prepare({
       requestId: 'request-frozen-retention',
+      message: 'frozen retention message',
       endpoint: value.endpoint,
       wait: true,
       expiresAtMs: value.clock.value + 60 * 60 * 1000,
@@ -598,6 +601,7 @@ describe('durable request responses', () => {
     expect(() =>
       value.service.prepare({
         requestId,
+        message: 'retained request id',
         endpoint: value.endpoint,
         wait: true,
         expiresAtMs: value.clock.value + 60 * 60 * 1000,
@@ -616,6 +620,7 @@ describe('durable request responses', () => {
     );
     const reused = value.service.prepare({
       requestId,
+      message: 'reused request id',
       endpoint: value.endpoint,
       wait: true,
       expiresAtMs: value.clock.value + 60 * 60 * 1000,

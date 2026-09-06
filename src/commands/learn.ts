@@ -109,6 +109,12 @@ ${colors.yellow('CONFIGURATION SAFETY')}
   tmt config set exchange.retentionDays 90 --global sets 1..3650 integer days
   for new requests only. Existing deadlines, reply eligibility and observer
   timeouts are unchanged. Local overrides/clear are not supported for this key.
+  Original messages are retained locally from preparation; avoid secrets.
+  talk/send --identity <existing-name> attributes an existing originator,
+  including an offline identity. Explicit selection overrides a bound caller;
+  omission uses a verified caller or stays anonymous. This is not authentication.
+  Original text is bounded to 1 MiB of well-formed UTF-8 before injected guidance
+  and transport protection. Existing talk/result output is unchanged.
   Final retention starts at submission. Reads/retries do not renew expiry;
   cleanup is bounded and opportunistic, not scheduled or secure erasure.
 

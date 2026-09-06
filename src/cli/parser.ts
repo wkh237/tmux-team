@@ -8,6 +8,7 @@ import type {
   ReplyRequest,
   ResultRequest,
   RoleRequest,
+  TalkRequest,
 } from './requests.js';
 import { validateReplyRequestId } from '../reply-receipt.js';
 import {
@@ -28,7 +29,7 @@ export type ParsedInvocation =
   | { readonly kind: 'list'; readonly target?: IdentitySelector }
   | { readonly kind: 'add'; readonly pane: string; readonly name: string }
   | { readonly kind: 'this' | 'name'; readonly name: string }
-  | { readonly kind: 'talk'; readonly target: IdentitySelector; readonly message: string }
+  | TalkRequest
   | { readonly kind: 'check'; readonly target: IdentitySelector; readonly lines?: number }
   | ConfigRequest
   | PreambleRequest
@@ -450,6 +451,7 @@ function setupProgram(capture: Capture): Command {
     'detach',
     'timeout',
     'noPreamble',
+    'identity',
   ];
   const checkOptions: readonly OptionName[] = [...generalOptions, 'lines'];
   const storageOptions: readonly OptionName[] = ['json'];
@@ -591,10 +593,14 @@ function setupProgram(capture: Capture): Command {
       talkOptions
     );
     command.action(function (target: string, message: string) {
+      const options = commandOptions(this);
       action(this, {
         kind,
         target: selector(target, false),
         message,
+        ...(options.identity !== undefined && {
+          originator: selector(options.identity, true),
+        }),
       });
     });
   }

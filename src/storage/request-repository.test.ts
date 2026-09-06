@@ -36,6 +36,7 @@ function attempt(overrides: Partial<RequestAttemptRecord> = {}): RequestAttemptR
     ...endpoint,
     attemptId: 'attempt-1',
     requestId: 'request-1',
+    originator: { kind: 'unknown' },
     waitActive: true,
     status: 'prepared',
     injectPreamble: true,

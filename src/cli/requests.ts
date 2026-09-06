@@ -15,6 +15,13 @@ export interface PreambleRequest {
   readonly preamble?: string;
 }
 
+export interface TalkRequest {
+  readonly kind: 'talk';
+  readonly target: IdentitySelector;
+  readonly message: string;
+  readonly originator?: IdentitySelector;
+}
+
 export type RoleRequest = {
   readonly kind: 'role';
   readonly selector?: IdentitySelector;

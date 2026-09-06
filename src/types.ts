@@ -1,4 +1,5 @@
 import type { DurableIdentity, RoleProfile, TmuxBinding } from './domain/identity.js';
+import type { DurableIdentityResolution, IdentitySelector } from './identity-context.js';
 import type { PreambleService } from './preamble-service.js';
 import type { RequestService } from './request-service.js';
 
@@ -154,6 +155,7 @@ export interface IdentityService {
   bindPane(pane: string, name: string): DurableIdentity;
   unbindCurrent(): DurableIdentity | undefined;
   currentIdentity(): { identity: DurableIdentity; binding: TmuxBinding } | undefined;
+  resolveIdentity(selector?: IdentitySelector): DurableIdentityResolution;
   activeIdentities(): Array<{ identity: DurableIdentity; binding: TmuxBinding; pane: PaneInfo }>;
   resolveActive(
     target: string

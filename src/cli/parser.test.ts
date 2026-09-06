@@ -32,6 +32,68 @@ describe('declarative CLI parser', () => {
     });
   });
 
+  it('parses an explicit talk originator as a typed request field', () => {
+    const parsed = parseArgs(['talk', '--identity=Alice', 'claude', 'hello']);
+    expect(parsed.invocation).toEqual({
+      kind: 'talk',
+      target: { value: 'claude', kind: 'identity', explicit: false },
+      message: 'hello',
+      originator: { value: 'Alice', kind: 'identity', explicit: true },
+    });
+    expect(parsed.flags).toEqual({ json: false, verbose: false });
+    expect(parsed.flags).not.toHaveProperty('identity');
+    expect(parsed.flags).not.toHaveProperty('originator');
+  });
+
+  it('keeps the last repeated originator option and supports the send alias', () => {
+    expect(
+      parseArgs(['talk', 'peer', 'hello', '--identity', 'Alice', '--identity=Bob']).invocation
+    ).toEqual({
+      kind: 'talk',
+      target: { value: 'peer', kind: 'identity', explicit: false },
+      message: 'hello',
+      originator: { value: 'Bob', kind: 'identity', explicit: true },
+    });
+    expect(parseArgs(['send', 'peer', 'hello', '--identity', 'Alice']).invocation).toEqual({
+      kind: 'talk',
+      target: { value: 'peer', kind: 'identity', explicit: false },
+      message: 'hello',
+      originator: { value: 'Alice', kind: 'identity', explicit: true },
+    });
+  });
+
+  it('preserves option-looking originator values and literal terminators', () => {
+    expect(() => parseArgs(['talk', 'peer', '--identity', '--json', 'hello'])).toThrow(
+      'Usage: tmux-team talk <target> <message>'
+    );
+    expect(parseArgs(['talk', 'peer', '--identity=--json', 'hello']).invocation).toMatchObject({
+      originator: { value: '--json', kind: 'identity', explicit: true },
+    });
+    expect(parseArgs(['talk', 'peer', '--identity', 'Alice', '--', '--identity Bob'])).toEqual(
+      expect.objectContaining({
+        invocation: {
+          kind: 'talk',
+          target: { value: 'peer', kind: 'identity', explicit: false },
+          message: '--identity Bob',
+          originator: { value: 'Alice', kind: 'identity', explicit: true },
+        },
+      })
+    );
+  });
+
+  it('keeps originator local to talk and preserves missing-argument usage', () => {
+    expect(() => parseArgs(['talk', 'peer', 'hello', '--identity'])).toThrow(CliParseError);
+    expect(() => parseArgs(['--identity', 'Alice', 'talk', 'peer', 'hello'])).toThrow(
+      "unknown option '--identity'"
+    );
+    expect(() => parseArgs(['list', 'peer', '--identity', 'Alice'])).toThrow(
+      "unknown option '--identity'"
+    );
+    expect(() => parseArgs(['talk', 'peer', '--identity', 'Alice'])).toThrow(
+      'Usage: tmux-team talk <target> <message>'
+    );
+  });
+
   it('keeps role selectors explicit and preserves dash-prefixed profile literals', () => {
     const parsed = parseArgs(['role', '--identity=show', 'set', '--', '--json profile']);
     expect(parsed.invocation).toEqual({

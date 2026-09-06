@@ -1,8 +1,14 @@
 import { performance } from 'node:perf_hooks';
 import { validateName } from './domain/names.js';
 import type { DurableIdentity, TmuxBinding } from './domain/identity.js';
+import {
+  resolveDurableIdentity,
+  IdentitySelectionError,
+  type IdentitySelector,
+  type DurableIdentityResolution,
+} from './identity-context.js';
 import { resolveTarget } from './target-resolver.js';
-import type { TargetResolverPort } from './target-resolver.js';
+import type { TargetIdentity, TargetResolverPort } from './target-resolver.js';
 import type {
   IdentityService,
   PaneInfo,
@@ -147,6 +153,40 @@ function verifiedBindingEvidence(
   return { identity, pane };
 }
 
+function targetIdentity(item: {
+  readonly identity: DurableIdentity;
+  readonly binding: TmuxBinding;
+}): TargetIdentity {
+  return {
+    name: item.identity.name,
+    canonicalName: item.identity.canonicalName,
+    paneId: item.binding.paneId,
+    evidence: {
+      identity: item.identity,
+      binding: item.binding,
+    },
+  };
+}
+
+export function assertTargetIdentityEvidence(
+  identity: TargetIdentity,
+  snapshot: TmuxEndpointSnapshot
+): void {
+  const evidence = identity.evidence;
+  if (
+    !evidence ||
+    identity.name !== evidence.identity.name ||
+    identity.canonicalName !== evidence.identity.canonicalName ||
+    identity.paneId !== evidence.binding.paneId ||
+    !verifiedBindingEvidence(evidence.binding, evidence.identity, snapshot)
+  ) {
+    throw new IdentityServiceError(
+      'RECONCILIATION_FAILED',
+      'Target identity evidence could not be verified.'
+    );
+  }
+}
+
 function mapActive(
   repository: IdentityRepository,
   snapshot: TmuxEndpointSnapshot,
@@ -232,12 +272,7 @@ export function identityAwareTmux(tmux: Tmux, service: IdentityService): Tmux & 
   if (!service) throw new Error('Identity service is required for target resolution.');
   return {
     ...tmux,
-    listGlobalIdentities: () =>
-      service.activeIdentities().map(({ identity, binding }) => ({
-        name: identity.name,
-        canonicalName: identity.canonicalName,
-        paneId: binding.paneId,
-      })),
+    listGlobalIdentities: () => service.activeIdentities().map(targetIdentity),
   };
 }
 
@@ -294,6 +329,14 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
     coordinated((options) => {
       reconcileWithinTransaction(options);
     }, 'Could not reconcile identity state.');
+  };
+
+  const currentIdentityContext = () => {
+    const currentPane = tmux.getCurrentPaneId();
+    if (!currentPane) return undefined;
+    const matches = active().filter((entry) => entry.binding.paneId === currentPane);
+    if (matches.length > 1) return { status: 'ambiguous' as const };
+    return matches[0];
   };
 
   const active = () => {
@@ -453,18 +496,28 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
       }, 'Could not unbind identity state.');
     },
     currentIdentity() {
-      const current = tmux.getCurrentPaneId();
-      if (!current) return undefined;
-      return active().find((entry) => entry.binding.paneId === current);
+      const current = currentIdentityContext();
+      if (current && 'status' in current) {
+        throw new IdentitySelectionError(
+          'IDENTITY_AMBIGUOUS',
+          'Current pane has ambiguous identity binding.'
+        );
+      }
+      return current;
+    },
+    resolveIdentity(selector?: IdentitySelector): DurableIdentityResolution {
+      return resolveDurableIdentity(
+        {
+          findByCanonicalName: (canonicalName) => repository.findByCanonicalName(canonicalName),
+          currentIdentity: currentIdentityContext,
+        },
+        selector
+      );
     },
     activeIdentities: active,
     resolveActive(target) {
       const items = active();
-      const identities = items.map(({ identity, binding }) => ({
-        name: identity.name,
-        canonicalName: identity.canonicalName,
-        paneId: binding.paneId,
-      }));
+      const identities = items.map(targetIdentity);
       const result = resolveTarget(
         {
           ...tmux,

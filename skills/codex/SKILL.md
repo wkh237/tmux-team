@@ -130,6 +130,7 @@ only the explicit local obsolete key, without migrating other settings.
 ```bash
 tmt talk reviewer "Review this patch" --timeout 300 --json
 tmt talk reviewer "Run the agreed tests" --detach --json
+tmt talk reviewer "Review this patch" --identity coordinator --json
 tmt result <request-id> --json
 tmt check reviewer 200  # diagnostics only
 ```
@@ -137,6 +138,25 @@ tmt check reviewer 200  # diagnostics only
 Detached success is `{status:"sent",requestId,target,pane,identity?}`, not task
 completion. Completed talk adds the exact `response`, `bodyBytes` and
 `submittedAtMs` to request/target/pane correlation. Preserve that request ID.
+
+Talk/send's command-local `--identity <existing-name>` attributes the originator,
+not the recipient. An explicit existing identity may be offline and overrides
+a different bound caller. It does not create or bind a name or authenticate
+authorship. Omission uses a verified caller when present, otherwise remains
+anonymous; unlike role access, no caller is required. Unknown explicit names
+fail with `NAME_NOT_FOUND` (exit 3); ambiguous or unverifiable context fails
+before sending (exit 1). Public `identity` still describes the recipient.
+
+New requests retain exact original messages locally in SQLite, before preamble,
+reply instructions and `!` protection, for the frozen duration (90 days by
+default). Avoid secrets. The inclusive limit is 1,048,576 UTF-8 bytes of
+well-formed Unicode; empty text is valid. Invalid/oversized text returns
+`REQUEST_INPUT_INVALID`/`REQUEST_INPUT_TOO_LARGE` (exit 1) before target effects.
+Shell/OS argument limits still apply; talk has no file/stdin input option.
+Prompt expiry starts at preparation and is not extended by a late final or read.
+Historical context is unavailable, never reconstructed from a terminal.
+Context inspection is internal until the attention feature ships; do not invent
+an `x`/inbox command. No upload, encryption or secure-erasure guarantee is made.
 
 The observer clock starts immediately before send, after pre-send delay and
 preparation. Transport/Enter time counts; synchronous transport cannot be
@@ -324,7 +344,8 @@ execution. Use `tmt help` for the command-specific option inventory.
 
 Meaningful common options may precede the command, such as
 `tmt --timeout 30 talk reviewer "Review this"`. Put command-local options
-such as reply `--receipt` or install `--dir` after their command. Use `--`
+such as reply `--receipt`, talk/send `--identity`, or install `--dir` after
+their command. Use `--`
 before a positional message beginning with a hyphen, or equals syntax for
 an option value, such as `--message='--json is literal text'`. Literal text
 does not enable diagnostic flags. Reply/result accept only their documented

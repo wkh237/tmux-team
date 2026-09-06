@@ -33,6 +33,44 @@ describe('shared target resolver', () => {
     expect(result).toMatchObject({ ok: true, value: { paneId: '%3', kind: 'identity' } });
   });
 
+  it('preserves internal identity evidence through target resolution', () => {
+    const identity = {
+      id: 'identity-1',
+      name: 'Alice',
+      canonicalName: 'alice',
+      createdAt: 'created',
+      updatedAt: 'updated',
+    };
+    const binding = {
+      id: 'binding-1',
+      identityId: identity.id,
+      transport: 'tmux' as const,
+      paneId: '%3',
+      serverId: 'server-1',
+      socketPath: '/tmp/tmux-1',
+      serverPid: 10,
+      serverStartTime: 'start-1',
+      panePid: 20,
+      boundAt: 'bound',
+      lastVerifiedAt: 'verified',
+    };
+    const target = {
+      name: identity.name,
+      canonicalName: identity.canonicalName,
+      paneId: binding.paneId,
+      evidence: { identity, binding },
+    };
+    const result = resolveTarget(
+      resolver({ listGlobalIdentities: vi.fn(() => [target]) }),
+      'alice'
+    );
+
+    expect(result).toEqual({
+      ok: true,
+      value: { input: 'alice', paneId: '%3', identity: target, kind: 'identity' },
+    });
+  });
+
   it('returns stale pane error without falling back to identity lookup', () => {
     const listGlobalIdentities = vi.fn(() => [{ name: '1.2', canonicalName: '1.2', paneId: '%3' }]);
     const result = resolveTarget(

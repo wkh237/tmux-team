@@ -155,6 +155,7 @@ describe('reply and result command adapters', () => {
         const requestId = `request-inline-invalid-${Date.now()}`;
         const prepared = service.prepare({
           requestId,
+          message: 'request message',
           endpoint,
           wait: false,
           expiresAtMs: Date.now() + 60_000,

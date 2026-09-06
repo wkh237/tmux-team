@@ -44,7 +44,7 @@ export async function dispatchCommand(ctx: Context, parsed: ParsedArgs): Promise
     case 'unbind':
       return cmdUnbind(ctx);
     case 'talk':
-      return cmdTalk(ctx, request.target.value, request.message);
+      return cmdTalk(ctx, request);
     case 'check':
       return cmdCheck(ctx, request.target.value, request.lines);
     case 'config':

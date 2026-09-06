@@ -52,6 +52,7 @@ function requestInput(
 ): Parameters<ReturnType<typeof createRequestService>['prepare']>[0] {
   return {
     requestId: `request-${currentVariant}`,
+    message: `message for ${currentVariant}`,
     nonce: `nonce-${currentVariant}`,
     endpoint,
     wait: true,

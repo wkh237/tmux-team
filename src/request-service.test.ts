@@ -44,6 +44,7 @@ describe('request service', () => {
 
     const prepared = service.prepare({
       requestId: 'request-1',
+      message: 'request message',
       nonce: 'nonce-1',
       endpoint,
       wait: true,
@@ -80,6 +81,7 @@ describe('request service', () => {
 
     const first = service.prepare({
       requestId: 'request-1',
+      message: 'first message',
       endpoint,
       wait: false,
       expiresAtMs: nowMs + 5_000,
@@ -87,6 +89,7 @@ describe('request service', () => {
     });
     const second = service.prepare({
       requestId: 'request-2',
+      message: 'second message',
       endpoint,
       wait: false,
       expiresAtMs: nowMs + 5_000,
@@ -98,6 +101,7 @@ describe('request service', () => {
     service.settle(first.attemptId, 'definitely_failed');
     const third = service.prepare({
       requestId: 'request-3',
+      message: 'third message',
       endpoint,
       wait: false,
       expiresAtMs: nowMs + 5_000,
@@ -124,6 +128,7 @@ describe('request service', () => {
 
     const first = service.prepare({
       requestId: 'request-1',
+      message: 'first message',
       endpoint,
       wait: true,
       expiresAtMs: nowMs + 5_000,
@@ -131,6 +136,7 @@ describe('request service', () => {
     });
     const second = service.prepare({
       requestId: 'request-2',
+      message: 'second message',
       endpoint,
       wait: true,
       expiresAtMs: nowMs + 5_000,
@@ -159,6 +165,7 @@ describe('request service', () => {
     const service = createRequestService({ repository, now: () => nowMs });
     const input = {
       requestId: 'request-1',
+      message: 'duplicate message',
       endpoint,
       wait: false,
       expiresAtMs: nowMs + 5_000,
@@ -182,6 +189,7 @@ describe('request service', () => {
     const service = createRequestService({ repository, now: () => nowMs });
     const prepared = service.prepare({
       requestId: 'request-1',
+      message: 'prepared message',
       endpoint,
       wait: true,
       expiresAtMs: nowMs + 1,
@@ -189,6 +197,7 @@ describe('request service', () => {
     });
     const sending = service.prepare({
       requestId: 'request-2',
+      message: 'sending message',
       endpoint: { ...endpoint, paneId: '%8', panePid: 100 },
       wait: true,
       expiresAtMs: nowMs + 1,
@@ -196,6 +205,7 @@ describe('request service', () => {
     });
     const completed = service.prepare({
       requestId: 'request-3',
+      message: 'completed message',
       endpoint: { ...endpoint, paneId: '%9', panePid: 101 },
       wait: true,
       expiresAtMs: nowMs + 1,
@@ -229,6 +239,7 @@ describe('request service', () => {
     const service = createRequestService({ repository, now: () => nowMs });
     const prepared = service.prepare({
       requestId: 'request-1',
+      message: 'late prepared message',
       endpoint,
       wait: true,
       expiresAtMs: nowMs + 1,
@@ -265,6 +276,7 @@ describe('request service', () => {
     });
     const prepared = service.prepare({
       requestId: 'request-1',
+      message: 'transaction message',
       endpoint,
       wait: true,
       expiresAtMs: nowMs + 1,
@@ -290,6 +302,7 @@ describe('request service', () => {
     const service = createRequestService({ repository, now: () => nowMs });
     const sending = service.prepare({
       requestId: 'sending',
+      message: 'sending message',
       endpoint: { ...endpoint, paneId: '%10', panePid: 110 },
       wait: false,
       expiresAtMs: nowMs + 5_000,
@@ -302,6 +315,7 @@ describe('request service', () => {
 
     const uncertain = service.prepare({
       requestId: 'uncertain',
+      message: 'uncertain message',
       endpoint: { ...endpoint, paneId: '%11', panePid: 111 },
       wait: false,
       expiresAtMs: nowMs + 5_000,
@@ -313,6 +327,7 @@ describe('request service', () => {
 
     const failed = service.prepare({
       requestId: 'failed',
+      message: 'failed message',
       endpoint: { ...endpoint, paneId: '%12', panePid: 112 },
       wait: false,
       expiresAtMs: nowMs + 5_000,
@@ -331,6 +346,7 @@ describe('request service', () => {
     const service = createRequestService({ repository, now: () => nowMs });
     const prepared = service.prepare({
       requestId: 'request-1',
+      message: 'settlement message',
       endpoint,
       wait: false,
       expiresAtMs: nowMs + 5_000,
@@ -351,6 +367,7 @@ describe('request service', () => {
     const service = createRequestService({ repository, now: () => nowMs });
     const prepared = service.prepare({
       requestId: 'request-1',
+      message: 'expired settlement message',
       endpoint,
       wait: false,
       expiresAtMs: nowMs + 1,
@@ -377,6 +394,7 @@ describe('request service', () => {
     });
     const prepared = service.prepare({
       requestId: 'request-1',
+      message: 'retained message',
       endpoint,
       wait: true,
       expiresAtMs: nowMs + 1,
@@ -406,6 +424,7 @@ describe('request service', () => {
     });
     const prepared = service.prepare({
       requestId: 'request-logical-boundary',
+      message: 'logical boundary message',
       endpoint,
       wait: false,
       expiresAtMs: nowMs + 60 * 60 * 1000,
@@ -433,6 +452,7 @@ describe('request service', () => {
     });
     const prepared = service.prepare({
       requestId: 'request-late-settlement',
+      message: 'late settlement message',
       endpoint,
       wait: true,
       expiresAtMs: nowMs + 60 * 60 * 1000,
@@ -466,6 +486,7 @@ describe('request service', () => {
     const service = createRequestService({ repository, now: () => 10_000 });
     const prepared = service.prepare({
       requestId: 'request-1',
+      message: 'terminal message',
       endpoint,
       wait: false,
       expiresAtMs: 20_000,

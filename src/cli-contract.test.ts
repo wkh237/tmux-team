@@ -167,6 +167,9 @@ describe('real CLI process contract', () => {
           ['--timeout', '1s', 'list', '--json'],
           ['role', 'show', '--timeout', '1s', '--json'],
           ['--timeout', '1s', 'role', 'show', '--json'],
+          ['--identity', 'caller', 'talk', 'peer', 'hello', '--json'],
+          ['list', '--identity', 'caller', '--json'],
+          ['talk', 'peer', 'hello', '--json', '--identity'],
         ]) {
           const result = await runCli(sandbox, args);
           expect(result.status).toBe(1);

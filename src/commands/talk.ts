@@ -5,6 +5,7 @@
 import crypto from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import type { Context } from '../types.js';
+import type { TalkRequest } from '../cli/requests.js';
 import { ExitCodes } from '../exits.js';
 import { encodeReplyReceipt, type ReplyReceipt } from '../reply-receipt.js';
 import {
@@ -12,12 +13,18 @@ import {
   type RequestPreparation,
   type RequestResponseRecord,
   type RequestService,
+  type RequestOriginator,
 } from '../request-service.js';
 import { resolveTarget } from '../target-resolver.js';
 import { normalizeName } from '../domain/names.js';
 import { IdentitySelectionError } from '../identity-context.js';
 import { PreambleContentError } from '../domain/preamble.js';
-import { identityAwareTmux } from '../identity-service.js';
+import {
+  assertTargetIdentityEvidence,
+  identityAwareTmux,
+  IdentityServiceError,
+} from '../identity-service.js';
+import { RequestInputError, validateRequestMessage } from '../domain/request-content.js';
 import { TmuxDeliveryError } from '../message-delivery.js';
 import { buildDurableReplyInstruction } from '../talk-instruction.js';
 import {
@@ -146,6 +153,44 @@ function failTiming(ctx: Context, message: string): never {
   return ctx.exit(ExitCodes.ERROR);
 }
 
+function failRequestInput(ctx: Context, error: RequestInputError): never {
+  if (ctx.flags.json) ctx.ui.json({ error: { code: error.code, message: error.message } });
+  else ctx.ui.error(error.message);
+  return ctx.exit(ExitCodes.ERROR);
+}
+
+function failIdentity(ctx: Context, error: unknown): never {
+  const detail =
+    error instanceof IdentitySelectionError || error instanceof IdentityServiceError
+      ? { code: error.code, message: error.message }
+      : { code: 'RECONCILIATION_FAILED', message: 'Could not verify request identity context.' };
+  if (ctx.flags.json) ctx.ui.json({ error: detail });
+  else ctx.ui.error(detail.message);
+  return ctx.exit(detail.code === 'NAME_NOT_FOUND' ? ExitCodes.NAME_NOT_FOUND : ExitCodes.ERROR);
+}
+
+function resolveOriginator(ctx: Context, selector: TalkRequest['originator']): RequestOriginator {
+  const resolution = ctx.identityService.resolveIdentity(selector);
+  if (resolution.status === 'bound') {
+    return { kind: selector ? 'explicit' : 'verified', identityId: resolution.identity.id };
+  }
+  if (resolution.status === 'not-found') {
+    throw new IdentitySelectionError(
+      'NAME_NOT_FOUND',
+      `Identity '${selector?.value}' was not found.`
+    );
+  }
+  if (resolution.status === 'ambiguous') {
+    throw new IdentitySelectionError(
+      'IDENTITY_AMBIGUOUS',
+      'Current pane has ambiguous identity binding.'
+    );
+  }
+  // Unlike role access, talk permits an anonymous caller. This is attribution,
+  // not a remote authentication boundary or an implicit identity-creation path.
+  return { kind: 'unknown' };
+}
+
 interface PreparedMessage {
   readonly message: string;
   readonly preamble?: {
@@ -242,10 +287,11 @@ function timeoutMessage(agentName: string, timeoutSeconds: number): string {
 
 export async function cmdTalk(
   ctx: Context,
-  target: string,
-  message: string,
+  request: TalkRequest,
   runtime: TalkRuntime = {}
 ): Promise<void> {
+  const { message } = request;
+  const target = request.target.value;
   const { ui, config, tmux, flags, exit } = ctx;
   const waitEnabled = !flags.detach;
   const timeoutSeconds = flags.timeout ?? config.defaults.timeout;
@@ -261,8 +307,19 @@ export async function cmdTalk(
     return failTiming(ctx, error instanceof Error ? error.message : 'Invalid talk timing.');
   }
 
-  const runtimeTmux = identityAwareTmux(tmux, ctx.identityService);
-  const resolution = resolveTarget(runtimeTmux, target);
+  try {
+    validateRequestMessage(message);
+  } catch (error) {
+    if (error instanceof RequestInputError) return failRequestInput(ctx, error);
+    throw error;
+  }
+
+  let resolution;
+  try {
+    resolution = resolveTarget(identityAwareTmux(tmux, ctx.identityService), target);
+  } catch (error) {
+    return failIdentity(ctx, error);
+  }
   if (!resolution.ok) {
     if (flags.json) ui.json({ error: resolution.error });
     else ui.error(resolution.error.message);
@@ -271,6 +328,13 @@ export async function cmdTalk(
         ? ExitCodes.NAME_NOT_FOUND
         : ExitCodes.PANE_NOT_FOUND
     );
+  }
+
+  let originator: RequestOriginator;
+  try {
+    originator = resolveOriginator(ctx, request.originator);
+  } catch (error) {
+    return failIdentity(ctx, error);
   }
 
   const pane = resolution.value.paneId;
@@ -297,8 +361,13 @@ export async function cmdTalk(
   let endpoint;
   try {
     if (!tmux.getEndpointSnapshot) throw new Error('Tmux endpoint evidence is unavailable.');
-    endpoint = endpointFromSnapshot(tmux.getEndpointSnapshot(), pane);
+    const snapshot = tmux.getEndpointSnapshot();
+    if (resolution.value.identity) {
+      assertTargetIdentityEvidence(resolution.value.identity, snapshot);
+    }
+    endpoint = endpointFromSnapshot(snapshot, pane);
   } catch (error) {
+    if (error instanceof IdentityServiceError) return failIdentity(ctx, error);
     return failRequestState(ctx, correlation, false, error);
   }
 
@@ -313,6 +382,11 @@ export async function cmdTalk(
   try {
     preparation = requestService.prepare({
       requestId,
+      message,
+      originator,
+      ...(resolution.value.identity?.evidence && {
+        recipientIdentityId: resolution.value.identity.evidence.identity.id,
+      }),
       endpoint,
       wait: waitEnabled,
       expiresAtMs: requestExpiryMs(waitEnabled, timeoutSeconds, enterDelayMs),
@@ -324,6 +398,7 @@ export async function cmdTalk(
       }),
     });
   } catch (error) {
+    if (error instanceof RequestInputError) return failRequestInput(ctx, error);
     return failRequestState(ctx, correlation, false, error);
   }
 

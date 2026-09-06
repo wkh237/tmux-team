@@ -77,6 +77,7 @@ function raceFixture(): RaceFixture {
 function prepareSending(value: RaceFixture, requestId: string): string {
   const prepared = value.service.prepare({
     requestId,
+    message: `message for ${requestId}`,
     endpoint,
     wait: true,
     expiresAtMs: 1_700_000_000_000 + 60 * 60 * 1000,

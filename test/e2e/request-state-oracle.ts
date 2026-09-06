@@ -15,8 +15,15 @@ export interface AttemptRow {
   wait_active: number;
   status: string;
   inject_preamble: number;
+  prepared_at_ms: number;
   retention_days: number;
   retention_expires_at_ms: number;
+  originator_kind: 'unknown' | 'explicit' | 'verified';
+  originator_identity_id: string | null;
+  recipient_identity_id: string | null;
+  message_text: string | null;
+  message_bytes: number | null;
+  message_expires_at_ms: number | null;
 }
 
 export interface ResponseRow {

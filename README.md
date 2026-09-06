@@ -165,6 +165,23 @@ shows that pane's status. `talk` and `check` use the same target resolution.
 - `--timeout <time>` - Bound default durable waiting (default: 180s; positive, at most 24h)
 - `--detach` - Return a request ID after sending; mutually exclusive with explicit timeout
 - `--delay <seconds>` - Delay before sending
+- `--identity <existing-name>` - Attribute the request to an existing durable identity
+
+Put `--identity` after `talk` (or its `send` alias). It selects the originator,
+not the recipient, and works for an existing offline identity. Explicit selection
+takes precedence over a bound caller; omission uses a verified caller when one
+exists and otherwise remains anonymous. Selection does not create an identity
+or authenticate authorship. Unknown explicit names fail before sending.
+
+New requests retain the exact original message locally in SQLite for their frozen
+retention duration (90 days by default), before preamble, reply instructions and
+the transport's `!` protection. Avoid secrets. The limit is 1,048,576 UTF-8 bytes
+of well-formed Unicode; empty text is valid, while operating-system argument
+limits still apply. Invalid/oversized input returns `REQUEST_INPUT_INVALID` or
+`REQUEST_INPUT_TOO_LARGE` (exit 1) before target effects. No talk file/stdin source
+is introduced. Historical requests have unavailable original context; nothing
+is reconstructed from a pane. Context inspection is currently internal, not a
+new inbox or `x` command. Existing talk/result output remains unchanged.
 
 `--wait` is retired. `--lines` belongs to diagnostic `check`, not `talk`.
 Time accepts seconds or ms/s suffixes. Stored mode and maxCaptureLines values
@@ -509,8 +526,10 @@ before invoking it. A crash after sending starts is uncertain, never permission
 to retry. Timeout or interruption releases the waiter, not the recipient's
 work. Expired prepared attempts can refund their reservations; expired sending
 attempts remain consumed as uncertain. Attempt metadata is pruned opportunistically
-after terminal retention; cadence totals persist. Prompts are not stored;
-complete final responses are stored separately by the shared request service.
+after terminal retention; cadence totals persist. Original messages have a fixed
+preparation-anchored expiry, independent of later final submission. Complete
+final responses are stored separately by the same request service. Reads never
+acknowledge either side or renew retention.
 
 `REQUEST_STATE_ERROR` (exit 1) reports a bookkeeping failure. When delivery may
 already have occurred, inspect the pane before retrying; a failed state write

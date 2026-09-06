@@ -132,6 +132,13 @@ ${colors.yellow('TALK OPTIONS')}
 ${commandOptions(talk).map(formatOption).join('\n')}
   Delay is bounded to 0 through ${MAX_TIMER_DELAY_MS}ms; timeout is positive and at most 24h.
   --detach returns a request ID after sending; --no-preamble skips the agent preamble.
+  --identity attributes an existing originator, including offline identities; it is command-local.
+  Explicit selection overrides a bound caller; omission uses a verified caller or stays anonymous.
+  This is local attribution, not authentication, and does not change the recipient.
+  Original messages are retained locally for the frozen duration; avoid secrets.
+  Exact well-formed Unicode is bounded to 1 MiB before preamble/instructions/protection.
+  Invalid/oversized text: REQUEST_INPUT_INVALID/REQUEST_INPUT_TOO_LARGE (exit 1).
+  OS argument limits apply; talk has no file/stdin source or public context viewer yet.
   --debug shows diagnostic output.
 
 ${colors.yellow('CHECK OPTIONS')}

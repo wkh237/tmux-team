@@ -90,9 +90,9 @@ reply is not success of the requested task. Inbox, daemon, MCP/remote connectivi
 and memory remain outside this implementation.
 
 The same document contains the canonical **future TMT Exchange direction**.
-Exchange (X) is currently only a logical design: it would extend this request
-service and SQLite boundary with prompt/sender provenance, attention revisions,
-and identity-scoped explicit acknowledgement. It does not authorize a duplicate
+Exchange (X) extends this request service and SQLite boundary with bounded
+original context and originator/recipient provenance. Attention revisions and
+identity-scoped explicit acknowledgement remain future work. It does not authorize a duplicate
 service or database, a new X-specific ID format, guessed identity backfill, or
 changes to the shipped `talk`/`reply`/`result` verbs. Reads do not acknowledge;
 service-owned reads may perform logical expiry and bounded opportunistic cleanup;
@@ -104,7 +104,7 @@ current map and the linked section in sync as each bounded future slice is
 implemented. TMT-54 supplies the retention foundation through the existing
 global config's `exchange.retentionDays`, default 90 days. Each new request
 freezes its policy; the migration preserves seven-day retention for existing
-requests and bodies. Provenance, original prompts and attention remain unshipped.
+requests and bodies. TMT-55 supplies original prompts and provenance; attention remains unshipped.
 The default 180-second talk observer timeout
 and the reply submission window are distinct from data retention.
 
@@ -139,7 +139,8 @@ release and preamble reservation policy through a narrow repository port.
 The concrete request adapter composes over Context's existing SQLite connection;
 it does not open a second handle. Migration 4 adds attempt metadata and persistent
 identity cadence totals. Migration 5 adds independent final-response records and
-a bounded completion marker on attempts. Prompts are not stored here.
+a bounded completion marker on attempts. Migration 7 adds bounded original
+messages and originator/recipient provenance to these same attempt rows.
 
 Each invocation receives an immutable request/attempt identity and records full
 server ID, socket, server PID/start time, pane ID and pane PID. An endpoint is
@@ -173,7 +174,8 @@ and one exact valid Unicode body, bounded to 1,048,576 UTF-8 bytes. It accepts o
 `sending`, `sent` and `uncertain`; it does not change transport status or infer a
 live pane. `getResponse` returns the original body and association, not a capture.
 Empty bodies, whitespace, BOM, NUL, CR/LF and marker-like text are preserved.
-Role/preamble normalization is not applied; only the Unicode predicate is shared.
+Role/preamble normalization is not applied. Request and response wrappers share
+exact-text Unicode validation and UTF-8 measurement, retaining separate errors.
 The reply adapter passes inline text or decodes bounded file/stdin input before
 invoking this service. All three sources share the service's exact-body
 validation; the CLI parser only enforces source selection.
@@ -227,7 +229,7 @@ This is a per-content duration, not a hard limit from first creation.
 
 Logical reads hide expired records at deadline equality even before physical
 cleanup. Housekeeping uses one short immediate transaction, bounded to 100
-expired-attempt transitions, 100 final-body deletions and 100 metadata deletions,
+expired-attempt transitions, 100 prompt scrubs, 100 final-body deletions and 100 metadata deletions,
 ordered by expiry and stable ID. It runs through existing request operations;
 repeated calls drain backlog without a daemon or a physical-deletion SLA.
 Metadata selection pins its horizon index so a fresh database without planner
@@ -241,8 +243,58 @@ Deadlines use UTC wall time, not a sliding timer. Clock rollback does not change
 stored deadlines but can delay logical expiry while data is still physically
 present. Deletion is not file shrinkage or secure erasure; no per-call VACUUM
 or automatic clock-repair mechanism is provided. Identity/profile/cadence data
-are outside Exchange content cleanup. Prompts and attention remain separate
-future slices consuming this owner rather than copying its policy.
+are outside Exchange content cleanup. Attention remains a future slice consuming
+this owner rather than copying its policy.
+
+### Original request context and provenance
+
+Preparation requires the original message, before preamble composition, receipt
+instructions or ASCII `!` transport protection. Exact well-formed Unicode up to
+1,048,576 UTF-8 bytes is retained, including empty text, BOM, CR/LF and NUL.
+Request-specific validation wraps the same exact-text primitive used by replies,
+not role/preamble normalization. CLI validation runs after timing/config validation
+and before target effects; invalid and oversized input retain their specific
+`REQUEST_INPUT_INVALID`/`REQUEST_INPUT_TOO_LARGE` errors rather than becoming
+generic request-state failures. Argument size/NUL limits remain OS constraints.
+
+Talk's command-local `--identity` uses the shared durable selector through
+IdentityService. An existing explicit name, including an offline identity,
+takes precedence over a verified caller; omission records a verified caller or
+unknown originator. Unlike role access, absent caller identity is allowed.
+Unknown explicit names and ambiguous/reconciliation failures stop before
+preparation or send. Selection is local attribution, not authentication.
+Recipient resolution precedes originator lookup and remains independent.
+
+The internal target projection carries durable identity and binding evidence,
+without extending public ActiveRegistration. Before preparation, the existing
+binding evaluator checks this evidence against a fresh full endpoint snapshot.
+Changed server/socket/process or identity/binding markers fail closed. This is
+a verified observation of the intended recipient, not a guarantee against a
+later rebind before processing. Recipient UUID persists independently of cadence,
+including disabled or absent preambles; unnamed panes have unknown recipient.
+Public talk/list/check projections never expose this internal evidence.
+
+Migration 7 leaves historical prompt columns NULL and provenance unknown; cadence
+identity_id is not an originator or historical recipient backfill source. New
+attempts atomically retain original text, byte count, its preparation-anchored
+expiry and explicit/verified/unknown originator plus optional recipient UUID.
+No current name lookup rewrites persisted UUIDs after rebinding.
+
+General attempt records and metadata/list queries exclude prompt text and bytes.
+The existing service's focused getRequestContext(requestId) read returns a retained
+attempt and a retained/expired/unavailable prompt projection. Empty retained text
+is distinct from unavailable historical context. Logically expired metadata or
+unknown requests return no record. Reads share readWithCleanup's clock and
+transaction, without current config or tmux. This is internal until the attention
+slice defines user-facing inspection, not a second service or public inbox.
+
+Prompt expiry is preparedAtMs plus the frozen duration, never the potentially
+extended metadata horizon. Late replies, reads, settlement and retries cannot
+renew it. The indexed ordered scrub phase clears at most 100 expired text/byte
+payloads in the existing cleanup transaction, retaining the expiry marker.
+Logical equality is expired even when physical cleanup has not reached the row.
+Local storage is always on for new requests in this slice: avoid secrets; no
+upload, redaction, encryption or secure-erasure guarantee is supplied.
 
 Typed response errors distinguish invalid/oversized input, unknown request, wrong
 attempt/recipient, ineligible state, expiry and conflict. Rejections preserve
@@ -363,8 +415,8 @@ file/field context; invalid setter arguments retain their existing command error
 Context keeps settings lazy for storage-only capabilities. `reply`, `result`
 and explicit role access do not acquire a dependency on unrelated malformed
 configuration. Config-consuming talk/check fail before tmux or request storage;
-help retains its safe default fallback. Exchange retention configuration remains
-future TMT-50 work and must extend this owner instead of creating another loader.
+help retains its safe default fallback. Exchange retention configuration uses
+this same owner, not another loader.
 
 ## Caller context
 
@@ -384,7 +436,8 @@ distinct from an absent caller.
 
 Explicit `add`, `talk` and `check` target resolution remains available outside
 tmux; explicit `role --identity` access remains storage-only. These selectors
-choose a target or data owner, not the caller's identity. No listener, non-tmux
+choose a target or data owner. Talk's explicit originator selects local attribution
+without binding the caller. No listener, non-tmux
 identity binding, memory or inbox is implied by this boundary.
 
 ## Binding publication and recovery
@@ -469,7 +522,7 @@ error mappings within the shared invocation output boundary.
 `TargetResolverPort` contains only pane resolution and the verified active-name
 view. The shared target resolver retains pane-first ordering; `identityAwareTmux`
 supplies that view through the required identity service. Config, preamble, role,
-reply and result request types have one owner in `src/cli/requests.ts`; both the
+talk, reply and result request types have one owner in `src/cli/requests.ts`; both the
 parser and command handlers consume those declarations. Handlers do not redeclare
 or re-export a parallel request contract. Feature validation and public error
 mapping remain in their existing owners. A focused AST check derives owned type
