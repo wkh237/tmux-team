@@ -10,7 +10,7 @@ Install the tested `5.0.0-alpha.1` preview directly from this pinned revision.
 Requires macOS or Linux, Node.js >=22.12 (Node 24 recommended), and tmux.
 
 ```bash
-npm install -g https://github.com/wkh237/tmux-team/archive/47eaa363757583b1472b2fbc6bbd3559392afbf8.tar.gz
+npm install -g https://github.com/wkh237/tmux-team/archive/99d4a12bde0e0c63dbb8391a5bb8865c3669b2c1.tar.gz
 tmt install
 ```
 
