@@ -28,20 +28,6 @@ describe('version', () => {
     expect(VERSION).toBe(packageVersion);
   });
 
-  it('keeps package and Claude plugin manifest versions synchronized', () => {
-    const marketplaceJson = readJson('.claude-plugin/marketplace.json');
-    const pluginJson = readJson('plugins/tmux-team/.claude-plugin/plugin.json');
-    const marketplacePlugins = marketplaceJson.plugins;
-
-    expect(Array.isArray(marketplacePlugins)).toBe(true);
-    const marketplacePlugin = (marketplacePlugins as Array<Record<string, unknown>>).find(
-      (plugin) => plugin.name === 'tmux-team'
-    );
-    expect(marketplacePlugin).toBeDefined();
-    expect(marketplacePlugin?.version).toBe(packageVersion);
-    expect(pluginJson.version).toBe(packageVersion);
-  });
-
   it('falls back to hardcoded version when package.json read fails', async () => {
     vi.resetModules();
     vi.doMock('fs', () => ({

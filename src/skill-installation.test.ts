@@ -2,7 +2,9 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   ALL_SKILL_TARGET,
+  getLegacyClaudeCommand,
   getLegacyCodexDirectories,
+  getUniversalSkillSource,
   getSkillConfigs,
   isSkillAgent,
   SKILL_AGENTS,
@@ -13,7 +15,18 @@ describe('skill-installation provider inventory', () => {
     expect(SKILL_AGENTS).toEqual(['claude', 'codex', 'gemini']);
     expect(SKILL_AGENTS.every((agent) => isSkillAgent(agent))).toBe(true);
     expect(isSkillAgent(ALL_SKILL_TARGET)).toBe(false);
-    expect(Object.keys(getSkillConfigs('/package', '/home'))).toEqual([...SKILL_AGENTS]);
+    const configs = getSkillConfigs('/package', '/home');
+    expect(Object.keys(configs)).toEqual([...SKILL_AGENTS]);
+    expect(configs.claude).toEqual({
+      source: getUniversalSkillSource('/package'),
+      target: '/home/.claude/skills/tmux-team',
+    });
+    expect(configs.codex).toEqual({
+      source: getUniversalSkillSource('/package'),
+      target: '/home/.agents/skills/tmux-team',
+    });
+    expect(configs.gemini).toEqual(configs.codex);
+    expect(getLegacyClaudeCommand('/home')).toBe('/home/.claude/commands/team.md');
   });
 });
 

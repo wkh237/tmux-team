@@ -1,691 +1,124 @@
 # tmux-team
 
-Coordinate AI agents (Claude, Codex, Gemini, and other terminal agents) in
-tmux panes. Send direct messages, wait for responses, and inspect pane output
-through the `tmt` CLI.
+Your coding agents, working together. Connect Claude, Codex, and Gemini in
+tmux: delegate by name, collect complete replies, and recover outstanding work
+without digging through terminal history. Local CLI, no daemon required.
 
-## Install
+## v5 preview installation
+
+Install the tested `5.0.0-alpha.1` preview directly from this pinned revision.
+Requires macOS or Linux, Node.js >=22.12 (Node 24 recommended), and tmux.
 
 ```bash
-npm install -g tmux-team
+npm install -g https://github.com/wkh237/tmux-team/archive/dfd7654935996470d15310b77a58f493ba4b4229.tar.gz
 tmt install
 ```
 
-The npm `latest` channel remains the stable v4 release. This source tree is the
-v5 alpha line (`5.0.0-alpha.1`); the `@alpha` channel is not claimed to be
-published. Tags, GitHub Releases, npm publishing, and npm dist-tags are
-separate release operations.
+No Git checkout, pnpm, or database setup needed. `tmt` is the short alias for
+`tmux-team`. npm `latest` still provides v4, and `@alpha` is an older v3 preview;
+neither installs v5. `tmt upgrade` does not update this preview: reinstall the
+chosen pinned revision instead.
 
-`tmt install` auto-detects Claude Code, Codex, and Gemini. Codex and Gemini
-share a managed skill link at `~/.agents/skills/tmux-team`; Claude gets its own
-integration. Repeating the command is idempotent, and unmanaged files are
-backed up only with `--force`. Use `tmt upgrade` to update the package; managed
-skill links immediately use the new bundled files. Interactive commands make a
-once-daily cached update check, while local drift checks work without network.
+After `tmt install`, load or reload the installed `tmux-team` skill in each
+agent before sending work. Provider-specific install notes are in
+[`skills/README.md`](skills/README.md); the canonical bundled guidance is
+[`skills/tmux-team/SKILL.md`](skills/tmux-team/SKILL.md).
 
-**Requirements:** Node.js >= 22.12, tmux
+## Quick start
 
-**Alias:** `tmt` (shorthand for `tmux-team`)
-
-## What's new in 5.0
-
-- `tmt name <global-name>` assigns a global identity to the current pane.
-- `tmt this <global-name>` remains a supported, exact alias for `tmt name`.
-- `tmt add <pane-target> <global-name>` assigns an identity to an explicit pane
-  after resolving the target to tmux's stable `%pane_id`.
-- `tmt talk` and `tmt check` accept either a global name or a direct pane
-  target.
-- `tmt list [target]` lists active identities or the runtime status of one
-  pane.
-- `tmt whoami` and `tmt unbind` inspect and remove the current pane's identity.
-- `tmt role show|set|clear` manages an optional durable profile for an identity,
-  including identities that are currently offline.
-- Multiline messages preserve real line breaks when delivered.
-- `tmt reply` submits a complete result with a supplied receipt, and `tmt result`
-  retrieves the exact retained body without tmux capture.
-- Skills can be installed and refreshed with `tmt install` and `tmt upgrade`.
-
-## Quick Start
+Start a tmux session if you do not already have one:
 
 ```bash
-# 1. Assign global identities (run inside each agent's pane)
-tmt name claude      # bind the current pane as "claude"
-tmt this codex       # exact alias for `tmt name codex`
-# Or bind an explicit pane target; it is stored by stable `%pane_id`
-tmt add 10.1 gemini
-
-# 2. List active identities, or inspect one pane directly
-tmt list
-tmt list %12
-tmt list 10.1
-
-# 3. Talk to an identity or directly to a pane
-tmt talk codex "Review this code"
-tmt talk %12 "Please run the smoke tests"
-
-# 4. Inspect output and manage the current pane's identity
-tmt check codex
-tmt check %12 100
-tmt whoami
-tmt unbind
+tmux new -s tmt
 ```
 
-The `add` argument order is pane target first, global name second:
-`tmt add <pane-target> <global-name>`. If an older example uses
-`tmt add <global-name> <pane-target>`, it is rejected with a usage error; swap
-the two arguments to use the current form.
-
-Global identities are active across folders and do not depend on the current
-working directory. Names may be undeclared—they do not need to match a
-configured agent role. Each pane has at most one active global identity, and a
-global name identifies at most one pane. The name `all` is an ordinary global
-identity, not a special destination. A message addressed to that name goes to
-the single pane currently bound to it.
-
-Binding and discovery coordinate through SQLite and verify live pane metadata
-before a bind reports success. If tmux cannot be verified or coordination times
-out, the operation reports an error instead of claiming a successful binding.
-An interrupted operation can leave an inactive pane marker; it does not become
-an identity through discovery. Use `name`/`this` or `add` explicitly to bind
-again. Existing durable identities and role profiles survive pane loss and
-failed publication; do not delete their data to repair a binding.
-
-### Pane targets
-
-`name`, `this`, `whoami` and `unbind` require a live caller pane whose
-`TMUX_PANE` and `TMUX` server context agree. Missing or stale caller context
-returns `PANE_NOT_FOUND` (exit 3), without selecting the default pane or
-changing identity data. Implicit `role` access returns `IDENTITY_REQUIRED`
-(exit 1) in that situation. Do not manufacture caller environment variables
-as a workaround: outside tmux, use explicit `add`, `talk`, `check`, or
-`role show|set|clear --identity <name>` as appropriate.
-
-Commands that accept a target recognize a global name or a tmux pane target:
-
-- `%pane_id`, such as `%12`
-- `window.pane`, such as `1.0`
-- `session:window.pane`, such as `main:1.0`
-
-`tmt add` resolves a window-style target to the pane's stable `%pane_id`
-before storing it. Use `%pane_id` when a script needs an unambiguous target.
-Find the current pane ID with:
+Once the session opens, name the target pane from its shell before launching
+the agent:
 
 ```bash
-tmux display-message -p '#{pane_id}'
+tmt name reviewer
+gemini
 ```
 
-## Durable identities without a pane
-
-The same commands work inside and outside tmux:
+From another terminal or tmux pane, send a request by name:
 
 ```bash
-tmt identity create coordinator --json
-tmt identity show coordinator --json
-tmt identity list --json
+tmt talk reviewer "Review the current changes and report concrete risks."
 ```
 
-Creation returns `{identity:{id,name,canonicalName},created}`. Repeating a
-canonical-equivalent name returns the same UUID and original display name with
-`created:false`, without changing a pane binding or profile. Show returns
-`{identity:{id,name,canonicalName}}`; list returns `{identities:[...]}` in
-canonical-name order, including unbound identities. These storage-only commands
-work even with no tmux server or malformed unrelated configuration.
+The receiving agent's loaded skill explains how to use the request ID and
+receipt supplied with the request. The default `talk` waits for that complete
+reply; `--detach` returns a request ID so you can retrieve the result later
+with `tmt result <request-id>`. A terminal marker, idle output, or process exit
+is not a completed reply.
 
-This does not log in or bind the caller. Use `talk --identity coordinator` to
-attribute a request; a recipient still needs a live bound pane. `tmt list`
-continues to show active destinations, not every stored identity. Create/show
-require a name: invalid names return `INVALID_NAME` (exit 1), while a valid
-missing show name returns `NAME_NOT_FOUND` (exit 3). No identity deletion,
-rename or listener is added by identity creation/discovery.
+## Durable identity and recovery
 
-## Commands
-
-View the exact bundled universal skill with `tmt learn --skill`; plain
-`tmt learn` shows the guide. Both modes are text-only.
+Create a durable originator identity even when it is not currently bound to a
+pane, then attribute requests explicitly:
 
 ```bash
-tmt install --dir './project skills'
+tmt identity create coordinator
+tmt talk reviewer "Run the agreed checks." --identity coordinator --detach --json
 ```
 
-This installs a managed link at `./project skills/tmux-team`, relative to the
-current directory. Do not combine a custom directory with a provider or `all`.
-Existing unmanaged content is preserved unless `--force` requests a recoverable
-backup. Repeating the same install is a no-op for a correct link. Custom mode
-does not migrate default-provider paths or touch unrelated sibling files.
-
-Choose a folder your provider discovers; installation does not reload an active
-agent. Managed links follow bundled updates at the same package path. Rerun
-the same install command after package relocation to repair a custom link.
-Automatic drift reminders cover known default paths, not arbitrary custom
-folders or provider-managed plugins. The npm version check uses `latest`,
-not an alpha-channel skill version tracker.
-
-| Command                                                                             | Description                                                 |
-| ----------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| `install [claude\|codex\|gemini\|all]`                                              | Install or repair agent integrations                        |
-| `upgrade`                                                                           | Upgrade tmux-team; managed skill links update automatically |
-| `name <global-name>`                                                                | Bind the current pane to a global identity                  |
-| `this <global-name>`                                                                | Exact supported alias for `name`                            |
-| `add <pane-target> <global-name>`                                                   | Bind an explicit pane to a global identity                  |
-| `whoami`                                                                            | Show the current pane's global identity, if any             |
-| `unbind`                                                                            | Remove the current pane's global identity                   |
-| `role show [--identity <name>]`                                                     | Read an identity's optional role profile                    |
-| `role set <profile> [--identity <name>]`                                            | Replace an identity's role profile                          |
-| `role set --file <path> [--identity <name>]`                                        | Replace a profile from a UTF-8 file                         |
-| `role clear [--identity <name>]`                                                    | Remove only the role profile                                |
-| `talk <target> "msg"`                                                               | Send a message to a global name or pane target              |
-| `check <target> [lines]`                                                            | Read output from a global name or pane target               |
-| `reply <request-id> --receipt <receipt> (--message <text>\|--file <path>\|--stdin)` | Submit a complete result                                    |
-| `result <request-id>`                                                               | Retrieve a retained result or report it unavailable         |
-| `list [target]`                                                                     | List active identities, or one target's pane status         |
-| `learn`                                                                             | Show the educational guide                                  |
-
-`list` also has the `ls` alias. With no target it shows all active global
-identities. With a target it resolves a global name or direct pane target and
-shows that pane's status. `talk` and `check` use the same target resolution.
-
-**Options for `talk`:**
-
-- `--timeout <time>` - Bound default durable waiting (default: 180s; positive, at most 24h)
-- `--detach` - Return a request ID after sending; mutually exclusive with explicit timeout
-- `--delay <seconds>` - Delay before sending
-- `--identity <existing-name>` - Attribute the request to an existing durable identity
-
-Put `--identity` after `talk` (or its `send` alias). It selects the originator,
-not the recipient, and works for an existing offline identity. Explicit selection
-takes precedence over a bound caller; omission uses a verified caller when one
-exists and otherwise remains anonymous. Selection does not create an identity
-or authenticate authorship. Unknown explicit names fail before sending.
-
-New requests retain the exact original message locally in SQLite for their frozen
-retention duration (90 days by default), before preamble, reply instructions and
-the transport's `!` protection. Avoid secrets. The limit is 1,048,576 UTF-8 bytes
-of well-formed Unicode; empty text is valid, while operating-system argument
-limits still apply. Invalid/oversized input returns `REQUEST_INPUT_INVALID` or
-`REQUEST_INPUT_TOO_LARGE` (exit 1) before target effects. No talk file/stdin source
-is introduced. Historical requests have unavailable original context; nothing
-is reconstructed from a pane. Use `x show` for identity-scoped retained context.
-Existing talk/result output remains unchanged.
-
-`--wait` is retired. `--lines` belongs to diagnostic `check`, not `talk`.
-Time accepts seconds or ms/s suffixes. Stored mode and maxCaptureLines values
-are inert and preserved; `config clear mode` removes only the obsolete local key.
-
-### Exchange attention and recovery
-
-X lists retained requests originated by a durable identity, so recovery does not
-depend on remembering individual request IDs or retaining a terminal transcript.
+If a caller times out, detaches, or loses its pane, recover requests originated
+by that identity from local storage:
 
 ```bash
 tmt x --identity coordinator --json
 tmt x show <request-id> --identity coordinator --json
-tmt x ack <request-id> --revision <revision> --identity coordinator --json
 tmt x ackall --identity coordinator --json
 ```
 
-Omit `--identity` only in a verified bound pane. Explicit access works outside
-tmux, even while another pane uses that identity; selection is not authentication.
-Anonymous historical requests cannot be inferred into an identity view.
+`x` lists retained attention metadata; `x show` reads the retained context and
+final when available; `ackall` marks the current snapshot handled, while a
+later final appears again. These commands do not cancel work or turn TMT into
+an inbox.
 
-Bare `x` is `x list`: only unacknowledged metadata, without prompt/final bodies.
-Use `--limit` (1..200, default 50) and follow non-null `nextAfter` with `--after`.
-This is a live revision cursor: a new final can move a request forward; deduplicate
-by request ID and restart at 0 to refresh. Show includes exact retained context.
+## What tmux-team provides
 
-Reads never acknowledge. Single ack requires the observed revision and rejects
-a stale one with `X_REVISION_CONFLICT` (exit 5). `ackall` requires no prior lookup
-or token; it acknowledges the current transaction snapshot and returns
-`acknowledgedThrough`, not a count or a claim that every body was read. Later
-requests/finals remain unacknowledged. Each repeat takes a new snapshot.
+- Global names that survive working-directory changes and optional durable role
+  profiles for each identity.
+- `talk`, `check`, and `list` by global name or direct tmux pane target.
+- Complete final replies through `reply`/`result`, including late replies after
+  a pane closes.
+- Local SQLite state with no background service and no network transport.
+- Skills for Claude Code, Codex, and Gemini, installed or repaired by `tmt install`.
 
-Delivery and final are separate: `not_submitted` is not proof a task is running;
-a submitted final can be retained, expired or unavailable. Settled means a final
-was submitted and its revision acknowledged, not that the task succeeded.
-Acknowledgment does not cancel work, delete content or renew retention. A pending
-request acknowledged now reappears when its first final arrives. Unknown,
-wrong-originator, anonymous and metadata-expired records return `X_NOT_FOUND`
-(exit 3). This is not an offline recipient queue, listener or memory search.
-
-### Durable replies and results
-
-Talk waits for a complete durable final by default. It sends an exact request
-ID/receipt to the recipient, who must submit a reply. The storage-only result
-adapters work without tmux and can accept a late reply after a pane closes:
-
-```bash
-tmt reply <request-id> --receipt <receipt> --message 'Review complete.'
-tmt reply <request-id> --receipt <receipt> --file response.md
-tmt reply <request-id> --receipt <receipt> --stdin < response.md
-tmt result <request-id>
-tmt result <request-id> --json
-```
-
-Use `--message` for short replies, including an explicit empty string. Quote
-the body for your shell; use `--message='-leading text'` for a leading hyphen.
-Choose exactly one of `--message`, `--file`, or `--stdin`. Inline arguments
-have operating-system size limits and cannot contain NUL; use file/stdin for
-large bodies or NUL-containing text. All sources share the same exact-body
-validation and immutable submission rules.
-
-Received instructions group the reply command in `<tmt-reply>` tags, with the
-request ID and receipt supplied once. These tags do not guarantee hidden UI
-rendering and are not terminal-output completion markers. Replace the message
-placeholder with your complete response, or use file/stdin with the same
-request ID and receipt.
-
-Use exactly one input source. The receipt must be supplied by TMT; do not
-manufacture one, look up the latest request, or infer a current pane. Detached
-requests receive the same instructions. No reply means no durable final:
-terminal markers, idle output, summaries and process exit cannot complete talk.
-This is local storage access, not an inbox, listener or remote transport.
-
-```bash
-tmt talk reviewer "Review this patch" --timeout 300 --json
-tmt talk reviewer "Run the agreed tests" --detach --json
-tmt result <request-id> --json
-```
-
-Detach returns `{status:"sent",requestId,target,pane,identity?}`, not task success.
-Completed talk returns that correlation with `status:"completed"`, exact
-`response`, `bodyBytes` and `submittedAtMs`, matching result retrieval.
-The observer clock begins immediately before send after preparation/delay;
-transport/Enter time counts, but cannot be cancelled mid-operation. Equality
-with the deadline, or a response read crossing it, yields timeout; no final
-post-deadline read occurs. Late results remain retrievable. Do not resend
-merely because a caller timed out or was interrupted.
-
-Reply input preserves the complete valid UTF-8 body, including empty or
-whitespace text, BOM, NUL, CR/LF, Unicode, and marker-like text, up to 1 MiB.
-File input must be a regular UTF-8 file; stdin is EOF-driven and bounded by a
-five-second input deadline. A successful reply means the result was delivered,
-not that the requested task succeeded. Agents should show a brief truthful
-summary only after a successful submission; the summary is not a completion
-signal.
-
-Retrying the identical body for the same request and attempt is idempotent and
-keeps the original `submittedAtMs`. A different body is a conflict; the
-stored response and timestamp remain unchanged.
-
-The receipt is local correlation, not remote authentication. New requests freeze
-the global retention duration at preparation (90 days by default); accepted
-bodies use that duration from submission. Existing requests and bodies migrated
-from the earlier schema keep seven days. Identical retry is safe only
-while retained with the same receipt and body, not indefinitely. A missing
-result does not cancel the work. Surface failed submission without a success
-summary, and do not resubmit if final summarization fails after acceptance.
-
-With `--json`, reply success is `{status:"submitted",requestId,bodyBytes,submittedAtMs}`;
-result success is `{status:"completed",requestId,response,bodyBytes,submittedAtMs}`.
-Unavailable JSON is
-`{status:"unavailable",requestId,error:{code:"RESPONSE_NOT_AVAILABLE",message}}`.
-If no retained body is available—pending, unknown, or expired—result returns
-`RESPONSE_NOT_AVAILABLE` (exit 3). Input errors are typed and exit 1,
-`RESPONSE_INPUT_TIMEOUT` exits 4, and service conflicts use exit 5. Do not
-expect receipts, endpoints, or raw bodies in a reply acknowledgement.
-
-Run `tmt help` for all commands and options.
-
-## Runtime and lifecycle
-
-tmux-team is CLI-only. Each `tmt` invocation reads or updates tmux pane
-metadata, sends any requested message, and exits; there is no daemon or
-background service to start, stop, or keep healthy. tmux must be running when a
-command needs pane state.
-
-An identity record is durable, while its tmux binding and active presence are
-transient. TMT treats an identity as active only when SQLite, the live tmux
-server and pane, and the pane's identity metadata all agree. Pane targets are
-resolved to stable `%pane_id` values, so pane movement and window renumbering
-preserve the binding while the pane exists. Killing a pane or restarting its
-tmux server removes the stale binding on reconciliation without deleting the
-identity record; the same name can be bound again later with its original
-identity ID.
-
-Identity creation commits separately from binding publication. Once created,
-an identity is never deleted by a failed bind. Trying a valid new name on an
-occupied pane returns `PANE_ALREADY_BOUND` (exit 5), preserves the existing
-binding, and leaves the new identity offline. It cannot receive `talk` by name,
-but explicit role/preamble access works. Retrying on an available pane reuses
-its UUID and profiles. Invalid names and panes missing at preflight create no
-identity. There is no automatic garbage collection or identity deletion command.
-
-Names are unique across tmux servers that share the same local TMT database,
-but active discovery and `talk`/`check` routing remain scoped to the current
-server. A routine read reconciles only that server's socket; it does not
-remove another server's bindings. `%pane_id` alone is not globally unique
-across servers.
-
-Binding a name already recorded on another socket performs a bounded,
-read-only check of that endpoint. A verified live binding returns
-`NAME_ALREADY_ACTIVE` (exit 5). If its state cannot be verified, the operation
-returns `RECONCILIATION_FAILED` (exit 1) and preserves the binding. A proven
-stale endpoint can be rebound without replacing the durable identity or role
-profile. This does not add cross-server message routing or a background
-reconciler.
-
-Pane metadata is part of that presence check. A pane title may be updated as a
-best-effort presentation side effect, but titles are not the identity API.
-
-Earlier v5 name-only pane markers are not automatically imported into SQLite.
-They do not establish active identity routing. Use `tmt name <name>`, its
-`tmt this <name>` alias, or `tmt add <pane-target> <name>` to bind explicitly.
-Malformed or unsupported identity metadata cannot establish presence; unrelated
-valid identities remain discoverable. Reads do not rewrite old pane markers or
-delete legacy files, and invalid presence does not delete durable role profiles.
-
-Messages use tmux buffer paste and then submit with Enter. Line breaks are
-preserved, but ASCII `!` is deliberately converted to fullwidth `！` to protect
-coding-agent shell/bash-mode shortcuts, including on the literal-key fallback
-path. This means code such as `if (!ready)` is not delivered byte-for-byte.
-Bracketed paste is not assumed to disable every agent's shortcuts. The
-paste-to-Enter delay is configurable:
-
-```bash
-tmt config set pasteEnterDelayMs 500
-```
-
-Once paste or literal input may have reached a pane, TMT does not automatically
-replay it. A failed input/submission stage returns `DELIVERY_UNCERTAIN` (exit 1)
-for both default wait and detach, with request ID and `error.stage` in JSON. Inspect the pane
-before deciding whether to retry; absent visible output does not prove that no
-work started. Successful submission does not promise exactly-once processing.
-Each transport/capture subprocess is bounded independently of the configured
-Enter delay and response wait timeout.
-
-Response waits retrieve exact durable bodies without terminal extraction or
-provider-specific cleanup. `check` is a diagnostic snapshot, not durable result
-retrieval. Same-pane input serialization is not guaranteed. See the
-[channel research and implementation plan](REQUEST-RESPONSE.md).
-
-## Configuration validation
-
-`tmt config show --json` reports the resolved values and selected config paths.
-The existing global `config.json` and local `tmux-team.json` `$config` retain
-their precedence; no new settings file is required.
-
-`config set` supports `preambleMode`, `preambleEvery`, and `pasteEnterDelayMs`.
-Use `--global` to write the global file; otherwise it writes a local override.
-Numeric setter input must contain decimal digits only, without suffixes,
-fractions, signs or whitespace. Zero disables preamble injection or the
-paste-to-Enter delay. Preamble frequency must be a safe integer; paste delay
-is bounded to 2,147,483,647 milliseconds.
-
-Exchange retention is global-only:
-
-```bash
-tmt config set exchange.retentionDays 90 --global
-```
-
-The same global file stores `{"exchange":{"retentionDays":90}}`; valid values
-are integer days from 1 through 3650. `config show` reports the resolved duration
-and global/default source. Local fields do not override it; a local setter or
-`config clear exchange.retentionDays` is rejected. Changes affect newly prepared
-requests only, not existing records, reply eligibility or observer timeouts.
-
-Stored UTC deadlines determine logical expiry. Bounded cleanup runs during
-request/result operations, not on a background schedule. A final's retention
-starts at submission, so a late accepted reply can keep metadata longer than
-the original request horizon. Reads/retries do not renew retention or acknowledge
-results. Unread records do not live forever. Physical deletion may occur later;
-it does not promise database-file shrinkage or secure erasure. Wall-clock
-rollback can delay logical expiry while data remains physically stored.
-
-Loaded configuration validates each supplied known field before merging:
-timeout must be positive and at most 86,400 seconds, poll interval positive
-and finite, capture count an integer from zero through 2,147,483,647, and
-preamble mode either `always` or `disabled`. Loaded JSON paste delay may be
-fractional within its finite non-negative bound. Nulls and numeric strings
-are not defaults. Invalid settings return `CONFIG_ERROR` (exit 1), even if a
-higher tier would override them. Unknown/retired fields stay opaque in raw
-files and are excluded from runtime settings.
-
-Rejected updates preserve the original file; setting a bad field to a valid
-value can repair it, but another invalid known field still prevents saving.
-This is validation before writing, not a concurrent-write or crash-atomic
-guarantee. Storage-only `reply` and `result` remain independent of malformed
-settings. Fix the reported field rather than deleting unrelated configuration.
-
-## Local SQLite storage
-
-TMT owns its local SQLite database. The database is deliberately local-file
-only: it is not a shared service, does not listen on a network socket, and is
-not accessed by a daemon. The default path is the global TMT directory
-selected by the XDG config resolution rules: `$XDG_CONFIG_HOME/tmux-team/tmux-team.db`,
-or `~/.config/tmux-team/tmux-team.db` when `XDG_CONFIG_HOME` is unset. The
-configuration file remains separate. Legacy JSON request/counter state is
-ignored and left untouched; it is not imported into SQLite.
-
-The storage directory is created with mode `0700` and database files with mode
-`0600`; operators should not place the database on a shared or untrusted
-filesystem. SQLite WAL sidecar files must remain beside the database and must
-not be deleted manually. Writers use a bounded busy timeout and checkpoint
-after write work. Normal command shutdown uses a passive checkpoint; backup or
-export first obtains a consistent SQLite backup and may use a truncate
-checkpoint only after no active reader remains.
-
-Durable identity records, optional role profiles, and transient tmux bindings
-use this storage boundary. Memory and inbox schemas are intentionally deferred
-to their respective tickets; this release does not expose aliases or those
-later domain models.
-
-## Managing global identities
-
-Bind the current pane, or bind another pane by an explicit target:
-
-```bash
-tmt name reviewer
-tmt add %12 gemini
-```
-
-Inspect active identities and pane status:
+Useful commands:
 
 ```bash
 tmt list
-tmt list gemini
-tmt list %12
 tmt whoami
+tmt add <pane-target> <global-name>
+tmt check reviewer 100
+tmt result <request-id> --json
+tmt help
 ```
 
-Remove the current pane's binding with `tmt unbind`. This preserves the durable
-identity record so its name and ID can be rebound later. Repeating `tmt unbind`
-on an already-unbound pane returns `UNBOUND_PANE`. Pane movement and window
-renumbering preserve the binding's stable `%pane_id` while the pane lives.
+## Boundaries worth knowing
 
-## Optional role profiles
+TMT routes to live panes on the current tmux server. It does not provide an
+offline recipient queue, remote routing, shared memory, authentication, or MCP
+connectivity. Durable identity records and retained request/reply data are
+local to the configured SQLite database.
 
-Each identity can carry one optional role/profile document. A role is not a
-reusable catalog entry or an assignment to another identity. An identity with
-no role remains valid.
+Messages preserve line breaks, but ASCII `!` is converted to fullwidth `！` to
+protect coding-agent shell shortcuts. If delivery becomes uncertain, inspect
+the pane before retrying; do not resend just because a caller timed out.
 
-```bash
-tmt role set "Review changes and preserve verification evidence."
-tmt role set --file reviewer.md --identity reviewer
-tmt role show --identity reviewer
-tmt role clear --identity reviewer
-```
+For workflows, recovery details, role profiles, preambles, configuration, and
+failure semantics, see the [user guide](USER-GUIDE.md). The durable
+request/response design is documented in
+[`REQUEST-RESPONSE.md`](REQUEST-RESPONSE.md).
 
-Omit `--identity` only when the current pane has a verified identity binding.
-Otherwise specify an existing identity explicitly. Explicit access works
-outside tmux and while an identity is offline; it does not create a missing
-identity. Profiles survive unbind, pane death, tmux server restart, and later
-rebind. `clear` removes only the profile and succeeds even when no profile was
-set. `show --json` returns `role: null` for an identity without a profile.
+## One skill, no plugin
 
-Both inline and file input use the same validation. Each raw input and its
-normalized content must be at most 65,536 UTF-8 bytes. Files must be regular
-files containing valid UTF-8; symlinks to regular files are accepted. TMT
-removes one initial byte-order mark and normalizes CRLF/CR to LF, preserving
-other whitespace, tabs, indentation, and trailing newlines. Empty or
-whitespace-only content, malformed encoding, and binary control characters
-are rejected without changing the stored profile. Use `clear`, not an empty
-`set`, to remove a profile.
-
-Writes replace the whole profile atomically. Concurrent writes use
-last-committed-write-wins; there is no content merge or version-conflict check.
-The role document is stored data only: it is not automatically injected into
-`talk` messages and does not change identity preambles.
-
-## Identity preambles
-
-Preambles belong to existing durable global identities, separately from role
-profiles. Managing them does not require tmux or an active binding:
-
-```bash
-tmt preamble show
-tmt preamble show codex
-tmt preamble set codex "You are the code quality guard. Be strict."
-tmt preamble clear codex
-```
-
-When you send a message, tmux-team injects the preamble like this:
-
-```
-[SYSTEM: You are the code quality guard. Be strict.]
-
-Review the login flow changes.
-```
-
-Names are explicit and case-normalized; an unknown identity fails with
-`NAME_NOT_FOUND` (exit 3). Bare `preamble` or `show` without a name lists stored
-preambles, not the caller's data. Show returns null when an existing identity
-has no preamble; repeated clear is safe. Set accepts nonblank text up to 65,536
-UTF-8 bytes, normalizes an initial BOM and CRLF/CR, and rejects invalid Unicode
-or control characters without replacing existing content. Use clear to remove it.
-
-Both name targets and direct panes with a verified identity use that identity's
-preamble. Unnamed panes get none. Role text is never automatically injected.
-Content persists across directories, unbind, pane death and server restart.
-Control injection frequency with `preambleEvery`:
-
-```bash
-tmt config set preambleEvery 3
-```
-
-For N, injection occurs at effective reservation counts 1, 1+N, 1+2N, and so on. Disabled
-`preambleMode`, `--no-preamble`, no stored content, or N=0 does not advance the
-counter. Set, clear and rebind do not reset it. SQLite atomically reserves each
-eligible attempt against its durable identity. Sent, uncertain, and pending
-attempts count; a proven unsent attempt refunds only future reservations.
-Already prepared payloads do not change. Sequential definitely-unsent failures
-do not consume cadence, but overlapping failures can produce extra or missing
-preambles relative to ideal successful-send spacing. There is no hidden
-single-flight lock or exactly-once delivery guarantee. The SQLite request/cadence
-cutover starts fresh without importing or deleting old JSON state.
-
-### Concurrent request bookkeeping
-
-Each `talk` attempt records its own ID and complete tmux server/pane instance
-in SQLite, including direct unnamed panes. Concurrent waiters never replace
-one another's rows; an overlap warning is advisory, and `--force` only suppresses
-the warning. Cleanup affects only its own attempt. Transactions end before
-transport and polling, so a waiting agent does not hold the database writer lock.
-
-An attempt is prepared before transmission and marked sending immediately
-before invoking it. A crash after sending starts is uncertain, never permission
-to retry. Timeout or interruption releases the waiter, not the recipient's
-work. Expired prepared attempts can refund their reservations; expired sending
-attempts remain consumed as uncertain. Attempt metadata is pruned opportunistically
-after terminal retention; cadence totals persist. Original messages have a fixed
-preparation-anchored expiry, independent of later final submission. Complete
-final responses are stored separately by the same request service. Reads never
-acknowledge either side or renew retention.
-
-`REQUEST_STATE_ERROR` (exit 1) reports a bookkeeping failure. When delivery may
-already have occurred, inspect the pane before retrying; a failed state write
-does not mean the message was not sent. Preserve its request ID to inspect
-the retained result; do not infer that retrying is safe.
-
-Old preambles in JSON or workspace metadata are ignored, not automatically
-imported or deleted. Reapply desired text using `preamble set`. A preamble lookup
-failure stops delivery rather than silently sending without it.
-
-## JSON result contract
-
-For commands using `--json`, stdout contains one JSON document after cleanup.
-Errors use `{ "error": { "code": "...", "message": "..." } }`; optional
-diagnostics use stderr. Preserve and inspect additional error fields such as
-delivery `stage` and `suggestion`. Successful operations without a detailed
-result, such as `config set`, return `{ "ok": true }`.
-
-Exit statuses remain meaningful: 1 is a general failure, 3 a missing target,
-4 a timeout, and 5 a conflict. Parse errors now use `USAGE_ERROR` on stdout,
-not a flat string error on stderr. Initialization errors are also handled by
-the command boundary. `CLEANUP_ERROR` after successful work does not roll back
-its effects; inspect state before retrying. A cleanup failure alongside an
-existing command failure preserves that primary error and status.
-
-Talk timeout returns `status:"timeout"`, request ID, target/pane correlation and
-`error:{code:"TIMEOUT",message:"..."}` (exit 4), without partialResponse,
-nonce, endMarker or truncated. Timeout and Ctrl+C release the waiter, not
-recipient work. Use `tmt result <request-id> --json` later. Failure replacement
-after a pending result preserves bounded request ID/target/pane inspection
-fields, not its raw response or receipt.
-
-`help`, `version`, `completion`, and `learn` remain text-only; combining them
-with `--json` returns `JSON_UNSUPPORTED` before output or effects. `upgrade`
-also rejects JSON because its installer streams text. Run these without
-`--json`. This contract covers the running application, not a broken runtime
-installation or an unwritable output pipe.
-
-## Retired registry commands
-
-V5 no longer supports `update`, `remove` (or `rm`), or `migrate`, including
-its former `--cleanup` option. These commands return an unknown-command error
-without changing files, pane metadata, or durable identities. Old user files
-are not automatically migrated or deleted.
-
-Use `name`/`this` or `add` to bind a durable identity, and `unbind` to detach
-the current pane without deleting its identity or role profile. No replacement
-durable-identity deletion or rename command is introduced.
-
-Local `$config` settings still use `tmux-team.json`; unknown keys remain when
-editing settings. Legacy pane, preamble and deny entries are no longer runtime
-configuration or routing authority. Ordinary preamble operations leave those
-files and opaque old pane metadata untouched.
-
-## Using /team in Claude Code
-
-The `/team` command lets Claude invoke `tmt` to communicate with other agents.
-Install the plugin:
-
-```
-/plugin marketplace add wkh237/tmux-team
-/plugin install tmux-team@tmux-team
-```
-
-### Claude entry points
-
-`tmt install claude` installs the standalone `/team` command. The marketplace
-plugin retains its `tmux-team` namespace: `/tmux-team:team` for coordination,
-`/tmux-team:learn` for guidance, and `/tmux-team:tmux-team` for the bundled skill.
-Plugin entry points are namespaced according to the
-[Claude plugin contract](https://code.claude.com/docs/en/plugins).
-The following examples use the standalone command:
-
-| Command                        | What it does                                   |
-| ------------------------------ | ---------------------------------------------- |
-| `/team list [target]`          | List active identities or one pane's status    |
-| `/team talk <target> "msg"`    | Send a message to a global name or pane target |
-| `/team check <target> [lines]` | Read output from a global name or pane target  |
-
-Examples:
-
-```text
-/team talk codex "Review my changes in src/auth/ for security issues"
-/team check %12 100
-/team list
-```
-
-`/team talk` follows the same wait and timeout options as `tmt talk`. With the
-plugin, use `/tmux-team:learn` for guidance. The CLI's `tmt learn --skill`
-shows the canonical guidance without requiring the plugin.
-
-## Learn More
-
-```bash
-tmt learn   # Comprehensive guide
-tmt help    # All commands and options
-```
+`tmt install` installs the same native skill for Claude Code, Codex, and Gemini.
+Claude Code can invoke it as `/tmux-team`; no marketplace or separate `/team`
+command is needed. See the [installation guide](skills/README.md) if you have
+an older command or plugin installed.
 
 ## License
 

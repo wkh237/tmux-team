@@ -171,6 +171,10 @@ function verifyPackedSkills(projectDirectory, env, providers) {
       expectedStatus,
     });
 
+  const legacyClaudeCommand = path.join(home, '.claude', 'commands', 'team.md');
+  fs.mkdirSync(path.dirname(legacyClaudeCommand), { recursive: true });
+  fs.writeFileSync(legacyClaudeCommand, 'legacy Claude command\n');
+
   const packageRoot = path.join(projectDirectory, 'node_modules', 'tmux-team');
   const source = path.join(packageRoot, 'skills', 'tmux-team', 'SKILL.md');
   const content = fs.readFileSync(source, 'utf8');
@@ -186,15 +190,55 @@ function verifyPackedSkills(projectDirectory, env, providers) {
     installed.installed.map((item) => item.agent),
     providers
   );
+  assert.deepEqual(
+    Object.fromEntries(installed.installed.map((item) => [item.agent, item.target])),
+    {
+      claude: path.join(home, '.claude', 'skills', 'tmux-team'),
+      codex: path.join(home, '.agents', 'skills', 'tmux-team'),
+      gemini: path.join(home, '.agents', 'skills', 'tmux-team'),
+    },
+    'Provider installs must use only the canonical skill targets'
+  );
   const universal = path.join(home, '.agents', 'skills', 'tmux-team');
-  const claude = path.join(home, '.claude', 'commands', 'team.md');
+  const claude = path.join(home, '.claude', 'skills', 'tmux-team');
   assert.ok(fs.lstatSync(universal).isSymbolicLink());
   assert.equal(fs.readFileSync(path.join(universal, 'SKILL.md'), 'utf8'), content);
   assert.ok(fs.lstatSync(claude).isSymbolicLink());
-  assert.equal(
-    fs.readFileSync(claude, 'utf8'),
-    fs.readFileSync(path.join(packageRoot, 'skills', 'claude', 'team.md'), 'utf8')
+  assert.equal(fs.readFileSync(path.join(claude, 'SKILL.md'), 'utf8'), content);
+  assert.equal(fs.realpathSync(universal), fs.realpathSync(path.dirname(source)));
+  assert.equal(fs.realpathSync(claude), fs.realpathSync(path.dirname(source)));
+  assert.ok(fs.existsSync(legacyClaudeCommand), 'The legacy Claude command should be preserved');
+  const legacyContent = fs.readFileSync(legacyClaudeCommand, 'utf8');
+  assert.equal(legacyContent, 'legacy Claude command\n');
+
+  const repeatedDefault = JSON.parse(run(['install', 'all', '--json']));
+  assert.deepEqual(
+    repeatedDefault.installed.map((item) => item.changed),
+    providers.map(() => false),
+    'Repeating installation should be a no-op for managed canonical links'
   );
+
+  // An unmanaged canonical Claude target must remain untouched unless force
+  // is explicit, while the old command path above remains user-owned.
+  fs.rmSync(claude, { recursive: true, force: true });
+  fs.mkdirSync(claude, { recursive: true });
+  fs.writeFileSync(path.join(claude, 'user-owned.md'), 'keep this file\n');
+  const refused = JSON.parse(run(['install', 'all', '--json'], 1));
+  assert.ok(refused.error, 'Unmanaged canonical content must require --force');
+  assert.equal(fs.readFileSync(path.join(claude, 'user-owned.md'), 'utf8'), 'keep this file\n');
+  assert.equal(fs.readFileSync(legacyClaudeCommand, 'utf8'), legacyContent);
+  const forced = JSON.parse(run(['install', 'all', '--force', '--json']));
+  const claudeInstall = forced.installed.find((item) => item.agent === 'claude');
+  assert.equal(claudeInstall.changed, true);
+  assert.ok(claudeInstall.backup, 'Force installation should report the recoverable backup');
+  assert.equal(
+    fs.readFileSync(path.join(claudeInstall.backup, 'user-owned.md'), 'utf8'),
+    'keep this file\n'
+  );
+  assert.ok(fs.lstatSync(claude).isSymbolicLink());
+  assert.equal(fs.existsSync(legacyClaudeCommand), false);
+  assert.deepEqual(claudeInstall.legacyBackups?.length, 1);
+  assert.equal(fs.readFileSync(claudeInstall.legacyBackups[0], 'utf8'), legacyContent);
 
   const customRoot = path.join(projectDirectory, 'custom skills');
   fs.mkdirSync(customRoot);
@@ -217,6 +261,7 @@ function verifyPackedSkills(projectDirectory, env, providers) {
   fs.writeFileSync(source, updated);
   assert.equal(fs.readFileSync(path.join(target, 'SKILL.md'), 'utf8'), updated);
   assert.equal(fs.readFileSync(path.join(universal, 'SKILL.md'), 'utf8'), updated);
+  assert.equal(fs.readFileSync(path.join(claude, 'SKILL.md'), 'utf8'), updated);
   assert.equal(run(['learn', '--skill']), updated);
 }
 

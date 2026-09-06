@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 import type { Context, Flags, Paths, ResolvedConfig, Tmux, UI } from '../types.js';
 import { ExitCodes } from '../exits.js';
-import { ALL_SKILL_TARGET, SKILL_AGENTS } from '../skill-installation.js';
+import { ALL_SKILL_TARGET, getLegacyClaudeCommand, SKILL_AGENTS } from '../skill-installation.js';
 import { createDefaultConfig } from '../config-settings.js';
 
 function createMockUI(): UI {
@@ -115,9 +115,84 @@ describe('cmdInstall', () => {
     const { cmdInstall } = await import('./install.js');
     const ctx = createCtx(testDir, { flags: { force: true } });
     await cmdInstall(ctx, 'claude');
+    await cmdInstall(ctx, 'claude');
 
-    const installed = path.join(homeDir, '.claude', 'commands', 'team.md');
-    expect(fs.existsSync(installed)).toBe(true);
+    const installed = path.join(homeDir, '.claude', 'skills', 'tmux-team');
+    expect(fs.lstatSync(installed).isSymbolicLink()).toBe(true);
+    expect(fs.readdirSync(path.dirname(installed))).toEqual(['tmux-team']);
+  });
+
+  it('preserves the legacy Claude command without force and warns after native installation', async () => {
+    vi.resetModules();
+    vi.doMock('node:os', () => ({
+      default: { homedir: () => homeDir },
+      homedir: () => homeDir,
+    }));
+    const legacy = getLegacyClaudeCommand(homeDir);
+    fs.mkdirSync(path.dirname(legacy), { recursive: true });
+    fs.writeFileSync(legacy, 'legacy command');
+
+    const { cmdInstall } = await import('./install.js');
+    const ctx = createCtx(testDir);
+    await cmdInstall(ctx, 'claude');
+
+    expect(fs.readFileSync(legacy, 'utf8')).toBe('legacy command');
+    expect(
+      fs.lstatSync(path.join(homeDir, '.claude', 'skills', 'tmux-team')).isSymbolicLink()
+    ).toBe(true);
+    expect(ctx.ui.warn).toHaveBeenCalledWith(expect.stringContaining('--force'));
+  });
+
+  it('backs up the exact legacy Claude command with force after native installation succeeds', async () => {
+    vi.resetModules();
+    vi.doMock('node:os', () => ({
+      default: { homedir: () => homeDir },
+      homedir: () => homeDir,
+    }));
+    const legacy = getLegacyClaudeCommand(homeDir);
+    fs.mkdirSync(path.dirname(legacy), { recursive: true });
+    fs.writeFileSync(legacy, 'legacy command');
+
+    const { cmdInstall } = await import('./install.js');
+    const ctx = createCtx(testDir, { flags: { force: true, json: true } });
+    await cmdInstall(ctx, 'claude');
+
+    expect(fs.existsSync(legacy)).toBe(false);
+    const backup = fs
+      .readdirSync(path.dirname(legacy))
+      .find((entry) => entry.startsWith('team.md.backup-'));
+    expect(backup).toBeDefined();
+    expect(fs.readFileSync(path.join(path.dirname(legacy), backup!), 'utf8')).toBe(
+      'legacy command'
+    );
+    expect(
+      fs.lstatSync(path.join(homeDir, '.claude', 'skills', 'tmux-team')).isSymbolicLink()
+    ).toBe(true);
+  });
+
+  it('backs up a broken legacy Claude command symlink with force', async () => {
+    vi.resetModules();
+    vi.doMock('node:os', () => ({
+      default: { homedir: () => homeDir },
+      homedir: () => homeDir,
+    }));
+    const legacy = getLegacyClaudeCommand(homeDir);
+    const missingTarget = path.join(homeDir, 'missing-command');
+    fs.mkdirSync(path.dirname(legacy), { recursive: true });
+    fs.symlinkSync(missingTarget, legacy);
+
+    const { cmdInstall } = await import('./install.js');
+    const ctx = createCtx(testDir, { flags: { force: true } });
+    await cmdInstall(ctx, 'claude');
+
+    expect(() => fs.lstatSync(legacy)).toThrow();
+    const backup = fs
+      .readdirSync(path.dirname(legacy))
+      .find((entry) => entry.startsWith('team.md.backup-'));
+    expect(backup).toBeDefined();
+    const backupPath = path.join(path.dirname(legacy), backup!);
+    expect(fs.lstatSync(backupPath).isSymbolicLink()).toBe(true);
+    expect(fs.readlinkSync(backupPath)).toBe(missingTarget);
   });
 
   it('errors on unknown agent', async () => {
@@ -175,7 +250,7 @@ describe('cmdInstall', () => {
     const { cmdInstall } = await import('./install.js');
     const ctx = createCtx(testDir, { flags: { force: true } });
     await cmdInstall(ctx);
-    expect(fs.existsSync(path.join(homeDir, '.claude', 'commands', 'team.md'))).toBe(true);
+    expect(fs.existsSync(path.join(homeDir, '.claude', 'skills', 'tmux-team'))).toBe(true);
   });
 
   it('installs all detected environments without prompting', async () => {
@@ -199,7 +274,7 @@ describe('cmdInstall', () => {
     const { cmdInstall } = await import('./install.js');
     const ctx = createCtx(testDir, { flags: { force: true } });
     await cmdInstall(ctx);
-    expect(fs.existsSync(path.join(homeDir, '.claude', 'commands', 'team.md'))).toBe(true);
+    expect(fs.existsSync(path.join(homeDir, '.claude', 'skills', 'tmux-team'))).toBe(true);
   });
 
   it('fails if skill exists and --force is not set', async () => {
@@ -215,7 +290,7 @@ describe('cmdInstall', () => {
       }),
     }));
 
-    const target = path.join(homeDir, '.claude', 'commands', 'team.md');
+    const target = path.join(homeDir, '.claude', 'skills', 'tmux-team');
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, 'existing');
 
@@ -223,6 +298,88 @@ describe('cmdInstall', () => {
     const ctx = createCtx(testDir);
     await expect(cmdInstall(ctx, 'claude')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
     expect(ctx.ui.warn).toHaveBeenCalled();
+  });
+
+  it('rejects a wrong native Claude target without touching the legacy command', async () => {
+    vi.resetModules();
+    vi.doMock('node:os', () => ({
+      default: { homedir: () => homeDir },
+      homedir: () => homeDir,
+    }));
+    const target = path.join(homeDir, '.claude', 'skills', 'tmux-team');
+    const wrongSource = path.join(testDir, 'other-skill');
+    const legacy = getLegacyClaudeCommand(homeDir);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.mkdirSync(path.dirname(legacy), { recursive: true });
+    fs.mkdirSync(wrongSource);
+    fs.symlinkSync(wrongSource, target, 'dir');
+    fs.writeFileSync(legacy, 'legacy command');
+
+    const { cmdInstall } = await import('./install.js');
+    const ctx = createCtx(testDir);
+    await expect(cmdInstall(ctx, 'claude')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
+
+    expect(fs.realpathSync(target)).toBe(fs.realpathSync(wrongSource));
+    expect(fs.readFileSync(legacy, 'utf8')).toBe('legacy command');
+    expect(
+      fs.readdirSync(path.dirname(legacy)).some((entry) => entry.startsWith('team.md.backup-'))
+    ).toBe(false);
+  });
+
+  it('repairs a broken native Claude link with a recoverable backup when forced', async () => {
+    vi.resetModules();
+    vi.doMock('node:os', () => ({
+      default: { homedir: () => homeDir },
+      homedir: () => homeDir,
+    }));
+    const target = path.join(homeDir, '.claude', 'skills', 'tmux-team');
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.symlinkSync(path.join(homeDir, 'missing-skill'), target, 'dir');
+
+    const { cmdInstall } = await import('./install.js');
+    const ctx = createCtx(testDir, { flags: { force: true } });
+    await cmdInstall(ctx, 'claude');
+
+    expect(fs.lstatSync(target).isSymbolicLink()).toBe(true);
+    const backup = fs
+      .readdirSync(path.dirname(target))
+      .find((entry) => entry.startsWith('tmux-team.backup-'));
+    expect(backup).toBeDefined();
+    expect(fs.lstatSync(path.join(path.dirname(target), backup!)).isSymbolicLink()).toBe(true);
+  });
+
+  it('keeps the legacy Claude command when forced native installation fails', async () => {
+    vi.resetModules();
+    vi.doMock('node:os', () => ({
+      default: { homedir: () => homeDir },
+      homedir: () => homeDir,
+    }));
+    const target = path.join(homeDir, '.claude', 'skills', 'tmux-team');
+    const legacy = getLegacyClaudeCommand(homeDir);
+    fs.mkdirSync(path.dirname(legacy), { recursive: true });
+    fs.writeFileSync(legacy, 'legacy command');
+    vi.doMock('node:fs', async () => {
+      const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
+      const symlinkSync = vi.fn((source: string, destination: string, type?: fs.symlink.Type) => {
+        if (destination === target) throw new Error('injected native link failure');
+        return actual.symlinkSync(source, destination, type);
+      });
+      return {
+        ...actual,
+        default: { ...actual, symlinkSync },
+        symlinkSync,
+      };
+    });
+
+    const { cmdInstall } = await import('./install.js');
+    const ctx = createCtx(testDir, { flags: { force: true } });
+    await expect(cmdInstall(ctx, 'claude')).rejects.toThrow(`exit(${ExitCodes.ERROR})`);
+
+    expect(fs.readFileSync(legacy, 'utf8')).toBe('legacy command');
+    expect(fs.existsSync(target)).toBe(false);
+    expect(
+      fs.readdirSync(path.dirname(legacy)).some((entry) => entry.startsWith('team.md.backup-'))
+    ).toBe(false);
   });
 
   it('keeps managed links idempotent and backs up unmanaged paths with --force', async () => {
@@ -275,7 +432,7 @@ describe('cmdInstall', () => {
       fs.lstatSync(path.join(homeDir, '.agents', 'skills', 'tmux-team')).isSymbolicLink()
     ).toBe(true);
     expect(
-      fs.lstatSync(path.join(homeDir, '.claude', 'commands', 'team.md')).isSymbolicLink()
+      fs.lstatSync(path.join(homeDir, '.claude', 'skills', 'tmux-team')).isSymbolicLink()
     ).toBe(true);
   });
 
@@ -343,7 +500,10 @@ describe('cmdInstall', () => {
     const { cmdInstall } = await import('./install.js');
     const customDirectory = path.join(testDir, 'custom skills');
     const target = path.join(customDirectory, 'tmux-team');
+    const legacyClaude = getLegacyClaudeCommand(homeDir);
     const legacy = path.join(homeDir, '.codex', 'skills', 'tmux-team');
+    fs.mkdirSync(path.dirname(legacyClaude), { recursive: true });
+    fs.writeFileSync(legacyClaude, 'legacy Claude command');
     fs.mkdirSync(legacy, { recursive: true });
     fs.writeFileSync(path.join(legacy, 'SKILL.md'), 'legacy');
     fs.mkdirSync(target, { recursive: true });
@@ -360,6 +520,7 @@ describe('cmdInstall', () => {
     const forced = createCtx(testDir, { flags: { force: true } });
     await cmdInstall(forced, undefined, customDirectory);
     expect(fs.readFileSync(path.join(customDirectory, 'sibling.txt'), 'utf8')).toBe('keep');
+    expect(fs.readFileSync(legacyClaude, 'utf8')).toBe('legacy Claude command');
     expect(fs.existsSync(path.join(legacy, 'SKILL.md'))).toBe(true);
     const backup = fs
       .readdirSync(customDirectory)

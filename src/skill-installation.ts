@@ -57,6 +57,11 @@ function getManagedSkillTarget(home: string): string {
   return path.join(home, '.agents', 'skills', 'tmux-team');
 }
 
+/** Resolve the pre-native Claude command path retained for migration. */
+export function getLegacyClaudeCommand(home = os.homedir()): string {
+  return path.join(home, '.claude', 'commands', 'team.md');
+}
+
 export function getLegacyCodexDirectories(home: string, codexHome: string): string[] {
   const managedTarget = path.resolve(getManagedSkillTarget(home));
   const candidates = [
@@ -78,8 +83,8 @@ export function getSkillConfigs(
   const agentTarget = getManagedSkillTarget(home);
   return {
     claude: {
-      source: path.join(root, 'skills', 'claude', 'team.md'),
-      target: path.join(home, '.claude', 'commands', 'team.md'),
+      source: universal,
+      target: path.join(home, '.claude', 'skills', 'tmux-team'),
     },
     // Codex and Gemini intentionally share one official user-global location.
     codex: { source: universal, target: agentTarget },

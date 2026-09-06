@@ -23,9 +23,7 @@ describe('local installation drift', () => {
     const root = path.join(temp, 'package');
     const home = path.join(temp, 'home');
     fs.mkdirSync(path.join(root, 'skills', 'tmux-team'), { recursive: true });
-    fs.mkdirSync(path.join(root, 'skills', 'claude'), { recursive: true });
     fs.writeFileSync(path.join(root, 'skills', 'tmux-team', 'SKILL.md'), 'canonical');
-    fs.writeFileSync(path.join(root, 'skills', 'claude', 'team.md'), 'claude');
     fs.mkdirSync(path.join(home, '.codex', 'skills', 'tmux-team'), { recursive: true });
     fs.writeFileSync(path.join(home, '.codex', 'skills', 'tmux-team', 'SKILL.md'), 'old');
     fs.mkdirSync(path.join(home, '.agents', 'skills'), { recursive: true });
@@ -38,7 +36,7 @@ describe('local installation drift', () => {
     expect(issues.some((issue) => issue.kind === 'legacy')).toBe(true);
     expect(issues.some((issue) => issue.kind === 'broken-link')).toBe(true);
 
-    const wrongTarget = path.join(home, '.claude', 'commands', 'team.md');
+    const wrongTarget = path.join(home, '.claude', 'skills', 'tmux-team');
     fs.mkdirSync(path.dirname(wrongTarget), { recursive: true });
     const wrongSource = path.join(temp, 'other-team.md');
     fs.writeFileSync(wrongSource, 'other');
@@ -120,17 +118,30 @@ describe('local installation drift', () => {
     expect(issues).toEqual([]);
   });
 
-  it('detects a Claude copied command only when its content differs', () => {
+  it('reports the legacy Claude command while inspecting the native skill link separately', () => {
     temp = fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-drift-'));
     const root = path.join(temp, 'package');
     const home = path.join(temp, 'home');
-    fs.mkdirSync(path.join(root, 'skills', 'claude'), { recursive: true });
-    fs.writeFileSync(path.join(root, 'skills', 'claude', 'team.md'), 'new');
+    fs.mkdirSync(path.join(root, 'skills', 'tmux-team'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'skills', 'tmux-team', 'SKILL.md'), 'new');
+    const nativeTarget = path.join(home, '.claude', 'skills', 'tmux-team');
+    fs.mkdirSync(path.dirname(nativeTarget), { recursive: true });
+    fs.symlinkSync(path.join(root, 'skills', 'tmux-team'), nativeTarget, 'dir');
     fs.mkdirSync(path.join(home, '.claude', 'commands'), { recursive: true });
-    fs.writeFileSync(path.join(home, '.claude', 'commands', 'team.md'), 'old');
-    expect(inspectLocalDrift({ home, root }).some((issue) => issue.kind === 'outdated-copy')).toBe(
-      true
+    const legacyTarget = path.join(home, '.claude', 'commands', 'team.md');
+    const missingLegacy = path.join(home, 'missing-team-command');
+    fs.symlinkSync(missingLegacy, legacyTarget);
+    const issues = inspectLocalDrift({ home, root });
+    expect(issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'legacy',
+          path: legacyTarget,
+        }),
+      ])
     );
+    expect(issues.some((issue) => issue.path === nativeTarget)).toBe(false);
+    expect(fs.readlinkSync(legacyTarget)).toBe(missingLegacy);
   });
 });
 

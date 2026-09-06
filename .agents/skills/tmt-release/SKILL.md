@@ -15,7 +15,7 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
 - Before any branch mutation, verify the relevant remote refs and ancestry. Never force-push or repoint a long-lived line.
 - A v4 maintenance fix requires a tracked issue, a dedicated branch and worktree, and a reviewable pull request. Keep the fix on the v4 line unless an explicitly scoped backport is requested.
 - Use the checks available on the v4 line for maintenance pull requests; do not require contexts that the target branch cannot produce. Record any coverage gap in the issue.
-- Synchronize `package.json`, `.claude-plugin/marketplace.json`, `plugins/tmux-team/.claude-plugin/plugin.json`, the `src/version.ts` fallback, and its test whenever a release version changes.
+- Synchronize `package.json`, the `src/version.ts` fallback, and its test whenever a release version changes. The native skill ships with the CLI; there is no separately versioned plugin or marketplace.
 - Follow `AGENTS.md` for Linear state, branch and pull-request links, verification evidence, and safe worktree cleanup.
 
 ## Promotion and prerelease checks

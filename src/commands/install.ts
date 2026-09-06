@@ -14,6 +14,7 @@ import {
   ensureManagedLink,
   getCodexHome,
   getCustomSkillConfig,
+  getLegacyClaudeCommand,
   getLegacyCodexDirectories,
   getSkillConfigs,
   hasBundledSkillSource,
@@ -69,22 +70,29 @@ export function detectEnvironment(): SkillAgent[] {
   return SKILL_AGENTS.filter((agent) => environmentDetected(agent, home));
 }
 
+function backupLegacyPath(ctx: Context, target: string, warning: string): string | undefined {
+  if (!targetExists(target)) return undefined;
+  if (!ctx.flags.force) {
+    ctx.ui.warn(warning);
+    return undefined;
+  }
+  const backup = backupPath(target);
+  fs.renameSync(target, backup);
+  return backup;
+}
+
 /** Migrate pre-4.3 copied Codex skills without deleting user data. */
 export function migrateLegacyCodex(ctx: Context): string[] {
   const home = os.homedir();
   const codexHome = getCodexHome(home);
   const backups: string[] = [];
   for (const legacy of getLegacyCodexDirectories(home, codexHome)) {
-    if (!targetExists(legacy)) continue;
-    if (!ctx.flags.force) {
-      ctx.ui.warn(
-        `Legacy Codex skill found at ${legacy}; keeping it. Run "tmt install codex --force" to back it up and migrate.`
-      );
-      continue;
-    }
-    const backup = backupPath(legacy);
-    fs.renameSync(legacy, backup);
-    backups.push(backup);
+    const backup = backupLegacyPath(
+      ctx,
+      legacy,
+      `Legacy Codex skill found at ${legacy}; keeping it. Run "tmt install codex --force" to back it up and migrate.`
+    );
+    if (backup) backups.push(backup);
   }
   return backups;
 }
@@ -107,7 +115,18 @@ function installSelectedSkill(ctx: Context, selected: SkillConfig): Omit<Install
 
 function installAgent(ctx: Context, agent: SkillAgent): InstallResult {
   const base = installSelectedSkill(ctx, getSkillConfigs()[agent]);
-  const legacyBackups = agent === 'codex' ? migrateLegacyCodex(ctx) : [];
+  let legacyBackups: string[] = [];
+  if (agent === 'codex') {
+    legacyBackups = migrateLegacyCodex(ctx);
+  } else if (agent === 'claude') {
+    const legacy = getLegacyClaudeCommand(os.homedir());
+    const backup = backupLegacyPath(
+      ctx,
+      legacy,
+      `Legacy Claude command found at ${legacy}; keeping it. Run "tmt install claude --force" to back it up and migrate.`
+    );
+    if (backup) legacyBackups = [backup];
+  }
   return {
     agent,
     ...base,
@@ -137,13 +156,9 @@ function printNextSteps(ctx: Context, installed: InstallResult[]): void {
     seenTargets.add(item.target);
     if (item.backup) ctx.ui.info(`Previous path moved to recoverable backup: ${item.backup}`);
     for (const backup of item.legacyBackups ?? []) {
-      ctx.ui.info(`Legacy Codex skill moved to recoverable backup: ${backup}`);
+      const legacyLabel = item.agent === 'claude' ? 'Legacy Claude command' : 'Legacy Codex skill';
+      ctx.ui.info(`${legacyLabel} moved to recoverable backup: ${backup}`);
     }
-  }
-  if (installed.some((item) => item.agent === 'claude')) {
-    console.log(colors.yellow('Claude Code full plugin (optional):'));
-    console.log(`  ${colors.cyan('/plugin marketplace add wkh237/tmux-team')}`);
-    console.log(`  ${colors.cyan('/plugin install tmux-team@tmux-team')}`);
   }
   console.log(colors.yellow('Next steps:'));
   console.log(
