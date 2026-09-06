@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { TextDecoder } from 'node:util';
+import { decodeStrictUtf8 } from './strict-utf8.js';
 
 export type BoundedFileReadErrorKind = 'file' | 'non_regular' | 'too_large' | 'invalid';
 
@@ -46,9 +46,7 @@ export function readBoundedUtf8File(filePath: string, maxBytes: number): string 
       throw new BoundedFileReadError('too_large', 'Bounded content input is too large.');
     }
     try {
-      decoded = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
-        buffer.subarray(0, offset)
-      );
+      decoded = decodeStrictUtf8(buffer.subarray(0, offset));
     } catch (error) {
       throw new BoundedFileReadError('invalid', 'Bounded content input is not valid UTF-8.', {
         cause: error,

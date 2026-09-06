@@ -205,6 +205,12 @@ adapter validates its shape and positional request match; the shared service
 validates the recorded fence and transition in its existing transaction. Routine
 acknowledgements, result output and errors do not include the receipt or endpoint.
 
+The input-adapter layer shares strict UTF-8 decoding in `src/strict-utf8.ts`.
+File, stdin and receipt adapters use the same fatal decoder with BOM preservation;
+they retain their own size/deadline limits and public error translations. Receipt
+JSON/canonical-envelope checks and role/preamble normalization remain separate
+policies. The decoder neither acquires resources nor normalizes decoded text.
+
 File input follows symlinks to regular files, using nonblocking open, descriptor
 type validation and a cap-plus-one bounded read with guaranteed closure. It is
 explicit user-selected input, not a filesystem confinement boundary. Reply and

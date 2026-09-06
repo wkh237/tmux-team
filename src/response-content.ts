@@ -1,7 +1,7 @@
-import { TextDecoder } from 'node:util';
 import type { Readable } from 'node:stream';
 import { BoundedFileReadError, readBoundedUtf8File } from './bounded-utf8-file.js';
 import { MAX_RESPONSE_BYTES } from './domain/response.js';
+import { decodeStrictUtf8 } from './strict-utf8.js';
 
 export const RESPONSE_INPUT_TIMEOUT_MS = 5000;
 
@@ -24,7 +24,7 @@ export class ResponseInputError extends Error {
 
 function decodeBody(bytes: Buffer): string {
   try {
-    return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+    return decodeStrictUtf8(bytes);
   } catch (error) {
     throw new ResponseInputError('RESPONSE_INPUT_INVALID', 'Response input is not valid UTF-8.', {
       cause: error,

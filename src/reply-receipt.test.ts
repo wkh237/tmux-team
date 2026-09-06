@@ -23,13 +23,18 @@ const receipt: ReplyReceipt = {
   endpoint,
 };
 
-function expectReceiptError(action: () => unknown, code: ReplyReceiptError['code']): void {
+function expectReceiptError(
+  action: () => unknown,
+  code: ReplyReceiptError['code'],
+  message?: string
+): void {
   try {
     action();
     expect.fail('expected receipt validation to fail');
   } catch (error) {
     expect(error).toBeInstanceOf(ReplyReceiptError);
     expect((error as ReplyReceiptError).code).toBe(code);
+    if (message !== undefined) expect((error as ReplyReceiptError).message).toContain(message);
   }
 }
 
@@ -79,6 +84,24 @@ describe('reply receipt codec', () => {
     Buffer.from([0xff, 0xfe]).toString('base64url'),
   ])('rejects malformed, padded, or non-UTF-8 receipt %j', (encoded) => {
     expectReceiptError(() => decodeReplyReceipt(encoded), 'RESPONSE_RECEIPT_INVALID');
+  });
+
+  it('reports malformed receipt bytes with the UTF-8 diagnostic', () => {
+    const encoded = Buffer.from([0xff, 0xfe]).toString('base64url');
+    expectReceiptError(
+      () => decodeReplyReceipt(encoded),
+      'RESPONSE_RECEIPT_INVALID',
+      'Response receipt is not valid UTF-8.'
+    );
+  });
+
+  it('preserves a BOM so a BOM-prefixed JSON receipt remains invalid JSON', () => {
+    const encoded = Buffer.from(`\ufeff${JSON.stringify(receipt)}`, 'utf8').toString('base64url');
+    expectReceiptError(
+      () => decodeReplyReceipt(encoded),
+      'RESPONSE_RECEIPT_INVALID',
+      'Response receipt is not valid JSON.'
+    );
   });
 
   it.each([
