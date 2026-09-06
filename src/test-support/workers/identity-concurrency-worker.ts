@@ -1,12 +1,15 @@
 /* c8 ignore file */
 import fs from 'node:fs';
 import path from 'node:path';
-import { createIdentityService } from './identity-service.js';
-import { openIdentityRepository } from './storage/identity-repository.js';
-import type { PaneInfo, Tmux } from './types.js';
+import { createIdentityService } from '../../identity-service.js';
+import { openIdentityRepository } from '../../storage/identity-repository.js';
+import type { PaneInfo, Tmux } from '../../types.js';
+import { waitForBarrier } from './barrier.js';
 
 const [databaseFile, barrierDirectory, variant] = process.argv.slice(2);
 if (!databaseFile || !barrierDirectory || !variant) throw new Error('Invalid worker arguments.');
+
+const BARRIER_TIMEOUT_MS = 30_000;
 
 const pane: PaneInfo = {
   id: '%race',
@@ -41,12 +44,7 @@ const tmux = {
   },
 } as unknown as Tmux;
 fs.writeFileSync(path.join(barrierDirectory, `ready-${variant}`), 'ready');
-while (!fs.existsSync(path.join(barrierDirectory, 'go'))) {
-  // A short synchronous wait keeps both real processes behind the same
-  // barrier without introducing a test-only synchronization primitive.
-  const until = Date.now() + 5;
-  while (Date.now() < until) {}
-}
+waitForBarrier(path.join(barrierDirectory, 'go'), BARRIER_TIMEOUT_MS);
 
 const repository = openIdentityRepository(databaseFile);
 try {

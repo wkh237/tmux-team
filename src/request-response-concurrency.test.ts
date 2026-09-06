@@ -82,7 +82,10 @@ function runWorker(
   mode: string,
   body?: string
 ): WorkerHandle {
-  const worker = path.join(process.cwd(), 'src/request-response-concurrency-worker.ts');
+  const worker = new URL(
+    './test-support/workers/request-response-concurrency-worker.ts',
+    import.meta.url
+  );
   return spawnWorker(
     worker,
     [
@@ -95,7 +98,7 @@ function runWorker(
       ...(body === undefined ? [] : [body]),
     ],
     variant,
-    process.cwd()
+    path.dirname(value.barrier)
   );
 }
 

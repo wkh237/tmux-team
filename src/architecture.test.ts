@@ -74,12 +74,9 @@ function violations(file: string, text: string): string[] {
 function productionFiles(directory: string): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const location = path.join(directory, entry.name);
+    if (directory === sourceRoot && entry.name === 'test-support') return [];
     if (entry.isDirectory()) return productionFiles(location);
-    return entry.name.endsWith('.ts') &&
-      !entry.name.endsWith('.test.ts') &&
-      !entry.name.endsWith('-worker.ts')
-      ? [location]
-      : [];
+    return entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts') ? [location] : [];
   });
 }
 

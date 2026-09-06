@@ -93,9 +93,14 @@ tests forbidden examples as well as repository files. It does not prove semantic
 architecture correctness; primary review and the architecture-impact record
 remain required.
 
-Request and response concurrency suites share bounded worker startup, barriers,
+Identity, request and response concurrency suites share bounded worker startup, barriers,
 result collection and termination in `src/test-support/request-workers.ts`.
-Scenario assertions and worker operations remain in their owning test modules.
+Scenario assertions stay in their owning test modules; process entrypoints live
+in `src/test-support/workers/` and use module-relative resolution. Scenarios stop
+their workers in `finally` before fixture removal, including failure before the
+release barrier. Harness regressions verify early exit, parent failure and
+forced termination through observable process absence, and exercise an unrelated
+working directory without adding dependencies to the fixture.
 Test-support infrastructure is excluded from production coverage, like worker
 fixtures; this does not exclude the request service, domain rules or SQL adapter.
 Final-response tests use real temporary SQLite and an injected clock for exact

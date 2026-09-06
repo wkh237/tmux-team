@@ -1,43 +1,73 @@
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 export const WORKER_TIMEOUT_MS = 10_000;
+export const WORKER_OUTPUT_LIMIT_BYTES = 1024 * 1024;
+const TSX_LOADER = createRequire(import.meta.url).resolve('tsx');
 
 export interface WorkerResult {
   readonly code: number | null;
   readonly signal: NodeJS.Signals | null;
   readonly output: string;
+  readonly outputExceeded: boolean;
 }
 
 export interface WorkerHandle {
   readonly child: ChildProcess;
   readonly result: Promise<WorkerResult>;
   readonly variant: string;
+  readonly isExited: () => boolean;
 }
 
 export function runWorker(
-  worker: string,
+  worker: string | URL,
   args: readonly string[],
   variant: string,
   cwd = process.cwd()
 ): WorkerHandle {
-  const child = spawn(process.execPath, ['--import', 'tsx', worker, ...args], {
+  const workerPath = worker instanceof URL ? fileURLToPath(worker) : worker;
+  const child = spawn(process.execPath, ['--import', TSX_LOADER, workerPath, ...args], {
     cwd,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+  let spawnFailed = false;
+  let closed = false;
   let output = '';
-  child.stdout?.on('data', (chunk: Buffer) => (output += chunk.toString()));
-  child.stderr?.on('data', (chunk: Buffer) => (output += chunk.toString()));
+  let outputBytes = 0;
+  let outputExceeded = false;
+  const captureOutput = (chunk: string): void => {
+    const bytes = Buffer.from(chunk);
+    const remaining = Math.max(0, WORKER_OUTPUT_LIMIT_BYTES - outputBytes);
+    if (remaining > 0) output += bytes.subarray(0, remaining).toString();
+    outputBytes += bytes.byteLength;
+    if (outputBytes > WORKER_OUTPUT_LIMIT_BYTES && !outputExceeded) {
+      outputExceeded = true;
+      output += `\nWorker output exceeded ${WORKER_OUTPUT_LIMIT_BYTES} bytes.\n`;
+      child.kill('SIGKILL');
+    }
+  };
+  child.stdout?.setEncoding('utf8');
+  child.stderr?.setEncoding('utf8');
+  child.stdout?.on('data', captureOutput);
+  child.stderr?.on('data', captureOutput);
   const result = new Promise<WorkerResult>((resolve) => {
-    child.on('close', (code, signal) => resolve({ code, signal, output }));
-    child.on('error', (error) => (output += `${String(error)}\n`));
+    child.on('close', (code, signal) => {
+      closed = true;
+      resolve({ code, signal, output, outputExceeded });
+    });
+    child.on('error', (error) => {
+      if (child.pid === undefined) spawnFailed = true;
+      captureOutput(`${String(error)}\n`);
+    });
   });
-  return { child, result, variant };
+  return { child, result, variant, isExited: () => spawnFailed || closed };
 }
 
 export function workerExited(handle: WorkerHandle): boolean {
-  return handle.child.exitCode !== null || handle.child.signalCode !== null;
+  return handle.child.exitCode !== null || handle.child.signalCode !== null || handle.isExited();
 }
 
 export async function waitForFiles(
@@ -107,6 +137,9 @@ export async function stopWorkers(handles: readonly WorkerHandle[]): Promise<voi
 }
 
 export function workerMessage<T>(result: WorkerResult): T {
+  if (result.outputExceeded) {
+    throw new Error(`Worker output exceeded ${WORKER_OUTPUT_LIMIT_BYTES} bytes.`);
+  }
   if (result.code !== 0) throw new Error(`Worker failed (${result.signal}): ${result.output}`);
   const lines = result.output.trim().split('\n');
   const line = lines.at(-1);
