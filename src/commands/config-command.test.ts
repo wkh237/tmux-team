@@ -239,4 +239,46 @@ describe('cmdConfig', () => {
     ).toThrow(`exit(${ExitCodes.ERROR})`);
     expect(fs.existsSync(ctx.paths.globalConfig)).toBe(false);
   });
+
+  it('uses strict integer syntax and preserves partial global defaults', () => {
+    const ctx = createCtx(testDir);
+    fs.mkdirSync(ctx.paths.globalDir, { recursive: true });
+    fs.writeFileSync(
+      ctx.paths.globalConfig,
+      JSON.stringify({ keep: true, defaults: { timeout: 120, future: { enabled: true } } })
+    );
+
+    cmdConfig(ctx, configRequest('set', { key: 'preambleEvery', value: '5', global: true }));
+    expect(JSON.parse(fs.readFileSync(ctx.paths.globalConfig, 'utf8'))).toEqual({
+      keep: true,
+      defaults: { timeout: 120, future: { enabled: true }, preambleEvery: 5 },
+    });
+
+    for (const value of ['5.5', '5junk', '5\n', '9007199254740992']) {
+      expect(() =>
+        cmdConfig(ctx, configRequest('set', { key: 'preambleEvery', value, global: false }))
+      ).toThrow(`exit(${ExitCodes.ERROR})`);
+    }
+  });
+
+  it('repairs the selected invalid field but rejects an unrelated invalid field before writing', () => {
+    const ctx = createCtx(testDir);
+    fs.mkdirSync(ctx.paths.globalDir, { recursive: true });
+    fs.writeFileSync(
+      ctx.paths.globalConfig,
+      JSON.stringify({ defaults: { preambleEvery: 'bad', captureLines: 100 } })
+    );
+    cmdConfig(ctx, configRequest('set', { key: 'preambleEvery', value: '5', global: true }));
+    expect(JSON.parse(fs.readFileSync(ctx.paths.globalConfig, 'utf8')).defaults).toEqual({
+      preambleEvery: 5,
+      captureLines: 100,
+    });
+
+    const original = JSON.stringify({ defaults: { preambleEvery: 3, captureLines: 'bad' } });
+    fs.writeFileSync(ctx.paths.globalConfig, original);
+    expect(() =>
+      cmdConfig(ctx, configRequest('set', { key: 'preambleEvery', value: '5', global: true }))
+    ).toThrow(/Invalid configuration/);
+    expect(fs.readFileSync(ctx.paths.globalConfig, 'utf8')).toBe(original);
+  });
 });

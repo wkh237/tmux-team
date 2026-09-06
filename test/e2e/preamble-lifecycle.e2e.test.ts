@@ -274,6 +274,12 @@ describe.sequential('durable identity preambles', () => {
       const statePath = path.join(fixture.globalDir, 'state.json');
       fs.writeFileSync(statePath, '{"requests":{},"preambleCounters":{"Peer":99}}\n');
 
+      expect((await fixture.runJsonCli(['config', 'set', 'preambleEvery', '0'])).code).toBe(0);
+      const countersBeforeOverride = preambleCounters(fixture);
+      await causalTalk(fixture, 'Peer', peer.pid, 'local zero overrides global frequency');
+      expect(preambleCounters(fixture)).toEqual(countersBeforeOverride);
+      expect((await fixture.runJsonCli(['config', 'clear', 'preambleEvery'])).code).toBe(0);
+
       await causalTalk(fixture, 'Peer', peer.pid, 'first', preamble);
       expect(preambleCounters(fixture)).toEqual({ [peerIdentityId]: 1 });
       await causalTalk(fixture, 'Peer', peer.pid, 'explicitly raw', undefined, ['--no-preamble']);

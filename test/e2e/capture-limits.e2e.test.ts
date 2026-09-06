@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { withE2EFixture } from './harness.js';
 
 describe.sequential('capture numeric contract', () => {
-  it('rejects an invalid loaded count without touching tmux or rewriting its config', async () => {
+  it('reports invalid loaded config without touching tmux or rewriting its config', async () => {
     await withE2EFixture(async (fixture) => {
       const configFile = path.join(fixture.globalDir, 'config.json');
       const configBytes = JSON.stringify({ defaults: { captureLines: '12junk' }, unrelated: true });
@@ -14,7 +14,7 @@ describe.sequential('capture numeric contract', () => {
       });
       expect(result).toMatchObject({
         code: 1,
-        json: { error: { code: 'INVALID_CAPTURE_LINES' } },
+        json: { error: { code: 'CONFIG_ERROR' } },
       });
       expect(fs.readFileSync(configFile, 'utf8')).toBe(configBytes);
       expect(fs.existsSync(path.join(fixture.globalDir, 'tmux-team.db'))).toBe(false);
@@ -52,6 +52,10 @@ describe.sequential('capture numeric contract', () => {
       ).toBe(0);
       await fixture.waitForEvent((event) => event.event === 'summary' && event.message === message);
       const metadata = fixture.paneMetadata(fixture.pane);
+      fs.writeFileSync(
+        path.join(fixture.globalDir, 'config.json'),
+        JSON.stringify({ defaults: { captureLines: 0 } })
+      );
       for (const [command, value] of [
         ['check', '0'],
         ['read', '2147483647'],
@@ -59,7 +63,7 @@ describe.sequential('capture numeric contract', () => {
         const result = await fixture.runJsonCli<{ lines: number; output: string }>([
           command,
           'CapturePeer',
-          `--lines=${value}`,
+          ...(value === '0' ? [] : [`--lines=${value}`]),
         ]);
         expect(result.code).toBe(0);
         expect(result.json?.lines).toBe(Number(value));

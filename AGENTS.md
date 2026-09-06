@@ -34,13 +34,13 @@ follow-up is not permission to ship inaccurate descriptions of current behavior.
 
 ## Pattern audit before changes
 
-Before editing code, tests, documentation, configuration, or repository skills, the primary agent must delegate a read-only repository pattern audit to a `gpt-5.6-luna` agent with high reasoning effort.
+Before editing code, tests, documentation, configuration, or repository skills, inspect the relevant existing patterns. The primary agent decides whether to inspect locally or delegate, based on the total implementation, coordination, and review effort. Delegation is optional, not a prerequisite for making changes.
 
-The audit must inspect the relevant architecture, helpers, fixtures, scripts, naming conventions, tests, documentation, and skills. It must identify reusable patterns, duplicated behavior, and conflicts with established conventions. The delegated agent must not edit files, mutate external systems, or broaden the requested scope during this audit.
+Keep the inspection proportional to the change. Inspect relevant architecture, helpers, fixtures, scripts, naming conventions, tests, documentation, and skills to identify reusable patterns, duplicated behavior, and conflicts. Prefer `gpt-5.6-luna` for simple, bounded tasks and large-scale detection or scanning. A delegated read-only audit must not edit files, mutate external systems, or broaden the requested scope.
 
-The primary agent must review the findings before any edits begin, record which findings are accepted or rejected and why, and reuse or extend established abstractions where practical. If the audit finds unnecessary duplication or an inconsistent implementation within scope, correct it before continuing. When this rule is introduced after work has started, pause new edits, run the audit, and apply the same review.
+The primary agent reviews findings before editing, records material findings and their disposition, and reuses or extends established abstractions where practical. Correct unnecessary duplication or inconsistent implementation within scope before continuing.
 
-If delegation is unavailable, document that limitation and perform the same read-only audit locally before editing. Delegation never expands the user's authorization.
+Do not split tightly coupled architecture or integration work merely to use another agent. Direct implementation requires no delegation exception. Delegation never expands the user's authorization.
 
 ## Repository content language
 
@@ -56,9 +56,11 @@ in English.
   dedicated branch/worktree, and one reviewable PR. Confirm outcome, scope,
   acceptance criteria, dependencies and project relationship before editing;
   mark the issue started when implementation begins. Split oversized work first.
-- Delegate bounded implementation to `gpt-5.6-luna` by default when available.
-  Give explicit file ownership, constraints and verification requirements;
-  prevent overlapping edits. The primary retains design and acceptance authority.
+- Delegate only when it reduces total effort or provides useful independent coverage.
+  Prefer `gpt-5.6-luna` for simple, bounded work and large-scale detection or scanning.
+  When delegating, give explicit file ownership, constraints and verification
+  requirements; prevent overlapping edits. The primary retains design,
+  integration, and acceptance authority.
 - Keep decisions, progress, blockers, deferred work, branch/PR links and evidence
   synchronized in Linear. Do not mark work done before its delivery state supports it.
 - Every Codex-created commit includes `Co-authored-by: Codex <codex@openai.com>`.

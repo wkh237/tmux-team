@@ -242,6 +242,24 @@ after sending, and `--delay <seconds>` to delay sending.
 
 Install integrations with `tmt install` (auto-detects supported agents) or `tmt install all --force` to refresh managed links. Upgrade the CLI with `tmt upgrade`; managed links automatically use the updated bundled skill. Run install when an integration is missing or has drifted.
 
+## Configuration safety
+
+Use `tmt config show --json` to inspect resolved settings and file paths.
+`config set` supports `preambleMode`, `preambleEvery`, and
+`pasteEnterDelayMs`; add `--global` for the global file, otherwise it writes
+a local override. Numeric writes require decimal digits only: no suffixes,
+fractions, signs, or whitespace. Zero disables preamble injection or removes
+the paste-to-Enter delay. Preamble frequency is bounded to a safe integer;
+paste delay is at most 2147483647 milliseconds.
+
+Invalid known fields in a loaded config return `CONFIG_ERROR` (exit 1) before
+talk/check effects, even when another layer would override them. Unknown and
+retired fields remain opaque and are not migrated. A rejected settings update
+leaves the file unchanged. Correct the reported field; do not delete the whole
+configuration as a workaround. Storage-only `reply` and `result` do not load
+unrelated settings, so malformed config does not prevent durable submission
+or retrieval.
+
 ## Command option scope
 
 Options apply only to commands that use them. `--timeout`, `--delay`,
