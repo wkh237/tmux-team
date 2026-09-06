@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   getCodexHome,
+  getLegacyCodexDirectories,
   getSkillConfigs,
   isCorrectLink,
   packageRoot,
@@ -64,11 +65,8 @@ export function inspectLocalDrift(options: DriftOptions = {}): DriftIssue[] {
   const claudeTarget = configs.claude.target;
   const issues: DriftIssue[] = [];
 
-  for (const legacy of [
-    path.join(home, '.codex', 'skills', 'tmux-team', 'SKILL.md'),
-    path.join(codexHome, 'skills', 'tmux-team', 'SKILL.md'),
-  ]) {
-    if (targetExists(legacy) && !issues.some((issue) => issue.path === legacy)) {
+  for (const legacy of getLegacyCodexDirectories(home, codexHome)) {
+    if (targetExists(legacy)) {
       issues.push({
         kind: 'legacy',
         path: legacy,

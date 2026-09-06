@@ -441,14 +441,17 @@ Before mutation, source/destination overlap is rejected, including destination
 parents that alias the bundled source through symlinks. Force is not permission
 to move the installed package source or create a recursive self-link.
 
-`src/skill-installation.ts` owns shared package-root, bundled-source, target and
-link knowledge used by install, the viewer and local drift inspection. The
-installer owns provider detection/presentation and optional legacy backup;
-the update checker owns reminder policy. No custom-install registry, arbitrary
-folder scan, provider plugin update or agent reload is implied. Links follow
-source updates at the same package path; reinstall explicitly after relocation.
-Automatic drift inspection covers known defaults only, and npm version checking
-is not an alpha-channel skill version tracker.
+`src/skill-installation.ts` owns shared package-root, bundled-source, managed-target,
+and legacy directory candidate resolution used by install, the viewer and local
+drift inspection. Candidate resolution operates without package-root discovery,
+preserves installer preference order, deduplicates equivalent paths, and excludes
+the active `.agents` target. The installer owns provider detection/presentation and
+optional legacy backup; the update checker owns reminder policy and reports legacy
+directory paths directly, detecting incomplete directories and broken links. No
+custom-install registry, arbitrary folder scan, provider plugin update or agent
+reload is implied. Links follow source updates at the same package path; reinstall
+explicitly after relocation. Automatic drift inspection covers known defaults only,
+and npm version checking is not an alpha-channel skill version tracker.
 
 The existing packed native verifier also invokes the packed viewer and default
 and custom installation in an isolated home. It verifies actual link contents,

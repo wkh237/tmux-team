@@ -53,9 +53,71 @@ describe('local installation drift', () => {
     fs.writeFileSync(path.join(customCodexHome, 'skills', 'tmux-team', 'SKILL.md'), 'old');
     expect(inspectLocalDrift({ home, root, codexHome: customCodexHome })).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ kind: 'legacy', path: expect.stringContaining('custom-codex') }),
+        expect.objectContaining({
+          kind: 'legacy',
+          path: path.join(customCodexHome, 'skills', 'tmux-team'),
+        }),
       ])
     );
+  });
+
+  it('detects incomplete legacy directories and broken symlinks as legacy directory paths', () => {
+    temp = fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-drift-incomplete-'));
+    const root = path.join(temp, 'package');
+    const home = path.join(temp, 'home');
+    const defaultCodexHome = path.join(home, '.codex');
+    fs.mkdirSync(path.join(root, 'skills', 'tmux-team'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'skills', 'tmux-team', 'SKILL.md'), 'canonical');
+
+    // Incomplete directory (no SKILL.md)
+    const incompleteLegacy = path.join(defaultCodexHome, 'skills', 'tmux-team');
+    fs.mkdirSync(incompleteLegacy, { recursive: true });
+    fs.writeFileSync(path.join(incompleteLegacy, 'stray.txt'), 'stray');
+
+    const issues = inspectLocalDrift({ home, root, codexHome: defaultCodexHome });
+    expect(issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'legacy',
+          path: incompleteLegacy,
+          message: `Legacy copied Codex skill found at ${incompleteLegacy}`,
+        }),
+      ])
+    );
+
+    // Broken symlink at legacy location
+    const customCodexHome = path.join(temp, 'broken-codex');
+    const brokenLinkLegacy = path.join(customCodexHome, 'skills', 'tmux-team');
+    fs.mkdirSync(path.dirname(brokenLinkLegacy), { recursive: true });
+    fs.symlinkSync(path.join(temp, 'nonexistent-target'), brokenLinkLegacy);
+
+    const issuesWithBroken = inspectLocalDrift({ home, root, codexHome: customCodexHome });
+    expect(issuesWithBroken).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'legacy',
+          path: brokenLinkLegacy,
+        }),
+      ])
+    );
+  });
+
+  it('excludes the active managed .agents target when CODEX_HOME points to .agents', () => {
+    temp = fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-drift-exclusion-'));
+    const root = path.join(temp, 'package');
+    const home = path.join(temp, 'home');
+    const canonicalSource = path.join(root, 'skills', 'tmux-team');
+    fs.mkdirSync(canonicalSource, { recursive: true });
+    fs.writeFileSync(path.join(canonicalSource, 'SKILL.md'), 'canonical');
+
+    // Create a real valid managed symlink pointing to the canonical bundled source
+    const managedTarget = path.join(home, '.agents', 'skills', 'tmux-team');
+    fs.mkdirSync(path.dirname(managedTarget), { recursive: true });
+    fs.symlinkSync(canonicalSource, managedTarget);
+
+    // When CODEX_HOME points to ~/.agents, the managed target is excluded and no drift is reported
+    const issues = inspectLocalDrift({ home, root, codexHome: path.join(home, '.agents') });
+    expect(issues).toEqual([]);
   });
 
   it('detects a Claude copied command only when its content differs', () => {

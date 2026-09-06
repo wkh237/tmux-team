@@ -46,19 +46,37 @@ export function hasBundledSkillSource(source: string): boolean {
   }
 }
 
+function getManagedSkillTarget(home: string): string {
+  return path.join(home, '.agents', 'skills', 'tmux-team');
+}
+
+export function getLegacyCodexDirectories(home: string, codexHome: string): string[] {
+  const managedTarget = path.resolve(getManagedSkillTarget(home));
+  const candidates = [
+    path.join(codexHome, 'skills', 'tmux-team'),
+    path.join(home, '.codex', 'skills', 'tmux-team'),
+  ];
+  return candidates.filter(
+    (candidate, index) =>
+      path.resolve(candidate) !== managedTarget &&
+      candidates.findIndex((other) => path.resolve(other) === path.resolve(candidate)) === index
+  );
+}
+
 export function getSkillConfigs(
   root = packageRoot(),
   home = os.homedir()
 ): Record<SkillAgent, SkillConfig> {
   const universal = getUniversalSkillSource(root);
+  const agentTarget = getManagedSkillTarget(home);
   return {
     claude: {
       source: path.join(root, 'skills', 'claude', 'team.md'),
       target: path.join(home, '.claude', 'commands', 'team.md'),
     },
     // Codex and Gemini intentionally share one official user-global location.
-    codex: { source: universal, target: path.join(home, '.agents', 'skills', 'tmux-team') },
-    gemini: { source: universal, target: path.join(home, '.agents', 'skills', 'tmux-team') },
+    codex: { source: universal, target: agentTarget },
+    gemini: { source: universal, target: agentTarget },
   };
 }
 
