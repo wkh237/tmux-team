@@ -240,3 +240,23 @@ tmux-team talk codex "Review this authentication code" --json
   and requires user authorization; do not infer permission to send commands.
 - Install integrations with `tmt install`. `tmt upgrade` updates the package;
   managed skill links then use the new bundled files automatically.
+
+## View and install the bundled skill
+
+`tmt learn --skill` prints the exact bundled universal skill; plain `tmt learn`
+shows the guide. Both are text-only. Install default integrations with
+`tmt install [claude|codex|gemini|all]`, or choose a skills root explicitly:
+
+```bash
+tmt install --dir ./my-skills
+```
+
+This links `./my-skills/tmux-team`; do not also specify a provider. Choose a
+folder your provider actually discovers and reload its skills if needed.
+Managed links follow bundled updates at the same package path. Re-run the same
+install command to inspect/repair the target after relocation; existing
+unmanaged content is preserved unless `--force` requests a recoverable backup.
+Automatic drift reminders inspect known default paths, not custom folders.
+They do not reload an active agent, update provider-managed plugins, or track
+alpha release channels. Package upgrades and skill installation are separate
+from provider discovery.

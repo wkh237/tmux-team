@@ -2,9 +2,15 @@
 // learn command - educational guide for tmux-team
 // ─────────────────────────────────────────────────────────────
 
+import { readFileSync } from 'node:fs';
 import { colors } from '../ui.js';
+import { getUniversalSkillFile } from '../skill-installation.js';
 
-export function cmdLearn(): void {
+export function cmdLearn(skill = false): void {
+  if (skill) {
+    process.stdout.write(readFileSync(getUniversalSkillFile(), 'utf8'));
+    return;
+  }
   console.log(`
 ${colors.cyan('tmux-team')} - Multi-Agent Coordination Guide
 

@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import assert from 'node:assert/strict';
 
 function usage() {
   console.log(`verify-packed-native-install
@@ -15,7 +16,7 @@ Usage:
 
 The verifier installs the packed package into an isolated temporary project,
 blocks compiler fallback, loads better-sqlite3's native binding, and executes
-an FTS5 query.
+an FTS5 query, and verifies bundled skill viewing and isolated installation.
 `);
 }
 
@@ -141,6 +142,81 @@ function verifyPackedCli(projectDirectory) {
   }
 }
 
+function verifyPackedSkills(projectDirectory) {
+  const executable = path.join(projectDirectory, 'node_modules', '.bin', 'tmt');
+  const home = path.join(projectDirectory, 'skill-home');
+  fs.mkdirSync(home);
+  const env = {
+    ...process.env,
+    HOME: home,
+    CODEX_HOME: path.join(home, '.codex'),
+    XDG_CONFIG_HOME: path.join(home, '.config'),
+  };
+  for (const key of ['TMUX', 'TMUX_PANE', 'TMUX_TEAM_HOME']) delete env[key];
+  const run = (args, expectedStatus = 0) => {
+    const result = spawnSync(executable, args, {
+      cwd: projectDirectory,
+      env,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 10_000,
+      maxBuffer: 1024 * 1024,
+    });
+    if (result.error) throw result.error;
+    assert.equal(result.status, expectedStatus, `Packed skill command failed: ${result.stderr}`);
+    assert.equal(result.stderr, '', 'Packed skill command emitted unexpected diagnostics');
+    return result.stdout;
+  };
+
+  const packageRoot = path.join(projectDirectory, 'node_modules', 'tmux-team');
+  const source = path.join(packageRoot, 'skills', 'tmux-team', 'SKILL.md');
+  const content = fs.readFileSync(source, 'utf8');
+  assert.equal(run(['learn', '--skill']), content, 'Skill viewer must preserve exact bundled text');
+  const sourceParent = path.dirname(path.dirname(source));
+  const sourceSiblings = fs.readdirSync(sourceParent).sort();
+  const overlap = JSON.parse(run(['install', '--dir', sourceParent, '--force', '--json'], 1));
+  assert.ok(overlap.error, 'Overlapping custom target must fail explicitly');
+  assert.equal(fs.readFileSync(source, 'utf8'), content);
+  assert.deepEqual(fs.readdirSync(sourceParent).sort(), sourceSiblings);
+  const installed = JSON.parse(run(['install', 'all', '--json']));
+  assert.deepEqual(
+    installed.installed.map((item) => item.agent),
+    ['claude', 'codex', 'gemini']
+  );
+  const universal = path.join(home, '.agents', 'skills', 'tmux-team');
+  const claude = path.join(home, '.claude', 'commands', 'team.md');
+  assert.ok(fs.lstatSync(universal).isSymbolicLink());
+  assert.equal(fs.readFileSync(path.join(universal, 'SKILL.md'), 'utf8'), content);
+  assert.ok(fs.lstatSync(claude).isSymbolicLink());
+  assert.equal(
+    fs.readFileSync(claude, 'utf8'),
+    fs.readFileSync(path.join(packageRoot, 'skills', 'claude', 'team.md'), 'utf8')
+  );
+
+  const customRoot = path.join(projectDirectory, 'custom skills');
+  fs.mkdirSync(customRoot);
+  const sibling = path.join(customRoot, 'unrelated.txt');
+  fs.writeFileSync(sibling, 'preserve this sibling');
+  const custom = JSON.parse(run(['install', '--dir', './custom skills', '--json']));
+  const target = path.join(fs.realpathSync(customRoot), 'tmux-team');
+  assert.equal(custom.installed.length, 1);
+  assert.equal(custom.installed[0].target, target);
+  assert.equal(custom.installed[0].changed, true);
+  assert.ok(fs.lstatSync(target).isSymbolicLink());
+  assert.equal(fs.realpathSync(target), fs.realpathSync(path.dirname(source)));
+  const repeated = JSON.parse(run(['install', '--dir', './custom skills', '--json']));
+  assert.equal(repeated.installed[0].changed, false);
+  assert.equal(fs.readFileSync(sibling, 'utf8'), 'preserve this sibling');
+
+  // Only the disposable installed package is changed, proving links and the
+  // viewer follow source updates without writing to the host's installed skill.
+  const updated = `${content}\nPacked verification update.\n`;
+  fs.writeFileSync(source, updated);
+  assert.equal(fs.readFileSync(path.join(target, 'SKILL.md'), 'utf8'), updated);
+  assert.equal(fs.readFileSync(path.join(universal, 'SKILL.md'), 'utf8'), updated);
+  assert.equal(run(['learn', '--skill']), updated);
+}
+
 function main() {
   const options = parseArgs(process.argv.slice(2));
   const tarball = path.resolve(options.packageTarball);
@@ -163,6 +239,7 @@ function main() {
     installPackage({ projectDirectory, tarball, cacheDirectory });
     loadAndVerifySqlite(projectDirectory, options.expectedLibc);
     verifyPackedCli(projectDirectory);
+    verifyPackedSkills(projectDirectory);
     console.log(
       `Packed install verified: ${process.platform}/${process.arch}/${
         options.expectedLibc === 'auto' ? 'detected libc' : options.expectedLibc

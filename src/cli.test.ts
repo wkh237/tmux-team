@@ -221,7 +221,7 @@ describe('cli', () => {
     const { runCli } = await import('./cli-runner.js');
     expect(await runCli(['install', 'claude'])).toBe(0);
 
-    expect(installSpy).toHaveBeenCalledWith(ctx, 'claude');
+    expect(installSpy).toHaveBeenCalledWith(ctx, 'claude', undefined);
   });
 
   it('routes preamble command', async () => {

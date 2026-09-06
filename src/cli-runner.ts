@@ -2,6 +2,7 @@ import { ConfigParseError } from './config.js';
 import { createContext, ExitCodes } from './context.js';
 import { cmdHelp, type HelpConfig } from './commands/help.js';
 import { cmdCompletion } from './commands/completion.js';
+import { cmdLearn } from './commands/learn.js';
 import { UNSUPPORTED_TEAM_MESSAGE } from './commands/unsupported-team.js';
 import { runStartupChecks } from './update-check.js';
 import { CliParseError, parseArgs, type ParsedArgs, type ParsedInvocation } from './cli/parser.js';
@@ -231,6 +232,16 @@ export async function runCli(argv: readonly string[]): Promise<number> {
   if (invocation.kind === 'completion') {
     try {
       cmdCompletion(invocation.shell);
+      return ExitCodes.SUCCESS;
+    } catch (error) {
+      writeHumanError(output, errorMessage(error));
+      return ExitCodes.ERROR;
+    }
+  }
+
+  if (invocation.kind === 'learn' && invocation.skill === true) {
+    try {
+      cmdLearn(invocation.skill);
       return ExitCodes.SUCCESS;
     } catch (error) {
       writeHumanError(output, errorMessage(error));

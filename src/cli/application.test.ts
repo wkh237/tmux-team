@@ -74,6 +74,7 @@ describe('application dispatcher', () => {
       ['learn', {}],
     ] as const;
     for (const [kind, values] of cases) await dispatchCommand(ctx, parsed({ kind, ...values }));
+    await dispatchCommand(ctx, parsed({ kind: 'learn', skill: true }));
     expect(handlers.cmdInit).toHaveBeenCalledWith(ctx);
     expect(handlers.cmdList).toHaveBeenCalledWith(ctx, 'claude');
     expect(handlers.cmdTalk).toHaveBeenCalledWith(ctx, 'claude', 'hello');
@@ -98,6 +99,7 @@ describe('application dispatcher', () => {
       ctx,
       expect.objectContaining({ kind: 'result', requestId: 'request-1' })
     );
+    expect(handlers.cmdLearn).toHaveBeenLastCalledWith(true);
   });
 
   it('does not route presentation-only invocations to application services', async () => {

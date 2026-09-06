@@ -91,6 +91,7 @@ describe('cmdInstall', () => {
     process.env.CODEX_HOME = originalCodexHome;
     fs.rmSync(testDir, { recursive: true, force: true });
     fs.rmSync(homeDir, { recursive: true, force: true });
+    vi.doUnmock('../skill-installation.js');
     vi.restoreAllMocks();
   });
 
@@ -223,7 +224,7 @@ describe('cmdInstall', () => {
       default: { homedir: () => homeDir },
       homedir: () => homeDir,
     }));
-    const { ensureManagedLink } = await import('./install.js');
+    const { ensureManagedLink } = await import('../skill-installation.js');
     const source = path.join(testDir, 'source');
     const target = path.join(testDir, 'nested', 'skill');
     fs.mkdirSync(source);
@@ -242,7 +243,7 @@ describe('cmdInstall', () => {
   });
 
   it('can replace a broken symlink while preserving it as a backup', async () => {
-    const { ensureManagedLink } = await import('./install.js');
+    const { ensureManagedLink } = await import('../skill-installation.js');
     const source = path.join(testDir, 'source-file');
     const target = path.join(testDir, 'broken-file');
     fs.writeFileSync(source, 'canonical');
@@ -285,6 +286,156 @@ describe('cmdInstall', () => {
         installed: expect.arrayContaining([expect.objectContaining({ agent: 'codex' })]),
       })
     );
+  });
+
+  it('installs the universal skill into a custom directory without inventing an agent', async () => {
+    vi.resetModules();
+    vi.doMock('node:os', () => ({
+      default: { homedir: () => homeDir },
+      homedir: () => homeDir,
+    }));
+    const { cmdInstall } = await import('./install.js');
+    const customDirectory = path.join(testDir, 'custom skills');
+    const ctx = createCtx(testDir, { flags: { force: true, json: true } });
+
+    await cmdInstall(ctx, undefined, customDirectory);
+    await cmdInstall(ctx, undefined, customDirectory);
+
+    const target = path.join(customDirectory, 'tmux-team');
+    expect(fs.lstatSync(target).isSymbolicLink()).toBe(true);
+    expect(ctx.ui.json).toHaveBeenLastCalledWith({
+      installed: [{ target, changed: false }],
+    });
+  });
+
+  it('preserves custom legacy paths and backs up unmanaged custom targets only with force', async () => {
+    vi.resetModules();
+    vi.doMock('node:os', () => ({
+      default: { homedir: () => homeDir },
+      homedir: () => homeDir,
+    }));
+    const { cmdInstall } = await import('./install.js');
+    const customDirectory = path.join(testDir, 'custom skills');
+    const target = path.join(customDirectory, 'tmux-team');
+    const legacy = path.join(homeDir, '.codex', 'skills', 'tmux-team');
+    fs.mkdirSync(legacy, { recursive: true });
+    fs.writeFileSync(path.join(legacy, 'SKILL.md'), 'legacy');
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, 'user.md'), 'user-owned content');
+    fs.writeFileSync(path.join(customDirectory, 'sibling.txt'), 'keep');
+
+    const refused = createCtx(testDir);
+    await expect(cmdInstall(refused, undefined, customDirectory)).rejects.toThrow(
+      `exit(${ExitCodes.ERROR})`
+    );
+    expect(fs.readFileSync(path.join(target, 'user.md'), 'utf8')).toBe('user-owned content');
+    expect(fs.existsSync(path.join(legacy, 'SKILL.md'))).toBe(true);
+
+    const forced = createCtx(testDir, { flags: { force: true } });
+    await cmdInstall(forced, undefined, customDirectory);
+    expect(fs.readFileSync(path.join(customDirectory, 'sibling.txt'), 'utf8')).toBe('keep');
+    expect(fs.existsSync(path.join(legacy, 'SKILL.md'))).toBe(true);
+    const backup = fs
+      .readdirSync(customDirectory)
+      .find((entry) => entry.startsWith('tmux-team.backup-'));
+    expect(backup).toBeDefined();
+    expect(fs.statSync(path.join(customDirectory, backup!)).isDirectory()).toBe(true);
+    expect(fs.readFileSync(path.join(customDirectory, backup!, 'user.md'), 'utf8')).toBe(
+      'user-owned content'
+    );
+  });
+
+  it('rejects source-equal targets reached through symlinked parents without mutation', async () => {
+    const { assertSafeSkillTarget } = await import('../skill-installation.js');
+    const source = path.join(testDir, 'bundled', 'tmux-team');
+    const sourceFile = path.join(source, 'SKILL.md');
+    const sourceParentAlias = path.join(testDir, 'source parent alias');
+    fs.mkdirSync(source, { recursive: true });
+    fs.writeFileSync(sourceFile, 'disposable source');
+    fs.symlinkSync(path.dirname(source), sourceParentAlias, 'dir');
+    const target = path.join(sourceParentAlias, 'tmux-team');
+
+    expect(() => assertSafeSkillTarget(source, target)).toThrow(
+      `Skill target overlaps bundled source: ${target}`
+    );
+    expect(() => assertSafeSkillTarget(source, path.dirname(source))).toThrow(
+      'Skill target overlaps bundled source'
+    );
+    expect(fs.readFileSync(sourceFile, 'utf8')).toBe('disposable source');
+    expect(fs.lstatSync(source).isDirectory()).toBe(true);
+    expect(
+      fs.readdirSync(path.dirname(source)).some((entry) => entry.startsWith('tmux-team.backup-'))
+    ).toBe(false);
+  });
+
+  it('rejects targets beneath a source child whose name begins with two dots', async () => {
+    const { assertSafeSkillTarget } = await import('../skill-installation.js');
+    const source = path.join(testDir, 'bundled', 'tmux-team');
+    const nestedDirectory = path.join(source, '..nested');
+    const sourceFile = path.join(source, 'SKILL.md');
+    fs.mkdirSync(source, { recursive: true });
+    fs.writeFileSync(sourceFile, 'disposable source');
+    fs.mkdirSync(nestedDirectory);
+    const target = path.join(nestedDirectory, 'tmux-team');
+
+    try {
+      expect(() => assertSafeSkillTarget(source, target)).toThrow(
+        `Skill target overlaps bundled source: ${target}`
+      );
+
+      expect(fs.readFileSync(sourceFile, 'utf8')).toBe('disposable source');
+      expect(fs.readdirSync(nestedDirectory)).toEqual([]);
+    } finally {
+      fs.rmSync(path.join(testDir, 'bundled'), { recursive: true, force: true });
+    }
+  });
+
+  it('checks a missing bundled source before backing up a custom target', async () => {
+    vi.resetModules();
+    const fixtureRoot = path.join(testDir, 'missing-source-package');
+    const customDirectory = path.join(testDir, 'custom missing source');
+    const target = path.join(customDirectory, 'tmux-team');
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, 'user.md'), 'user-owned content');
+    vi.doMock('../skill-installation.js', async () => {
+      const actual = await vi.importActual<typeof import('../skill-installation.js')>(
+        '../skill-installation.js'
+      );
+      return { ...actual, packageRoot: () => fixtureRoot };
+    });
+
+    const { cmdInstall } = await import('./install.js');
+    const ctx = createCtx(testDir, { flags: { force: true } });
+    await expect(cmdInstall(ctx, undefined, customDirectory)).rejects.toThrow(
+      `exit(${ExitCodes.ERROR})`
+    );
+    expect(fs.readFileSync(path.join(target, 'user.md'), 'utf8')).toBe('user-owned content');
+    expect(fs.readdirSync(customDirectory)).toEqual(['tmux-team']);
+  });
+
+  it('requires SKILL.md before backing up a custom target', async () => {
+    vi.resetModules();
+    const fixtureRoot = path.join(testDir, 'incomplete-source-package');
+    const source = path.join(fixtureRoot, 'skills', 'tmux-team');
+    const customDirectory = path.join(testDir, 'custom incomplete source');
+    const target = path.join(customDirectory, 'tmux-team');
+    fs.mkdirSync(source, { recursive: true });
+    fs.mkdirSync(target, { recursive: true });
+    fs.writeFileSync(path.join(target, 'user.md'), 'user-owned content');
+    vi.doMock('../skill-installation.js', async () => {
+      const actual = await vi.importActual<typeof import('../skill-installation.js')>(
+        '../skill-installation.js'
+      );
+      return { ...actual, packageRoot: () => fixtureRoot };
+    });
+
+    const { cmdInstall } = await import('./install.js');
+    const ctx = createCtx(testDir, { flags: { force: true } });
+    await expect(cmdInstall(ctx, undefined, customDirectory)).rejects.toThrow(
+      `exit(${ExitCodes.ERROR})`
+    );
+    expect(fs.readFileSync(path.join(target, 'user.md'), 'utf8')).toBe('user-owned content');
+    expect(fs.readdirSync(customDirectory)).toEqual(['tmux-team']);
   });
 
   it('preserves a legacy Codex copy without force and explains migration', async () => {
@@ -350,7 +501,7 @@ describe('cmdInstall', () => {
       default: { homedir: () => homeDir },
       homedir: () => homeDir,
     }));
-    const { getCodexHome } = await import('./install.js');
+    const { getCodexHome } = await import('../skill-installation.js');
     const configured = process.env.CODEX_HOME;
     delete process.env.CODEX_HOME;
     try {

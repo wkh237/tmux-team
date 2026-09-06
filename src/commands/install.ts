@@ -5,55 +5,31 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Context } from '../types.js';
 import { ExitCodes } from '../exits.js';
 import { colors } from '../ui.js';
+import {
+  backupPath,
+  assertSafeSkillTarget,
+  ensureManagedLink,
+  getCodexHome,
+  getCustomSkillConfig,
+  getSkillConfigs,
+  hasBundledSkillSource,
+  isCorrectLink,
+  packageRoot,
+  targetExists,
+} from '../skill-installation.js';
+import type { SkillAgent, SkillConfig } from '../skill-installation.js';
 
-export type AgentType = 'claude' | 'codex' | 'gemini';
-export type InstallTarget = AgentType | 'all';
+export type InstallTarget = SkillAgent | 'all';
 
 interface InstallResult {
-  agent: AgentType;
+  agent?: SkillAgent;
   target: string;
   changed: boolean;
   backup?: string;
   legacyBackups?: string[];
-}
-
-interface SkillConfig {
-  source: string;
-  target: string;
-}
-
-export function getCodexHome(): string {
-  return process.env.CODEX_HOME || path.join(os.homedir(), '.codex');
-}
-
-function packageRoot(): string {
-  const currentFile = fileURLToPath(import.meta.url);
-  let dir = path.dirname(currentFile);
-  for (let i = 0; i < 6; i++) {
-    if (fs.existsSync(path.join(dir, 'package.json'))) return dir;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return path.resolve(path.dirname(currentFile), '..', '..');
-}
-
-export function getSkillConfigs(root = packageRoot()): Record<AgentType, SkillConfig> {
-  const home = os.homedir();
-  const universal = path.join(root, 'skills', 'tmux-team');
-  return {
-    claude: {
-      source: path.join(root, 'skills', 'claude', 'team.md'),
-      target: path.join(home, '.claude', 'commands', 'team.md'),
-    },
-    // Codex and Gemini intentionally share one official user-global location.
-    codex: { source: universal, target: path.join(home, '.agents', 'skills', 'tmux-team') },
-    gemini: { source: universal, target: path.join(home, '.agents', 'skills', 'tmux-team') },
-  };
 }
 
 const SUPPORTED_AGENTS: InstallTarget[] = ['claude', 'codex', 'gemini', 'all'];
@@ -70,9 +46,9 @@ function commandExists(command: string): boolean {
 }
 
 /** Detect installed agent environments without prompting the user. */
-export function detectEnvironment(): AgentType[] {
+export function detectEnvironment(): SkillAgent[] {
   const home = os.homedir();
-  const detected: AgentType[] = [];
+  const detected: SkillAgent[] = [];
   if (fs.existsSync(path.join(home, '.claude')) || commandExists('claude')) detected.push('claude');
   if (
     fs.existsSync(path.join(home, '.agents')) ||
@@ -84,34 +60,6 @@ export function detectEnvironment(): AgentType[] {
   }
   if (fs.existsSync(path.join(home, '.gemini')) || commandExists('gemini')) detected.push('gemini');
   return detected;
-}
-
-function targetExists(target: string): boolean {
-  // existsSync is false for broken links; lstat is needed so --force can back them up.
-  try {
-    fs.lstatSync(target);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function isCorrectLink(target: string, source: string): boolean {
-  try {
-    const stat = fs.lstatSync(target);
-    if (!stat.isSymbolicLink()) return false;
-    return path.resolve(path.dirname(target), fs.readlinkSync(target)) === path.resolve(source);
-  } catch {
-    return false;
-  }
-}
-
-function backupPath(target: string): string {
-  const base = `${target}.backup-${Date.now()}`;
-  let candidate = base;
-  let suffix = 1;
-  while (targetExists(candidate)) candidate = `${base}-${suffix++}`;
-  return candidate;
 }
 
 function legacyCodexDirectories(): string[] {
@@ -146,44 +94,35 @@ export function migrateLegacyCodex(ctx: Context): string[] {
   return backups;
 }
 
-/** Create a managed symlink, preserving an unmanaged target when forced. */
-export function ensureManagedLink(
-  target: string,
-  source: string,
-  force = false
-): string | undefined {
-  if (isCorrectLink(target, source)) return undefined;
-  let backup: string | undefined;
-  if (targetExists(target)) {
-    if (!force) {
-      throw new Error(`Refusing to replace existing unmanaged path: ${target} (use --force)`);
-    }
-    backup = backupPath(target);
-    fs.renameSync(target, backup);
-  }
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  // Omitting the platform-specific type keeps this portable on Darwin and Linux.
-  fs.symlinkSync(source, target);
-  return backup;
-}
-
-function installAgent(ctx: Context, agent: AgentType): InstallResult {
+function installSelectedSkill(ctx: Context, selected: SkillConfig): Omit<InstallResult, 'agent'> {
   if (process.platform !== 'darwin' && process.platform !== 'linux') {
     throw new Error('Skill installation is supported on Darwin and Linux only.');
   }
-  const selected = getSkillConfigs()[agent];
-  if (!fs.existsSync(selected.source))
+  if (!hasBundledSkillSource(selected.source))
     throw new Error(`Bundled skill source not found: ${selected.source}`);
   const wasCorrect = isCorrectLink(selected.target, selected.source);
+  if (!wasCorrect) assertSafeSkillTarget(selected.source, selected.target);
   const backup = ensureManagedLink(selected.target, selected.source, ctx.flags.force);
-  const legacyBackups = agent === 'codex' ? migrateLegacyCodex(ctx) : [];
   return {
-    agent,
     target: selected.target,
     changed: !wasCorrect,
     ...(backup ? { backup } : {}),
+  };
+}
+
+function installAgent(ctx: Context, agent: SkillAgent): InstallResult {
+  const base = installSelectedSkill(ctx, getSkillConfigs()[agent]);
+  const legacyBackups = agent === 'codex' ? migrateLegacyCodex(ctx) : [];
+  return {
+    agent,
+    ...base,
     ...(legacyBackups.length > 0 ? { legacyBackups } : {}),
   };
+}
+
+function installCustom(ctx: Context, directory: string): InstallResult {
+  const selected = getCustomSkillConfig(packageRoot(), directory);
+  return installSelectedSkill(ctx, selected);
 }
 
 function printNextSteps(ctx: Context, installed: InstallResult[]): void {
@@ -194,10 +133,11 @@ function printNextSteps(ctx: Context, installed: InstallResult[]): void {
   const seenTargets = new Set<string>();
   for (const item of installed) {
     const shared = seenTargets.has(item.target);
+    const label = item.agent === undefined ? 'custom skill' : `${item.agent} skill`;
     ctx.ui.success(
       shared
         ? `${item.agent} integration uses the shared skill at ${item.target}`
-        : `${item.agent} skill linked at ${item.target}`
+        : `${label} linked at ${item.target}`
     );
     seenTargets.add(item.target);
     if (item.backup) ctx.ui.info(`Previous path moved to recoverable backup: ${item.backup}`);
@@ -218,7 +158,17 @@ function printNextSteps(ctx: Context, installed: InstallResult[]): void {
   console.log(`  ${colors.cyan('tmt result <request-id> --json')} (after timeout or --detach)`);
 }
 
-export async function cmdInstall(ctx: Context, agent?: string): Promise<void> {
+export async function cmdInstall(ctx: Context, agent?: string, directory?: string): Promise<void> {
+  if (directory !== undefined) {
+    if (agent !== undefined) {
+      ctx.ui.error('The --dir option cannot be combined with an agent or all.');
+      ctx.exit(ExitCodes.ERROR);
+    }
+    if (directory.trim() === '') {
+      ctx.ui.error('Install directory must not be empty.');
+      ctx.exit(ExitCodes.ERROR);
+    }
+  }
   const requested = agent?.toLowerCase() as InstallTarget | undefined;
   if (requested && !SUPPORTED_AGENTS.includes(requested)) {
     ctx.ui.error(`Unknown agent: ${agent}`);
@@ -226,19 +176,22 @@ export async function cmdInstall(ctx: Context, agent?: string): Promise<void> {
     ctx.exit(ExitCodes.ERROR);
   }
 
-  let agents: AgentType[];
-  if (requested === 'all') agents = ['claude', 'codex', 'gemini'];
-  else if (requested) agents = [requested];
-  else {
-    agents = detectEnvironment();
-    // A clean machine gets the universal Open Agent Skill.
-    if (agents.length === 0) agents = ['codex'];
-  }
-
   const installed: InstallResult[] = [];
   try {
-    for (const selected of agents) {
-      installed.push(installAgent(ctx, selected));
+    if (directory !== undefined) {
+      installed.push(installCustom(ctx, directory));
+    } else {
+      let agents: SkillAgent[];
+      if (requested === 'all') agents = ['claude', 'codex', 'gemini'];
+      else if (requested) agents = [requested];
+      else {
+        agents = detectEnvironment();
+        // A clean machine gets the universal Open Agent Skill.
+        if (agents.length === 0) agents = ['codex'];
+      }
+      for (const selected of agents) {
+        installed.push(installAgent(ctx, selected));
+      }
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
