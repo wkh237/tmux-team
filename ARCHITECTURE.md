@@ -351,8 +351,13 @@ error mappings within the shared invocation output boundary.
 
 `TargetResolverPort` contains only pane resolution and the verified active-name
 view. The shared target resolver retains pane-first ordering; `identityAwareTmux`
-supplies that view through the required identity service. CLI role request types
-live in the CLI layer, not in the command handler. Focused AST import checks
+supplies that view through the required identity service. Config, preamble, role,
+reply and result request types have one owner in `src/cli/requests.ts`; both the
+parser and command handlers consume those declarations. Handlers do not redeclare
+or re-export a parallel request contract. Feature validation and public error
+mapping remain in their existing owners. A focused AST check derives owned type
+names from that canonical module and rejects same-named declarations elsewhere;
+it does not prove equivalence of renamed or anonymous structural types. Focused AST import checks
 cover direct literal imports/re-exports in maintained production sources; they
 are not a complete semantic dependency or dynamically computed-import analysis.
 

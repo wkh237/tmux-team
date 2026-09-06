@@ -4,6 +4,7 @@
 
 import type { Context } from '../types.js';
 import { ExitCodes } from '../context.js';
+import type { ConfigRequest } from '../cli/requests.js';
 import {
   loadGlobalConfig,
   saveGlobalConfig,
@@ -16,14 +17,6 @@ import {
 type EnumConfigKey = 'preambleMode';
 type NumericConfigKey = 'preambleEvery' | 'pasteEnterDelayMs';
 type ConfigKey = EnumConfigKey | NumericConfigKey;
-
-export interface ConfigRequest {
-  readonly kind: 'config';
-  readonly operation: 'show' | 'set' | 'clear';
-  readonly key?: string;
-  readonly value?: string;
-  readonly global: boolean;
-}
 
 const ENUM_KEYS: EnumConfigKey[] = ['preambleMode'];
 const NUMERIC_KEYS: NumericConfigKey[] = ['preambleEvery', 'pasteEnterDelayMs'];

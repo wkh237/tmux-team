@@ -3,16 +3,10 @@
 // ─────────────────────────────────────────────────────────────
 
 import type { Context } from '../types.js';
+import type { PreambleRequest } from '../cli/requests.js';
 import { ExitCodes } from '../exits.js';
 import { IdentitySelectionError } from '../identity-context.js';
 import { PreambleContentError } from '../domain/preamble.js';
-
-export interface PreambleRequest {
-  readonly kind: 'preamble';
-  readonly operation: 'show' | 'set' | 'clear';
-  readonly agent?: string;
-  readonly preamble?: string;
-}
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Could not access identity preamble state.';

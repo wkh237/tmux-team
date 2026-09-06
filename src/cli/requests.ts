@@ -1,5 +1,20 @@
 import type { IdentitySelector } from '../identity-context.js';
 
+export interface ConfigRequest {
+  readonly kind: 'config';
+  readonly operation: 'show' | 'set' | 'clear';
+  readonly key?: string;
+  readonly value?: string;
+  readonly global: boolean;
+}
+
+export interface PreambleRequest {
+  readonly kind: 'preamble';
+  readonly operation: 'show' | 'set' | 'clear';
+  readonly agent?: string;
+  readonly preamble?: string;
+}
+
 export type RoleRequest = {
   readonly kind: 'role';
   readonly selector?: IdentitySelector;
