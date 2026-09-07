@@ -3,6 +3,7 @@
 node_modules
 coverage
 dist
+rust/target
 .DS_Store
 *.log
 .env

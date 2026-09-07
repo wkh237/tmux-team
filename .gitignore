@@ -7,3 +7,4 @@ dist/
 .claude/settings.json
 .tmux-team-id
 coverage/
+rust/target/

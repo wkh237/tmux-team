@@ -888,6 +888,33 @@ failure semantics; merely introducing an interface is not an architectural fix.
 
 ## Known deviations and planned work
 
+### Native grammar preview
+
+`rust/` contains a development-only native CLI under #96; installed entry points
+remain TypeScript. `tmt-core` owns pure numeric limits, while `tmt-cli` owns one
+Clap grammar, typed requests, presentation and explicit no-effects rejection for
+unimplemented commands. No concrete adapter package is created before #97's first
+storage implementation. Neither core nor typed requests depend on concrete IO.
+
+Help and completion use a filtered projection of the same grammar, excluding
+hidden rejection syntax and unrelated inherited options. Parser errors choose
+JSON mode through a grammar-derived, value-aware diagnostic adapter, never a
+raw search for `--json` inside payloads. Successful parsing supplies typed
+invocations without exposing Clap to application use cases. The binary returns
+an exit status through `main` and does not terminate from a domain operation.
+
+Native syntax includes the approved #100 amendment (`rm`/`remove`, temporary
+binding defaults and `-s`/`--save`). Storage, retirement, workspace selection and
+promotion are not yet implemented. The durable-global invariants elsewhere in
+this map still describe the shipped TypeScript runtime, not the amended future
+native lifecycle. See [RUST-REWRITE.md](RUST-REWRITE.md) for transition boundaries.
+
+`test/native/` uses the existing CLI sandbox/executable selector for explicit
+native-preview process assertions. It requires a selected build, rather than
+silently testing TS. The named shared parser-contract subset remains separate
+from full native parity. Native unit tests cover typed grammar and core policy;
+real tmux behavior remains gated by the existing Docker harness as it is ported.
+
 The [Rust rewrite decision](RUST-REWRITE.md) records the proposed native package
 boundaries, compatibility/test matrix, data coexistence gates and dependency
 evaluation under [#93](https://github.com/wkh237/tmux-team/issues/93).

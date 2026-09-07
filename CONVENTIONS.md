@@ -60,6 +60,13 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
 
 ## Dependencies and refactoring
 
+Native Rust uses edition 2024, rustfmt, snake_case module files, explicit typed
+requests and standard `Result` boundaries. Keep Clap and output in `tmt-cli`,
+pure validity rules/use cases in `tmt-core`, and concrete effects in the future
+`tmt-adapters` package. Follow the declared MSRV and committed lockfile; do not
+silence warnings to avoid correcting a touched implementation. Unit tests stay
+with their owner; shared process scenarios reuse the repository test harness.
+
 Before adding a dependency or abstraction, inspect existing helpers and compare
 the concrete benefit, compatibility/native-install impact, maintenance, license,
 security and operational cost. Record the decision in the issue. A built-in is
