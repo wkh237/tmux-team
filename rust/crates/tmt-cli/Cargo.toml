@@ -17,5 +17,8 @@ clap.workspace = true
 clap_complete.workspace = true
 serde_json.workspace = true
 
+[dev-dependencies]
+syn = { version = "=2.0.119", default-features = false, features = ["full", "parsing", "visit"] }
+
 [lints]
 workspace = true

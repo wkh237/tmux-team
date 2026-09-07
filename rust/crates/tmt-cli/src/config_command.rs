@@ -14,10 +14,8 @@ impl From<ConfigError> for Failure {
     }
 }
 
-impl From<String> for Failure {
-    fn from(message: String) -> Self {
-        Self::new("ERROR", message, 1)
-    }
+fn invalid_setting(message: String) -> Failure {
+    Failure::new("ERROR", message, 1)
 }
 
 enum Report {
@@ -39,7 +37,10 @@ fn run(request: ConfigRequest) -> Result<Report, Failure> {
         }),
         ConfigRequest::Set { key, value, global } => {
             let scope = if global { Scope::Global } else { Scope::Local };
-            files.set(Setting::edit(&key, &value, scope)?, scope)?;
+            files.set(
+                Setting::edit(&key, &value, scope).map_err(invalid_setting)?,
+                scope,
+            )?;
             let destination = if global {
                 "global config"
             } else {
@@ -50,7 +51,7 @@ fn run(request: ConfigRequest) -> Result<Report, Failure> {
             )))
         }
         ConfigRequest::Clear { key } => {
-            files.clear_local(LocalClear::parse(key.as_deref())?)?;
+            files.clear_local(LocalClear::parse(key.as_deref()).map_err(invalid_setting)?)?;
             Ok(Report::Changed(key.map_or_else(
                 || "Cleared all local config overrides".into(),
                 |key| format!("Cleared local override for {key}"),
