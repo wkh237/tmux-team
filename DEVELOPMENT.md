@@ -63,10 +63,53 @@ in `test/e2e/Dockerfile` from the current checkout, runs Vitest inside it with
 own tmux server on a private socket and
 launches the deterministic mock agent from `test/e2e/mock-agent.mjs`; no real
 agent, credentials, or host tmux session is used. The tests invoke
-`bin/tmux-team` as a subprocess and exercise CLI process propagation, tmux
+`bin/tmux-team` by default as a subprocess and exercise CLI process propagation, tmux
 transport, pane movement, and fixture cleanup. Failures include the
 container/Vitest output, and each fixture kills its private server and removes
 its temporary state.
+
+### Selecting the CLI under test
+
+`TMT_TEST_CLI` is a JSON descriptor with exactly `executable` (absolute path to an
+executable file) and `args` (string-array argv prefix). Omission selects the
+current test runner's absolute Node executable plus the checkout's public
+TypeScript wrapper as its prefix. This preserves tests that deliberately remove
+Node/provider discovery from PATH; it does not skip the wrapper's child process.
+`TMT_TEST_PEER_CLI` uses the same format for mock
+agent replies; omission uses the primary selection. An empty, malformed,
+missing or non-executable explicit selection fails; it never falls back to TS.
+Shell fragments are not parsed. Paths and prefix arguments may contain spaces
+and quotes. Selection is frozen per sandbox/fixture, before resource allocation.
+
+```bash
+# Host CLI contracts; use a real native build only once it supports the subset.
+TMT_TEST_CLI='{"executable":"/absolute/path/to/tmt","args":[]}' \
+  pnpm exec vitest run src/identity-cli-contract.test.ts
+
+# Docker paths refer to files INSIDE the image, not host executable paths.
+TMT_TEST_CLI='{"executable":"/workspace/bin/tmux-team","args":[]}' pnpm test:e2e
+
+# Explicit Node+wrapper is also a descriptor, not a special runtime mode.
+TMT_TEST_CLI='{"executable":"/usr/local/bin/node","args":["/workspace/bin/tmux-team"]}' \
+TMT_TEST_PEER_CLI='{"executable":"/workspace/bin/tmux-team","args":[]}' pnpm test:e2e
+```
+
+The Docker wrapper forwards both settings unchanged. A custom Linux binary must
+already be in the build context/image, or be mounted read-only in a manually
+managed task-owned image/container; no host-path mapping or cross-compilation is
+implicit. Keep `--rm --init --network none`, private fixture sockets and image
+cleanup. Do not feed a macOS binary to the Linux container. The resource probe
+uses the host descriptor and reports it; Docker latency reports record both
+descriptors. Record native build profile/toolchain separately when comparing.
+
+Selection reaches the shared CLI-contract helper, E2E commands, real tmux
+descendants and nested mock replies. Selector infrastructure tests deliberately
+exercise the TS reference and a non-Node recording wrapper, not native parity.
+Tests importing TypeScript services/concurrency workers, the bin-wrapper tests
+and packed storage probes remain TS-only evidence. They are not converted by an
+environment variable: retain their assertions until corresponding native
+units/concurrency and installed-artifact gates replace them. Native partial
+subsets must be named in the issue; never present one as full compatibility.
 
 The publication race scenario observes the CLI process tree's open database
 descriptors through Linux `/proc` before releasing the writer barrier. This

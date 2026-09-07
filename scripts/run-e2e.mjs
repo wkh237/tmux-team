@@ -59,7 +59,20 @@ async function main() {
     ]);
     if (buildStatus !== 0) return interrupted ? 130 : buildStatus;
     if (interrupted) return 130;
-    const testStatus = await run('docker', ['run', '--rm', '--init', '--network', 'none', image]);
+    // Selectors name container-visible executables. Forward values as single
+    // argv entries; never translate host paths or evaluate shell fragments.
+    const selection = ['TMT_TEST_CLI', 'TMT_TEST_PEER_CLI'].flatMap((key) =>
+      process.env[key] === undefined ? [] : ['--env', `${key}=${process.env[key]}`]
+    );
+    const testStatus = await run('docker', [
+      'run',
+      '--rm',
+      '--init',
+      '--network',
+      'none',
+      ...selection,
+      image,
+    ]);
     return interrupted ? 130 : testStatus;
   } catch (error) {
     if (error?.code === 'ENOENT') {

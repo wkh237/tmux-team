@@ -3,9 +3,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  resolveCliExecutables,
+  type CliExecutables,
+} from '../../src/test-support/cli-executable.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const binPath = path.join(repoRoot, 'bin', 'tmux-team');
 const mockAgentPath = path.join(repoRoot, 'test', 'e2e', 'mock-agent.mjs');
 
 export interface CliResult<T = unknown> {
@@ -87,6 +90,8 @@ export interface MetadataBarrierOptions {
 }
 
 export interface E2EFixtureOptions {
+  /** Test-only selector environment, resolved before allocating fixture resources. */
+  executableEnv?: NodeJS.ProcessEnv;
   mode?: 'respond' | 'silent' | 'malformed' | 'virtualized' | 'fake-marker' | 'input-log';
   delayMs?: number;
   responseBodyBase64?: string;
@@ -110,19 +115,18 @@ function shellQuote(value: string): string {
 }
 
 export class E2EFixture {
-  readonly root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-e2e-')));
-  readonly socketRoot = fs.realpathSync(
-    fs.mkdtempSync(path.join(process.platform === 'darwin' ? '/private/tmp' : os.tmpdir(), 'te2e-'))
-  );
-  readonly workspace = path.join(this.root, 'workspace');
+  readonly executables: CliExecutables;
+  readonly root: string;
+  readonly socketRoot: string;
+  readonly workspace: string;
   readonly globalDir: string;
-  readonly logPath = path.join(this.root, 'mock-agent.jsonl');
-  readonly transportTracePath = path.join(this.root, 'transport-trace.log');
-  readonly forbiddenTmuxLogPath = path.join(this.root, 'forbidden-tmux.log');
-  readonly metadataBarrierDirectory = path.join(this.root, 'metadata-barrier');
-  readonly replyGateDirectory = path.join(this.root, 'reply-gate');
+  readonly logPath: string;
+  readonly transportTracePath: string;
+  readonly forbiddenTmuxLogPath: string;
+  readonly metadataBarrierDirectory: string;
+  readonly replyGateDirectory: string;
   readonly socket = `tmt-e2e-${process.pid}-${Math.random().toString(16).slice(2)}`;
-  readonly wrapperDir = path.join(this.root, 'bin');
+  readonly wrapperDir: string;
   readonly tmuxPath: string;
   pane = '';
   panePid = 0;
@@ -136,7 +140,26 @@ export class E2EFixture {
   private cliProcessPids = new Set<number>();
   private cliProcessResults = new Map<number, Promise<CliResult<unknown>>>();
 
-  constructor(options: { globalDir?: string } = {}) {
+  constructor(options: Pick<E2EFixtureOptions, 'globalDir' | 'executableEnv'> = {}) {
+    this.executables = resolveCliExecutables(options.executableEnv);
+    this.root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tmux-team-e2e-')));
+    try {
+      this.socketRoot = fs.realpathSync(
+        fs.mkdtempSync(
+          path.join(process.platform === 'darwin' ? '/private/tmp' : os.tmpdir(), 'te2e-')
+        )
+      );
+    } catch (error) {
+      fs.rmSync(this.root, { recursive: true, force: true });
+      throw error;
+    }
+    this.workspace = path.join(this.root, 'workspace');
+    this.logPath = path.join(this.root, 'mock-agent.jsonl');
+    this.transportTracePath = path.join(this.root, 'transport-trace.log');
+    this.forbiddenTmuxLogPath = path.join(this.root, 'forbidden-tmux.log');
+    this.metadataBarrierDirectory = path.join(this.root, 'metadata-barrier');
+    this.replyGateDirectory = path.join(this.root, 'reply-gate');
+    this.wrapperDir = path.join(this.root, 'bin');
     this.globalDir = options.globalDir ?? path.join(this.root, 'global');
     try {
       this.tmuxPath = execFileSync('/bin/sh', ['-lc', 'command -v tmux'], {
@@ -277,7 +300,8 @@ exit ${'$'}status
         TMT_MOCK_MODE: options.mode ?? 'respond',
         TMT_MOCK_DELAY_MS: String(options.delayMs ?? 0),
         TMT_MOCK_LOG: this.logPath,
-        TMT_E2E_CLI_PATH: binPath,
+        TMT_TEST_CLI: JSON.stringify(this.executables.cli),
+        TMT_TEST_PEER_CLI: JSON.stringify(this.executables.peer),
       };
       if (options.responseBodyBase64 !== undefined)
         this.env.TMT_MOCK_RESPONSE_BODY_BASE64 = options.responseBodyBase64;
@@ -353,7 +377,7 @@ exit ${'$'}status
       env.TMT_E2E_TRANSPORT_FAULT_STAGE = options.transportFault.stage;
       env.TMT_E2E_TRANSPORT_TRACE_FILE = this.transportTracePath;
     }
-    const child = spawn(binPath, args, {
+    const child = spawn(this.executables.cli.executable, [...this.executables.cli.args, ...args], {
       cwd: options.cwd ?? this.workspace,
       env,
       detached: true,

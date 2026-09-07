@@ -2,15 +2,13 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { expect } from 'vitest';
 import { CURRENT_MIGRATIONS } from '../storage/migrations.js';
 import { openStorageWithMigrations } from '../storage/sqlite-adapter.js';
-
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-export const binPath = path.join(repoRoot, 'bin', 'tmux-team');
+import { resolveCliExecutables, type CliExecutable } from './cli-executable.mjs';
 
 export interface Sandbox {
+  readonly cli: CliExecutable;
   readonly root: string;
   readonly cwd: string;
   readonly home: string;
@@ -42,7 +40,8 @@ export interface CliRunOptions {
 
 export type JsonDocument = Record<string, unknown>;
 
-export function createSandbox(): Sandbox {
+export function createSandbox(executableEnv: NodeJS.ProcessEnv = process.env): Sandbox {
+  const { cli } = resolveCliExecutables(executableEnv);
   const root = mkdtempSync(path.join(os.tmpdir(), 'tmux-team-cli-contract-'));
   try {
     const cwd = path.join(root, 'cwd');
@@ -63,6 +62,7 @@ export function createSandbox(): Sandbox {
     delete env.PI_CODING_AGENT_DIR;
     delete env.OPENCODE_CONFIG_DIR;
     return {
+      cli,
       root,
       cwd,
       home,
@@ -89,7 +89,7 @@ export function runCli(
   const deadlineMs = options.deadlineMs ?? 5_000;
   const hasStdin = options.stdin !== undefined;
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [binPath, ...args], {
+    const child = spawn(sandbox.cli.executable, [...sandbox.cli.args, ...args], {
       cwd: sandbox.cwd,
       env: sandbox.env,
       detached: true,
@@ -118,7 +118,7 @@ export function runCli(
     };
     const timer = setTimeout(() => {
       timedOut = true;
-      // The wrapper launches the TypeScript child; kill the process group so a
+      // A selected executable may launch children; kill the process group so a
       // timeout cannot leave that descendant running after the test exits.
       killProcessGroup();
     }, deadlineMs);

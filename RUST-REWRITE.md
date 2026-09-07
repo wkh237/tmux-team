@@ -145,12 +145,14 @@ No existing test proves Rust parity or mixed-runtime operation. Explicitly add:
 
 ## Test architecture transition
 
-Keep Vitest, Docker, private tmux sockets and deterministic mock agents. Add one
-test-only executable descriptor (absolute binary plus argument prefix), resolved
-once before fixture startup. Inject it through the existing harness, mock reply
-launcher and real-descendant launcher. Missing/non-executable selection must fail,
-never silently fall back to TS. Default remains TS until explicit cutover.
-Mixed-runtime cases need a second explicit peer descriptor, not per-test argv hacks.
+Keep Vitest, Docker, private tmux sockets and deterministic mock agents.
+[#95](https://github.com/wkh237/tmux-team/issues/95) adds the shared test-only
+executable descriptor (absolute binary plus argv prefix), validated before fixture
+allocation and used by CLI contracts, E2E, mock replies, real descendants and the
+resource probe. Missing/non-executable selection fails without TS fallback.
+Default remains TS until explicit cutover; an explicit peer descriptor supports
+future mixed-runtime cases. See [selector usage](DEVELOPMENT.md#selecting-the-cli-under-test).
+The seam itself proves neither native behavior nor mixed-runtime compatibility.
 
 Keep SQL oracles independent and read-only. Existing TS unit tests importing
 services/worker modules remain TS regression tests while corresponding Rust
