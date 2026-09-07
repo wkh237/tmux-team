@@ -33,7 +33,7 @@ jobs:
         run: pnpm check
 
   native-rust:
-    name: Native Rust grammar
+    name: Native Rust contracts
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -53,6 +53,7 @@ jobs:
           cargo test --locked
           cargo +1.88.0 build --locked
           cargo build --locked
+          cargo build --locked --example storage-probe
       - name: Set up Node.js test tooling
         uses: actions/setup-node@v4
         with:
@@ -68,8 +69,9 @@ jobs:
       - name: Verify native process and shared parser contracts
         env:
           TMT_TEST_CLI: '{"executable":"${{ github.workspace }}/rust/target/debug/tmt","args":[]}'
+          TMT_TEST_STORAGE_PROBE: '{"executable":"${{ github.workspace }}/rust/target/debug/examples/storage-probe","args":[]}'
         run: |
-          pnpm test:native:cli
+          pnpm test:native
           pnpm exec vitest run src/cli-contract.test.ts -t 'reports JSON parse errors|rejects ignored options|validates invalid options|keeps JSON leaf|does not treat|keeps a literal|does not reinterpret|rejects JSON mode for text-only'
 
   unit-tests:

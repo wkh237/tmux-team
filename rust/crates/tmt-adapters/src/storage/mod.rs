@@ -1,0 +1,203 @@
+mod errors;
+mod migrations;
+
+#[cfg(test)]
+mod tests;
+
+use rusqlite::Connection;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::Duration,
+};
+
+pub use errors::{StorageError, StorageErrorCode};
+use errors::{classify, incompatible};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckpointMode {
+    Passive,
+    Truncate,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct StorageHealth {
+    pub path: PathBuf,
+    pub schema_version: u32,
+    pub journal_mode: &'static str,
+    pub foreign_keys: bool,
+    pub busy_timeout_ms: u32,
+    pub synchronous: &'static str,
+    pub fts5: bool,
+}
+
+/// One invocation-owned connection. The raw handle never crosses this adapter's
+/// boundary. Explicit close reports failures; Connection's RAII remains a safety
+/// net for early returns and unwinding, not a replacement for fallible cleanup.
+pub struct Storage {
+    path: PathBuf,
+    connection: Option<Connection>,
+}
+
+impl Storage {
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, StorageError> {
+        let path = path.as_ref().to_path_buf();
+        let directory = path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        secure_directory(directory)?;
+        let mut connection =
+            Connection::open(&path).map_err(|error| classify(error, "Open storage"))?;
+        let prepare = (|| {
+            connection
+                .pragma_update(None, "foreign_keys", "ON")
+                .map_err(|error| classify(error, "Configure foreign keys"))?;
+            connection
+                .busy_timeout(Duration::from_millis(5000))
+                .map_err(|error| classify(error, "Configure busy timeout"))?;
+            connection
+                .pragma_update(None, "journal_mode", "WAL")
+                .map_err(|error| classify(error, "Configure WAL"))?;
+            connection
+                .pragma_update(None, "synchronous", "NORMAL")
+                .map_err(|error| classify(error, "Configure synchronous policy"))?;
+            connection.execute_batch("CREATE VIRTUAL TABLE temp._tmt_fts5_check USING fts5(content); DROP TABLE temp._tmt_fts5_check;")
+                .map_err(|error| incompatible("The SQLite runtime does not provide FTS5").caused_by(error))?;
+            migrations::apply(&mut connection)?;
+            secure_files(&path)
+        })();
+        if let Err(primary) = prepare {
+            // Closing must not replace the error that prevented a usable handle.
+            let _ = connection.close();
+            return Err(primary);
+        }
+        Ok(Self {
+            path,
+            connection: Some(connection),
+        })
+    }
+
+    pub fn health(&self) -> Result<StorageHealth, StorageError> {
+        let connection = self.connection()?;
+        let policy = connection.query_row(
+            "SELECT (SELECT foreign_keys FROM pragma_foreign_keys), (SELECT journal_mode FROM pragma_journal_mode), (SELECT timeout FROM pragma_busy_timeout), (SELECT synchronous FROM pragma_synchronous)",
+            [], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?)),
+        ).map_err(|error| classify(error, "Read storage health"))?;
+        if policy != (1, "wal".into(), 5000, 1) {
+            return Err(incompatible(
+                "The SQLite connection does not match storage policy",
+            ));
+        }
+        let version = connection
+            .query_row(
+                "SELECT COALESCE(MAX(version), 0) FROM _migrations",
+                [],
+                |row| row.get::<_, u32>(0),
+            )
+            .map_err(|error| classify(error, "Read schema version"))?;
+        Ok(StorageHealth {
+            path: self.path.clone(),
+            schema_version: version,
+            journal_mode: "wal",
+            foreign_keys: true,
+            busy_timeout_ms: 5000,
+            synchronous: "normal",
+            fts5: true,
+        })
+    }
+
+    pub fn checkpoint(&self, mode: CheckpointMode) -> Result<(), StorageError> {
+        checkpoint(self.connection()?, &self.path, mode)
+    }
+
+    pub fn close(&mut self) -> Result<(), StorageError> {
+        let Some(connection) = self.connection.take() else {
+            return Ok(());
+        };
+        let checkpoint_result = checkpoint(&connection, &self.path, CheckpointMode::Passive);
+        let close_result = connection
+            .close()
+            .map_err(|(_connection, error)| classify(error, "Close storage"));
+        // Both effects have already run. Preserve the first failure.
+        checkpoint_result.and(close_result)
+    }
+
+    fn connection(&self) -> Result<&Connection, StorageError> {
+        self.connection
+            .as_ref()
+            .ok_or_else(|| StorageError::new(StorageErrorCode::Closed, "Storage is already closed"))
+    }
+}
+
+fn checkpoint(
+    connection: &Connection,
+    path: &Path,
+    mode: CheckpointMode,
+) -> Result<(), StorageError> {
+    let statement = match mode {
+        CheckpointMode::Passive => "PRAGMA wal_checkpoint(PASSIVE)",
+        CheckpointMode::Truncate => "PRAGMA wal_checkpoint(TRUNCATE)",
+    };
+    // A busy result row is not an exception in the reference adapter. Do not
+    // reinterpret passive checkpoint contention as a failed committed command.
+    connection
+        .query_row(statement, [], |row| row.get::<_, i64>(0))
+        .map_err(|error| classify(error, "Checkpoint storage"))?;
+    secure_files(path)
+}
+
+fn secure_directory(path: &Path) -> Result<(), StorageError> {
+    let result = (|| {
+        let mut builder = fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+            builder.mode(0o700);
+            builder.create(path)?;
+            fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+        }
+        #[cfg(not(unix))]
+        builder.create(path)?;
+        Ok::<(), std::io::Error>(())
+    })();
+    result.map_err(|error| {
+        StorageError::new(
+            StorageErrorCode::Permission,
+            "Cannot secure storage directory",
+        )
+        .caused_by(error)
+    })
+}
+
+fn secure_files(path: &Path) -> Result<(), StorageError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        for suffix in ["", "-wal", "-shm"] {
+            let mut file = path.as_os_str().to_os_string();
+            file.push(suffix);
+            match fs::metadata(&file) {
+                Ok(_) => fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).map_err(
+                    |error| {
+                        StorageError::new(
+                            StorageErrorCode::Permission,
+                            "Cannot secure storage file",
+                        )
+                        .caused_by(error)
+                    },
+                )?,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(StorageError::new(
+                        StorageErrorCode::Permission,
+                        "Cannot inspect storage file",
+                    )
+                    .caused_by(error));
+                }
+            }
+        }
+    }
+    Ok(())
+}
