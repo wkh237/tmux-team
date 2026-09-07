@@ -15,7 +15,10 @@ Replace the user-facing Node/tsx runtime with a native executable, preserving
 supported v5 command and data contracts. Node may remain developer test tooling.
 The approved native identity amendment [#100](https://github.com/wkh237/tmux-team/issues/100)
 adds temporary-by-default identities, explicit `-s`/`--save`, restored `rm`/`remove`,
-and workspace-scoped everyday discovery. It retains one SQLite identity model;
+and visible lifetime/presence in `ls`. Canonical names remain globally unique
+within one local database across both lifetimes; folders and Git worktrees do
+not establish another namespace or filter discovery. The earlier workspace
+scoping proposal was withdrawn by user clarification. It retains one SQLite identity model;
 promotion keeps the UUID and retirement must preserve retained exchanges.
 This amendment is not implemented by grammar recognition alone. The rewrite
 is not authorization to add memory/offline inbox,
@@ -62,6 +65,17 @@ The preview implements help, version, Bash/Zsh completion and the existing
 storage, tmux or input acquisition. Text-only commands reject JSON. Native
 `name`/`this`/`add` parse temporary defaults and save flags; `rm`/`remove` parse
 explicit force. This is not evidence that native lifecycle operations work.
+
+The planned #100 listing includes all non-retired temporary and saved identities,
+including saved offline identities. It exposes lifetime separately from verified
+presence: `temporary`/`saved` and `active`/`offline`/`unknown`. Unavailable evidence
+is not proof of death; retired temporary identities are omitted, while offline
+saved identities continue to reserve their names. Visibility does not silently
+expand current-server routing or justify unbounded per-identity tmux queries.
+The implementing issue must define exact JSON and failure precedence and test
+cross-directory name collisions, promotion, retirement/reuse, preserved exchanges
+and truthful unknown presence. These are planned native changes, not installed
+TypeScript behavior or a second identity registry.
 
 #103 makes settings an invocation-owned shared boundary rather than a rule set
 inside each CLI handler. Core owns typed defaults, scalar bounds, setting scope

@@ -906,8 +906,14 @@ invocations without exposing Clap to application use cases. The binary returns
 an exit status through `main` and does not terminate from a domain operation.
 
 Native syntax includes the approved #100 amendment (`rm`/`remove`, temporary
-binding defaults and `-s`/`--save`). Identity repositories, retirement, workspace selection and
-promotion are not yet implemented. The durable-global invariants elsewhere in
+binding defaults and `-s`/`--save`). Names remain globally unique across temporary
+and saved identities in one database; no project/workspace name isolation or
+directory-based discovery filter is planned. Native `ls` is planned to list all
+non-retired identities, including saved offline entries, and show lifetime
+separately from active/offline/unknown presence. Unverified evidence cannot retire
+a temporary identity or release a saved name. Visibility does not extend routing.
+Identity repositories, retirement, promotion and these listing changes are not
+yet implemented. The durable-global invariants elsewhere in
 this map still describe the shipped TypeScript runtime, not the amended future
 native lifecycle. See [RUST-REWRITE.md](RUST-REWRITE.md) for transition boundaries.
 
