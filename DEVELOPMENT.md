@@ -32,15 +32,16 @@ pnpm dev -- --help
 ### Native development preview
 
 The `rust/` workspace is not the installed runtime yet. It implements only
-help/version/completion, typed grammar and the existing `config` command.
+help/version/completion, typed grammar, the existing `config` command and
+storage-only `identity create/show/list` under #113.
 Other effectful commands still explicitly fail.
 The separate storage adapter upgrades historical schemas 0–8 to native schema 9,
 tested through a development-only probe rather than an installed command.
 Use isolated test databases only: installed TypeScript cannot reopen schema 9.
-Native identity commands and retirement are still unimplemented.
+Native pane binding, presence listing and retirement are still unimplemented.
 The #111 internal record service supports temporary/saved creation, same-UUID
 promotion and non-retired selection, tested against real isolated SQLite. It
-does not activate the public identity commands or establish live presence.
+supplies the public storage-only commands but does not establish live presence.
 The Unix tmux evidence adapter is likewise exercised through a non-installed
 `tmux-probe` example; native identity commands are not implemented by that probe.
 Use the exact toolchain from `rust/rust-toolchain.toml` and run from `rust/`:
@@ -112,6 +113,17 @@ do not substitute compiler-owned casing tables or case folding. Identity-record
 tests invoke the actual service and repository on private SQLite fixtures,
 observe dependent rows independently, and synchronize competing connections
 before creation. Their evidence is storage policy, not public CLI/tmux parity.
+
+`test/native/identity.test.ts` separately exercises the public native
+create/show/list commands across bounded processes and working directories.
+Use independent SQL only to seed temporary/retired states that the public native
+binding commands cannot produce yet, and to inspect preserved records. Do not
+initialize schema 9 through the TypeScript Storage owner. Test exact public
+lifetime projections, missing-name status 3, invalid-name status 1, malformed
+unrelated configuration isolation, and calibrated no-tmux guards. CLI cleanup
+precedence is tested in `output.rs`; real SQLite close/rollback/contention tests
+remain adapter evidence. Native reads omit retired records and never reconcile
+bindings; these tests are not proof of tmux presence or retirement authorization.
 
 The Docker image builds Linux adapter test artifacts in a pinned Rust/Debian
 stage matching the runtime image's libc. It runs native adapter unit tests under

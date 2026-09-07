@@ -131,6 +131,14 @@ Claude Code can invoke it as `/tmux-team`; no marketplace or separate `/team`
 command is needed. See the [installation guide](skills/README.md) if you have
 an older command or plugin installed.
 
+## Native rewrite development
+
+The Rust executable is an isolated development preview, not the installer above.
+It currently supports configuration and storage-only `identity create/show/list`;
+pane binding and messaging still require the TypeScript runtime. Do not point
+the native preview at existing user data: its schema upgrade is forward-only.
+See [development and verification](DEVELOPMENT.md#native-development-preview).
+
 ## License
 
 MIT

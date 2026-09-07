@@ -143,11 +143,13 @@ pub fn grammar() -> Command {
             )),
         )
         .subcommand(
-            storage("identity", "Manage saved identities")
+            storage("identity", "Manage identity records without probing tmux")
                 .subcommand_required(true)
-                .subcommand(storage("create", "Create a saved identity").arg(operand("name", true)))
+                .subcommand(
+                    storage("create", "Create or save an identity").arg(operand("name", true)),
+                )
                 .subcommand(storage("show", "Show an identity").arg(operand("name", true)))
-                .subcommand(storage("list", "List saved identities")),
+                .subcommand(storage("list", "List non-retired identities")),
         )
         .subcommand(
             with_options(general("role", "Manage role profiles"), &["identity"])

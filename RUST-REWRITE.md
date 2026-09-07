@@ -1,7 +1,8 @@
 # Rust rewrite preparation
 
 Status: native grammar (#96), storage lifecycle (#97) with native identity schema 9 (#108), configuration (#103)
-and bounded tmux evidence (#105)
+and bounded tmux evidence (#105), shared identity records (#111), and
+storage-only identity commands (#113)
 are implemented in the development preview, not a shipped Rust runtime.
 Owner: [#93](https://github.com/wkh237/tmux-team/issues/93);
 preparation: [#94](https://github.com/wkh237/tmux-team/issues/94).
@@ -60,7 +61,8 @@ tmux evidence under #105). The npm entry points still execute TypeScript. No com
 delegates from native to Node.
 
 The preview implements help, version, Bash/Zsh completion and the existing
-`config` command. Other recognized effectful commands return
+`config` command plus storage-only `identity create/show/list` (#113).
+Other recognized effectful commands return
 `NATIVE_NOT_IMPLEMENTED`, exit 1, before any settings,
 storage, tmux or input acquisition. Text-only commands reject JSON. Native
 `name`/`this`/`add` parse temporary defaults and save flags; `rm`/`remove` parse
@@ -165,8 +167,16 @@ storage adapter provides an immediate transaction and concrete UUID/UTC timestam
 generation. Idempotent reuse preserves the original display name and timestamps,
 save never changes UUID, and temporary requests never downgrade saved rows.
 Non-retired selection excludes tombstones without erasing historical ownership.
-This does not activate native identity commands, binding, removal or presence;
-#109 retains their public input/output and Docker gates.
+This foundation alone does not activate commands. #113 composes public native
+`identity create/show/list` over it with one invocation-owned connection and
+explicit close before output. Create is saved, canonical reuse/promotion keeps
+the UUID, and show/list include lifetime without probing tmux or reading unrelated
+settings. JSON excludes internal timestamps, retirement and binding evidence.
+Missing show names return NAME_NOT_FOUND/3; semantic invalid names return
+INVALID_NAME/1. Storage acquisition precedes semantic validation, while grammar
+errors still precede effects. Cleanup failure replaces only success with an
+effects warning; primary errors survive. #109 retains binding, removal, presence
+and their real-tmux gates. Installed npm still uses TypeScript/schema 8.
 
 Name normalization uses pinned `icu_normalizer`, `icu_casemap` and
 `icu_locale_core` 2.3.0, with defaults disabled and compiled data only for the

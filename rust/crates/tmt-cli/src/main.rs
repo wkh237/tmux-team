@@ -1,7 +1,9 @@
 mod config_command;
 mod diagnostics;
 mod grammar;
+mod identity_command;
 mod invocation;
+mod output;
 mod parser;
 
 use std::io::{self, Write};
@@ -31,7 +33,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Help => {
             writeln!(
                 stdout,
-                "Native development preview: configuration is available; identity and transport commands are not implemented yet.\n"
+                "Native development preview: configuration and storage-only identity create/show/list are available; pane binding and transport commands are not implemented yet. Use isolated test state only.\n"
             )?;
             grammar::public_grammar(&grammar::grammar(), true).write_long_help(&mut stdout)?;
             writeln!(stdout)?;
@@ -61,6 +63,10 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
             drop(stdout);
             return config_command::execute(request, parsed.mode);
         }
+        Invocation::Identity(request) => {
+            drop(stdout);
+            return identity_command::execute(request, parsed.mode);
+        }
         _ => {
             drop(stdout);
             return failure(
@@ -73,12 +79,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
     Ok(0)
 }
 
-fn failure(mode: OutputMode, code: &str, message: &str) -> io::Result<u8> {
-    if mode.json {
-        let document = serde_json::json!({"error": {"code": code, "message": message}});
-        writeln!(io::stdout().lock(), "{document}")?;
-    } else {
-        writeln!(io::stderr().lock(), "{message}")?;
-    }
-    Ok(1)
+fn failure(mode: OutputMode, code: &'static str, message: &str) -> io::Result<u8> {
+    // Parse and existing configuration failures retain their exit-1 contract.
+    output::Failure::new(code, message, 1).publish(mode)
 }

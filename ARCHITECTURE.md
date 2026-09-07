@@ -892,7 +892,7 @@ failure semantics; merely introducing an interface is not an architectural fix.
 
 `rust/` contains a development-only native CLI under #96; installed entry points
 remain TypeScript. `tmt-core` owns numeric and settings policy, while `tmt-cli`
-owns one Clap grammar, typed requests, presentation, configuration composition
+owns one Clap grammar, typed requests, presentation, configuration and storage-only identity composition
 and explicit no-effects rejection for unimplemented commands. `tmt-adapters`
 owns the SQLite lifecycle under #97 and native schema 9 under #108, configuration files under #103,
 and bounded Unix tmux evidence under #105;
@@ -913,7 +913,8 @@ non-retired identities, including saved offline entries, and show lifetime
 separately from active/offline/unknown presence. Unverified evidence cannot retire
 a temporary identity or release a saved name. Visibility does not extend routing.
 The storage-only identity record foundation under #111 supplies shared creation,
-promotion and non-retired selection; command wiring, binding retirement and these
+promotion and non-retired selection; #113 wires storage-only create/show/list.
+Binding command wiring, retirement and these
 presence-listing changes are not yet implemented. The durable-global invariants elsewhere in
 this map still describe the shipped TypeScript runtime, not the amended future
 native lifecycle. See [RUST-REWRITE.md](RUST-REWRITE.md) for transition boundaries.
@@ -954,8 +955,27 @@ creation owner before its separate publication transaction, not fork the policy.
 Non-retired selection uses schema 9's index and deterministic BINARY ordering.
 Tombstones are excluded and replacement names receive fresh UUIDs; no profile,
 binding, request, cadence or attention row is changed by creation/promotion.
-Retirement authorization, live presence and public command activation remain
-in #109, not in this storage-only foundation.
+Retirement authorization and live presence remain in #109, not in this
+storage-only foundation.
+
+Native `identity_command` composes the existing typed request, ConfigPaths and
+one invocation-owned Storage handle. It never loads configuration contents or
+constructs tmux. Create requests Saved through the same core creation owner;
+show and ordered list use the existing non-retired selector. Its explicit public
+projection adds lifetime to UUID/name/canonical name, without timestamps or
+endpoint evidence. Human output names lifetime rather than claiming presence.
+Semantic name validation follows storage acquisition, matching standalone TS
+ordering; invalid names can initialize the database but cannot create rows.
+
+Native `output` owns shared status-aware failure presentation for parsing,
+configuration and identity commands. The identity command retains its report
+until explicit close has run, even on operation failure. Failed cleanup replaces
+only success with CLEANUP_ERROR and an effects warning; the pending identity and
+raw storage causes are not serialized. Existing primary codes, status and causes
+survive cleanup failure. Missing identities return NAME_NOT_FOUND/3; unexpected
+storage/path failures use bounded IDENTITY_ERROR/1. RAII remains the fallback,
+not the ordinary close path. No general service container, second error writer
+or new resource framework is introduced by this slice.
 
 Native migration 9 adds `lifetime` (default `saved` for existing identities) and
 nullable `retired_at_ms` to that same identity table. A partial unique index
