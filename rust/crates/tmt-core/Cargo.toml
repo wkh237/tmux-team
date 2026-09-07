@@ -11,3 +11,6 @@ workspace = true
 
 [dependencies]
 uuid.workspace = true
+icu_normalizer.workspace = true
+icu_casemap.workspace = true
+icu_locale_core.workspace = true

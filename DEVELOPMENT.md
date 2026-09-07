@@ -38,6 +38,9 @@ The separate storage adapter upgrades historical schemas 0–8 to native schema 
 tested through a development-only probe rather than an installed command.
 Use isolated test databases only: installed TypeScript cannot reopen schema 9.
 Native identity commands and retirement are still unimplemented.
+The #111 internal record service supports temporary/saved creation, same-UUID
+promotion and non-retired selection, tested against real isolated SQLite. It
+does not activate the public identity commands or establish live presence.
 The Unix tmux evidence adapter is likewise exercised through a non-installed
 `tmux-probe` example; native identity commands are not implemented by that probe.
 Use the exact toolchain from `rust/rust-toolchain.toml` and run from `rust/`:
@@ -101,6 +104,14 @@ current RustSec advisories when changing Cargo.lock. `tmt-core` must remain free
 of CLI/concrete-IO dependencies. `tmt-adapters` owns the concrete SQLite lifecycle;
 keep its raw connection private. See RUST-REWRITE for the dependency
 decision and explicit exceptions under #100.
+
+Name-policy goldens cover the pinned Node 22.23.2 reference (Unicode 17.0,
+ICU 78.2), including ECMAScript BOM/NEL differences, contextual lowercase and
+pane-shaped names. Run the same core tests on both supported Rust toolchains;
+do not substitute compiler-owned casing tables or case folding. Identity-record
+tests invoke the actual service and repository on private SQLite fixtures,
+observe dependent rows independently, and synchronize competing connections
+before creation. Their evidence is storage policy, not public CLI/tmux parity.
 
 The Docker image builds Linux adapter test artifacts in a pinned Rust/Debian
 stage matching the runtime image's libc. It runs native adapter unit tests under

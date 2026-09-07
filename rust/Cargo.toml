@@ -19,6 +19,9 @@ rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled
 subprocess = "=1.2.1"
 nix = { version = "=0.31.3", default-features = false, features = ["signal", "process"] }
 uuid = { version = "=1.26.0", default-features = false, features = ["std"] }
+icu_normalizer = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
+icu_casemap = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
+icu_locale_core = { version = "=2.3.0", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
