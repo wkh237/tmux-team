@@ -222,28 +222,35 @@ function parseEndpointSnapshot(
   if (rows.length === 0) throw new Error('tmux endpoint snapshot is empty');
 
   const server = parseServerEvidence(output, options.expectedServerId);
-  const completeEvidence = rows.every((line) => line.split(PANE_FIELD_SEPARATOR).length >= 10);
+  const evidence = rows.map((line) => line.split(PANE_FIELD_SEPARATOR));
+  const completeEvidence = evidence.every((fields) => fields.length >= 10);
   if (options.requireCompleteEvidence && !completeEvidence) {
     throw new Error('tmux endpoint snapshot contains inconsistent server evidence');
   }
 
-  const paneOutput = rows
-    .map((line) => line.split(PANE_FIELD_SEPARATOR).slice(4).join(PANE_FIELD_SEPARATOR))
+  if (options.requireCompleteEvidence) {
+    const seen = new Map<string, { panePid: number; metadata: string }>();
+    for (const fields of evidence) {
+      const paneId = fields[4] ?? '';
+      const panePid = Number(fields[8]);
+      if (!PANE_ID_PATTERN.test(paneId) || !Number.isSafeInteger(panePid) || panePid <= 0) {
+        throw new Error('tmux endpoint snapshot contains incomplete pane evidence');
+      }
+      const metadata = fields.slice(9).join(PANE_FIELD_SEPARATOR);
+      const previous = seen.get(paneId);
+      // Grouped sessions and linked windows repeat panes with different display
+      // targets. Validate every row before deduplication so a later malformed
+      // or contradictory process/metadata observation cannot disappear.
+      if (previous && (previous.panePid !== panePid || previous.metadata !== metadata)) {
+        throw new Error('tmux endpoint snapshot contains conflicting pane evidence');
+      }
+      seen.set(paneId, { panePid, metadata });
+    }
+  }
+  const paneOutput = evidence
+    .map((fields) => fields.slice(4).join(PANE_FIELD_SEPARATOR))
     .join('\n');
   const panes = parsePaneOutput(paneOutput);
-  if (
-    options.requireCompleteEvidence &&
-    (panes.length !== rows.length ||
-      panes.some(
-        (pane) =>
-          !/^%\d+$/.test(pane.id) ||
-          typeof pane.panePid !== 'number' ||
-          !Number.isSafeInteger(pane.panePid) ||
-          pane.panePid <= 0
-      ))
-  ) {
-    throw new Error('tmux endpoint snapshot contains incomplete pane evidence');
-  }
   return {
     server,
     panes,
@@ -431,7 +438,14 @@ function discoverCallerPane(
     })
   )
     return null;
-  const candidates = parsedRows
+  const uniqueRows = new Map<string, string[]>();
+  for (const fields of parsedRows) {
+    const id = fields[0]!; // The shape and ID were validated above.
+    const previous = uniqueRows.get(id);
+    if (previous && fields.some((field, index) => field !== previous[index])) return null;
+    uniqueRows.set(id, fields);
+  }
+  const candidates = [...uniqueRows.values()]
     .filter(([id, panePid, socketPath, serverPid]) => {
       const numericPanePid = Number(panePid);
       if (!ancestry.has(numericPanePid)) return false;

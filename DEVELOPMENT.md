@@ -100,6 +100,13 @@ and cleanup; never seed every pane with placeholder metadata to make a test fast
 Scoped reads must preserve unrelated stale rows while full discovery may reconcile
 them. Both paths must share the existing binding-evidence predicate.
 
+Snapshot coverage must include grouped sessions and independently linked windows,
+not only many panes in one session. Assert that the fixture actually produces
+multiple session targets for one stable pane ID, then verify scoped operations
+and full discovery both retain one binding. Validate malformed and conflicting
+duplicate rows in both orders before deduplication; repeated rows alone are not
+incomplete evidence. Preserve subprocess-count gates and causal durable replies.
+
 | Changed area                            | Required checks                                                                     |
 | --------------------------------------- | ----------------------------------------------------------------------------------- |
 | Production TypeScript                   | `pnpm type:check`, `pnpm lint`, `pnpm format:check`                                 |
