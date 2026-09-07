@@ -73,6 +73,7 @@ jobs:
         run: |
           pnpm test:native
           pnpm exec vitest run src/cli-contract.test.ts -t 'reports JSON parse errors|rejects ignored options|validates invalid options|keeps JSON leaf|does not treat|keeps a literal|does not reinterpret|rejects JSON mode for text-only'
+          pnpm exec vitest run src/config-cli-contract.test.ts -t 'accepts omitted|accepts safe|keeps unknown|rejects decimal|repairs a targeted|allows zero'
 
   unit-tests:
     name: Unit tests

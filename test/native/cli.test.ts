@@ -83,7 +83,6 @@ describe('native grammar preview process contract', () => {
         ['talk', 'worker', 'hello'],
         ['check', '%14'],
         ['identity', 'create', 'saved'],
-        ['config'],
         ['init'],
         ['role', 'show'],
         ['preamble'],

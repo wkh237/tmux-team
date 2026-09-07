@@ -32,7 +32,8 @@ pnpm dev -- --help
 ### Native development preview
 
 The `rust/` workspace is not the installed runtime yet. It implements only
-help/version/completion and typed grammar; effectful commands explicitly fail.
+help/version/completion, typed grammar and the existing `config` command.
+Other effectful commands still explicitly fail.
 The separate storage adapter implements schema 8 lifecycle compatibility, tested
 through a development-only probe rather than an installed command.
 Use the exact toolchain from `rust/rust-toolchain.toml` and run from `rust/`:
@@ -69,7 +70,17 @@ existing parser-only public contract subset through the same selection:
 TMT_TEST_CLI='{"executable":"/absolute/checkout/rust/target/debug/tmt","args":[]}' \
   pnpm exec vitest run src/cli-contract.test.ts \
   -t 'reports JSON parse errors|rejects ignored options|validates invalid options|keeps JSON leaf|does not treat|keeps a literal|does not reinterpret|rejects JSON mode for text-only'
+
+TMT_TEST_CLI='{"executable":"/absolute/checkout/rust/target/debug/tmt","args":[]}' \
+  pnpm exec vitest run src/config-cli-contract.test.ts \
+  -t 'accepts omitted|accepts safe|keeps unknown|rejects decimal|repairs a targeted|allows zero'
 ```
+
+The selected config cases exercise the original public CLI contract unchanged.
+Other cases in that file still require native list/reply/result implementations;
+their exclusion is not parity evidence. The native suite separately exercises
+configuration validation through `config show`, path discovery, scoped edits,
+no-op clear and file preservation, without starting SQLite or tmux.
 
 Keep Cargo workspace version synchronized with the package version while both
 runtimes coexist. Check the resolved dependency graph's licenses, MSRVs and

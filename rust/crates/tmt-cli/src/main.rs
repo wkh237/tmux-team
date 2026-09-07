@@ -1,3 +1,4 @@
+mod config_command;
 mod diagnostics;
 mod grammar;
 mod invocation;
@@ -30,7 +31,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Help => {
             writeln!(
                 stdout,
-                "Native development preview: effectful commands are not implemented yet.\n"
+                "Native development preview: configuration is available; identity and transport commands are not implemented yet.\n"
             )?;
             grammar::public_grammar(&grammar::grammar(), true).write_long_help(&mut stdout)?;
             writeln!(stdout)?;
@@ -55,6 +56,10 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
                     "Use 'tmt completion bash' or 'tmt completion zsh' to generate a shell script."
                 )?;
             }
+        }
+        Invocation::Config(request) => {
+            drop(stdout);
+            return config_command::execute(request, parsed.mode);
         }
         _ => {
             drop(stdout);
