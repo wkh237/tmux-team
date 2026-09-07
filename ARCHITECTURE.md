@@ -894,7 +894,8 @@ failure semantics; merely introducing an interface is not an architectural fix.
 remain TypeScript. `tmt-core` owns numeric and settings policy, while `tmt-cli`
 owns one Clap grammar, typed requests, presentation, configuration composition
 and explicit no-effects rejection for unimplemented commands. `tmt-adapters`
-owns the schema 8 SQLite lifecycle under #97 and configuration files under #103;
+owns the schema 8 SQLite lifecycle under #97, configuration files under #103,
+and bounded Unix tmux evidence under #105;
 neither core nor typed requests depend on concrete IO.
 
 Help and completion use a filtered projection of the same grammar, excluding
@@ -942,11 +943,48 @@ does not contain a competing settings validator, and core imports no JSON or IO
 library. This shared boundary is available to subsequent native use cases;
 configuration operations never acquire the storage or tmux adapters.
 Precedence and source accounting live in core `ResolvedSettings`, not the file
-adapter. Config decoding alone normalizes arbitrary JSON numbers to the prior
-runtime's IEEE-754/stringification semantics; it never rewrites retained reply
+adapter. Config and pane metadata reuse `json_document` to normalize arbitrary
+JSON numbers to the prior runtime's IEEE-754/stringification semantics; this
+explicit editable-document boundary never rewrites retained reply
 bodies. Ordered JSON maps minimize edit churn. XDG and derived file paths are
 normalized lexically without requiring discarded components to exist or
 resolving user symlinks.
+
+The native `process` adapter owns argv-only execution, concurrent stdin/stdout/
+stderr communication, independent output caps and monotonic deadlines. It uses
+`subprocess` communication while retaining the process-group owner, with explicit
+kill/reap and a separate one-second cleanup budget. No detached reader threads,
+shell interpolation or async runtime are introduced. An exceptional unreaped
+child is detached only to avoid an unbounded destructor and is reported as
+failed cleanup, never successful termination. Group signals are not sent after
+the leader has been reaped. On Darwin, a zombie-only group may return EPERM;
+only read-only confirmation of group absence after reaping clears that error.
+
+Native `tmux` composes this runner for target resolution, caller ancestry,
+coherent scoped snapshots and metadata read/modify/write. `tmt-core::endpoint`
+owns observation types and ID validity, not registration. Caller and snapshot
+wire parsing share strict decimal safe-integer decoding; unlike permissive
+JavaScript Number conversion, signs, exponents and hexadecimal fields are not
+accepted as process evidence. Actual tmux/ps output uses decimal fields.
+Missing and malformed caller evidence fails closed; complete context uses one
+small query, while ancestry and its pane query share a one-second deadline.
+Scoped reads never expand an empty scope, and linked/grouped rows are validated
+before deduplication. Only reliable recorded-PID absence establishes death.
+Known-socket probes never initialize or overwrite foreign server metadata.
+
+Expected unavailable caller/target evidence and uncertain probes retain their
+optional/unknown results, but failed subprocess cleanup propagates as an error.
+It cannot trigger fallback server initialization or be hidden by best-effort
+observation. Metadata reads remain fatal before writes; unknown siblings survive
+marker replacement/clear. There is no native binding transaction, retirement,
+badge or message transport in this adapter slice.
+
+The non-installed `tmux-probe` example exposes only narrow adapter operations
+and counts runner calls. The existing Docker fixture selects it through the
+shared executable descriptor. The same pinned Debian image builds native
+artifacts, runs adapter unit tests under `--init`, and executes real private-tmux
+scenarios with mock agents and no network. These are adapter integration tests,
+not evidence that unported native identity/talk commands work.
 
 The [Rust rewrite decision](RUST-REWRITE.md) records the proposed native package
 boundaries, compatibility/test matrix, data coexistence gates and dependency

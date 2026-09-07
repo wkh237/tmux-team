@@ -16,6 +16,9 @@ clap = { version = "=4.6.6", default-features = false, features = ["std", "help"
 clap_complete = { version = "=4.6.9", default-features = false }
 serde_json = { version = "=1.0.151", features = ["arbitrary_precision", "preserve_order"] }
 rusqlite = { version = "=0.40.2", default-features = false, features = ["bundled"] }
+subprocess = "=1.2.1"
+nix = { version = "=0.31.3", default-features = false, features = ["signal", "process"] }
+uuid = { version = "=1.26.0", default-features = false, features = ["std"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

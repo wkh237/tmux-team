@@ -1,6 +1,7 @@
 # Rust rewrite preparation
 
-Status: native grammar (#96), schema 8 lifecycle (#97) and configuration (#103)
+Status: native grammar (#96), schema 8 lifecycle (#97), configuration (#103)
+and bounded tmux evidence (#105)
 are implemented in the development preview, not a shipped Rust runtime.
 Owner: [#93](https://github.com/wkh237/tmux-team/issues/93);
 preparation: [#94](https://github.com/wkh237/tmux-team/issues/94).
@@ -51,7 +52,8 @@ is by responsibility, not a mechanical copy of every TypeScript file.
 
 The `rust/` workspace contains `tmt-core` (numeric and settings policy),
 `tmt-cli` (grammar, typed invocation translation and output), and `tmt-adapters`
-(schema 8 SQLite lifecycle under #97 and configuration files under #103). The npm entry points still execute TypeScript. No command silently
+(schema 8 SQLite lifecycle under #97, configuration files under #103 and Unix
+tmux evidence under #105). The npm entry points still execute TypeScript. No command silently
 delegates from native to Node.
 
 The preview implements help, version, Bash/Zsh completion and the existing
@@ -76,7 +78,8 @@ Configuration decoding enables serde_json's `arbitrary_precision` so valid
 large exponents reach the compatibility boundary, then normalizes numbers to
 the reference runtime's IEEE-754/JSON.stringify semantics (non-finite opaque
 values become null when edited; known invalid fields still fail). This policy
-is config-only, not a global reply/body transformation. `preserve_order` avoids
+is shared by config and editable pane metadata under #105, not a global
+reply/body transformation. `preserve_order` avoids
 reordering ordinary user objects on targeted writes. The added locked graph is
 indexmap 2.14.2, hashbrown 0.17.1 and equivalent 1.0.2, with MIT/Apache-2.0 choices
 and declared MSRVs at or below 1.85. RustSec RUSTSEC-2024-0402 is patched before
@@ -102,7 +105,8 @@ locked builds on both versions are required. The selected released dependencies
 are Clap 4.6.6, clap_complete 4.6.9 and serde_json 1.0.151. Clap disables defaults,
 enabling only std/help/usage/error-context/suggestions/string; the string feature
 supports projecting grammar metadata without a duplicate command inventory.
-No derive, color, async runtime or process dependency is introduced yet.
+The original grammar slice introduced no derive, color, async runtime or process
+dependency; #105 adds the bounded process dependencies described below.
 Published manifests for the original grammar graph declare MSRVs at or below 1.85; licenses
 are MIT/Apache-2.0 compatible alternatives, with unicode-ident also carrying
 Unicode-3.0. RustSec database revision
@@ -129,6 +133,52 @@ busy timeout; this preserves the existing storage boundary, not an all-openers
 success guarantee. See [SQLite busy-handler behavior](https://sqlite.org/c3ref/busy_handler.html).
 
 ### Execution and resource ownership
+
+#105 implements one Unix runner using `subprocess` 1.2.1 for simultaneous pipe
+communication, `nix` 0.31.3 with only signal/process features for typed OS
+operations, and UUID 1.26.0 for v4 server IDs (pure parsing in core; generation
+in adapters). The standard library's safe `CommandExt::process_group` is
+available, but does not itself provide concurrent bounded pipe communication.
+Using a narrow maintained primitive avoids another hand-written poll loop or
+an async runtime. The workspace still forbids authored unsafe code.
+
+The complete lockfile adds 24 packages, but only seven additions are active in
+the inspected Linux/macOS graphs: subprocess, nix, uuid, getrandom 0.4.3,
+libc 0.2.189, cfg-if 1.0.4 and build-time cfg_aliases 0.2.2. The other 17 are
+target-only Windows/WASM/UEFI entries, not a linked async runtime on Unix.
+All additions offer MIT or Apache-2.0 licenses; r-efi also offers LGPL as an
+alternative, which is not selected. Declared MSRVs do not exceed 1.88; some
+manifests omit them, so actual locked MSRV compilation remains required.
+The inspected RustSec snapshot is the revision recorded above: nix's
+RUSTSEC-2021-0119 affects old getgrouplist implementations and is patched before
+0.31.3; that API is outside the enabled features. No other added package had an
+advisory entry in that dated snapshot. This is neither a permanent security
+guarantee nor verification of untested Windows/WASM/UEFI runtime targets.
+
+Retain the `Job` from `Exec::start`; detached `Exec::communicate` and consuming
+timeout convenience methods do not satisfy ownership/cleanup requirements.
+Custom bounded stream sinks classify overflow and never return successful
+partial output. Communication and process exit share the remaining deadline;
+EOF alone is not completion. Failure kills the owned group and waits with a
+separate one-second cleanup budget; cleanup failures retain their cause and
+propagate through optional caller/target and live/dead/unknown probe boundaries.
+They cannot authorize metadata fallback writes. A fallback destructor is bounded
+but does not replace explicit error reporting.
+
+Darwin can return EPERM for a zombie-only group. The adapter reaps its owned
+leader and clears that error only if a read-only group probe returns ESRCH;
+live, denied or unknown groups remain failures. It never signals the numeric
+group again after reaping. This follows the zombie filtering in Apple's
+[XNU group-signal implementation](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_sig.c).
+The tests exercise overflow, ignored termination, inherited output descriptors,
+EOF-before-exit and simultaneous input/output pressure with observable cleanup.
+
+Native endpoint and caller protocols share strict decimal wire parsing. Synthetic
+hex/exponent/signed PID fields previously accepted by Number coercion are now
+rejected; real tmux/ps decimal output is preserved. This is a fail-closed evidence
+boundary, not a broader identity namespace or lifetime policy change. The
+development-only probe and Docker scenarios do not implement identity commands,
+badge presentation, message delivery, or runtime cutover.
 
 Start with synchronous use cases and SQLite, without Tokio in ordinary CLI startup.
 Polling is bounded and does not require an async framework. The command lifetime
