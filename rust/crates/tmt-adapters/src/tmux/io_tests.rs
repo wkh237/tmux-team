@@ -299,6 +299,90 @@ fn nonmatching_clear_preserves_metadata_without_a_write() {
 }
 
 #[test]
+fn explicit_socket_metadata_updates_preserve_opaque_data_and_never_fall_back() {
+    let tmux = Tmux::new(ScriptedRunner::new([
+        Ok(r#"{"version":1,"opaque":{"keep":true}}"#),
+        Ok(""),
+    ]));
+    let marker = BindingMarker {
+        name: "Alice".into(),
+        canonical_name: "alice".into(),
+        identity_id: "identity".into(),
+        binding_id: "binding".into(),
+        server_id: SERVER_ID.into(),
+        pane_pid: 654,
+    };
+    tmux.set_marker_on(
+        Some("/foreign/socket"),
+        "%9",
+        &marker,
+        OperationOptions::default(),
+    )
+    .unwrap();
+    let calls = tmux.runner.calls.borrow();
+    assert_eq!(calls.len(), 2);
+    for call in calls.iter() {
+        assert_eq!(&call.args[..2], ["-S", "/foreign/socket"]);
+    }
+    let written: serde_json::Value = serde_json::from_str(calls[1].args.last().unwrap()).unwrap();
+    assert_eq!(written["opaque"], serde_json::json!({"keep": true}));
+    assert_eq!(written["globalIdentity"]["bindingId"], "binding");
+
+    let tmux = Tmux::new(ScriptedRunner::new([Err(failure(false))]));
+    assert!(
+        tmux.clear_marker_on(
+            Some("/foreign/socket"),
+            "%9",
+            Some("binding"),
+            OperationOptions::default()
+        )
+        .is_err()
+    );
+    let calls = tmux.runner.calls.borrow();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(&calls[0].args[..2], ["-S", "/foreign/socket"]);
+}
+
+#[test]
+fn binding_session_requires_a_budget_and_preserves_failed_probe_cleanup() {
+    use tmt_core::binding::BindingEndpoint;
+    let server = ServerEvidence {
+        server_id: SERVER_ID.into(),
+        socket_path: "/foreign/socket".into(),
+        server_pid: 321,
+        server_start_time: "start".into(),
+    };
+    let tmux = Tmux::new(ScriptedRunner::default());
+    let mut session = BindingSession::new(&tmux);
+    assert!(!session.budget_available());
+    assert_eq!(
+        session.probe_binding(&server, &["%9".into()]).unwrap(),
+        EndpointProbe::Unknown
+    );
+    assert!(tmux.runner.calls.borrow().is_empty());
+    session.begin_coordination();
+    let oversize = (0..1025)
+        .map(|index| format!("%{index}"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        session.probe_binding(&server, &oversize).unwrap(),
+        EndpointProbe::Unknown
+    );
+    assert!(tmux.runner.calls.borrow().is_empty());
+
+    let tmux = Tmux::new(ScriptedRunner::new([Err(failure(true))]));
+    let mut session = BindingSession::new(&tmux);
+    session.begin_coordination();
+    assert!(
+        session
+            .probe_binding(&server, &["%9".into()])
+            .unwrap_err()
+            .cleanup_failed()
+    );
+    assert_eq!(tmux.runner.calls.borrow().len(), 1);
+}
+
+#[test]
 fn empty_scope_reads_server_only_and_never_enumerates_panes() {
     let tmux = Tmux::new(ScriptedRunner::new([
         Ok(SERVER_ID),

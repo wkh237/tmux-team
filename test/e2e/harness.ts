@@ -194,7 +194,19 @@ if [ -n "${'$'}{TMT_E2E_PROGRESS_FILE:-}" ]; then
 fi
 metadata_write=0
 metadata_clear=0
-if [ "${'$'}1" = "set-option" ]; then
+# Keep explicit-socket native calls visible to the same publication barrier.
+# Inspect the command without changing argv passed to the real tmux binary.
+tmux_command=""
+skip_option_value=0
+for arg in "${'$'}@"; do
+  if [ "${'$'}skip_option_value" = "1" ]; then skip_option_value=0; continue; fi
+  case "${'$'}arg" in
+    -S|-L|-f) skip_option_value=1 ;;
+    -*) ;;
+    *) tmux_command="${'$'}arg"; break ;;
+  esac
+done
+if [ "${'$'}tmux_command" = "set-option" ]; then
   unset_metadata=0
   pane_metadata=0
   for arg in "${'$'}@"; do

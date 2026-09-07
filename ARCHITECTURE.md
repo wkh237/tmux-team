@@ -892,7 +892,7 @@ failure semantics; merely introducing an interface is not an architectural fix.
 
 `rust/` contains a development-only native CLI under #96; installed entry points
 remain TypeScript. `tmt-core` owns numeric and settings policy, while `tmt-cli`
-owns one Clap grammar, typed requests, presentation, configuration and storage-only identity composition
+owns one Clap grammar, typed requests, presentation, configuration and identity command composition
 and explicit no-effects rejection for unimplemented commands. `tmt-adapters`
 owns the SQLite lifecycle under #97 and native schema 9 under #108, configuration files under #103,
 and bounded Unix tmux evidence under #105;
@@ -908,15 +908,15 @@ an exit status through `main` and does not terminate from a domain operation.
 Native syntax includes the approved #100 amendment (`rm`/`remove`, temporary
 binding defaults and `-s`/`--save`). Names remain globally unique across temporary
 and saved identities in one database; no project/workspace name isolation or
-directory-based discovery filter is planned. Native `ls` is planned to list all
+directory-based discovery filter is planned. Native `ls` lists all
 non-retired identities, including saved offline entries, and show lifetime
 separately from active/offline/unknown presence. Unverified evidence cannot retire
 a temporary identity or release a saved name. Visibility does not extend routing.
 The storage-only identity record foundation under #111 supplies shared creation,
 promotion and non-retired selection; #113 wires storage-only create/show/list.
-Binding command wiring, retirement and these
-presence-listing changes are not yet implemented. The durable-global invariants elsewhere in
-this map still describe the shipped TypeScript runtime, not the amended future
+Binding command wiring, retirement and presence listing are implemented under
+#109. The durable-global invariants elsewhere in
+this map still describe the shipped TypeScript runtime, not the amended
 native lifecycle. See [RUST-REWRITE.md](RUST-REWRITE.md) for transition boundaries.
 
 `test/native/` uses the existing CLI sandbox/executable selector for explicit
@@ -991,8 +991,46 @@ creation owner before its separate publication transaction, not fork the policy.
 Non-retired selection uses schema 9's index and deterministic BINARY ordering.
 Tombstones are excluded and replacement names receive fresh UUIDs; no profile,
 binding, request, cadence or attention row is changed by creation/promotion.
-Retirement authorization and live presence remain in #109, not in this
-storage-only foundation.
+Retirement authorization and live presence belong to `core::binding` (#109),
+not this storage-only foundation.
+
+`core::binding` owns one evidence evaluator and the binding use cases over
+narrow transaction/endpoint ports. Active agreement requires identity, binding,
+server/socket/PID/start, pane PID and normalized marker agreement. A changed
+server ID alone or inaccessible evidence is unknown, never proof of death.
+Conclusive endpoint loss retires temporary rows; saved rows detach and remain
+offline. Marker mismatch detaches only the binding, retaining even temporary
+identity records. Never-published temporary rows remain offline for retry.
+
+Binding reconciles only the selected old name before invoking the shared
+create/promote owner. Creation/promotion commits separately from publication,
+so occupied panes or failed metadata writes retain the new UUID/save decision.
+Publication acquires a fresh immediate transaction, re-reads ownership and
+observations, checks conflicts, writes metadata and verifies before commit.
+Concurrent retirement must never resurrect a tombstone. Explicit unbind retires
+temporary rows and detaches saved rows without erasing profiles. `rm` retires
+either lifetime and deletes only its role/preamble; saved removal requires
+`--force`. Exchanges, UUID provenance, attention and cadence survive both.
+Unknown evidence fails closed even for forced removal. Matching active markers
+are cleared on their recorded socket, never an ambient foreign fallback.
+
+`storage::bindings` extends the existing connection, shared identity decoder and
+immediate transaction helper. Global listing starts with one joined ordered
+query, groups scopes by full server evidence and probes the selected socket
+first, then deterministic socket/server order. No subprocess is spawned per
+identity. `tmux::BindingSession` owns a three-second monotonic budget reset after
+lock acquisition; SQLite's five-second contention wait is separate. Exhausted
+global observations preserve remaining rows as unknown. Scoped lookup never
+reconciles unrelated rows; reads never backfill orphan metadata. Native public
+presence output omits internal binding/process evidence and stale pane details.
+
+`binding_command` performs caller/target preflight before config/storage,
+validates binding settings before identity changes, composes the core use cases,
+and publishes one buffered report only after close. Shared `output` owns the
+identity projection as well as error publication. Optional pane badge updates
+are post-success, recheck the recorded endpoint and alter only the pane-local
+option. They never rewrite titles or border themes; failed child cleanup still
+propagates instead of claiming clean success.
 
 Native `identity_command` composes the existing typed request, ConfigPaths and
 one invocation-owned Storage handle. It never loads configuration contents or
@@ -1018,7 +1056,7 @@ nullable `retired_at_ms` to that same identity table. A partial unique index
 reserves canonical names only for non-retired rows; old UUID/name metadata can
 survive name reuse. It does not retire rows, remove bindings or profiles, or
 acknowledge exchanges. Actual retirement and cleanup authorization belong to
-the pending identity service, not SQL triggers or a second registry.
+the binding service, not SQL triggers or a second registry.
 Lifetime and retirement are independent: explicit confirmed removal may also
 retire a saved identity; ordinary pane death must not do so.
 
@@ -1090,20 +1128,27 @@ small query, while ancestry and its pane query share a one-second deadline.
 Scoped reads never expand an empty scope, and linked/grouped rows are validated
 before deduplication. Only reliable recorded-PID absence establishes death.
 Known-socket probes never initialize or overwrite foreign server metadata.
+Validated observation scopes are bounded to 1,024 panes and a conservatively
+estimated 32 KiB filter argument before construction. Larger probes are unknown,
+not dead; explicit snapshots fail closed. Filters append a balanced disjunction
+into one buffer, bounding tmux evaluation depth rather than nesting once per
+identity. A copied server UUID on another socket cannot pass full evidence
+agreement; binding fails closed rather than adding a second endpoint registry.
 
 Expected unavailable caller/target evidence and uncertain probes retain their
 optional/unknown results, but failed subprocess cleanup propagates as an error.
 It cannot trigger fallback server initialization or be hidden by best-effort
 observation. Metadata reads remain fatal before writes; unknown siblings survive
-marker replacement/clear. There is no native binding transaction, retirement,
-badge or message transport in this adapter slice.
+marker replacement/clear. Binding coordination uses the application port above;
+there is still no native message transport.
 
 The non-installed `tmux-probe` example exposes only narrow adapter operations
 and counts runner calls. The existing Docker fixture selects it through the
 shared executable descriptor. The same pinned Debian image builds native
 artifacts, runs adapter unit tests under `--init`, and executes real private-tmux
 scenarios with mock agents and no network. These are adapter integration tests,
-not evidence that unported native identity/talk commands work.
+not evidence that unported native talk commands work. The same image separately
+builds the native CLI and selects it for the identity lifecycle suite under #109.
 
 The [Rust rewrite decision](RUST-REWRITE.md) records the proposed native package
 boundaries, compatibility/test matrix, data coexistence gates and dependency

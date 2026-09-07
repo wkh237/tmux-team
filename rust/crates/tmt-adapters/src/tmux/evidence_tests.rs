@@ -224,6 +224,40 @@ fn deduplicates_scoped_ids_and_builds_nested_tmux_filter() {
 }
 
 #[test]
+fn scope_bounds_cover_argv_bytes_and_expression_depth_before_io() {
+    let too_many = (0..1025)
+        .map(|index| format!("%{index}"))
+        .collect::<Vec<_>>();
+    assert!(evidence::scoped_ids(Some(&too_many)).is_err());
+    let oversized = vec![format!("%{}", "1".repeat(32 * 1024))];
+    assert!(evidence::scoped_ids(Some(&oversized)).is_err());
+    let aggregate = (0..1024)
+        .map(|index| format!("%00000000000000000000{index}"))
+        .collect::<Vec<_>>();
+    assert!(evidence::scoped_ids(Some(&aggregate)).is_err());
+    let ids = (0..1024)
+        .map(|index| format!("%{index}"))
+        .collect::<Vec<_>>();
+    let scoped = evidence::scoped_ids(Some(&ids)).unwrap().unwrap();
+    let filter = evidence::pane_filter(&scoped);
+    assert!(filter.len() < 32 * 1024);
+    assert_eq!(filter.matches("#{==:").count(), ids.len());
+    let mut depth = 0;
+    let mut maximum = 0;
+    for character in filter.chars() {
+        if character == '{' {
+            depth += 1;
+            maximum = maximum.max(depth);
+        }
+        if character == '}' {
+            depth -= 1;
+        }
+    }
+    assert_eq!(depth, 0);
+    assert_eq!(maximum, 12); // Ten disjunction levels, equality and pane_id.
+}
+
+#[test]
 fn prefers_attached_presentation_for_grouped_pane_rows() {
     let detached = endpoint_row(
         SERVER_ID,
@@ -420,6 +454,10 @@ fn extracts_marker_only_when_all_identity_strings_are_nonempty() {
     assert_eq!(metadata::marker(&document), Some(marker()));
 
     document["globalIdentity"]["name"] = Value::String("  ".into());
+    // Wire decoding retains nonempty strings verbatim; core binding evidence
+    // owns name validity (including the distinct BOM and NEL trim semantics).
+    assert_eq!(metadata::marker(&document).unwrap().name, "  ");
+    document["globalIdentity"]["name"] = Value::String(String::new());
     assert_eq!(metadata::marker(&document), None);
 }
 

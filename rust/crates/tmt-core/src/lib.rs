@@ -1,5 +1,6 @@
 //! Shared native-domain contracts for tmux-team.
 
+pub mod binding;
 pub mod endpoint;
 pub mod identity;
 pub mod limits;

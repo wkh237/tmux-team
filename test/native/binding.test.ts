@@ -1,0 +1,302 @@
+import Database from 'better-sqlite3';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+import {
+  expectError,
+  parseWholeStdout,
+  runCli,
+  type Sandbox,
+  withSandbox,
+} from '../../src/test-support/cli-process.js';
+
+if (!process.env.TMT_TEST_CLI) throw new Error('Select the native build with TMT_TEST_CLI.');
+
+type Identity = {
+  readonly id: string;
+  readonly name: string;
+  readonly canonicalName: string;
+  readonly lifetime: 'temporary' | 'saved';
+};
+
+function documentIdentity(result: Awaited<ReturnType<typeof runCli>>): Identity {
+  expect(result.status).toBe(0);
+  expect(result.stderr).toBe('');
+  const document = parseWholeStdout(result) as { identity?: unknown };
+  expect(document.identity).toMatchObject({
+    id: expect.any(String),
+    name: expect.any(String),
+    canonicalName: expect.any(String),
+    lifetime: expect.stringMatching(/^(temporary|saved)$/),
+  });
+  expect(Object.keys(document.identity as object).sort()).toEqual([
+    'canonicalName',
+    'id',
+    'lifetime',
+    'name',
+  ]);
+  return document.identity as Identity;
+}
+
+function withDatabase<T>(file: string, callback: (database: Database.Database) => T): T {
+  const database = new Database(file);
+  try {
+    database.pragma('foreign_keys = ON');
+    return callback(database);
+  } finally {
+    database.close();
+  }
+}
+
+function installTmuxTripwire(sandbox: Sandbox): string {
+  const directory = path.join(sandbox.root, 'task-owned-tripwire');
+  const logPath = path.join(sandbox.root, 'tmux-invocations.log');
+  mkdirSync(directory);
+  const executable = path.join(directory, 'tmux');
+  writeFileSync(executable, '#!/bin/sh\nprintf "%s\\n" "$*" >> "$TMT_BINDING_TMUX_LOG"\nexit 97\n');
+  chmodSync(executable, 0o755);
+  sandbox.env.PATH = `${directory}${path.delimiter}${process.env.PATH ?? ''}`;
+  sandbox.env.TMT_BINDING_TMUX_LOG = logPath;
+  return logPath;
+}
+
+async function calibrateTmuxTripwire(sandbox: Sandbox): Promise<string> {
+  const logPath = installTmuxTripwire(sandbox);
+  const tripwire = await runCli(
+    {
+      ...sandbox,
+      cli: { executable: '/usr/bin/env', args: ['tmux'] },
+    },
+    [],
+    { deadlineMs: 2_000 }
+  );
+  expect(tripwire.status).toBe(97);
+  expect(tripwire.stdout).toBe('');
+  expect(tripwire.stderr).toBe('');
+  expect(readFileSync(logPath, 'utf8')).toBe('\n');
+  return logPath;
+}
+
+function seedExchange(database: Database.Database, identityId: string): void {
+  database
+    .prepare(
+      `
+    INSERT INTO request_attempts (
+      attempt_id, request_id, identity_id, server_id, socket_path, server_pid,
+      server_start_time, pane_id, pane_pid, wait_active, status,
+      inject_preamble, cadence_reserved, prepared_at_ms, expires_at_ms,
+      originator_kind, originator_identity_id, attention_revision
+    ) VALUES (
+      'attempt-retained', 'request-retained', ?, 'server-retained',
+      '/tmp/retained.sock', 101, 'start-retained', '%12', 202, 0, 'sent',
+      0, 0, 1700000000000, 1700000010000, 'explicit', ?, 1
+    )
+  `
+    )
+    .run(identityId, identityId);
+  database
+    .prepare(
+      `
+      INSERT INTO request_responses (
+      request_id, attempt_id, server_id, socket_path, server_pid,
+      server_start_time, pane_id, pane_pid, body, body_bytes, submitted_at_ms
+      ) VALUES (
+      'request-retained', 'attempt-retained', 'server-retained', '/tmp/retained.sock',
+      101, 'start-retained', '%12', 202, 'retained exchange', 17, 1700000000200
+      )
+    `
+    )
+    .run();
+}
+
+describe('native identity binding process contract', () => {
+  it('runs pane preflight before malformed config or invalid names and leaves no effects', async () => {
+    await withSandbox(async (sandbox) => {
+      mkdirSync(sandbox.globalDir, { recursive: true });
+      const globalConfig = '{ malformed global config';
+      const localConfig = '{ malformed local config';
+      writeFileSync(sandbox.globalConfig, globalConfig);
+      writeFileSync(sandbox.localConfig, localConfig);
+      const logPath = await calibrateTmuxTripwire(sandbox);
+      const calibratedLog = readFileSync(logPath, 'utf8');
+
+      for (const args of [
+        ['name', 'bad\u007f', '--json'],
+        ['this', 'bad\u007f', '--json'],
+        ['add', '%99', 'bad\u007f', '--json'],
+        ['whoami', '--json'],
+        ['unbind', '--json'],
+      ]) {
+        const result = await runCli(sandbox, args);
+        expect(result.status, args.join(' ')).toBe(3);
+        expectError(result, 'PANE_NOT_FOUND');
+        expect(result.stderr).toBe('');
+        expect(existsSync(sandbox.database)).toBe(false);
+        expect(readFileSync(sandbox.globalConfig, 'utf8')).toBe(globalConfig);
+        expect(readFileSync(sandbox.localConfig, 'utf8')).toBe(localConfig);
+      }
+      expect(readFileSync(logPath, 'utf8')).not.toBe(calibratedLog);
+    });
+  });
+
+  it('reports the legacy add order before probing or opening storage', async () => {
+    await withSandbox(async (sandbox) => {
+      const logPath = await calibrateTmuxTripwire(sandbox);
+      const before = readFileSync(logPath, 'utf8');
+      const result = await runCli(sandbox, ['add', 'worker', '%99', '--json']);
+      expect(result.status).toBe(1);
+      expectError(result, 'LEGACY_ADD_ORDER');
+      expect(parseWholeStdout(result)).toEqual({
+        error: {
+          code: 'LEGACY_ADD_ORDER',
+          message: 'The v4 add argument order is no longer supported.',
+          suggestion: 'Use: tmt add %99 worker',
+        },
+      });
+      expect(result.stderr).toBe('');
+      expect(readFileSync(logPath, 'utf8')).toBe(before);
+      expect(existsSync(sandbox.database)).toBe(false);
+    });
+  });
+
+  it('lists an offline identity globally and by name without exposing binding evidence', async () => {
+    await withSandbox(async (sandbox) => {
+      const logPath = await calibrateTmuxTripwire(sandbox);
+      const calibratedLog = readFileSync(logPath, 'utf8');
+      const identity = documentIdentity(
+        await runCli(sandbox, ['identity', 'create', 'Offline Agent', '--json'])
+      );
+
+      const global = await runCli(sandbox, ['ls', '--json']);
+      expect(global.status).toBe(0);
+      expect(global.stderr).toBe('');
+      expect(parseWholeStdout(global)).toEqual({
+        identities: [
+          {
+            ...identity,
+            presence: 'offline',
+            pane: null,
+            command: '',
+          },
+        ],
+      });
+      const globalRow = (parseWholeStdout(global) as { identities: Array<Record<string, unknown>> })
+        .identities[0];
+      expect(Object.keys(globalRow).sort()).toEqual([
+        'canonicalName',
+        'command',
+        'id',
+        'lifetime',
+        'name',
+        'pane',
+        'presence',
+      ]);
+
+      const named = await runCli(sandbox, ['list', 'offline agent', '--json']);
+      expect(named.status).toBe(0);
+      expect(named.stderr).toBe('');
+      expect(parseWholeStdout(named)).toEqual({
+        target: 'offline agent',
+        identity,
+        presence: 'offline',
+        pane: null,
+      });
+      expect(Object.keys(parseWholeStdout(named)).sort()).toEqual([
+        'identity',
+        'pane',
+        'presence',
+        'target',
+      ]);
+
+      const missing = await runCli(sandbox, ['list', 'missing', '--json']);
+      expect(missing.status).toBe(3);
+      expectError(missing, 'NAME_NOT_FOUND');
+      expect(readFileSync(logPath, 'utf8')).toBe(calibratedLog);
+
+      const human = await runCli(sandbox, ['ls']);
+      expect(human.status).toBe(0);
+      expect(human.stderr).toBe('');
+      expect(human.stdout).toBe(
+        'NAME\tLIFETIME\tSTATUS\tPANE\tTARGET\tCWD\tCOMMAND\n' +
+          'Offline Agent\tsaved\toffline\t-\t-\t-\t\n'
+      );
+    });
+  });
+
+  it('requires rm confirmation and force-retirement preserves exchange rows', async () => {
+    await withSandbox(async (sandbox) => {
+      const identity = documentIdentity(
+        await runCli(sandbox, ['identity', 'create', 'Retained Exchange', '--json'])
+      );
+      withDatabase(sandbox.database, (database) => seedExchange(database, identity.id));
+
+      const before = withDatabase(sandbox.database, (database) => ({
+        identity: database
+          .prepare('SELECT id, retired_at_ms FROM identities WHERE id = ?')
+          .get(identity.id),
+        attempt: database
+          .prepare(
+            'SELECT identity_id, originator_identity_id, status FROM request_attempts WHERE attempt_id = ?'
+          )
+          .get('attempt-retained'),
+        response: database
+          .prepare('SELECT body, body_bytes FROM request_responses WHERE request_id = ?')
+          .get('request-retained'),
+      }));
+
+      const confirmation = await runCli(sandbox, ['rm', 'retained exchange', '--json']);
+      expect(confirmation.status).toBe(5);
+      expectError(
+        confirmation,
+        'CONFIRMATION_REQUIRED',
+        'Saved identity removal requires --force. Its role and preamble will be removed; exchanges are retained.'
+      );
+      expect(
+        withDatabase(sandbox.database, (database) => ({
+          identity: database
+            .prepare('SELECT id, retired_at_ms FROM identities WHERE id = ?')
+            .get(identity.id),
+          attempt: database
+            .prepare(
+              'SELECT identity_id, originator_identity_id, status FROM request_attempts WHERE attempt_id = ?'
+            )
+            .get('attempt-retained'),
+          response: database
+            .prepare('SELECT body, body_bytes FROM request_responses WHERE request_id = ?')
+            .get('request-retained'),
+        }))
+      ).toEqual(before);
+
+      const removed = await runCli(sandbox, ['remove', 'retained exchange', '--force', '--json']);
+      expect(removed.status).toBe(0);
+      expect(removed.stderr).toBe('');
+      expect(parseWholeStdout(removed)).toEqual({
+        removed: true,
+        identity,
+      });
+      const missing = await runCli(sandbox, ['identity', 'show', 'retained exchange', '--json']);
+      expect(missing.status).toBe(3);
+      expectError(missing, 'NAME_NOT_FOUND');
+
+      expect(
+        withDatabase(sandbox.database, (database) => ({
+          identity: database
+            .prepare('SELECT id, retired_at_ms FROM identities WHERE id = ?')
+            .get(identity.id),
+          attempt: database
+            .prepare(
+              'SELECT identity_id, originator_identity_id, status FROM request_attempts WHERE attempt_id = ?'
+            )
+            .get('attempt-retained'),
+          response: database
+            .prepare('SELECT body, body_bytes FROM request_responses WHERE request_id = ?')
+            .get('request-retained'),
+        }))
+      ).toEqual({
+        identity: { id: identity.id, retired_at_ms: expect.any(Number) },
+        attempt: { identity_id: identity.id, originator_identity_id: identity.id, status: 'sent' },
+        response: { body: 'retained exchange', body_bytes: 17 },
+      });
+    });
+  });
+});

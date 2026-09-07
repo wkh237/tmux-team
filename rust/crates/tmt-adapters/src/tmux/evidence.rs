@@ -7,6 +7,10 @@ use tmt_core::endpoint::{
 use super::{TmuxError, metadata};
 
 pub(super) const SEPARATOR: &str = "__TMT_FIELD_4f1c__";
+// Bound work before constructing argv, not only after a subprocess starts.
+// Oversized probes stay Unknown; explicit scoped mutations fail closed.
+const MAX_SCOPE_PANES: usize = 1024;
+const MAX_FILTER_BYTES: usize = 32 * 1024;
 
 pub(super) fn server_format() -> String {
     [
@@ -155,15 +159,33 @@ fn suggested_name(command: &str) -> Option<String> {
 
 pub(super) fn scoped_ids(ids: Option<&[String]>) -> Result<Option<Vec<&str>>, TmuxError> {
     ids.map(|ids| {
+        if ids.len() > MAX_SCOPE_PANES {
+            return Err(TmuxError::evidence(
+                "tmux pane scope exceeds observation limits",
+            ));
+        }
         let mut scoped = Vec::new();
         let mut seen = HashSet::new();
+        let mut filter_bytes = 0usize;
         for id in ids {
+            if id.len() > MAX_FILTER_BYTES {
+                return Err(TmuxError::evidence(
+                    "tmux pane scope exceeds observation limits",
+                ));
+            }
             if !valid_pane_id(id) {
                 return Err(TmuxError::evidence(
                     "tmux pane scope contains an invalid pane ID",
                 ));
             }
             if seen.insert(id.as_str()) {
+                // One leaf and (conservatively) one disjunction per pane.
+                filter_bytes += id.len() + "#{==:#{pane_id},}".len() + "#{||:,}".len();
+                if filter_bytes > MAX_FILTER_BYTES {
+                    return Err(TmuxError::evidence(
+                        "tmux pane scope exceeds observation limits",
+                    ));
+                }
                 scoped.push(id.as_str());
             }
         }
@@ -173,7 +195,24 @@ pub(super) fn scoped_ids(ids: Option<&[String]>) -> Result<Option<Vec<&str>>, Tm
 }
 
 pub(super) fn pane_filter(ids: &[&str]) -> String {
-    let mut expressions = ids.iter().map(|id| format!("#{{==:#{{pane_id}},{id}}}"));
-    let first = expressions.next().expect("nonempty validated pane scope");
-    expressions.fold(first, |combined, next| format!("#{{||:{combined},{next}}}"))
+    // A balanced expression bounds tmux's own recursion depth. Append into one
+    // buffer instead of repeatedly copying an ever-growing nested expression.
+    fn append(output: &mut String, ids: &[&str]) {
+        if let [id] = ids {
+            output.push_str("#{==:#{pane_id},");
+            output.push_str(id);
+            output.push('}');
+        } else {
+            let (left, right) = ids.split_at(ids.len() / 2);
+            output.push_str("#{||:");
+            append(output, left);
+            output.push(',');
+            append(output, right);
+            output.push('}');
+        }
+    }
+    assert!(!ids.is_empty(), "nonempty validated pane scope");
+    let mut output = String::new();
+    append(&mut output, ids);
+    output
 }

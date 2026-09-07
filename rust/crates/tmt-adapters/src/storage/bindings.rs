@@ -1,0 +1,213 @@
+//! SQLite-backed identity bindings.
+
+use rusqlite::{Connection, OptionalExtension, Row, params};
+use tmt_core::{
+    binding::{Binding, BindingEntry, BindingRecords, BindingRepository},
+    endpoint::{PaneObservation, ServerEvidence},
+    identity::{Identity, IdentityReader},
+};
+
+use super::{
+    Storage, StorageError,
+    errors::classify,
+    identities::{identity_row_at, with_immediate_transaction},
+};
+
+const IDENTITY_COLUMNS: &str =
+    "i.id, i.name, i.canonical_name, i.lifetime, i.created_at, i.updated_at";
+const BINDING_COLUMNS: &str = "b.id, b.identity_id, b.pane_id, b.server_id, b.socket_path, \
+    b.server_pid, b.server_start_time, b.pane_pid";
+
+struct BindingRows<'a>(&'a Connection);
+
+fn binding_row(row: &Row<'_>, offset: usize) -> rusqlite::Result<Binding> {
+    Ok(Binding {
+        id: row.get(offset)?,
+        identity_id: row.get(offset + 1)?,
+        server: ServerEvidence {
+            server_id: row.get(offset + 3)?,
+            socket_path: row.get(offset + 4)?,
+            server_pid: row.get::<_, i64>(offset + 5)? as u64,
+            server_start_time: row.get(offset + 6)?,
+        },
+        pane_id: row.get(offset + 2)?,
+        pane_pid: row.get::<_, i64>(offset + 7)? as u64,
+    })
+}
+
+fn entry_row(row: &Row<'_>) -> rusqlite::Result<BindingEntry> {
+    let identity = identity_row_at(row, 0)?;
+    let binding = if row.get_ref(6)?.data_type() == rusqlite::types::Type::Null {
+        None
+    } else {
+        Some(binding_row(row, 6)?)
+    };
+    Ok(BindingEntry { identity, binding })
+}
+
+impl IdentityReader for BindingRows<'_> {
+    type Error = StorageError;
+
+    fn find_identity(&self, canonical_name: &str) -> Result<Option<Identity>, Self::Error> {
+        super::identities::IdentityRecords(self.0).find_identity(canonical_name)
+    }
+
+    fn list_identities(&self) -> Result<Vec<Identity>, Self::Error> {
+        super::identities::IdentityRecords(self.0).list_identities()
+    }
+}
+
+impl BindingRecords for BindingRows<'_> {
+    fn entry_by_id(&self, id: &str) -> Result<Option<BindingEntry>, Self::Error> {
+        self.0
+            .query_row(
+                &format!(
+                    "SELECT {IDENTITY_COLUMNS}, {BINDING_COLUMNS} \
+                     FROM identities AS i LEFT JOIN bindings AS b \
+                       ON b.identity_id = i.id AND b.transport = 'tmux' \
+                     WHERE i.id = ? AND i.retired_at_ms IS NULL"
+                ),
+                [id],
+                entry_row,
+            )
+            .optional()
+            .map_err(|error| classify(error, "Find binding"))
+    }
+
+    fn entry_by_pane(&self, pane: &str, server: &str) -> Result<Option<BindingEntry>, Self::Error> {
+        self.0
+            .query_row(
+                &format!(
+                    "SELECT {IDENTITY_COLUMNS}, {BINDING_COLUMNS} \
+                     FROM bindings AS b JOIN identities AS i ON i.id = b.identity_id \
+                     WHERE b.transport = 'tmux' AND b.pane_id = ? AND b.server_id = ? \
+                       AND i.retired_at_ms IS NULL"
+                ),
+                [pane, server],
+                entry_row,
+            )
+            .optional()
+            .map_err(|error| classify(error, "Find binding by pane"))
+    }
+
+    fn binding_entries(&self) -> Result<Vec<BindingEntry>, Self::Error> {
+        let mut statement = self
+            .0
+            .prepare(&format!(
+                "SELECT {IDENTITY_COLUMNS}, {BINDING_COLUMNS} \
+                 FROM identities AS i LEFT JOIN bindings AS b \
+                   ON b.identity_id = i.id AND b.transport = 'tmux' \
+                 WHERE i.retired_at_ms IS NULL \
+                 ORDER BY i.canonical_name COLLATE BINARY"
+            ))
+            .map_err(|error| classify(error, "Prepare binding list"))?;
+        statement
+            .query_map([], entry_row)
+            .and_then(|rows| rows.collect())
+            .map_err(|error| classify(error, "List bindings"))
+    }
+
+    fn insert_binding(
+        &mut self,
+        identity: &Identity,
+        server: &ServerEvidence,
+        pane: &PaneObservation,
+    ) -> Result<Binding, Self::Error> {
+        let id = uuid::Uuid::new_v4().to_string();
+        self.0
+            .query_row(
+                "INSERT INTO bindings (
+                    id, identity_id, transport, pane_id, server_id, socket_path,
+                    server_pid, server_start_time, pane_pid, bound_at, last_verified_at
+                 ) VALUES (?, ?, 'tmux', ?, ?, ?, ?, ?, ?,
+                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                    strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+                 RETURNING id, identity_id, pane_id, server_id, socket_path,
+                    server_pid, server_start_time, pane_pid",
+                params![
+                    id,
+                    identity.id,
+                    pane.id,
+                    server.server_id,
+                    server.socket_path,
+                    server.server_pid as i64,
+                    server.server_start_time,
+                    pane.pane_pid as i64,
+                ],
+                |row| binding_row(row, 0),
+            )
+            .map_err(|error| classify(error, "Create binding"))
+    }
+
+    fn touch_binding(&mut self, id: &str) -> Result<(), Self::Error> {
+        self.0
+            .execute(
+                "UPDATE bindings SET last_verified_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                 WHERE id = ?",
+                [id],
+            )
+            .map_err(|error| classify(error, "Touch binding"))?;
+        Ok(())
+    }
+
+    fn detach_binding(&mut self, id: &str) -> Result<(), Self::Error> {
+        self.0
+            .execute("DELETE FROM bindings WHERE id = ?", [id])
+            .map_err(|error| classify(error, "Detach binding"))?;
+        Ok(())
+    }
+
+    fn retire_identity(
+        &mut self,
+        identity: &Identity,
+        remove_content: bool,
+    ) -> Result<(), Self::Error> {
+        self.0
+            .execute("DELETE FROM bindings WHERE identity_id = ?", [&identity.id])
+            .map_err(|error| classify(error, "Detach identity binding"))?;
+        if remove_content {
+            self.0
+                .execute(
+                    "DELETE FROM role_profiles WHERE identity_id = ?",
+                    [&identity.id],
+                )
+                .map_err(|error| classify(error, "Remove identity role"))?;
+            self.0
+                .execute(
+                    "DELETE FROM identity_preambles WHERE identity_id = ?",
+                    [&identity.id],
+                )
+                .map_err(|error| classify(error, "Remove identity preamble"))?;
+        }
+        self.0
+            .execute(
+                "UPDATE identities
+                 SET retired_at_ms = CAST(strftime('%s','now') AS INTEGER) * 1000
+                    + CAST(substr(strftime('%f','now'), 4, 3) AS INTEGER)
+                 WHERE id = ? AND retired_at_ms IS NULL",
+                [&identity.id],
+            )
+            .map_err(|error| classify(error, "Retire identity"))?;
+        Ok(())
+    }
+}
+
+impl BindingRepository for Storage {
+    fn with_binding_transaction<T, E: From<Self::Error>>(
+        &mut self,
+        operation: impl FnOnce(&mut dyn BindingRecords<Error = Self::Error>) -> Result<T, E>,
+    ) -> Result<T, E> {
+        with_immediate_transaction(self, "binding", |transaction| {
+            operation(&mut BindingRows(transaction))
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+mod service_tests;
+
+#[cfg(test)]
+mod test_support;

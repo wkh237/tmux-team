@@ -3,9 +3,9 @@
 
 use crate::{
     invocation::{IdentityRequest, OutputMode},
-    output::{Failure, after_cleanup},
+    output::{Failure, after_cleanup, identity_document},
 };
-use serde_json::{Value, json};
+use serde_json::json;
 use std::{
     error::Error,
     io::{self, Write},
@@ -82,11 +82,11 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
     if mode.json {
         let document = match report {
             Report::Created(result) => {
-                json!({"identity": public_identity(&result.identity), "created": result.created})
+                json!({"identity": identity_document(&result.identity), "created": result.created})
             }
-            Report::Shown(identity) => json!({"identity": public_identity(&identity)}),
+            Report::Shown(identity) => json!({"identity": identity_document(&identity)}),
             Report::Listed(identities) => {
-                json!({"identities": identities.iter().map(public_identity).collect::<Vec<_>>()})
+                json!({"identities": identities.iter().map(identity_document).collect::<Vec<_>>()})
             }
         };
         writeln!(stdout, "{document}")?;
@@ -133,8 +133,4 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
         }
     }
     Ok(0)
-}
-
-fn public_identity(identity: &Identity) -> Value {
-    json!({"id": identity.id, "name": identity.name, "canonicalName": identity.canonical_name, "lifetime": identity.lifetime.as_str()})
 }

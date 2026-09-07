@@ -1,0 +1,170 @@
+//! Public projections deliberately omit binding markers and process evidence.
+
+use super::Report;
+use crate::output::identity_document;
+use serde_json::{Value, json};
+use std::io::{self, Write};
+use tmt_core::{binding::IdentityPresence, endpoint::PaneObservation, identity::Identity};
+
+fn pane_document(pane: &PaneObservation) -> Value {
+    let mut value = json!({"id": pane.id, "command": pane.command});
+    if let Some(target) = &pane.target {
+        value["target"] = target.clone().into();
+    }
+    if let Some(cwd) = &pane.cwd {
+        value["cwd"] = cwd.clone().into();
+    }
+    value
+}
+
+fn bound_document(identity: &Identity, pane: &str) -> Value {
+    json!({"bound": true, "id": identity.id, "name": identity.name,
+        "pane": pane, "lifetime": identity.lifetime.as_str()})
+}
+
+fn presence_document(row: &IdentityPresence) -> Value {
+    let mut value = identity_document(&row.identity);
+    value["presence"] = row.presence.as_str().into();
+    value["pane"] = row.pane.as_ref().map(|pane| pane.id.clone()).into();
+    value["command"] = row
+        .pane
+        .as_ref()
+        .map_or("", |pane| pane.command.as_str())
+        .into();
+    if let Some(pane) = &row.pane {
+        let details = pane_document(pane);
+        for key in ["target", "cwd"] {
+            if let Some(detail) = details.get(key) {
+                value[key] = detail.clone();
+            }
+        }
+    }
+    value
+}
+
+pub(super) fn document(report: &Report) -> Value {
+    match report {
+        Report::Bound(row) => bound_document(
+            &row.identity,
+            &row.pane.as_ref().expect("verified binding").id,
+        ),
+        Report::Caller { pane, identity } => identity.as_ref().map_or_else(
+            || json!({"bound": false, "pane": pane}),
+            |identity| bound_document(identity, pane),
+        ),
+        Report::Unbound { pane, result } => json!({"unbound": true, "id": result.identity.id,
+            "name": result.identity.name, "pane": pane, "lifetime": result.identity.lifetime.as_str(), "retired": result.retired}),
+        Report::Removed(entry) => {
+            json!({"removed": true, "identity": identity_document(&entry.identity)})
+        }
+        Report::Listed(rows) => {
+            json!({"identities": rows.iter().map(presence_document).collect::<Vec<_>>()})
+        }
+        Report::Named { target, row } => {
+            json!({"target": target, "identity": identity_document(&row.identity),
+            "presence": row.presence.as_str(), "pane": row.pane.as_ref().map(pane_document)})
+        }
+        Report::Pane {
+            target,
+            pane,
+            identity,
+        } => json!({"target": target,
+            "identity": identity.as_ref().map(identity_document), "pane": pane_document(pane)}),
+    }
+}
+
+fn identity_row(
+    output: &mut impl Write,
+    identity: &Identity,
+    status: &str,
+    pane: Option<&PaneObservation>,
+) -> io::Result<()> {
+    writeln!(
+        output,
+        "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+        identity.name,
+        identity.lifetime.as_str(),
+        status,
+        pane.map_or("-", |pane| pane.id.as_str()),
+        pane.and_then(|pane| pane.target.as_deref()).unwrap_or("-"),
+        pane.and_then(|pane| pane.cwd.as_deref()).unwrap_or("-"),
+        pane.map_or("", |pane| pane.command.as_str())
+    )
+}
+
+pub(super) fn text(output: &mut impl Write, report: &Report) -> io::Result<()> {
+    match report {
+        Report::Bound(row) => writeln!(
+            output,
+            "Bound {} identity '{}' on pane {}.",
+            row.identity.lifetime.as_str(),
+            row.identity.name,
+            row.pane.as_ref().expect("verified binding").id
+        ),
+        Report::Caller {
+            pane,
+            identity: Some(identity),
+        } => writeln!(
+            output,
+            "Bound {} identity '{}' on pane {pane}.",
+            identity.lifetime.as_str(),
+            identity.name
+        ),
+        Report::Caller {
+            pane,
+            identity: None,
+        } => writeln!(output, "Pane {pane} is unbound."),
+        Report::Unbound { pane, result } => writeln!(
+            output,
+            "Unbound '{}' from pane {pane}; identity {}.",
+            result.identity.name,
+            if result.retired {
+                "retired"
+            } else {
+                "saved offline"
+            }
+        ),
+        Report::Removed(entry) => writeln!(
+            output,
+            "Removed identity '{}'. Exchanges are retained.",
+            entry.identity.name
+        ),
+        Report::Listed(rows) if rows.is_empty() => writeln!(output, "No identities found."),
+        Report::Listed(rows) => {
+            writeln!(output, "NAME\tLIFETIME\tSTATUS\tPANE\tTARGET\tCWD\tCOMMAND")?;
+            for row in rows {
+                identity_row(
+                    output,
+                    &row.identity,
+                    row.presence.as_str(),
+                    row.pane.as_ref(),
+                )?;
+            }
+            Ok(())
+        }
+        Report::Named { row, .. } => {
+            writeln!(output, "NAME\tLIFETIME\tSTATUS\tPANE\tTARGET\tCWD\tCOMMAND")?;
+            identity_row(
+                output,
+                &row.identity,
+                row.presence.as_str(),
+                row.pane.as_ref(),
+            )
+        }
+        Report::Pane { pane, identity, .. } => {
+            writeln!(
+                output,
+                "Pane: {}\nCWD:  {}\nCMD:  {}",
+                pane.id,
+                pane.cwd.as_deref().unwrap_or("-"),
+                pane.command
+            )?;
+            if let Some(identity) = identity {
+                writeln!(output, "NAME\tLIFETIME\tSTATUS\tPANE\tTARGET\tCWD\tCOMMAND")?;
+                identity_row(output, identity, "active", Some(pane))
+            } else {
+                writeln!(output, "Pane has no active global identity.")
+            }
+        }
+    }
+}

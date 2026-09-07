@@ -61,10 +61,15 @@ describe('native grammar preview process contract', () => {
       expect(help.status).toBe(0);
       expect(help.stderr).toBe('');
       expect(help.stdout).toContain('Native development preview');
-      expect(help.stdout).toContain('storage-only identity create/show/list are available');
+      expect(help.stdout).toContain(
+        'configuration, storage-only identity create/show/list, and pane identity name/this/add/whoami/unbind/rm/list are available'
+      );
+      expect(help.stdout).toContain('Transport commands are not implemented yet.');
       expect(help.stdout).toContain('Manage identity records without probing tmux');
       expect(help.stdout).toContain('temporary unless saved');
       expect(help.stdout).toContain('rm');
+      expect(help.stdout).toContain('remove role/preamble');
+      expect(help.stdout).toContain('keep pane/exchanges');
       expect(help.stdout).not.toContain('--wait');
       expect(fileSnapshot(sandbox.root)).toEqual(before);
     });
@@ -74,14 +79,6 @@ describe('native grammar preview process contract', () => {
     await withSandbox(async (sandbox) => {
       const before = fileSnapshot(sandbox.root);
       for (const args of [
-        ['name', 'worker'],
-        ['this', 'worker', '-s'],
-        ['add', '%14', 'worker', '--save'],
-        ['rm', 'worker'],
-        ['remove', 'saved', '--force'],
-        ['whoami'],
-        ['unbind'],
-        ['list'],
         ['talk', 'worker', 'hello'],
         ['check', '%14'],
         ['init'],

@@ -1,9 +1,11 @@
 //! Concrete tmux evidence/metadata IO. Identity transactions, reconciliation and
 //! retirement remain application policy; uncertain observations are not death.
 
+mod binding;
 mod caller;
 mod evidence;
 mod metadata;
+pub use binding::BindingSession;
 
 #[cfg(test)]
 mod evidence_tests;
@@ -352,32 +354,33 @@ impl<R: CommandRunner> Tmux<R> {
 
     fn read_metadata(
         &self,
+        socket: Option<&str>,
         pane: &str,
         options: OperationOptions<'_>,
     ) -> Result<serde_json::Value, TmuxError> {
-        let output = self.execute(
-            vec![
-                "show-options".into(),
-                "-q".into(),
-                "-p".into(),
-                "-t".into(),
-                pane.into(),
-                "-v".into(),
-                AGENT_METADATA_OPTION.into(),
-            ],
-            options,
-            TmuxFailure::MetadataRead,
-        )?;
+        let mut args = socket_args(socket);
+        args.extend([
+            "show-options".into(),
+            "-q".into(),
+            "-p".into(),
+            "-t".into(),
+            pane.into(),
+            "-v".into(),
+            AGENT_METADATA_OPTION.into(),
+        ]);
+        let output = self.execute(args, options, TmuxFailure::MetadataRead)?;
         Ok(metadata::decode(&output))
     }
 
     fn write_metadata(
         &self,
+        socket: Option<&str>,
         pane: &str,
         document: &serde_json::Value,
         options: OperationOptions<'_>,
     ) -> Result<(), TmuxError> {
-        let mut args = vec!["set-option".into(), "-p".into()];
+        let mut args = socket_args(socket);
+        args.extend(["set-option".into(), "-p".into()]);
         if !metadata::has_fields(document) {
             args.push("-u".into());
         }
@@ -395,9 +398,19 @@ impl<R: CommandRunner> Tmux<R> {
         marker: &BindingMarker,
         options: OperationOptions<'_>,
     ) -> Result<(), TmuxError> {
-        let mut document = self.read_metadata(pane, options)?;
+        self.set_marker_on(None, pane, marker, options)
+    }
+
+    fn set_marker_on(
+        &self,
+        socket: Option<&str>,
+        pane: &str,
+        marker: &BindingMarker,
+        options: OperationOptions<'_>,
+    ) -> Result<(), TmuxError> {
+        let mut document = self.read_metadata(socket, pane, options)?;
         metadata::replace(&mut document, marker);
-        self.write_metadata(pane, &document, options)
+        self.write_metadata(socket, pane, &document, options)
     }
 
     pub fn clear_marker(
@@ -406,11 +419,21 @@ impl<R: CommandRunner> Tmux<R> {
         binding_id: Option<&str>,
         options: OperationOptions<'_>,
     ) -> Result<bool, TmuxError> {
-        let mut document = self.read_metadata(pane, options)?;
+        self.clear_marker_on(None, pane, binding_id, options)
+    }
+
+    fn clear_marker_on(
+        &self,
+        socket: Option<&str>,
+        pane: &str,
+        binding_id: Option<&str>,
+        options: OperationOptions<'_>,
+    ) -> Result<bool, TmuxError> {
+        let mut document = self.read_metadata(socket, pane, options)?;
         if !metadata::clear(&mut document, binding_id) {
             return Ok(false);
         }
-        self.write_metadata(pane, &document, options)?;
+        self.write_metadata(socket, pane, &document, options)?;
         Ok(true)
     }
 }
