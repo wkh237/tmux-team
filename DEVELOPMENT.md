@@ -34,8 +34,10 @@ pnpm dev -- --help
 The `rust/` workspace is not the installed runtime yet. It implements only
 help/version/completion, typed grammar and the existing `config` command.
 Other effectful commands still explicitly fail.
-The separate storage adapter implements schema 8 lifecycle compatibility, tested
-through a development-only probe rather than an installed command.
+The separate storage adapter upgrades historical schemas 0–8 to native schema 9,
+tested through a development-only probe rather than an installed command.
+Use isolated test databases only: installed TypeScript cannot reopen schema 9.
+Native identity commands and retirement are still unimplemented.
 The Unix tmux evidence adapter is likewise exercised through a non-installed
 `tmux-probe` example; native identity commands are not implemented by that probe.
 Use the exact toolchain from `rust/rust-toolchain.toml` and run from `rust/`:
@@ -61,11 +63,19 @@ TMT_TEST_CLI='{"executable":"/absolute/checkout/rust/target/debug/tmt","args":[]
 This preview-specific suite reuses the shared sandbox and bounded process
 launcher; it does not replace TypeScript or Docker verification. Storage tests
 create and close TypeScript schema-prefix fixtures, migrate through the actual
-Rust adapter, and compare independent SQL schema/data with the TypeScript result.
-They also exercise reverse opens, rollback, history rejection and bounded writer
+Rust adapter, and compare independent SQL schema/data with the TypeScript result,
+allowing only the specified identity-table/index/history amendment. They verify
+saved backfill, name reuse without UUID inheritance, preserved dependent records,
+explicit TypeScript rejection of schema 9 without mutation, native reopen,
+rollback, history rejection and bounded writer
 contention. Neither executable selector may silently fall back to TypeScript.
 The probe accepts only a database path and runs open/health/checkpoint/close;
 it has no arbitrary SQL or failure-injection command and is not packaged.
+Runner-level Rust tests also hold a real rollback-journal reader across migration
+commit and inject record/foreign-key failures after table replacement. Assert
+schema/data rollback and restored connection enforcement; a migration error alone
+does not establish either invariant. Preserve the independent schema-prefix
+fixtures instead of copying the new production migration into the test oracle.
 Also run the
 existing parser-only public contract subset through the same selection:
 

@@ -3,6 +3,10 @@ use tmt_core::limits::MAX_JS_SAFE_INTEGER;
 
 use super::errors::{StorageError, StorageErrorCode, classify, incompatible};
 
+#[cfg(test)]
+#[path = "identity_lifetime_tests.rs"]
+mod identity_lifetime_tests;
+
 struct Migration {
     name: &'static str,
     sql: &'static str,
@@ -41,6 +45,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "add identity-scoped exchange attention revisions",
         sql: include_str!("schema/008.sql"),
     },
+    Migration {
+        name: "add identity lifetimes and reusable retired names",
+        sql: include_str!("schema/009.sql"),
+    },
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {
@@ -56,31 +64,131 @@ pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {
     let current = validate_history(connection)?;
     for (index, migration) in MIGRATIONS.iter().enumerate().skip(current) {
         let version = index as u32 + 1;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| classify(error, "Acquire migration lock"))?;
-        let apply_one = (|| {
-            // A concurrent opener may already have applied this version. The
-            // authoritative history check is inside the immediate writer lock.
-            if validate_history(&transaction)? >= version as usize {
-                return Ok(());
-            }
-            transaction
-                .execute_batch(migration.sql)
-                .map_err(|error| classify(error, "Apply migration SQL"))?;
-            if version == 6 {
-                backfill_retention(&transaction)?;
-            }
-            transaction.execute(
-                "INSERT INTO _migrations (version, name, applied_at) VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-                params![version, migration.name],
-            ).map_err(|error| classify(error, "Record migration"))?;
-            Ok(())
-        })();
-        apply_one.map_err(|error| StorageError::migration(version, error))?;
+        if version == 9 {
+            apply_identity_lifetime(connection, migration)?;
+        } else {
+            apply_version(connection, version, migration)?;
+        }
+    }
+    Ok(())
+}
+
+fn apply_identity_lifetime(
+    connection: &mut Connection,
+    migration: &Migration,
+) -> Result<(), StorageError> {
+    // SQLite requires foreign_keys to change outside a transaction.
+    // The private opening connection cannot escape during this rebuild.
+    let result = set_foreign_keys(connection, false)
+        .map_err(|error| StorageError::migration(9, error))
+        .and_then(|()| apply_version(connection, 9, migration));
+    // apply_version has committed or dropped its transaction before
+    // restoration. Always attempt it, preserving a primary failure.
+    // Attempt restoration even if disabling succeeded but its verification failed.
+    let restore =
+        set_foreign_keys(connection, true).map_err(|error| StorageError::migration(9, error));
+    result.and(restore)
+}
+
+fn apply_version(
+    connection: &mut Connection,
+    version: u32,
+    migration: &Migration,
+) -> Result<(), StorageError> {
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| classify(error, "Acquire migration lock"))?;
+    let apply_one = (|| {
+        // Another opener may have migrated while this one waited for the lock.
+        if validate_history(&transaction)? >= version as usize {
+            return Ok(());
+        }
+        if version == 9 {
+            validate_identity_source(&transaction)?;
+            check_foreign_keys(&transaction)?;
+        }
         transaction
-            .commit()
-            .map_err(|error| classify(error, "Commit migration"))?;
+            .execute_batch(migration.sql)
+            .map_err(|error| classify(error, "Apply migration SQL"))?;
+        if version == 6 {
+            backfill_retention(&transaction)?;
+        }
+        transaction.execute(
+            "INSERT INTO _migrations (version, name, applied_at) VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+            params![version, migration.name],
+        ).map_err(|error| classify(error, "Record migration"))?;
+        if version == 9 {
+            check_foreign_keys(&transaction)?;
+        }
+        Ok(())
+    })();
+    apply_one.map_err(|error| StorageError::migration(version, error))?;
+    transaction
+        .commit()
+        .map_err(|error| classify(error, "Commit migration"))
+}
+
+fn set_foreign_keys(connection: &Connection, enabled: bool) -> Result<(), StorageError> {
+    connection
+        .pragma_update(None, "foreign_keys", enabled)
+        .map_err(|error| classify(error, "Configure migration foreign keys"))?;
+    let actual: bool = connection
+        .pragma_query_value(None, "foreign_keys", |row| row.get(0))
+        .map_err(|error| classify(error, "Verify migration foreign keys"))?;
+    if actual != enabled {
+        return Err(incompatible(
+            "Migration foreign-key policy did not take effect",
+        ));
+    }
+    Ok(())
+}
+
+fn check_foreign_keys(connection: &Connection) -> Result<(), StorageError> {
+    let mut statement = connection
+        .prepare("PRAGMA foreign_key_check")
+        .map_err(|error| classify(error, "Inspect migration foreign keys"))?;
+    let mut rows = statement
+        .query([])
+        .map_err(|error| classify(error, "Inspect migration foreign keys"))?;
+    if rows
+        .next()
+        .map_err(|error| classify(error, "Read migration foreign keys"))?
+        .is_some()
+    {
+        return Err(incompatible(
+            "Identity migration requires consistent foreign keys",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_identity_source(connection: &Connection) -> Result<(), StorageError> {
+    // Compare only the frozen first CREATE TABLE statement, not arbitrary SQL.
+    // Whitespace differs between historical TS and Rust migration formatting.
+    // Refuse custom columns/constraints rather than discarding their data/rules.
+    let original = MIGRATIONS[0].sql.split(';').next().unwrap_or_default();
+    let actual: String = connection
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'identities'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| classify(error, "Inspect identity source schema"))?;
+    if !actual.split_whitespace().eq(original.split_whitespace()) {
+        return Err(incompatible(
+            "Identity migration requires the historical table definition",
+        ));
+    }
+    // Only the two implicit identity indexes are part of schema 8. Never drop
+    // an unrecognized user index or trigger as a side effect of table replacement.
+    let custom: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE tbl_name = 'identities' AND type IN ('index', 'trigger') AND sql IS NOT NULL)",
+        [], |row| row.get(0),
+    ).map_err(|error| classify(error, "Inspect identity schema extensions"))?;
+    if custom {
+        return Err(incompatible(
+            "Identity migration cannot replace custom indexes or triggers",
+        ));
     }
     Ok(())
 }

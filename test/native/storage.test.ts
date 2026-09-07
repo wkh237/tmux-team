@@ -40,6 +40,18 @@ function upgradeWithTypeScript(file: string): void {
   }
 }
 
+function rejectSchema9WithTypeScript(file: string): void {
+  let error: unknown;
+  let opened: ReturnType<typeof openStorage> | undefined;
+  try {
+    opened = openStorage(file);
+  } catch (thrown) {
+    error = thrown;
+  }
+  opened?.close();
+  expect(error).toMatchObject({ code: 'incompatible-schema' });
+}
+
 function migrationTimestamps(file: string): string[] {
   const database = new Database(file, { readonly: true });
   try {
@@ -52,9 +64,77 @@ function migrationTimestamps(file: string): string[] {
   }
 }
 
+function table(snapshot: ReturnType<typeof storageSnapshot>, name: string) {
+  const found = snapshot.tables.find((candidate) => candidate.name === name);
+  expect(found, `Missing table ${name}`).toBeDefined();
+  return found!;
+}
+
+function expectNativeSchema9(
+  reference: ReturnType<typeof storageSnapshot>,
+  migrated: ReturnType<typeof storageSnapshot>
+): void {
+  expect(migrated.migrations.slice(0, 8)).toEqual(reference.migrations);
+  expect(migrated.migrations).toHaveLength(9);
+  expect(migrated.migrations[8]).toEqual({
+    version: 9,
+    name: 'add identity lifetimes and reusable retired names',
+  });
+  expect(migrated.tables.map(({ name }) => name)).toEqual(reference.tables.map(({ name }) => name));
+
+  const unchangedTables = reference.tables
+    .filter(({ name }) => name !== '_migrations' && name !== 'identities')
+    .map(({ name }) => name);
+  expect(
+    migrated.tables.filter(({ name }) => unchangedTables.includes(name)).map(({ name }) => name)
+  ).toEqual(unchangedTables);
+  for (const name of unchangedTables) expect(table(migrated, name)).toEqual(table(reference, name));
+
+  const oldHistory = table(reference, '_migrations');
+  const newHistory = table(migrated, '_migrations');
+  expect(newHistory.columns).toEqual(oldHistory.columns);
+  expect(newHistory.indexes).toEqual(oldHistory.indexes);
+  expect(newHistory.foreignKeys).toEqual(oldHistory.foreignKeys);
+  expect(newHistory.rows).toEqual([
+    ...oldHistory.rows,
+    { version: 9, name: migrated.migrations[8]!.name },
+  ]);
+
+  const oldIdentities = table(reference, 'identities');
+  const newIdentities = table(migrated, 'identities');
+  expect(newIdentities.columns.slice(0, 5)).toEqual(oldIdentities.columns);
+  expect(newIdentities.columns.slice(5)).toEqual([
+    { cid: 5, name: 'lifetime', type: 'TEXT', notnull: 1, dflt_value: "'saved'", pk: 0 },
+    { cid: 6, name: 'retired_at_ms', type: 'INTEGER', notnull: 0, dflt_value: null, pk: 0 },
+  ]);
+  expect(newIdentities.rows).toEqual(
+    oldIdentities.rows.map((row) => ({ ...row, lifetime: 'saved', retired_at_ms: null }))
+  );
+  expect(newIdentities.foreignKeys).toEqual(oldIdentities.foreignKeys);
+  expect(newIdentities.indexes).toHaveLength(oldIdentities.indexes.length);
+  expect(newIdentities.indexes.find((index) => index.origin === 'pk')).toEqual(
+    oldIdentities.indexes.find((index) => index.origin === 'pk')
+  );
+  const activeNameIndex = newIdentities.indexes.find(
+    (index) =>
+      index.unique === 1 &&
+      index.partial === 1 &&
+      index.columns.some((column) => column.name === 'canonical_name' && column.key === 1)
+  );
+  expect(activeNameIndex).toMatchObject({ name: 'identities_active_name' });
+  expect(
+    newIdentities.indexes.some(
+      (index) =>
+        index.unique === 1 &&
+        index.partial === 0 &&
+        index.columns.some((column) => column.name === 'canonical_name' && column.key === 1)
+    )
+  ).toBe(false);
+}
+
 describe('native SQLite lifecycle compatibility', () => {
   it.each(Array.from({ length: 9 }, (_, version) => version))(
-    'upgrades closed TypeScript schema %i without changing schema or durable semantics',
+    'upgrades closed TypeScript schema %i to schema 9 without changing durable data',
     async (version) => {
       await withSandbox(async (sandbox) => {
         const reference = path.join(sandbox.root, 'reference', 'state.db');
@@ -68,7 +148,7 @@ describe('native SQLite lifecycle compatibility', () => {
         expect(parseWholeStdout(result)).toEqual({
           path: sandbox.database,
           open: true,
-          schemaVersion: 8,
+          schemaVersion: 9,
           journalMode: 'wal',
           foreignKeys: true,
           busyTimeoutMs: 5000,
@@ -76,7 +156,7 @@ describe('native SQLite lifecycle compatibility', () => {
           fts5: true,
         });
         const migrated = storageSnapshot(sandbox.database);
-        expect(migrated).toEqual(storageSnapshot(reference));
+        expectNativeSchema9(storageSnapshot(reference), migrated);
         if (version >= 5) {
           const responses = migrated.tables.find(
             (table) => table.name === 'request_responses'
@@ -107,13 +187,15 @@ describe('native SQLite lifecycle compatibility', () => {
           );
         }
         const timestamps = migrationTimestamps(sandbox.database);
-        expect(timestamps).toHaveLength(8);
+        expect(timestamps).toHaveLength(9);
         expect(timestamps.slice(0, version)).toEqual(originalTimestamps);
         for (const timestamp of timestamps) {
           expect(timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
         }
-        // Reverse compatibility and repeated opens must preserve finals and attention.
-        upgradeWithTypeScript(sandbox.database);
+        // Forward native compatibility has intentionally not been added to TypeScript.
+        const beforeTypeScriptOpen = storageSnapshot(sandbox.database);
+        rejectSchema9WithTypeScript(sandbox.database);
+        expect(storageSnapshot(sandbox.database)).toEqual(beforeTypeScriptOpen);
         expect((await runStorage(sandbox)).status).toBe(0);
         expect(storageSnapshot(sandbox.database)).toEqual(migrated);
         expect(migrationTimestamps(sandbox.database)).toEqual(timestamps);
@@ -121,19 +203,12 @@ describe('native SQLite lifecycle compatibility', () => {
     }
   );
 
-  it('lets TypeScript reopen and write a database created only by Rust', async () => {
+  it('rejects a native schema 9 database from TypeScript without mutation', async () => {
     await withSandbox(async (sandbox) => {
       expect((await runStorage(sandbox)).status).toBe(0);
-      upgradeWithTypeScript(sandbox.database);
-      const writer = new Database(sandbox.database);
-      try {
-        writer
-          .prepare('INSERT INTO identities VALUES (?, ?, ?, ?, ?)')
-          .run('roundtrip-id', 'Roundtrip', 'roundtrip', 'created', 'updated');
-      } finally {
-        writer.close();
-      }
       const before = storageSnapshot(sandbox.database);
+      rejectSchema9WithTypeScript(sandbox.database);
+      expect(storageSnapshot(sandbox.database)).toEqual(before);
       expect((await runStorage(sandbox)).status).toBe(0);
       expect(storageSnapshot(sandbox.database)).toEqual(before);
     });
@@ -142,8 +217,8 @@ describe('native SQLite lifecycle compatibility', () => {
   it('converges concurrent native processes on an existing historical WAL database', async () => {
     await withSandbox(async (sandbox) => {
       const reference = path.join(sandbox.root, 'reference', 'state.db');
-      seedStoragePrefix(reference, 4);
-      seedStoragePrefix(sandbox.database, 4);
+      seedStoragePrefix(reference, 8);
+      seedStoragePrefix(sandbox.database, 8);
       upgradeWithTypeScript(reference);
       // Wait for every bounded child before the sandbox can be removed, even
       // when an individual launch fails. No child may escape failed assertions.
@@ -154,10 +229,10 @@ describe('native SQLite lifecycle compatibility', () => {
         expect(result.status).toBe('fulfilled');
         if (result.status === 'fulfilled') {
           expect(result.value.status, result.value.stdout).toBe(0);
-          expect(parseWholeStdout(result.value).schemaVersion).toBe(8);
+          expect(parseWholeStdout(result.value).schemaVersion).toBe(9);
         }
       }
-      expect(storageSnapshot(sandbox.database)).toEqual(storageSnapshot(reference));
+      expectNativeSchema9(storageSnapshot(reference), storageSnapshot(sandbox.database));
     });
   });
 
@@ -168,13 +243,46 @@ describe('native SQLite lifecycle compatibility', () => {
       try {
         database.pragma('foreign_keys = ON');
         database.exec(
-          "INSERT INTO identities VALUES ('id', 'Alice', 'alice', 'created', 'updated')"
+          "INSERT INTO identities (id, name, canonical_name, created_at, updated_at) VALUES ('id', 'Alice', 'alice', 'created', 'updated')"
         );
+        expect(
+          database.prepare('SELECT lifetime, retired_at_ms FROM identities WHERE id = ?').get('id')
+        ).toEqual({
+          lifetime: 'saved',
+          retired_at_ms: null,
+        });
         expect(() =>
           database.exec(
-            "INSERT INTO identities VALUES ('other', 'ALICE', 'alice', 'created', 'updated')"
+            "INSERT INTO identities (id, name, canonical_name, created_at, updated_at) VALUES ('other', 'ALICE', 'alice', 'created', 'updated')"
           )
         ).toThrow(/UNIQUE/);
+        expect(() =>
+          database.exec(
+            "INSERT INTO identities VALUES ('invalid-lifetime', 'Invalid', 'invalid-lifetime', 'created', 'updated', 'permanent', NULL)"
+          )
+        ).toThrow(/CHECK/);
+        expect(() =>
+          database.exec(
+            "INSERT INTO identities VALUES ('invalid-retired-zero', 'Invalid', 'invalid-retired-zero', 'created', 'updated', 'saved', 0)"
+          )
+        ).toThrow(/CHECK/);
+        expect(() =>
+          database.exec(
+            "INSERT INTO identities VALUES ('invalid-retired-large', 'Invalid', 'invalid-retired-large', 'created', 'updated', 'saved', 9007199254740992)"
+          )
+        ).toThrow(/CHECK/);
+        database.exec(
+          "UPDATE identities SET lifetime = 'temporary', retired_at_ms = 9007199254740991 WHERE id = 'id'"
+        );
+        database.exec(
+          "INSERT INTO identities VALUES ('new-id', 'ALICE', 'alice', 'created-new', 'updated-new', 'saved', NULL)"
+        );
+        expect(
+          database.prepare('SELECT id, lifetime, retired_at_ms FROM identities ORDER BY id').all()
+        ).toEqual([
+          { id: 'id', lifetime: 'temporary', retired_at_ms: Number.MAX_SAFE_INTEGER },
+          { id: 'new-id', lifetime: 'saved', retired_at_ms: null },
+        ]);
         expect(() =>
           database.exec("INSERT INTO role_profiles VALUES ('missing', 'body', 'updated')")
         ).toThrow(/FOREIGN KEY/);
@@ -229,7 +337,180 @@ describe('native SQLite lifecycle compatibility', () => {
       } finally {
         database.close();
       }
-      upgradeWithTypeScript(sandbox.database);
+      rejectSchema9WithTypeScript(sandbox.database);
+    });
+  });
+
+  it('rolls back schema 9 identity replacement when recording the migration fails', async () => {
+    await withSandbox(async (sandbox) => {
+      seedStoragePrefix(sandbox.database, 8);
+      const before = storageSnapshot(sandbox.database);
+      const writer = new Database(sandbox.database);
+      try {
+        writer.exec(`
+          CREATE TRIGGER fail_schema9_history
+          BEFORE INSERT ON _migrations
+          WHEN NEW.version = 9
+          BEGIN
+            SELECT RAISE(ABORT, 'schema 9 history failure');
+          END;
+        `);
+      } finally {
+        writer.close();
+      }
+
+      const failed = await runStorage(sandbox);
+      expect(failed.status).toBe(1);
+      expect(expectError(failed, 'migration').error).toMatchObject({ migrationVersion: 9 });
+      expect(storageSnapshot(sandbox.database)).toEqual(before);
+      const afterFailure = new Database(sandbox.database, { readonly: true });
+      try {
+        expect(
+          afterFailure
+            .prepare("SELECT name FROM sqlite_schema WHERE type = 'trigger' AND name = ?")
+            .get('fail_schema9_history')
+        ).toEqual({ name: 'fail_schema9_history' });
+      } finally {
+        afterFailure.close();
+      }
+
+      const repair = new Database(sandbox.database);
+      try {
+        repair.exec('DROP TRIGGER fail_schema9_history');
+      } finally {
+        repair.close();
+      }
+      expect((await runStorage(sandbox)).status).toBe(0);
+      expect(parseWholeStdout(await runStorage(sandbox))).toMatchObject({ schemaVersion: 9 });
+    });
+  });
+
+  it('rejects an invalid old foreign key without replacing the identity table', async () => {
+    await withSandbox(async (sandbox) => {
+      seedStoragePrefix(sandbox.database, 8);
+      const writer = new Database(sandbox.database);
+      try {
+        writer.pragma('foreign_keys = OFF');
+        writer
+          .prepare('INSERT INTO role_profiles (identity_id, content, updated_at) VALUES (?, ?, ?)')
+          .run('missing-old-identity', 'orphan role', 'updated');
+      } finally {
+        writer.close();
+      }
+      const before = storageSnapshot(sandbox.database);
+      const result = await runStorage(sandbox);
+      expect(result.status).toBe(1);
+      expect(expectError(result, 'migration').error).toMatchObject({ migrationVersion: 9 });
+      expect(storageSnapshot(sandbox.database)).toEqual(before);
+    });
+  });
+
+  it('rejects an unexpected identity index without replacing the identity table', async () => {
+    await withSandbox(async (sandbox) => {
+      seedStoragePrefix(sandbox.database, 8);
+      const writer = new Database(sandbox.database);
+      try {
+        writer.exec('CREATE INDEX identities_unexpected_name ON identities(name)');
+      } finally {
+        writer.close();
+      }
+      const before = storageSnapshot(sandbox.database);
+      const result = await runStorage(sandbox);
+      expect(result.status).toBe(1);
+      expect(expectError(result, 'migration').error).toMatchObject({ migrationVersion: 9 });
+      expect(storageSnapshot(sandbox.database)).toEqual(before);
+    });
+  });
+
+  it('preserves old UUID provenance and gives a reused name no dependent rows', async () => {
+    await withSandbox(async (sandbox) => {
+      seedStoragePrefix(sandbox.database, 8);
+      expect((await runStorage(sandbox)).status).toBe(0);
+      const before = storageSnapshot(sandbox.database);
+      const database = new Database(sandbox.database);
+      try {
+        database.pragma('foreign_keys = ON');
+        database
+          .prepare("UPDATE identities SET lifetime = 'temporary', retired_at_ms = ? WHERE id = ?")
+          .run(1_700_000_000_999, FIXTURE_IDENTITY_ID);
+        database
+          .prepare(
+            `INSERT INTO identities (
+               id, name, canonical_name, created_at, updated_at, lifetime, retired_at_ms
+             ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            'identity-new',
+            'Known Fixture',
+            'known-fixture',
+            '2026-02-01T00:00:00.000Z',
+            '2026-02-01T00:00:00.000Z',
+            'saved',
+            null
+          );
+
+        expect(
+          database
+            .prepare(
+              `SELECT DISTINCT identity_id, originator_identity_id, recipient_identity_id
+               FROM request_attempts
+               WHERE identity_id = ? OR originator_identity_id = ? OR recipient_identity_id = ?`
+            )
+            .all(FIXTURE_IDENTITY_ID, FIXTURE_IDENTITY_ID, FIXTURE_IDENTITY_ID)
+        ).not.toHaveLength(0);
+        expect(
+          database
+            .prepare(
+              `SELECT COUNT(*) AS count FROM request_attempts
+               WHERE identity_id = ? OR originator_identity_id = ? OR recipient_identity_id = ?`
+            )
+            .get('identity-new', 'identity-new', 'identity-new')
+        ).toEqual({ count: 0 });
+        for (const tableName of [
+          'bindings',
+          'identity_preambles',
+          'preamble_counters',
+          'request_attention_identities',
+          'role_profiles',
+        ]) {
+          expect(
+            database
+              .prepare(`SELECT COUNT(*) AS count FROM ${tableName} WHERE identity_id = ?`)
+              .get('identity-new')
+          ).toEqual({ count: 0 });
+        }
+        expect(
+          database.prepare('SELECT id FROM bindings WHERE identity_id = ?').get(FIXTURE_IDENTITY_ID)
+        ).toEqual({ id: 'binding-known' });
+        expect(
+          database
+            .prepare(
+              'SELECT identity_id FROM request_attempts WHERE originator_identity_id = ? LIMIT 1'
+            )
+            .get(FIXTURE_IDENTITY_ID)
+        ).toEqual({ identity_id: FIXTURE_IDENTITY_ID });
+      } finally {
+        database.close();
+      }
+      const after = storageSnapshot(sandbox.database);
+      expect(after.tables.filter(({ name }) => name !== 'identities')).toEqual(
+        before.tables.filter(({ name }) => name !== 'identities')
+      );
+      const identities = new Database(sandbox.database, { readonly: true });
+      try {
+        expect(
+          identities
+            .prepare(
+              'SELECT id, lifetime, retired_at_ms FROM identities WHERE canonical_name = ? ORDER BY id'
+            )
+            .all('known-fixture')
+        ).toEqual([
+          { id: FIXTURE_IDENTITY_ID, lifetime: 'temporary', retired_at_ms: 1_700_000_000_999 },
+          { id: 'identity-new', lifetime: 'saved', retired_at_ms: null },
+        ]);
+      } finally {
+        identities.close();
+      }
     });
   });
 
@@ -301,12 +582,17 @@ describe('native SQLite lifecycle compatibility', () => {
     async (kind) => {
       await withSandbox(async (sandbox) => {
         seedStoragePrefix(sandbox.database, 8);
+        if (kind === 'future') {
+          const upgraded = await runStorage(sandbox);
+          expect(upgraded.status).toBe(0);
+          expect(parseWholeStdout(upgraded)).toMatchObject({ schemaVersion: 9 });
+        }
         const writer = new Database(sandbox.database);
         try {
           if (kind === 'renamed')
             writer.exec("UPDATE _migrations SET name = 'unknown' WHERE version = 2");
           else if (kind === 'gap') writer.exec('DELETE FROM _migrations WHERE version = 2');
-          else writer.exec("INSERT INTO _migrations VALUES (9, 'future', 'timestamp')");
+          else writer.exec("INSERT INTO _migrations VALUES (10, 'future', 'timestamp')");
         } finally {
           writer.close();
         }
@@ -343,12 +629,14 @@ describe('native SQLite lifecycle compatibility', () => {
         repair.close();
       }
       expect((await runStorage(sandbox)).status).toBe(0);
-      upgradeWithTypeScript(sandbox.database);
+      rejectSchema9WithTypeScript(sandbox.database);
     });
   });
 
   it('reports bounded writer contention and leaves storage usable after lock release', async () => {
     await withSandbox(async (sandbox) => {
+      const reference = path.join(sandbox.root, 'reference', 'state.db');
+      seedStoragePrefix(reference, 8);
       seedStoragePrefix(sandbox.database, 8);
       const before = storageSnapshot(sandbox.database);
       const writer = new Database(sandbox.database);
@@ -363,7 +651,8 @@ describe('native SQLite lifecycle compatibility', () => {
       }
       expect(storageSnapshot(sandbox.database)).toEqual(before);
       expect((await runStorage(sandbox)).status).toBe(0);
-      expect(storageSnapshot(sandbox.database)).toEqual(before);
+      upgradeWithTypeScript(reference);
+      expectNativeSchema9(storageSnapshot(reference), storageSnapshot(sandbox.database));
     });
   }, 15_000);
 });

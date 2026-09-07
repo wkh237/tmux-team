@@ -1,6 +1,6 @@
 # Rust rewrite preparation
 
-Status: native grammar (#96), schema 8 lifecycle (#97), configuration (#103)
+Status: native grammar (#96), storage lifecycle (#97) with native identity schema 9 (#108), configuration (#103)
 and bounded tmux evidence (#105)
 are implemented in the development preview, not a shipped Rust runtime.
 Owner: [#93](https://github.com/wkh237/tmux-team/issues/93);
@@ -55,7 +55,7 @@ is by responsibility, not a mechanical copy of every TypeScript file.
 
 The `rust/` workspace contains `tmt-core` (numeric and settings policy),
 `tmt-cli` (grammar, typed invocation translation and output), and `tmt-adapters`
-(schema 8 SQLite lifecycle under #97, configuration files under #103 and Unix
+(SQLite lifecycle under #97 with schema 9 under #108, configuration files under #103 and Unix
 tmux evidence under #105). The npm entry points still execute TypeScript. No command silently
 delegates from native to Node.
 
@@ -136,7 +136,7 @@ revision, the nine entries for rusqlite, libsqlite3-sys, shlex and smallvec all
 list patched ranges containing the locked versions. Some manifests omit MSRV,
 so actual Rust 1.88 locked compilation remains the acceptance evidence.
 
-Schema 8 remains unchanged. Native migrations retain the historical names,
+Historical migrations 1–8 remain unchanged. Native migrations retain their names,
 column/index/foreign-key definitions and seven-day migration backfill rather
 than applying today's retention configuration retroactively. The private
 connection exposes only lifecycle operations until repositories are ported.
@@ -145,6 +145,19 @@ the real adapter, without adding arbitrary SQL or fault flags to public syntax.
 Cold concurrent WAL transitions can report retryable busy errors even with a
 busy timeout; this preserves the existing storage boundary, not an all-openers
 success guarantee. See [SQLite busy-handler behavior](https://sqlite.org/c3ref/busy_handler.html).
+
+#108 appends native schema 9: the same identity table gains `lifetime` and
+`retired_at_ms`, with a partial unique canonical-name index for non-retired rows.
+Existing rows become saved; their UUIDs, names and timestamps are unchanged.
+The migration does not implement retirement commands or erase dependent state.
+Its reviewed rebuild follows the
+[SQLite generalized ALTER TABLE procedure](https://www.sqlite.org/lang_altertable.html#otheralter):
+temporarily disable foreign keys outside the immediate transaction, preserve
+the table contents, validate foreign keys before commit and restore enforcement
+on all normal success/error paths. The source definition must match the frozen
+historical identity table apart from whitespace; custom columns, constraints,
+indexes or triggers are rejected instead of silently removed. No ORM, alternate
+registry or dependency is added.
 
 ### Execution and resource ownership
 
@@ -332,7 +345,8 @@ the isolated fixture before copying. WAL requires local shared-memory semantics;
 network filesystems are not a new supported deployment.
 [SQLite WAL documentation](https://www.sqlite.org/wal.html).
 
-Required matrix before claiming same-schema coexistence:
+Original schema-8 coexistence matrix (historical plan, superseded by #108's
+forward-only identity amendment below):
 
 1. TS creates and closes data; Rust opens/reads/writes; TS reopens and sees the
    same identity UUID and exact bodies without reset. Repeat in reverse order.
@@ -347,13 +361,22 @@ Required matrix before claiming same-schema coexistence:
 5. Read-only/corrupt/locked storage, private file modes, foreign keys, WAL,
    synchronous NORMAL, FTS5 and close/checkpoint failure classification.
 
-Initial implementation must keep schema 8 unchanged. Binary rollback to baseline
-TS is an acceptance target **only after** this matrix passes, not a guarantee
-today. A later incompatible schema requires its own migration/rollback decision;
-installer binary rollback cannot downgrade a database. Development TS and Rust
-may coexist in separate fixtures until proven compatible. Final cutover removes
-the production TS runtime and redundant transitional adapters; it need not remove
-Node-based test infrastructure or historical data fixtures.
+#97 delivered the unchanged schema-8 storage baseline. #108 intentionally moves
+the native preview to schema 9; baseline TypeScript rejects it. Mixed-runtime
+writers/readers and binary rollback to schema-8 TS are not supported after this
+upgrade. Do not weaken history validation or maintain a second native legacy
+mode just to preserve a transitional test. Native development uses isolated
+fixtures, never a live user database.
+
+Before release, #82/#93 must stop old writers, create a consistent recoverable
+backup and explain that binary rollback is not schema downgrade. Acceptance
+still requires every supported historical prefix, exact retained records,
+native concurrent lifecycle/attention races, and execution of old v1 receipts
+against migrated in-flight and retained requests. #106 owns receipt transition;
+this schema slice proves preservation, not execution. A restored pre-upgrade
+backup cannot include work written after upgrade; recovery must not promise
+lossless downgrade. Final cutover removes the production TS runtime and
+redundant transitional adapters; Node-based tests and historical fixtures may stay.
 
 ## Delivery gates
 
