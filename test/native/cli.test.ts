@@ -61,6 +61,8 @@ describe('native grammar preview process contract', () => {
       expect(help.status).toBe(0);
       expect(help.stderr).toBe('');
       expect(help.stdout).toContain('Native development preview');
+      expect(help.stdout).toContain('storage-only identity create/show/list are available');
+      expect(help.stdout).toContain('Manage identity records without probing tmux');
       expect(help.stdout).toContain('temporary unless saved');
       expect(help.stdout).toContain('rm');
       expect(help.stdout).not.toContain('--wait');
@@ -82,7 +84,6 @@ describe('native grammar preview process contract', () => {
         ['list'],
         ['talk', 'worker', 'hello'],
         ['check', '%14'],
-        ['identity', 'create', 'saved'],
         ['init'],
         ['role', 'show'],
         ['preamble'],

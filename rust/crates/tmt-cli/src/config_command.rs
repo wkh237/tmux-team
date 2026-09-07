@@ -2,31 +2,21 @@
 //! document mutation remain in the shared core and filesystem adapter.
 
 use crate::invocation::{ConfigRequest, OutputMode};
+use crate::output::Failure;
 use serde_json::json;
 use std::io::{self, Write};
 use tmt_adapters::config::{ConfigError, ConfigFiles, ConfigPaths, Scope};
 use tmt_core::settings::{LocalClear, ResolvedSettings, Setting, SettingKey};
 
-struct Failure {
-    code: &'static str,
-    message: String,
-}
-
 impl From<ConfigError> for Failure {
     fn from(error: ConfigError) -> Self {
-        Self {
-            code: error.code,
-            message: error.message,
-        }
+        Self::new(error.code, error.message.clone(), 1).caused_by(error)
     }
 }
 
 impl From<String> for Failure {
     fn from(message: String) -> Self {
-        Self {
-            code: "ERROR",
-            message,
-        }
+        Self::new("ERROR", message, 1)
     }
 }
 
@@ -72,7 +62,7 @@ fn run(request: ConfigRequest) -> Result<Report, Failure> {
 pub fn execute(request: ConfigRequest, mode: OutputMode) -> io::Result<u8> {
     let report = match run(request) {
         Ok(report) => report,
-        Err(error) => return crate::failure(mode, error.code, &error.message),
+        Err(error) => return error.publish(mode),
     };
     let mut output = io::stdout().lock();
     match report {
