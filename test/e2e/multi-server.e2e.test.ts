@@ -64,8 +64,11 @@ describe.sequential('global identities across isolated tmux servers', () => {
     ).rejects.toThrow('intentional multi-server scenario failure');
   });
 
-  it('preserves foreign bindings and refuses a live name collision despite identical pane IDs', async () => {
+  it('preserves grouped foreign bindings and refuses a live name collision despite identical pane IDs', async () => {
     await withTwoServers(async (a, b) => {
+      b.tmux(['new-session', '-d', '-t', 'e2e', '-s', 'grouped']);
+      const remoteRows = b.tmux(['list-panes', '-a', '-F', '#{pane_id}']).trim().split('\n');
+      expect(remoteRows.filter((pane) => pane === b.pane)).toHaveLength(2);
       successful(await b.runJsonCli(['name', 'Remote']));
       successful(await b.runJsonCli(['role', 'set', 'Keep the remote profile.']));
       const before = durableState(b);

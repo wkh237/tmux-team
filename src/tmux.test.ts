@@ -27,6 +27,7 @@ function endpointRow(
     socketPath?: string;
     serverPid?: string;
     paneId?: string;
+    target?: string;
     panePid?: string;
     metadata?: string;
   } = {}
@@ -37,7 +38,7 @@ function endpointRow(
     overrides.serverPid ?? '321',
     '1700000000',
     overrides.paneId ?? '%9',
-    'main:1.0',
+    overrides.target ?? 'main:1.0',
     '/foreign',
     'node',
     overrides.panePid ?? '654',
@@ -845,6 +846,41 @@ describe('createTmux', () => {
       );
     });
 
+    it('discovers one caller pane repeated by grouped sessions without extra probes', () => {
+      vi.stubEnv('TMUX', '');
+      vi.stubEnv('TMUX_PANE', '');
+      const row = ['%7', String(process.pid), '/tmp/default.sock', '321'].join(
+        CALLER_PANE_SEPARATOR
+      );
+      mockedExecFileSync
+        .mockReturnValueOnce(`${process.pid} 0\n`)
+        .mockReturnValueOnce(`${row}\n${row}\n`);
+
+      expect(createTmux().getCurrentPaneId()).toBe('%7');
+      expect(mockedExecFileSync).toHaveBeenCalledTimes(2);
+    });
+
+    describe.each([false, true])('conflicting caller row first: %s', (conflictFirst) => {
+      it.each([
+        ['pane PID', 1, '1'],
+        ['socket', 2, '/tmp/other.sock'],
+        ['server PID', 3, '999'],
+      ] as const)('rejects repeated pane IDs with a different %s', (_label, index, value) => {
+        vi.stubEnv('TMUX', '');
+        vi.stubEnv('TMUX_PANE', '');
+        const fields = ['%7', String(process.pid), '/tmp/default.sock', '321'];
+        const row = fields.join(CALLER_PANE_SEPARATOR);
+        fields[index] = value;
+        const conflicting = fields.join(CALLER_PANE_SEPARATOR);
+        const rows = conflictFirst ? [conflicting, row] : [row, conflicting];
+        mockedExecFileSync
+          .mockReturnValueOnce(`${process.pid} 0\n`)
+          .mockReturnValueOnce(rows.join('\n'));
+
+        expect(createTmux().getCurrentPaneId()).toBeNull();
+      });
+    });
+
     it('rejects an ambiguous process-to-pane match', () => {
       vi.stubEnv('TMUX', '');
       vi.stubEnv('TMUX_PANE', '');
@@ -1059,14 +1095,20 @@ describe('createTmux', () => {
       );
     });
 
-    it('keeps a full 200-pane endpoint snapshot to one list subprocess for unbound panes', () => {
-      mockedExecFileSync
-        .mockReturnValueOnce(`${VALID_SERVER_ID}\n`)
-        .mockReturnValueOnce(
-          Array.from({ length: 200 }, (_, index) =>
-            endpointRow({ paneId: `%${index}`, panePid: String(654 + index) })
-          ).join('\n') + '\n'
-        );
+    it('keeps a full 200-pane grouped snapshot to one list subprocess and one entry per pane', () => {
+      mockedExecFileSync.mockReturnValueOnce(`${VALID_SERVER_ID}\n`).mockReturnValueOnce(
+        Array.from({ length: 200 }, (_, index) =>
+          ['main', 'grouped'].map((session) =>
+            endpointRow({
+              paneId: `%${index}`,
+              panePid: String(654 + index),
+              target: `${session}:${index}.0`,
+            })
+          )
+        )
+          .flat()
+          .join('\n') + '\n'
+      );
 
       const snapshot = createTmux().getEndpointSnapshot?.();
 
@@ -1278,11 +1320,58 @@ describe('createTmux', () => {
       });
     });
 
-    it('returns unknown for duplicate pane evidence instead of treating a partial parse as live', () => {
-      mockedExecFileSync.mockReturnValueOnce(`${endpointRow()}\n${endpointRow()}\n`);
+    describe.each(['current', 'foreign'] as const)('%s repeated pane evidence', (source) => {
+      function readRows(rows: string[]) {
+        if (source === 'current') mockedExecFileSync.mockReturnValueOnce(`${VALID_SERVER_ID}\n`);
+        mockedExecFileSync.mockReturnValueOnce(rows.join('\n') + '\n');
+        const tmux = createTmux();
+        return source === 'current'
+          ? { status: 'live', snapshot: tmux.getEndpointSnapshot?.({ paneIds: ['%9'] }) }
+          : tmux.probeEndpoint?.('/tmp/foreign.sock', 321, { paneIds: ['%9'] });
+      }
 
-      expect(createTmux().probeEndpoint?.('/tmp/foreign.sock', 321)).toEqual({
-        status: 'unknown',
+      it.each(['main:1.0', 'grouped:7.0'])('accepts repeated rows targeting %s', (target) => {
+        const result = readRows([endpointRow(), endpointRow({ target })]);
+        expect(result).toMatchObject({
+          status: 'live',
+          snapshot: { panes: [{ id: '%9', panePid: 654, target: 'main:1.0' }] },
+        });
+        expect(result?.status === 'live' && result.snapshot?.panes).toHaveLength(1);
+        expect(mockedExecFileSync).toHaveBeenCalledTimes(source === 'current' ? 2 : 1);
+      });
+
+      it('preserves matching opaque metadata containing the field separator', () => {
+        const metadata = JSON.stringify({ version: 1, opaque: ENDPOINT_SEPARATOR });
+        const result = readRows([
+          endpointRow({ metadata }),
+          endpointRow({ metadata, target: 'linked:9.0' }),
+        ]);
+        expect(result).toMatchObject({
+          status: 'live',
+          snapshot: { panes: [{ metadata: { version: 1, opaque: ENDPOINT_SEPARATOR } }] },
+        });
+      });
+
+      describe.each([false, true])('invalid row first: %s', (invalidFirst) => {
+        it.each([
+          ['missing pane ID', endpointRow({ paneId: '' })],
+          ['invalid pane PID', endpointRow({ panePid: '0' })],
+          ['different pane PID', endpointRow({ panePid: '999' })],
+          ['different metadata', endpointRow({ metadata: '{"version":1}' })],
+          ['malformed metadata mismatch', endpointRow({ metadata: 'not-json' })],
+          ['different server PID', endpointRow({ serverPid: '999' })],
+          [
+            'truncated row',
+            endpointRow().split(ENDPOINT_SEPARATOR).slice(0, 9).join(ENDPOINT_SEPARATOR),
+          ],
+        ])('does not hide %s through deduplication', (_label, invalid) => {
+          const rows = invalidFirst ? [invalid, endpointRow()] : [endpointRow(), invalid];
+          if (source === 'current') {
+            expect(() => readRows(rows)).toThrow(/tmux endpoint snapshot contains/);
+          } else {
+            expect(readRows(rows)).toEqual({ status: 'unknown' });
+          }
+        });
       });
     });
 

@@ -427,6 +427,8 @@ lookup may identify a unique pane process on the selected tmux server. An
 ambient active pane or session name is never caller evidence. Supplied malformed,
 stale or conflicting evidence must not be rescued by fallback. Missing process
 visibility, inaccessible sockets or ambiguous matches yield no caller. This
+lookup deduplicates matching session/pane rows before counting candidates;
+conflicting process/socket/server evidence for a repeated pane is still rejected. This
 supports environment-stripped descendants, not arbitrary sandbox isolation;
 nondefault servers still need a usable server-selection mechanism.
 The fallback uses the system `ps` utility with a shared one-second deadline
@@ -544,6 +546,14 @@ malformed scopes or incomplete endpoint evidence fail closed. This bounds
 subprocess fan-out and returned pane evidence, not tmux's internal traversal
 time. Metadata publication still explicitly reads the selected pane's options
 to preserve unrelated fields before writing; those failures remain fatal.
+
+`list-panes -a` enumerates session/pane rows, not unique panes: grouped sessions
+and linked windows legitimately repeat stable pane IDs with different targets.
+The adapter validates every row before deduplication, including rows that would
+otherwise be discarded. Repeated IDs must agree on pane PID and raw metadata;
+conflicting evidence fails closed. Display target, cwd and foreground command
+are not endpoint identity; the existing projection retains the first row's
+presentation. Current snapshots and foreign probes share this validation.
 
 Binding publication, active reconciliation and unbind share the repository's
 SQLite immediate-transaction boundary. Authoritative endpoint snapshots are
