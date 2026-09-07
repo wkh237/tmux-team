@@ -35,7 +35,7 @@ pub fn grammar() -> Command {
         )
         .subcommand(general("init", "Create workspace settings"))
         .subcommand(
-            general("list", "List active identities in the current workspace")
+            general("list", "List global identities, lifetime and live presence")
                 .visible_alias("ls")
                 .arg(operand("target", false)),
         )
@@ -57,7 +57,7 @@ pub fn grammar() -> Command {
         )
         .subcommand(
             with_options(
-                general("rm", "Retire an identity without killing its pane"),
+                general("rm", "Retire identity and remove role/preamble; keep pane/exchanges (--force for saved)"),
                 &["force"],
             )
             .visible_alias("remove")

@@ -20,6 +20,11 @@ pub struct CallerEnvironment {
 }
 
 impl CallerEnvironment {
+    /// A scheduling preference only, not verified caller or routing authority.
+    pub fn selected_socket(&self) -> Option<&str> {
+        context(self.tmux.as_ref()?.to_str()?).map(|context| context.socket)
+    }
+
     pub fn current() -> Self {
         Self {
             tmux: std::env::var_os("TMUX"),

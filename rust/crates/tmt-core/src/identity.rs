@@ -115,7 +115,7 @@ pub fn create_or_resolve<R: IdentityRepository>(
         .map_err(IdentityError::Repository)
 }
 
-pub fn find_by_name<R: IdentityReader>(
+pub fn find_by_name<R: IdentityReader + ?Sized>(
     repository: &R,
     name: &str,
 ) -> Result<Option<Identity>, IdentityError<R::Error>> {

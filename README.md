@@ -134,8 +134,10 @@ an older command or plugin installed.
 ## Native rewrite development
 
 The Rust executable is an isolated development preview, not the installer above.
-It currently supports configuration and storage-only `identity create/show/list`;
-pane binding and messaging still require the TypeScript runtime. Do not point
+It supports configuration, `identity create/show/list`, and pane identity
+`name`/`this`/`add`/`whoami`/`unbind`/`rm`/`ls`. Native bindings are temporary
+unless saved with `-s`; `ls` shows lifetime and active/offline/unknown presence.
+Messaging still requires the TypeScript runtime. Do not point
 the native preview at existing user data: its schema upgrade is forward-only.
 See [development and verification](DEVELOPMENT.md#native-development-preview).
 

@@ -16,7 +16,9 @@ pub(super) fn marker(document: &Value) -> Option<BindingMarker> {
         value
             .get(name)?
             .as_str()
-            .filter(|text| !text.trim().is_empty())
+            // Decode shape only. The shared core name validator owns Unicode
+            // whitespace/normalization when evaluating a binding marker.
+            .filter(|text| !text.is_empty())
             .map(str::to_owned)
     };
     let pane_pid = value

@@ -33,12 +33,12 @@ pnpm dev -- --help
 
 The `rust/` workspace is not the installed runtime yet. It implements only
 help/version/completion, typed grammar, the existing `config` command and
-storage-only `identity create/show/list` under #113.
+storage-only `identity create/show/list` under #113, and pane identity
+`name`/`this`/`add`/`whoami`/`unbind`/`rm`/`list` under #109.
 Other effectful commands still explicitly fail.
 The separate storage adapter upgrades historical schemas 0–8 to native schema 9,
 tested through a development-only probe rather than an installed command.
 Use isolated test databases only: installed TypeScript cannot reopen schema 9.
-Native pane binding, presence listing and retirement are still unimplemented.
 The #111 internal record service supports temporary/saved creation, same-UUID
 promotion and non-retired selection, tested against real isolated SQLite. It
 supplies the public storage-only commands but does not establish live presence.
@@ -135,13 +135,14 @@ before creation. Their evidence is storage policy, not public CLI/tmux parity.
 
 `test/native/identity.test.ts` separately exercises the public native
 create/show/list commands across bounded processes and working directories.
-Use independent SQL only to seed temporary/retired states that the public native
-binding commands cannot produce yet, and to inspect preserved records. Do not
+Use independent SQL to arrange storage-only fixtures without requiring tmux,
+and to inspect preserved records. Test actual binding lifecycle through its
+public native commands in Docker. Do not
 initialize schema 9 through the TypeScript Storage owner. Test exact public
 lifetime projections, missing-name status 3, invalid-name status 1, malformed
 unrelated configuration isolation, and calibrated no-tmux guards. CLI cleanup
 precedence is tested in `output.rs`; real SQLite close/rollback/contention tests
-remain adapter evidence. Native reads omit retired records and never reconcile
+remain adapter evidence. Storage-only identity reads omit retired records and never reconcile
 bindings; these tests are not proof of tmux presence or retirement authorization.
 
 The Docker image builds Linux adapter test artifacts in a pinned Rust/Debian
@@ -159,6 +160,20 @@ public native CLI parity. The probe requires fixture socket environment as an
 accidental-host-use guard, not an authorization boundary. Never run its tmux
 operations against a host server. Process fixtures use finite children even
 on failure and never signal a recycled PID after observed reaping.
+
+`test/native/binding.test.ts` checks isolated public preflight, offline removal,
+and lifetime/presence output. `test/e2e/native-identity.e2e.test.ts` selects the
+Docker-built `TMT_TEST_NATIVE_CLI` through the same fixture descriptor; it does
+not change the selected runtime for unported TS transport scenarios. Exercise
+real descendant caller resolution, temporary/save/unbind/rm lifecycle, global
+cross-directory/server discovery, grouped/linked presentation, publication
+failure/retry and theme-preserving badge behavior. The read-only SQL oracle
+also verifies copied-server-ID collision safety and conclusive foreign death.
+Adapter bounds tests cover pane-count/filter-byte limits and balanced depth;
+the real tmux probe checks multi-pane balanced-filter results. The SQL oracle
+observes committed state independently of reconciliation. Metadata barriers
+recognize explicit-socket invocations as well as ambient calls. Run the whole
+Docker suite twice for lifecycle changes; counts alone do not prove cleanup.
 
 For runtime-rewrite work, read [RUST-REWRITE.md](RUST-REWRITE.md) for the proposed
 boundaries and parity gates. The optional [performance baseline](PERFORMANCE-BASELINE.md)

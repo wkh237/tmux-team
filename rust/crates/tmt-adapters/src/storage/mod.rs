@@ -1,3 +1,4 @@
+mod bindings;
 mod errors;
 mod identities;
 mod migrations;

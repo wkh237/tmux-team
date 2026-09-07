@@ -2,7 +2,7 @@
 
 Status: native grammar (#96), storage lifecycle (#97) with native identity schema 9 (#108), configuration (#103)
 and bounded tmux evidence (#105), shared identity records (#111), and
-storage-only identity commands (#113)
+storage-only identity commands (#113), and pane identity lifecycle (#109)
 are implemented in the development preview, not a shipped Rust runtime.
 Owner: [#93](https://github.com/wkh237/tmux-team/issues/93);
 preparation: [#94](https://github.com/wkh237/tmux-team/issues/94).
@@ -61,23 +61,23 @@ tmux evidence under #105). The npm entry points still execute TypeScript. No com
 delegates from native to Node.
 
 The preview implements help, version, Bash/Zsh completion and the existing
-`config` command plus storage-only `identity create/show/list` (#113).
+`config` command plus storage-only `identity create/show/list` (#113) and pane
+identity `name`/`this`/`add`/`whoami`/`unbind`/`rm`/`list` (#109).
 Other recognized effectful commands return
 `NATIVE_NOT_IMPLEMENTED`, exit 1, before any settings,
 storage, tmux or input acquisition. Text-only commands reject JSON. Native
-`name`/`this`/`add` parse temporary defaults and save flags; `rm`/`remove` parse
-explicit force. This is not evidence that native lifecycle operations work.
+`name`/`this`/`add` create temporary bindings unless `-s`/`--save` promotes or
+creates a saved identity. `rm`/`remove` require explicit force for saved rows.
 
-The planned #100 listing includes all non-retired temporary and saved identities,
+The implemented #100/#109 listing includes all non-retired temporary and saved identities,
 including saved offline identities. It exposes lifetime separately from verified
 presence: `temporary`/`saved` and `active`/`offline`/`unknown`. Unavailable evidence
 is not proof of death; retired temporary identities are omitted, while offline
 saved identities continue to reserve their names. Visibility does not silently
 expand current-server routing or justify unbounded per-identity tmux queries.
-The implementing issue must define exact JSON and failure precedence and test
-cross-directory name collisions, promotion, retirement/reuse, preserved exchanges
-and truthful unknown presence. These are planned native changes, not installed
-TypeScript behavior or a second identity registry.
+The exact JSON and failure precedence are recorded in #109, with real SQLite
+service tests and public CLI/private-tmux lifecycle tests. These are native
+preview changes, not installed TypeScript behavior or a second identity registry.
 
 #103 makes settings an invocation-owned shared boundary rather than a rule set
 inside each CLI handler. Core owns typed defaults, scalar bounds, setting scope
@@ -175,8 +175,11 @@ settings. JSON excludes internal timestamps, retirement and binding evidence.
 Missing show names return NAME_NOT_FOUND/3; semantic invalid names return
 INVALID_NAME/1. Storage acquisition precedes semantic validation, while grammar
 errors still precede effects. Cleanup failure replaces only success with an
-effects warning; primary errors survive. #109 retains binding, removal, presence
-and their real-tmux gates. Installed npm still uses TypeScript/schema 8.
+effects warning; primary errors survive. #109 composes binding, removal and
+presence through one core evidence evaluator and shared SQLite/tmux adapters.
+Creation/promotion and verified publication remain separate commits; unknown
+evidence cannot retire a name. Global reads batch recorded servers under a
+shared observation budget. Installed npm still uses TypeScript/schema 8.
 
 Name normalization uses pinned `icu_normalizer`, `icu_casemap` and
 `icu_locale_core` 2.3.0, with defaults disabled and compiled data only for the

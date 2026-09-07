@@ -109,6 +109,14 @@ describe.sequential('native tmux adapter integration (not identity CLI parity)',
       expect(initial.panes.every((pane) => pane.marker === null)).toBe(true);
       const full = successful(await fixture.runJsonCli<Snapshot & Counted>(['snapshot']));
       expect(full.commandCount).toBe(2);
+      const batched = successful(
+        await fixture.runJsonCli<Snapshot & Counted>([
+          'snapshot',
+          ...full.panes.map((pane) => pane.id),
+        ])
+      );
+      expect(batched.panes).toEqual(full.panes);
+      expect(batched.commandCount).toBe(2);
       const scoped = successful(
         await fixture.runJsonCli<Snapshot & Counted>(['snapshot', fixture.pane])
       );

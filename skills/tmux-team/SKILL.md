@@ -10,6 +10,32 @@ Use `tmt` (the short alias for `tmux-team`) when the user asks you to communicat
 SQLite owns durable identities and profiles independently of the working
 directory. Active presence also requires matching live tmux binding metadata.
 
+## Runtime boundary
+
+The instructions below describe the installed TypeScript runtime. The separate
+Rust executable is a development preview: use isolated test state only, never an
+existing user database (schema 9 is forward-only and TypeScript cannot reopen it).
+Its help explicitly identifies the native preview. It implements configuration
+and identity commands, not messaging, role/preamble, X, skill installation or
+upgrade; do not fall back to TypeScript on the same upgraded database.
+
+For an explicitly selected native preview, `name`, retained alias `this`, and
+`add <pane-target> <name>` default to temporary identities; `-s`/`--save` saves
+the same UUID without downgrading existing saved identities. Names remain
+globally unique, not folder-scoped. `identity create` creates or promotes saved
+records. `ls` includes all non-retired identities with `lifetime` and independent
+`presence` (`active`, `offline`, `unknown`); offline/unknown entries are not
+verified destinations. Unknown evidence never authorizes retirement.
+Conclusive pane loss or explicit unbind retires temporary identities; saved
+identities remain offline. Native `rm <name>` retires a temporary identity;
+saved removal needs `--force`. Removal never kills a pane and removes only its
+role/preamble, retaining exchanges and historical ownership. Reusing a retired
+name gets a fresh UUID. A failed publication can leave a never-bound temporary
+identity offline for retry; do not mistake missing binding for pane death.
+These native-only lifetime/removal rules do not apply to the installed runtime
+described below. Check the selected executable's help instead of inferring
+capabilities from the shared alpha version number.
+
 ## Delivery safety
 
 Normal delivery pastes a tmux buffer, waits for the configured paste-to-Enter

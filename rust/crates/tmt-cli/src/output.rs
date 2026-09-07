@@ -13,6 +13,7 @@ pub struct Failure {
     pub message: String,
     pub status: u8,
     cause: Option<Box<dyn Error>>,
+    suggestion: Option<String>,
 }
 
 impl Failure {
@@ -22,6 +23,7 @@ impl Failure {
             message: message.into(),
             status,
             cause: None,
+            suggestion: None,
         }
     }
 
@@ -30,16 +32,32 @@ impl Failure {
         self
     }
 
+    pub fn suggestion(mut self, suggestion: String) -> Self {
+        self.suggestion = Some(suggestion);
+        self
+    }
+
     pub fn publish(&self, mode: OutputMode) -> io::Result<u8> {
         if mode.json {
-            let document =
+            let mut document =
                 serde_json::json!({"error": {"code": self.code, "message": self.message}});
+            if let Some(suggestion) = &self.suggestion {
+                document["error"]["suggestion"] = suggestion.clone().into();
+            }
             writeln!(io::stdout().lock(), "{document}")?;
         } else {
             writeln!(io::stderr().lock(), "{}", self.message)?;
+            if let Some(suggestion) = &self.suggestion {
+                writeln!(io::stderr().lock(), "{suggestion}")?;
+            }
         }
         Ok(self.status)
     }
+}
+
+pub fn identity_document(identity: &tmt_core::identity::Identity) -> serde_json::Value {
+    serde_json::json!({"id": identity.id, "name": identity.name,
+        "canonicalName": identity.canonical_name, "lifetime": identity.lifetime.as_str()})
 }
 
 impl fmt::Display for Failure {

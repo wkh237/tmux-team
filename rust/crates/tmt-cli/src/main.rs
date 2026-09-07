@@ -1,3 +1,4 @@
+mod binding_command;
 mod config_command;
 mod diagnostics;
 mod grammar;
@@ -33,7 +34,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Help => {
             writeln!(
                 stdout,
-                "Native development preview: configuration and storage-only identity create/show/list are available; pane binding and transport commands are not implemented yet. Use isolated test state only.\n"
+                "Native development preview: configuration, storage-only identity create/show/list, and pane identity name/this/add/whoami/unbind/rm/list are available. Transport commands are not implemented yet. Use isolated test state only.\n"
             )?;
             grammar::public_grammar(&grammar::grammar(), true).write_long_help(&mut stdout)?;
             writeln!(stdout)?;
@@ -66,6 +67,14 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Identity(request) => {
             drop(stdout);
             return identity_command::execute(request, parsed.mode);
+        }
+        request @ (Invocation::Bind { .. }
+        | Invocation::Whoami
+        | Invocation::Unbind
+        | Invocation::Remove { .. }
+        | Invocation::List { .. }) => {
+            drop(stdout);
+            return binding_command::execute(request, parsed.mode);
         }
         _ => {
             drop(stdout);

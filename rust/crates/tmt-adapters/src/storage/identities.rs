@@ -1,6 +1,6 @@
 //! Identity SQL shares the invocation-owned connection and schema history.
 
-use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, Row, Transaction, TransactionBehavior, params};
 use tmt_core::{
     identity::{Identity, IdentityReader, IdentityRepository, IdentityWriter, Lifetime},
     names::ValidatedName,
@@ -10,22 +10,26 @@ use super::{Storage, StorageError, StorageErrorCode, errors::classify};
 
 const COLUMNS: &str = "id, name, canonical_name, lifetime, created_at, updated_at";
 
-struct IdentityRecords<'a>(&'a Connection);
+pub(super) struct IdentityRecords<'a>(pub(super) &'a Connection);
 
-fn identity_row(row: &Row<'_>) -> rusqlite::Result<Identity> {
-    let lifetime = match row.get::<_, String>(3)?.as_str() {
+pub(super) fn identity_row_at(row: &Row<'_>, offset: usize) -> rusqlite::Result<Identity> {
+    let lifetime = match row.get::<_, String>(offset + 3)?.as_str() {
         "temporary" => Lifetime::Temporary,
         "saved" => Lifetime::Saved,
         _ => return Err(rusqlite::Error::InvalidQuery),
     };
     Ok(Identity {
-        id: row.get(0)?,
-        name: row.get(1)?,
-        canonical_name: row.get(2)?,
+        id: row.get(offset)?,
+        name: row.get(offset + 1)?,
+        canonical_name: row.get(offset + 2)?,
         lifetime,
-        created_at: row.get(4)?,
-        updated_at: row.get(5)?,
+        created_at: row.get(offset + 4)?,
+        updated_at: row.get(offset + 5)?,
     })
+}
+
+fn identity_row(row: &Row<'_>) -> rusqlite::Result<Identity> {
+    identity_row_at(row, 0)
 }
 
 impl IdentityReader for IdentityRecords<'_> {
@@ -93,18 +97,42 @@ impl IdentityRepository for Storage {
         &mut self,
         operation: impl FnOnce(&mut dyn IdentityWriter<Error = Self::Error>) -> Result<T, Self::Error>,
     ) -> Result<T, Self::Error> {
-        let connection = self.connection.as_mut().ok_or_else(|| {
-            StorageError::new(StorageErrorCode::Closed, "Storage is already closed")
-        })?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|error| classify(error, "Begin identity transaction"))?;
-        let result = operation(&mut IdentityRecords(&transaction))?;
-        transaction
-            .commit()
-            .map_err(|error| classify(error, "Commit identity transaction"))?;
-        Ok(result)
+        with_immediate_transaction(self, "identity", |transaction| {
+            operation(&mut IdentityRecords(transaction))
+        })
     }
+}
+
+pub(super) fn with_immediate_transaction<T, E>(
+    storage: &mut Storage,
+    operation_name: &str,
+    operation: impl FnOnce(&Transaction<'_>) -> Result<T, E>,
+) -> Result<T, E>
+where
+    E: From<StorageError>,
+{
+    let connection = storage.connection.as_mut().ok_or_else(|| {
+        E::from(StorageError::new(
+            StorageErrorCode::Closed,
+            "Storage is already closed",
+        ))
+    })?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| {
+            E::from(classify(
+                error,
+                &format!("Begin {operation_name} transaction"),
+            ))
+        })?;
+    let result = operation(&transaction)?;
+    transaction.commit().map_err(|error| {
+        E::from(classify(
+            error,
+            &format!("Commit {operation_name} transaction"),
+        ))
+    })?;
+    Ok(result)
 }
 
 #[cfg(test)]
