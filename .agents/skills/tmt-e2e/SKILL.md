@@ -36,6 +36,10 @@ Read the relevant files before changing behavior:
 
 - [`test/e2e/`](../../../test/e2e/): Vitest configuration, scenarios, harness, and mock-agent behavior.
 - [`scripts/run-e2e.mjs`](../../../scripts/run-e2e.mjs): Docker build/run wrapper and exit-code handling.
+- [`PERFORMANCE-BASELINE.md`](../../../PERFORMANCE-BASELINE.md) for optional runtime
+  measurements. Use the same isolated fixture and causal assertions; keep timing
+  samples out of ordinary CI thresholds and distinguish measured from unavailable
+  process resources. A skipped benchmark is not native parity evidence.
 
 Keep orchestration in the wrapper and scenario assertions in Vitest. Do not duplicate harness or mock-agent implementation in this skill.
 

@@ -22,7 +22,7 @@ whether the ticket or CI is green. Apply the same gate to primary-authored work;
 an independent reviewer is supplementary, not a replacement.
 
 Record the reviewed commit, affected boundaries, findings and their disposition,
-and verification evidence in the PR and Linear issue. If there are no findings,
+and verification evidence in the PR and GitHub issue. If there are no findings,
 state what was inspected rather than merely saying "LGTM". Review later changes
 and rerun affected checks before accepting a newer head.
 
@@ -52,7 +52,9 @@ in English.
 
 ## Delivery lifecycle
 
-- For development beyond incidental edits, use one tracked Linear issue, one
+- GitHub Issues is the active tracker for TMT. Historical Linear links are
+  references, not a second workflow or a requirement to duplicate tickets.
+- For development beyond incidental edits, use one tracked GitHub issue, one
   dedicated branch/worktree, and one reviewable PR. Confirm outcome, scope,
   acceptance criteria, dependencies and project relationship before editing;
   mark the issue started when implementation begins. Split oversized work first.
@@ -62,14 +64,14 @@ in English.
   requirements; prevent overlapping edits. The primary retains design,
   integration, and acceptance authority.
 - Keep decisions, progress, blockers, deferred work, branch/PR links and evidence
-  synchronized in Linear. Do not mark work done before its delivery state supports it.
+  synchronized in GitHub. Do not mark work done before its delivery state supports it.
 - Every Codex-created commit includes `Co-authored-by: Codex <codex@openai.com>`.
   Preserve the user's authorship and signing configuration.
 - Merge only when authorized and all required CI has passed on the reviewed head.
   Never bypass protection or lower checks to deliver. Publishing, releases and
   destructive operations require their own applicable authorization.
 - Before removing a completed worktree, verify it is clean, committed and safely
-  pushed or handed off, with branch/PR recorded in Linear. Do not discard user
+  pushed or handed off, with branch/PR recorded in GitHub. Do not discard user
   changes or unpushed work. Remove the safe worktree and prune stale metadata.
 - Follow the [release skill](.agents/skills/tmt-release/SKILL.md) for branch-line
   policy; do not duplicate or improvise long-lived branch rules here.

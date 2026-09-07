@@ -1,0 +1,1144 @@
+{
+  "baselineRevision": "cb53533f3a9f19a1a2ab95af59dda20df419200b",
+  "notes": "Same performance scenario with explicit 1500ms mock reply delay. Collected after full E2E repeats; no OS-cache or host-wide quiescence claim.",
+  "runs": [
+    {
+      "schemaVersion": 1,
+      "benchmark": "tmt-performance-baseline",
+      "generatedAt": "2026-09-07T06:43:39.169Z",
+      "sampleCount": 7,
+      "warmSampleCount": 6,
+      "semantics": {
+        "firstObservation": "The first observation runs after fixture setup and is reported separately; it is not an OS-cache-cold measurement.",
+        "warmFreshProcess": "Each warm sample launches a new CLI process after the first observation.",
+        "osCache": "Not controlled or claimed cold; filesystem and process caches may be warm."
+      },
+      "timingDefaults": {
+        "timeoutSeconds": 180,
+        "pollIntervalSeconds": 1,
+        "pasteEnterDelayMs": 500,
+        "benchmarkTalkTimeoutSeconds": 8,
+        "injectedMockReplyDelayMs": 1500
+      },
+      "environment": {
+        "node": "v22.23.2",
+        "tmux": "tmux 3.3a",
+        "platform": "linux",
+        "kernel": "7.0.12-linuxkit",
+        "arch": "arm64"
+      },
+      "resourceUsage": {
+        "cpu": {
+          "status": "unavailable",
+          "reason": "The existing E2E harness exposes child PIDs but no child CPU accounting; parent Vitest usage is not a child metric."
+        },
+        "peakRss": {
+          "status": "unavailable",
+          "reason": "The existing E2E harness does not sample child peak RSS; parent Vitest RSS is not a child metric."
+        }
+      },
+      "scenarios": {
+        "help": {
+          "sampleCount": 7,
+          "warmSampleCount": 6,
+          "firstObservation": {
+            "wallMs": 173.873,
+            "subprocesses": 0,
+            "commandCounts": {}
+          },
+          "warmFreshProcess": [
+            {
+              "wallMs": 132.062,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 133.644,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 129.936,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 131.99,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 132.177,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 131.064,
+              "subprocesses": 0,
+              "commandCounts": {}
+            }
+          ],
+          "medianMs": 132.062,
+          "warmMedianMs": 132.026
+        },
+        "identityCreate": {
+          "sampleCount": 1,
+          "warmSampleCount": 0,
+          "firstObservation": {
+            "wallMs": 145.138,
+            "subprocesses": 0,
+            "commandCounts": {}
+          },
+          "warmFreshProcess": [],
+          "medianMs": 145.138,
+          "warmMedianMs": null
+        },
+        "identityShow": {
+          "sampleCount": 7,
+          "warmSampleCount": 6,
+          "firstObservation": {
+            "wallMs": 140.481,
+            "subprocesses": 0,
+            "commandCounts": {}
+          },
+          "warmFreshProcess": [
+            {
+              "wallMs": 141.977,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 138.242,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 142.958,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 141.756,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 138.967,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 139.55,
+              "subprocesses": 0,
+              "commandCounts": {}
+            }
+          ],
+          "medianMs": 140.481,
+          "warmMedianMs": 140.65300000000002
+        },
+        "whoamiSmall": {
+          "sampleCount": 7,
+          "warmSampleCount": 6,
+          "firstObservation": {
+            "wallMs": 154,
+            "subprocesses": 5,
+            "commandCounts": {
+              "display-message": 3,
+              "show-options": 1,
+              "list-panes": 1
+            }
+          },
+          "warmFreshProcess": [
+            {
+              "wallMs": 152.94,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 152.537,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 150.558,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 155.619,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 156.805,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 158.15,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            }
+          ],
+          "medianMs": 154,
+          "warmMedianMs": 154.27949999999998
+        },
+        "whoamiLarge": {
+          "sampleCount": 7,
+          "warmSampleCount": 6,
+          "firstObservation": {
+            "wallMs": 158.358,
+            "subprocesses": 5,
+            "commandCounts": {
+              "display-message": 3,
+              "show-options": 1,
+              "list-panes": 1
+            }
+          },
+          "warmFreshProcess": [
+            {
+              "wallMs": 155.188,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 157.631,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 156.777,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 156.287,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 159.346,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 158.682,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            }
+          ],
+          "medianMs": 157.631,
+          "warmMedianMs": 157.204
+        },
+        "checkSmall": {
+          "sampleCount": 7,
+          "warmSampleCount": 6,
+          "firstObservation": {
+            "wallMs": 160.87,
+            "subprocesses": 6,
+            "commandCounts": {
+              "display-message": 3,
+              "show-options": 1,
+              "list-panes": 1,
+              "capture-pane": 1
+            }
+          },
+          "warmFreshProcess": [
+            {
+              "wallMs": 151.886,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 153.071,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 155.239,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 156.836,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 156.857,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 155.605,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            }
+          ],
+          "medianMs": 155.605,
+          "warmMedianMs": 155.422
+        },
+        "checkLarge": {
+          "sampleCount": 7,
+          "warmSampleCount": 6,
+          "firstObservation": {
+            "wallMs": 158.955,
+            "subprocesses": 6,
+            "commandCounts": {
+              "display-message": 3,
+              "show-options": 1,
+              "list-panes": 1,
+              "capture-pane": 1
+            }
+          },
+          "warmFreshProcess": [
+            {
+              "wallMs": 153.163,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 158.013,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 162.462,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 163.61,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 155.233,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 158.833,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            }
+          ],
+          "medianMs": 158.833,
+          "warmMedianMs": 158.423
+        },
+        "talkNoPreamble": {
+          "sampleCount": 7,
+          "warmSampleCount": 6,
+          "firstObservation": {
+            "wallMs": 2702.979,
+            "subprocesses": 13,
+            "commandCounts": {
+              "display-message": 4,
+              "show-options": 3,
+              "list-panes": 3,
+              "set-buffer": 1,
+              "paste-buffer": 1,
+              "send-keys": 1
+            }
+          },
+          "warmFreshProcess": [
+            {
+              "wallMs": 2707.489,
+              "subprocesses": 13,
+              "commandCounts": {
+                "display-message": 4,
+                "show-options": 3,
+                "list-panes": 3,
+                "set-buffer": 1,
+                "paste-buffer": 1,
+                "send-keys": 1
+              }
+            },
+            {
+              "wallMs": 2708.429,
+              "subprocesses": 13,
+              "commandCounts": {
+                "display-message": 4,
+                "show-options": 3,
+                "list-panes": 3,
+                "set-buffer": 1,
+                "paste-buffer": 1,
+                "send-keys": 1
+              }
+            },
+            {
+              "wallMs": 2708.979,
+              "subprocesses": 13,
+              "commandCounts": {
+                "display-message": 4,
+                "show-options": 3,
+                "list-panes": 3,
+                "set-buffer": 1,
+                "paste-buffer": 1,
+                "send-keys": 1
+              }
+            },
+            {
+              "wallMs": 2707.416,
+              "subprocesses": 13,
+              "commandCounts": {
+                "display-message": 4,
+                "show-options": 3,
+                "list-panes": 3,
+                "set-buffer": 1,
+                "paste-buffer": 1,
+                "send-keys": 1
+              }
+            },
+            {
+              "wallMs": 2707.337,
+              "subprocesses": 13,
+              "commandCounts": {
+                "display-message": 4,
+                "show-options": 3,
+                "list-panes": 3,
+                "set-buffer": 1,
+                "paste-buffer": 1,
+                "send-keys": 1
+              }
+            },
+            {
+              "wallMs": 2708.412,
+              "subprocesses": 13,
+              "commandCounts": {
+                "display-message": 4,
+                "show-options": 3,
+                "list-panes": 3,
+                "set-buffer": 1,
+                "paste-buffer": 1,
+                "send-keys": 1
+              }
+            }
+          ],
+          "medianMs": 2707.489,
+          "warmMedianMs": 2707.9505
+        },
+        "result": {
+          "sampleCount": 7,
+          "warmSampleCount": 6,
+          "firstObservation": {
+            "wallMs": 148.482,
+            "subprocesses": 0,
+            "commandCounts": {}
+          },
+          "warmFreshProcess": [
+            {
+              "wallMs": 143.986,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 140.388,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 142.92,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 144.373,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 140.65,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 143.403,
+              "subprocesses": 0,
+              "commandCounts": {}
+            }
+          ],
+          "medianMs": 143.403,
+          "warmMedianMs": 143.1615
+        }
+      }
+    },
+    {
+      "schemaVersion": 1,
+      "benchmark": "tmt-performance-baseline",
+      "generatedAt": "2026-09-07T06:44:10.307Z",
+      "sampleCount": 7,
+      "warmSampleCount": 6,
+      "semantics": {
+        "firstObservation": "The first observation runs after fixture setup and is reported separately; it is not an OS-cache-cold measurement.",
+        "warmFreshProcess": "Each warm sample launches a new CLI process after the first observation.",
+        "osCache": "Not controlled or claimed cold; filesystem and process caches may be warm."
+      },
+      "timingDefaults": {
+        "timeoutSeconds": 180,
+        "pollIntervalSeconds": 1,
+        "pasteEnterDelayMs": 500,
+        "benchmarkTalkTimeoutSeconds": 8,
+        "injectedMockReplyDelayMs": 1500
+      },
+      "environment": {
+        "node": "v22.23.2",
+        "tmux": "tmux 3.3a",
+        "platform": "linux",
+        "kernel": "7.0.12-linuxkit",
+        "arch": "arm64"
+      },
+      "resourceUsage": {
+        "cpu": {
+          "status": "unavailable",
+          "reason": "The existing E2E harness exposes child PIDs but no child CPU accounting; parent Vitest usage is not a child metric."
+        },
+        "peakRss": {
+          "status": "unavailable",
+          "reason": "The existing E2E harness does not sample child peak RSS; parent Vitest RSS is not a child metric."
+        }
+      },
+      "scenarios": {
+        "help": {
+          "sampleCount": 7,
+          "warmSampleCount": 6,
+          "firstObservation": {
+            "wallMs": 175.236,
+            "subprocesses": 0,
+            "commandCounts": {}
+          },
+          "warmFreshProcess": [
+            {
+              "wallMs": 138.778,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 135.345,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 133.496,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 132.541,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 132.127,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 129.97,
+              "subprocesses": 0,
+              "commandCounts": {}
+            }
+          ],
+          "medianMs": 133.496,
+          "warmMedianMs": 133.01850000000002
+        },
+        "identityCreate": {
+          "sampleCount": 1,
+          "warmSampleCount": 0,
+          "firstObservation": {
+            "wallMs": 144.586,
+            "subprocesses": 0,
+            "commandCounts": {}
+          },
+          "warmFreshProcess": [],
+          "medianMs": 144.586,
+          "warmMedianMs": null
+        },
+        "identityShow": {
+          "sampleCount": 7,
+          "warmSampleCount": 6,
+          "firstObservation": {
+            "wallMs": 138.613,
+            "subprocesses": 0,
+            "commandCounts": {}
+          },
+          "warmFreshProcess": [
+            {
+              "wallMs": 143.119,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 143.106,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 141.689,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 137.017,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 142.119,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 142.291,
+              "subprocesses": 0,
+              "commandCounts": {}
+            }
+          ],
+          "medianMs": 142.119,
+          "warmMedianMs": 142.20499999999998
+        },
+        "whoamiSmall": {
+          "sampleCount": 7,
+          "warmSampleCount": 6,
+          "firstObservation": {
+            "wallMs": 150.09,
+            "subprocesses": 5,
+            "commandCounts": {
+              "display-message": 3,
+              "show-options": 1,
+              "list-panes": 1
+            }
+          },
+          "warmFreshProcess": [
+            {
+              "wallMs": 152.944,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 155.393,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 148.038,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 150.681,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 152.279,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 154.15,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            }
+          ],
+          "medianMs": 152.279,
+          "warmMedianMs": 152.61149999999998
+        },
+        "whoamiLarge": {
+          "sampleCount": 7,
+          "warmSampleCount": 6,
+          "firstObservation": {
+            "wallMs": 157.39,
+            "subprocesses": 5,
+            "commandCounts": {
+              "display-message": 3,
+              "show-options": 1,
+              "list-panes": 1
+            }
+          },
+          "warmFreshProcess": [
+            {
+              "wallMs": 156.135,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 156.999,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 154.692,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 155.066,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 156.609,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            },
+            {
+              "wallMs": 156.798,
+              "subprocesses": 5,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1
+              }
+            }
+          ],
+          "medianMs": 156.609,
+          "warmMedianMs": 156.372
+        },
+        "checkSmall": {
+          "sampleCount": 7,
+          "warmSampleCount": 6,
+          "firstObservation": {
+            "wallMs": 163.983,
+            "subprocesses": 6,
+            "commandCounts": {
+              "display-message": 3,
+              "show-options": 1,
+              "list-panes": 1,
+              "capture-pane": 1
+            }
+          },
+          "warmFreshProcess": [
+            {
+              "wallMs": 153.134,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 157.336,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 153.878,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 154.523,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 151.067,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 151.651,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            }
+          ],
+          "medianMs": 153.878,
+          "warmMedianMs": 153.50599999999997
+        },
+        "checkLarge": {
+          "sampleCount": 7,
+          "warmSampleCount": 6,
+          "firstObservation": {
+            "wallMs": 161.715,
+            "subprocesses": 6,
+            "commandCounts": {
+              "display-message": 3,
+              "show-options": 1,
+              "list-panes": 1,
+              "capture-pane": 1
+            }
+          },
+          "warmFreshProcess": [
+            {
+              "wallMs": 158.894,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 157.184,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 154.181,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 156.632,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 159.021,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            },
+            {
+              "wallMs": 157.089,
+              "subprocesses": 6,
+              "commandCounts": {
+                "display-message": 3,
+                "show-options": 1,
+                "list-panes": 1,
+                "capture-pane": 1
+              }
+            }
+          ],
+          "medianMs": 157.184,
+          "warmMedianMs": 157.1365
+        },
+        "talkNoPreamble": {
+          "sampleCount": 7,
+          "warmSampleCount": 6,
+          "firstObservation": {
+            "wallMs": 2700.655,
+            "subprocesses": 13,
+            "commandCounts": {
+              "display-message": 4,
+              "show-options": 3,
+              "list-panes": 3,
+              "set-buffer": 1,
+              "paste-buffer": 1,
+              "send-keys": 1
+            }
+          },
+          "warmFreshProcess": [
+            {
+              "wallMs": 2710.028,
+              "subprocesses": 13,
+              "commandCounts": {
+                "display-message": 4,
+                "show-options": 3,
+                "list-panes": 3,
+                "set-buffer": 1,
+                "paste-buffer": 1,
+                "send-keys": 1
+              }
+            },
+            {
+              "wallMs": 2704.797,
+              "subprocesses": 13,
+              "commandCounts": {
+                "display-message": 4,
+                "show-options": 3,
+                "list-panes": 3,
+                "set-buffer": 1,
+                "paste-buffer": 1,
+                "send-keys": 1
+              }
+            },
+            {
+              "wallMs": 2713.57,
+              "subprocesses": 13,
+              "commandCounts": {
+                "display-message": 4,
+                "show-options": 3,
+                "list-panes": 3,
+                "set-buffer": 1,
+                "paste-buffer": 1,
+                "send-keys": 1
+              }
+            },
+            {
+              "wallMs": 2698.339,
+              "subprocesses": 13,
+              "commandCounts": {
+                "display-message": 4,
+                "show-options": 3,
+                "list-panes": 3,
+                "set-buffer": 1,
+                "paste-buffer": 1,
+                "send-keys": 1
+              }
+            },
+            {
+              "wallMs": 2708.025,
+              "subprocesses": 13,
+              "commandCounts": {
+                "display-message": 4,
+                "show-options": 3,
+                "list-panes": 3,
+                "set-buffer": 1,
+                "paste-buffer": 1,
+                "send-keys": 1
+              }
+            },
+            {
+              "wallMs": 2706.22,
+              "subprocesses": 13,
+              "commandCounts": {
+                "display-message": 4,
+                "show-options": 3,
+                "list-panes": 3,
+                "set-buffer": 1,
+                "paste-buffer": 1,
+                "send-keys": 1
+              }
+            }
+          ],
+          "medianMs": 2706.22,
+          "warmMedianMs": 2707.1225
+        },
+        "result": {
+          "sampleCount": 7,
+          "warmSampleCount": 6,
+          "firstObservation": {
+            "wallMs": 144.943,
+            "subprocesses": 0,
+            "commandCounts": {}
+          },
+          "warmFreshProcess": [
+            {
+              "wallMs": 141.859,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 140.537,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 140.102,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 140.157,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 145.278,
+              "subprocesses": 0,
+              "commandCounts": {}
+            },
+            {
+              "wallMs": 145.171,
+              "subprocesses": 0,
+              "commandCounts": {}
+            }
+          ],
+          "medianMs": 141.859,
+          "warmMedianMs": 141.198
+        }
+      }
+    }
+  ]
+}

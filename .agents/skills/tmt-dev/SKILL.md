@@ -38,13 +38,13 @@ Read the repository guidance before planning work:
 5. The primary reviewer reviews every changed file and the relevant callers,
    fixtures, and tests. Passing reports or green CI are evidence, not a
    substitute for that review. Record findings, dispositions, and the reviewed
-   commit in the PR and Linear issue.
+   commit in the PR and GitHub issue.
 6. Run the exact checks required by the changed layer and report their commands
    and results. Add behavioral tests for changed contracts, including relevant
    failure, cleanup, or lifecycle cases.
 7. Before an authorized merge, verify all required CI passed on the current
    reviewed commit. Review later edits and rerun affected checks. Keep
-   Linear status, branch/PR links, verification evidence, and deferred work
+   GitHub issue status, branch/PR links, verification evidence, and deferred work
    current; clean up the worktree only after its state is safely handed off.
 
 ## Architecture maintenance
@@ -59,7 +59,7 @@ For every change, record a substantive architecture-impact assessment. If the
 change modifies a module boundary, dependency direction, public contract,
 legacy compatibility path, persistence model, or test/fixture ownership, update
 `ARCHITECTURE.md` in the same PR and explain the change. If none of those
-triggers apply, record why in the PR/Linear issue; a checkbox alone is not
+triggers apply, record why in the PR/GitHub issue; a checkbox alone is not
 evidence. Keep architecture rules in `ARCHITECTURE.md`, style rules in
 `CONVENTIONS.md`, and command guidance in `DEVELOPMENT.md` rather than copying
 them into this skill.
