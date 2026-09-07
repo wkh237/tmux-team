@@ -67,6 +67,13 @@ pure validity rules/use cases in `tmt-core`, and concrete effects in the
 silence warnings to avoid correcting a touched implementation. Unit tests stay
 with their owner; shared process scenarios reuse the repository test harness.
 
+The native architecture integration test separates module discovery, policy and
+adversarial examples. Extend its reviewed permissions only with a documented
+boundary decision; do not suppress failures with source exclusions or a second
+dependency inventory. Derive shared declaration ownership from production code.
+Keep generic textual errors local to their command's explicit mapping instead
+of adding a crate-wide `From<String>` implementation for shared `Failure`.
+
 Before adding a dependency or abstraction, inspect existing helpers and compare
 the concrete benefit, compatibility/native-install impact, maintenance, license,
 security and operational cost. Record the decision in the issue. A built-in is

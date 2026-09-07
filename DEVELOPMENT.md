@@ -56,6 +56,25 @@ cargo build --locked --example tmux-probe
 cargo +1.88.0 build --locked
 ```
 
+The architecture guard is included in `cargo test`; it adds no separate CI job.
+For a focused run from any working directory, after dependencies are available:
+
+```bash
+cargo test --offline --locked --manifest-path /absolute/checkout/rust/Cargo.toml --test architecture
+cargo +1.88.0 test --offline --locked --manifest-path /absolute/checkout/rust/Cargo.toml --test architecture
+```
+
+The guard itself obtains offline, locked Cargo metadata through the existing
+bounded process runner. It needs no tmux server, provider, database or network.
+The integration root validates the real workspace; separate positive/negative
+fixtures validate dependency edges, AST references, shared declaration ownership
+and fail-closed module discovery. When changing this gate, also temporarily
+introduce a real source/dependency violation, observe its specific diagnostic,
+and restore the original files exactly. A stale-lock failure or an unexecuted
+test is not evidence that the architecture policy caught the violation.
+See [the native guard contract](ARCHITECTURE.md#native-architecture-guards)
+for the syntactic limits that still require manual review.
+
 From the repository root, select the built executable explicitly:
 
 ```bash

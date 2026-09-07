@@ -369,7 +369,20 @@ units/concurrency tests are built; do not count them as native evidence. The
 packed storage probe imports TS runtime modules and therefore needs an artifact
 inventory/public-CLI/independent-SQL replacement before native cutover. Retain
 the incompatible-history, concurrency and cleanup assertions it currently proves.
-Grammar/architecture AST guards also need native equivalents, not deletion.
+Native grammar contracts remain in the CLI owner. #115 adds architecture guards
+to ordinary Cargo integration tests: offline dependency edges, production module
+discovery, core purity, parsing/effect separation and owner-derived declaration
+names. The TypeScript guards remain until runtime cutover. This is not semantic
+duplicate detection or full macro/name resolution; see ARCHITECTURE for limits.
+
+The guard uses the already locked `syn` 2.0.119 as a CLI dev dependency with
+`full`, `parsing` and `visit`, default features disabled. It adds no runtime
+dependency or new locked package. A maintained Rust AST parser avoids a second
+handwritten Rust parser; existing `serde_json` and the bounded process adapter
+supply metadata handling. The published manifest declares Rust 1.71 and
+MIT/Apache-2.0 licensing, below this workspace's 1.88 MSRV. RustSec snapshot
+`faedffd5118c1835e13cca3babb6059afb1eb8d0` contains no `syn` advisory; actual
+locked builds/tests on both supported toolchains remain required evidence.
 
 Run the full shared suite per runtime once supported; interim subset selection
 must be explicit in the issue and cannot be represented as full parity. Keep
