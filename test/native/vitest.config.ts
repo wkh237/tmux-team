@@ -1,0 +1,10 @@
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    include: ['test/native/**/*.test.ts'],
+    fileParallelism: false,
+    testTimeout: 10_000,
+    coverage: { enabled: false },
+  },
+});

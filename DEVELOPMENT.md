@@ -29,6 +29,44 @@ pnpm dev -- --help
 
 ## Running Tests
 
+### Native development preview
+
+The `rust/` workspace is not the installed runtime yet. It implements only
+help/version/completion and typed grammar; effectful commands explicitly fail.
+Use the exact toolchain from `rust/rust-toolchain.toml` and run from `rust/`:
+
+```bash
+cargo fmt --all --check
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked
+cargo build --locked
+cargo +1.88.0 build --locked
+```
+
+From the repository root, select the built executable explicitly:
+
+```bash
+TMT_TEST_CLI='{"executable":"/absolute/checkout/rust/target/debug/tmt","args":[]}' \
+  pnpm test:native:cli
+```
+
+This preview-specific suite reuses the shared sandbox and bounded process
+launcher; it does not replace TypeScript or Docker verification. Also run the
+existing parser-only public contract subset through the same selection:
+
+```bash
+TMT_TEST_CLI='{"executable":"/absolute/checkout/rust/target/debug/tmt","args":[]}' \
+  pnpm exec vitest run src/cli-contract.test.ts \
+  -t 'reports JSON parse errors|rejects ignored options|validates invalid options|keeps JSON leaf|does not treat|keeps a literal|does not reinterpret|rejects JSON mode for text-only'
+```
+
+Keep Cargo workspace version synchronized with the package version while both
+runtimes coexist. Check the resolved dependency graph's licenses, MSRVs and
+current RustSec advisories when changing Cargo.lock. `tmt-core` must remain free
+of CLI/concrete-IO dependencies. Add `tmt-adapters` when concrete storage arrives,
+not as an empty speculative abstraction. See RUST-REWRITE for the dependency
+decision and explicit exceptions under #100.
+
 For runtime-rewrite work, read [RUST-REWRITE.md](RUST-REWRITE.md) for the proposed
 boundaries and parity gates. The optional [performance baseline](PERFORMANCE-BASELINE.md)
 reuses the Docker E2E harness and separately measures macOS startup resources.

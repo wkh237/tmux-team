@@ -1,0 +1,143 @@
+#[derive(Debug, Clone, PartialEq)]
+pub enum Invocation {
+    Help,
+    Version,
+    Completion(Option<String>),
+    Learn {
+        skill: bool,
+    },
+    Init,
+    List {
+        target: Option<String>,
+    },
+    Bind {
+        pane: Option<String>,
+        name: String,
+        save: bool,
+    },
+    Remove {
+        name: String,
+        force: bool,
+    },
+    Whoami,
+    Unbind,
+    Talk {
+        target: String,
+        message: String,
+        originator: Option<String>,
+        options: TalkOptions,
+    },
+    Check {
+        target: String,
+        lines: Option<u64>,
+    },
+    Config(ConfigRequest),
+    Identity(IdentityRequest),
+    Preamble(PreambleRequest),
+    Role {
+        identity: Option<String>,
+        operation: RoleOperation,
+    },
+    Exchange {
+        identity: Option<String>,
+        operation: ExchangeOperation,
+    },
+    Reply {
+        request_id: String,
+        receipt: String,
+        input: ContentInput,
+    },
+    Result {
+        request_id: String,
+    },
+    Install {
+        target: Option<String>,
+        directory: Option<String>,
+        force: bool,
+    },
+    Upgrade,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TalkOptions {
+    pub force: bool,
+    pub detach: bool,
+    pub delay_seconds: Option<f64>,
+    pub timeout_seconds: Option<f64>,
+    pub no_preamble: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ContentInput {
+    Inline(String),
+    File(String),
+    Stdin,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConfigRequest {
+    Show,
+    Set {
+        key: String,
+        value: String,
+        global: bool,
+    },
+    Clear {
+        key: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum IdentityRequest {
+    Create(String),
+    Show(String),
+    List,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PreambleRequest {
+    Show(Option<String>),
+    Set { name: String, content: String },
+    Clear(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RoleOperation {
+    Show,
+    Set(ContentInput),
+    Clear,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExchangeOperation {
+    List {
+        limit: Option<u64>,
+        after: Option<u64>,
+    },
+    Show(String),
+    Ack {
+        request_id: String,
+        revision: u64,
+    },
+    Ackall,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct OutputMode {
+    pub json: bool,
+    pub verbose: bool,
+    pub debug: bool,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Parsed {
+    pub invocation: Invocation,
+    pub mode: OutputMode,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct ParseError {
+    pub code: &'static str,
+    pub message: String,
+    pub mode: OutputMode,
+}

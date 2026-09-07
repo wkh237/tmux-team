@@ -1,6 +1,7 @@
 # Rust rewrite preparation
 
-Status: proposed design, not a shipped Rust runtime. Owner: [#93](https://github.com/wkh237/tmux-team/issues/93);
+Status: native grammar preview implemented under [#96](https://github.com/wkh237/tmux-team/issues/96),
+not a shipped Rust runtime. Owner: [#93](https://github.com/wkh237/tmux-team/issues/93);
 preparation: [#94](https://github.com/wkh237/tmux-team/issues/94).
 The compatibility reference is TypeScript main `cb53533f3a9f19a1a2ab95af59dda20df419200b`
 (v5.0.0-alpha.1). [ARCHITECTURE.md](ARCHITECTURE.md) remains the current implementation map.
@@ -10,7 +11,12 @@ Update this decision and its evidence when a delivering issue changes an assumpt
 
 Replace the user-facing Node/tsx runtime with a native executable, preserving
 supported v5 command and data contracts. Node may remain developer test tooling.
-The rewrite is not authorization to redesign identity, add memory/offline inbox,
+The approved native identity amendment [#100](https://github.com/wkh237/tmux-team/issues/100)
+adds temporary-by-default identities, explicit `-s`/`--save`, restored `rm`/`remove`,
+and workspace-scoped everyday discovery. It retains one SQLite identity model;
+promotion keeps the UUID and retirement must preserve retained exchanges.
+This amendment is not implemented by grammar recognition alone. The rewrite
+is not authorization to add memory/offline inbox,
 start a daemon, implement MCP, publish artifacts, or restore v4 compatibility.
 Keep `this`, exact durable replies, `!` shell-mode protection, and default-off,
 non-invasive pane badges. Native installation and self-update belong to
@@ -39,6 +45,46 @@ Three packages give enforceable dependency direction; a package per command adds
 coordination without a new boundary. A single package would be simpler initially
 but leaves IO-to-domain import restrictions solely to review. The proposed split
 is by responsibility, not a mechanical copy of every TypeScript file.
+
+### Implemented native preview
+
+The `rust/` workspace currently contains `tmt-core` (pure numeric policy) and
+`tmt-cli` (grammar, typed invocation translation and output). `tmt-adapters`
+will be introduced with its first concrete storage consumer in #97, not as an
+empty facade. The npm entry points still execute TypeScript. No command silently
+delegates from native to Node.
+
+The preview implements help, version and Bash/Zsh completion. All recognized
+effectful commands return `NATIVE_NOT_IMPLEMENTED`, exit 1, before any settings,
+storage, tmux or input acquisition. Text-only commands reject JSON. Native
+`name`/`this`/`add` parse temporary defaults and save flags; `rm`/`remove` parse
+explicit force. This is not evidence that native lifecycle operations work.
+
+One Clap registration tree owns recognition and allowed options. Its public
+projection removes hidden rejection syntax and inherited-but-unrelated options
+before help/completion generation. The unbuilt registration tree remains the
+authority for command-local validation; typed invocations contain no Clap types.
+Core validity rules are shared with the CLI's numeric syntax adapter.
+
+Clap stops at an unknown option whereas Commander may retain later flags.
+The error-only diagnostic adapter derives option arity/scope from that same tree,
+skips entire option values and stops at `--`; it only chooses presentation mode.
+It never repairs input, constructs requests or dispatches effects. Regression
+cases cover unknown options before a real `--json`, inline flag-like values,
+required values and literal operands. It is not an independent command parser.
+
+The preview pins Rust 1.97.0, declares MSRV 1.88, and commits Cargo.lock. Actual
+locked builds on both versions are required. The selected released dependencies
+are Clap 4.6.6, clap_complete 4.6.9 and serde_json 1.0.151. Clap disables defaults,
+enabling only std/help/usage/error-context/suggestions/string; the string feature
+supports projecting grammar metadata without a duplicate command inventory.
+No derive, color, async runtime, SQLite or process dependency is introduced yet.
+Published manifests for the locked graph declare MSRVs at or below 1.85; licenses
+are MIT/Apache-2.0 compatible alternatives, with unicode-ident also carrying
+Unicode-3.0. RustSec database revision
+`5a0ebedfe8bdd2e295b171f4162f8c977bcad9a5` contained no advisory entries for the
+locked dependency package names when inspected. This dated inspection is not a
+permanent security guarantee; repeat on dependency updates.
 
 ### Execution and resource ownership
 
