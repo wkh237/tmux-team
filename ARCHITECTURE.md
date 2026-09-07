@@ -912,8 +912,9 @@ directory-based discovery filter is planned. Native `ls` is planned to list all
 non-retired identities, including saved offline entries, and show lifetime
 separately from active/offline/unknown presence. Unverified evidence cannot retire
 a temporary identity or release a saved name. Visibility does not extend routing.
-Identity repositories, retirement, promotion and these listing changes are not
-yet implemented. The durable-global invariants elsewhere in
+The storage-only identity record foundation under #111 supplies shared creation,
+promotion and non-retired selection; command wiring, binding retirement and these
+presence-listing changes are not yet implemented. The durable-global invariants elsewhere in
 this map still describe the shipped TypeScript runtime, not the amended future
 native lifecycle. See [RUST-REWRITE.md](RUST-REWRITE.md) for transition boundaries.
 
@@ -932,6 +933,29 @@ JavaScript-safe saturating timestamps; this is not today's configuration policy.
 Close always releases the connection even if checkpoint fails, preserving the
 primary error. Cold WAL transitions can return retryable contention, as in the
 TypeScript adapter; no new retry loop is hidden in this lifecycle layer.
+
+Native `core::names` is the sole identity-key and pane-target classifier. It
+preserves ECMAScript whitespace, NFKC and locale-neutral lowercase, with trimmed
+display names and the existing control/pane-shaped rejection. Fixed ICU4X 2.3
+normalization/casing data prevents the compiler's Unicode version from changing
+canonical keys. This is not case folding or a locale-sensitive name registry.
+The pinned Node 22.23.2 reference uses Unicode 17.0; dependency updates must
+recheck parity. Stored canonical keys and timestamps are never renormalized.
+
+Native `core::identity` owns lifetime and storage-only create-or-resolve policy.
+Its reader and transaction-scoped writer ports are implemented by
+`storage::identities` over the existing private connection. Canonical lookup and
+creation/promotion share an immediate transaction; only one concurrent caller
+can report creation. Save promotes temporary rows in place, while ordinary
+reuse never downgrades saved rows or rewrites names/timestamps. UUID generation
+and UTC millisecond timestamps belong to the concrete adapter. The service
+neither opens/closes storage nor probes tmux. Binding must call this same
+creation owner before its separate publication transaction, not fork the policy.
+Non-retired selection uses schema 9's index and deterministic BINARY ordering.
+Tombstones are excluded and replacement names receive fresh UUIDs; no profile,
+binding, request, cadence or attention row is changed by creation/promotion.
+Retirement authorization, live presence and public command activation remain
+in #109, not in this storage-only foundation.
 
 Native migration 9 adds `lifetime` (default `saved` for existing identities) and
 nullable `retired_at_ms` to that same identity table. A partial unique index

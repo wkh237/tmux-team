@@ -1,4 +1,5 @@
 mod errors;
+mod identities;
 mod migrations;
 
 #[cfg(test)]

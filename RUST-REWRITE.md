@@ -138,8 +138,8 @@ so actual Rust 1.88 locked compilation remains the acceptance evidence.
 
 Historical migrations 1–8 remain unchanged. Native migrations retain their names,
 column/index/foreign-key definitions and seven-day migration backfill rather
-than applying today's retention configuration retroactively. The private
-connection exposes only lifecycle operations until repositories are ported.
+than applying today's retention configuration retroactively. The raw connection
+stays private; #111 composes the first identity repository over this lifecycle.
 A non-installed `storage-probe` example allows bounded cross-runtime tests of
 the real adapter, without adding arbitrary SQL or fault flags to public syntax.
 Cold concurrent WAL transitions can report retryable busy errors even with a
@@ -158,6 +158,40 @@ on all normal success/error paths. The source definition must match the frozen
 historical identity table apart from whitespace; custom columns, constraints,
 indexes or triggers are rejected instead of silently removed. No ORM, alternate
 registry or dependency is added.
+
+#111 adds the storage-only identity creation/selection owner over that schema.
+Core validates names and decides creation or in-place promotion; the existing
+storage adapter provides an immediate transaction and concrete UUID/UTC timestamp
+generation. Idempotent reuse preserves the original display name and timestamps,
+save never changes UUID, and temporary requests never downgrade saved rows.
+Non-retired selection excludes tombstones without erasing historical ownership.
+This does not activate native identity commands, binding, removal or presence;
+#109 retains their public input/output and Docker gates.
+
+Name normalization uses pinned `icu_normalizer`, `icu_casemap` and
+`icu_locale_core` 2.3.0, with defaults disabled and compiled data only for the
+first two. The locale type supplies the explicit root/und language; no locale
+discovery occurs. NFKC followed by default lowercase matches the measured pinned
+Node 22.23.2 Unicode 17.0/ICU 78.2 reference. ECMAScript whitespace is explicit
+because Rust trim includes NEL and excludes BOM. A smaller
+unicode-normalization plus standard-library lowercase combination was rejected
+because compiler-owned casing tables may differ between MSRV and current Rust.
+Case folding would merge additional names and is not compatible. Do not
+renormalize existing database keys during dependency or compiler upgrades.
+Published ICU4X manifests declare Rust 1.88 and Unicode-3.0; binary distribution
+must retain the associated Unicode permission notice under #82. See
+[normalizer](https://docs.rs/crate/icu_normalizer/2.3.0/source/Cargo.toml) and
+[case mapping](https://docs.rs/crate/icu_casemap/2.3.0/source/Cargo.toml).
+The lock adds 25 packages, including Unicode data/provider/zero-copy support
+and procedural-macro tooling; this is a deliberate footprint tradeoff, not a
+claim of zero-cost normalization. Their published licenses offer Unicode-3.0,
+MIT or Apache-2.0 and declared MSRVs do not exceed 1.88; some omit MSRV, so
+locked builds remain required. At advisory revision
+`faedffd5118c1835e13cca3babb6059afb1eb8d0`, zerovec's RUSTSEC-2024-0347 and
+zerovec-derive's RUSTSEC-2024-0346 are patched before the selected 0.11.8/0.11.6.
+The other added package names had no entries in that dated snapshot. Baked
+data manifests record ICU release-78.1rc/CLDR 48.2.1; no data download occurs
+at CLI startup. Repeat the graph/advisory review on dependency updates.
 
 ### Execution and resource ownership
 
