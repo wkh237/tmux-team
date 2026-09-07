@@ -29,6 +29,7 @@ function endpointRow(
     paneId?: string;
     target?: string;
     panePid?: string;
+    sessionAttached?: string;
     metadata?: string;
   } = {}
 ): string {
@@ -42,6 +43,7 @@ function endpointRow(
     '/foreign',
     'node',
     overrides.panePid ?? '654',
+    overrides.sessionAttached ?? '0',
     overrides.metadata ?? '',
   ].join(ENDPOINT_SEPARATOR);
 }
@@ -378,6 +380,32 @@ describe('createTmux', () => {
       expect(createTmux().listPanes()).toMatchObject([
         { id: '%1', panePid: 4242, metadata: { version: 1 } },
       ]);
+    });
+
+    it.each([
+      ['detached first, attached later', ['0', '1'], 'attached:1.0'],
+      ['attached first, detached later', ['1', '0'], 'first:1.0'],
+      ['detached first, attached twice later', ['0', '2'], 'attached:1.0'],
+      ['both attached', ['1', '1'], 'first:1.0'],
+      ['neither attached', ['0', '0'], 'first:1.0'],
+    ] as const)('selects the presentation row for %s', (_label, attached, expectedTarget) => {
+      mockedExecSync.mockReturnValue(
+        attached
+          .map((sessionAttached, index) =>
+            [
+              '%1',
+              index === 0 ? 'first:1.0' : 'attached:1.0',
+              '/repo',
+              'codex',
+              '4242',
+              sessionAttached,
+              '',
+            ].join(ENDPOINT_SEPARATOR)
+          )
+          .join('\n') + '\n'
+      );
+
+      expect(createTmux().listPanes()).toMatchObject([{ id: '%1', target: expectedTarget }]);
     });
 
     it('does not query pane options when list-panes omits user metadata', () => {
@@ -1065,6 +1093,7 @@ describe('createTmux', () => {
             '/repo',
             'codex',
             '654',
+            '0',
             '{"version":1}',
           ].join('__TMT_FIELD_4f1c__') + '\n'
         );
@@ -1340,6 +1369,17 @@ describe('createTmux', () => {
         expect(mockedExecFileSync).toHaveBeenCalledTimes(source === 'current' ? 2 : 1);
       });
 
+      it('prefers an attached session presentation row', () => {
+        const detached = endpointRow({ target: 'detached:1.0', sessionAttached: '0' });
+        const attached = endpointRow({ target: 'attached:1.0', sessionAttached: '2' });
+        const result = readRows([detached, attached]);
+
+        expect(result).toMatchObject({
+          status: 'live',
+          snapshot: { panes: [{ id: '%9', target: 'attached:1.0' }] },
+        });
+      });
+
       it('preserves matching opaque metadata containing the field separator', () => {
         const metadata = JSON.stringify({ version: 1, opaque: ENDPOINT_SEPARATOR });
         const result = readRows([
@@ -1365,7 +1405,8 @@ describe('createTmux', () => {
             endpointRow().split(ENDPOINT_SEPARATOR).slice(0, 9).join(ENDPOINT_SEPARATOR),
           ],
         ])('does not hide %s through deduplication', (_label, invalid) => {
-          const rows = invalidFirst ? [invalid, endpointRow()] : [endpointRow(), invalid];
+          const valid = endpointRow({ sessionAttached: '2', target: 'attached:1.0' });
+          const rows = invalidFirst ? [invalid, valid] : [valid, invalid];
           if (source === 'current') {
             expect(() => readRows(rows)).toThrow(/tmux endpoint snapshot contains/);
           } else {

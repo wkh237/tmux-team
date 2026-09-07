@@ -71,51 +71,78 @@ function emptyMetadata(): PaneAgentMetadata {
   return { version: 1 };
 }
 
+interface ParsedPaneRow {
+  readonly pane: PaneInfo;
+  readonly attached: boolean;
+}
+
+function parsePaneRow(line: string): ParsedPaneRow {
+  const fields = line.includes(PANE_FIELD_SEPARATOR)
+    ? line.split(PANE_FIELD_SEPARATOR)
+    : line.split('\t');
+  const withAttachment = fields.length >= 7;
+  const modern = fields.length >= 6;
+  const [id, target, cwd, command, panePidText, sessionAttachedText, metadataText] = withAttachment
+    ? [
+        fields[0],
+        fields[1],
+        fields[2],
+        fields[3],
+        fields[4],
+        fields[5],
+        line.includes(PANE_FIELD_SEPARATOR)
+          ? fields.slice(6).join(PANE_FIELD_SEPARATOR)
+          : fields[6],
+      ]
+    : modern
+      ? [
+          fields[0],
+          fields[1],
+          fields[2],
+          fields[3],
+          fields[4],
+          undefined,
+          line.includes(PANE_FIELD_SEPARATOR)
+            ? fields.slice(5).join(PANE_FIELD_SEPARATOR)
+            : fields[5],
+        ]
+      : fields.length >= 5
+        ? [fields[0], fields[1], fields[2], fields[3], undefined, undefined, fields[4]]
+        : [fields[0], undefined, undefined, fields[1] ?? '', undefined, undefined, fields[2] ?? ''];
+  // User options are expanded in the same list-panes batch as the pane
+  // evidence. A missing or malformed value is simply absent metadata;
+  // querying each pane here would turn an unbound server into O(panes)
+  // subprocesses.
+  const metadata = safeParseMetadata(metadataText);
+  return {
+    pane: {
+      id: id || '',
+      ...(target && { target }),
+      ...(cwd && { cwd }),
+      command: command || '',
+      ...(panePidText && Number.isInteger(Number(panePidText)) && { panePid: Number(panePidText) }),
+      suggestedName: detectAgentName(command || ''),
+      ...(metadata && { metadata }),
+    },
+    attached: Number.isInteger(Number(sessionAttachedText)) && Number(sessionAttachedText) > 0,
+  };
+}
+
 function parsePaneOutput(output: string): PaneInfo[] {
-  const seen = new Set<string>();
-  return output
+  const seen = new Map<string, ParsedPaneRow>();
+  output
     .split('\n')
     .filter((line) => line.trim())
-    .map((line) => {
-      const fields = line.includes(PANE_FIELD_SEPARATOR)
-        ? line.split(PANE_FIELD_SEPARATOR)
-        : line.split('\t');
-      const [id, target, cwd, command, panePidText, metadataText] =
-        fields.length >= 6
-          ? [
-              fields[0],
-              fields[1],
-              fields[2],
-              fields[3],
-              fields[4],
-              line.includes(PANE_FIELD_SEPARATOR)
-                ? fields.slice(5).join(PANE_FIELD_SEPARATOR)
-                : fields[5],
-            ]
-          : fields.length >= 5
-            ? [fields[0], fields[1], fields[2], fields[3], undefined, fields[4]]
-            : [fields[0], undefined, undefined, fields[1] ?? '', undefined, fields[2] ?? ''];
-      // User options are expanded in the same list-panes batch as the pane
-      // evidence. A missing or malformed value is simply absent metadata;
-      // querying each pane here would turn an unbound server into O(panes)
-      // subprocesses.
-      const metadata = safeParseMetadata(metadataText);
-      return {
-        id: id || '',
-        ...(target && { target }),
-        ...(cwd && { cwd }),
-        command: command || '',
-        ...(panePidText &&
-          Number.isInteger(Number(panePidText)) && { panePid: Number(panePidText) }),
-        suggestedName: detectAgentName(command || ''),
-        ...(metadata && { metadata }),
-      };
-    })
-    .filter((pane) => {
-      if (!pane.id || seen.has(pane.id)) return false;
-      seen.add(pane.id);
-      return true;
+    .map(parsePaneRow)
+    .forEach((row) => {
+      if (!row.pane.id) return;
+      const previous = seen.get(row.pane.id);
+      // Grouped sessions and linked windows repeat pane IDs with different
+      // presentation targets. Prefer an attached session's presentation, but
+      // retain first-seen order for ties and when all rows are detached.
+      if (!previous || (row.attached && !previous.attached)) seen.set(row.pane.id, row);
     });
+  return [...seen.values()].map(({ pane }) => pane);
 }
 
 function endpointFormat(): string {
@@ -129,6 +156,7 @@ function endpointFormat(): string {
     '#{pane_current_path}',
     '#{pane_current_command}',
     '#{pane_pid}',
+    '#{session_attached}',
     `#{${AGENT_METADATA_OPTION}}`,
   ].join(PANE_FIELD_SEPARATOR);
 }
@@ -223,7 +251,7 @@ function parseEndpointSnapshot(
 
   const server = parseServerEvidence(output, options.expectedServerId);
   const evidence = rows.map((line) => line.split(PANE_FIELD_SEPARATOR));
-  const completeEvidence = evidence.every((fields) => fields.length >= 10);
+  const completeEvidence = evidence.every((fields) => fields.length >= 11);
   if (options.requireCompleteEvidence && !completeEvidence) {
     throw new Error('tmux endpoint snapshot contains inconsistent server evidence');
   }
@@ -236,7 +264,7 @@ function parseEndpointSnapshot(
       if (!PANE_ID_PATTERN.test(paneId) || !Number.isSafeInteger(panePid) || panePid <= 0) {
         throw new Error('tmux endpoint snapshot contains incomplete pane evidence');
       }
-      const metadata = fields.slice(9).join(PANE_FIELD_SEPARATOR);
+      const metadata = fields.slice(10).join(PANE_FIELD_SEPARATOR);
       const previous = seen.get(paneId);
       // Grouped sessions and linked windows repeat panes with different display
       // targets. Validate every row before deduplication so a later malformed
@@ -570,7 +598,7 @@ export function createTmux(): Tmux {
       try {
         // Get all panes with stable IDs, human tmux targets, cwd, commands, and tmux-team metadata.
         const output = execSync(
-          `tmux list-panes -a -F "#{pane_id}${PANE_FIELD_SEPARATOR}#{session_name}:#{window_index}.#{pane_index}${PANE_FIELD_SEPARATOR}#{pane_current_path}${PANE_FIELD_SEPARATOR}#{pane_current_command}${PANE_FIELD_SEPARATOR}#{pane_pid}${PANE_FIELD_SEPARATOR}#{${AGENT_METADATA_OPTION}}"`,
+          `tmux list-panes -a -F "#{pane_id}${PANE_FIELD_SEPARATOR}#{session_name}:#{window_index}.#{pane_index}${PANE_FIELD_SEPARATOR}#{pane_current_path}${PANE_FIELD_SEPARATOR}#{pane_current_command}${PANE_FIELD_SEPARATOR}#{pane_pid}${PANE_FIELD_SEPARATOR}#{session_attached}${PANE_FIELD_SEPARATOR}#{${AGENT_METADATA_OPTION}}"`,
           {
             encoding: 'utf-8',
             stdio: ['pipe', 'pipe', 'pipe'],

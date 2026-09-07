@@ -132,6 +132,7 @@ export class E2EFixture {
   private serverStarted = false;
   private env: NodeJS.ProcessEnv = {};
   private panePids: number[] = [];
+  private attachedClients: ReturnType<typeof spawn>[] = [];
   private cliProcessPids = new Set<number>();
   private cliProcessResults = new Map<number, Promise<CliResult<unknown>>>();
 
@@ -463,6 +464,41 @@ exit ${'$'}status
     return { pane, pid, workspace };
   }
 
+  /** Attach a real control-mode tmux client to the disposable fixture server. */
+  async attachSessionClient(session: string): Promise<void> {
+    if (!this.started) throw new Error('E2E fixture must be started before attaching a client.');
+    const client = spawn(
+      this.tmuxPath,
+      ['-f', '/dev/null', '-L', this.socket, '-C', 'attach-session', '-t', session],
+      { env: this.env, stdio: ['pipe', 'pipe', 'pipe'] }
+    );
+    let spawnError: Error | undefined;
+    client.once('error', (error) => {
+      spawnError = error;
+    });
+    client.stdout?.resume();
+    client.stderr?.resume();
+    this.attachedClients.push(client);
+    await this.waitFor(
+      () => {
+        if (spawnError) {
+          throw new Error(`Could not start tmux client for '${session}'.`, { cause: spawnError });
+        }
+        return (
+          client.exitCode === null &&
+          client.signalCode === null &&
+          client.pid !== undefined &&
+          this.tmux(['list-clients', '-t', session, '-F', '#{client_pid}'])
+            .trim()
+            .split('\n')
+            .includes(String(client.pid))
+        );
+      },
+      2_000,
+      `tmux client attached to '${session}'`
+    );
+  }
+
   /**
    * Restart the fixture's private tmux server while retaining the fixture
    * environment and global directory. Pane user-options belong to a server,
@@ -689,6 +725,37 @@ exit ${'$'}status
       );
     }
     this.cliProcessResults.clear();
+    const attachedClients = this.attachedClients.splice(0);
+    await Promise.all(
+      attachedClients.map(async (client) => {
+        if (client.exitCode === null && client.signalCode === null) {
+          try {
+            client.kill('SIGKILL');
+          } catch (error) {
+            cleanupError ??= new Error('Could not stop an attached E2E tmux client.', {
+              cause: error,
+            });
+          }
+        }
+        if (client.exitCode !== null || client.signalCode !== null) return;
+        const closed = await new Promise<boolean>((resolve) => {
+          const timer = setTimeout(() => {
+            client.removeListener('close', onClose);
+            resolve(false);
+          }, 1_000);
+          const onClose = (): void => {
+            clearTimeout(timer);
+            resolve(true);
+          };
+          client.once('close', onClose);
+        });
+        if (!closed) {
+          cleanupError ??= new Error(
+            `Attached E2E tmux client ${client.pid ?? 'unknown'} survived cleanup.`
+          );
+        }
+      })
+    );
     if (this.serverStarted) {
       try {
         this.tmux(['kill-server']);
