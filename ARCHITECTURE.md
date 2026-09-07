@@ -894,7 +894,7 @@ failure semantics; merely introducing an interface is not an architectural fix.
 remain TypeScript. `tmt-core` owns numeric and settings policy, while `tmt-cli`
 owns one Clap grammar, typed requests, presentation, configuration composition
 and explicit no-effects rejection for unimplemented commands. `tmt-adapters`
-owns the schema 8 SQLite lifecycle under #97, configuration files under #103,
+owns the SQLite lifecycle under #97 and native schema 9 under #108, configuration files under #103,
 and bounded Unix tmux evidence under #105;
 neither core nor typed requests depend on concrete IO.
 
@@ -906,8 +906,14 @@ invocations without exposing Clap to application use cases. The binary returns
 an exit status through `main` and does not terminate from a domain operation.
 
 Native syntax includes the approved #100 amendment (`rm`/`remove`, temporary
-binding defaults and `-s`/`--save`). Identity repositories, retirement, workspace selection and
-promotion are not yet implemented. The durable-global invariants elsewhere in
+binding defaults and `-s`/`--save`). Names remain globally unique across temporary
+and saved identities in one database; no project/workspace name isolation or
+directory-based discovery filter is planned. Native `ls` is planned to list all
+non-retired identities, including saved offline entries, and show lifetime
+separately from active/offline/unknown presence. Unverified evidence cannot retire
+a temporary identity or release a saved name. Visibility does not extend routing.
+Identity repositories, retirement, promotion and these listing changes are not
+yet implemented. The durable-global invariants elsewhere in
 this map still describe the shipped TypeScript runtime, not the amended future
 native lifecycle. See [RUST-REWRITE.md](RUST-REWRITE.md) for transition boundaries.
 
@@ -927,11 +933,44 @@ Close always releases the connection even if checkpoint fails, preserving the
 primary error. Cold WAL transitions can return retryable contention, as in the
 TypeScript adapter; no new retry loop is hidden in this lifecycle layer.
 
+Native migration 9 adds `lifetime` (default `saved` for existing identities) and
+nullable `retired_at_ms` to that same identity table. A partial unique index
+reserves canonical names only for non-retired rows; old UUID/name metadata can
+survive name reuse. It does not retire rows, remove bindings or profiles, or
+acknowledge exchanges. Actual retirement and cleanup authorization belong to
+the pending identity service, not SQL triggers or a second registry.
+Lifetime and retirement are independent: explicit confirmed removal may also
+retire a saved identity; ordinary pane death must not do so.
+
+Changing the old unconditional unique constraint requires a table rebuild.
+The private opening connection temporarily suspends foreign keys outside the
+immediate migration transaction. The runner rechecks history under the lock,
+validates the historical identity definition, rejects custom identity
+columns/constraints/indexes/triggers, checks existing foreign keys, copies
+the identity table, replaces it, records the migration and checks foreign keys
+again before commit. Enforcement is restored after commit or rollback, before
+any successful handle can escape. A failed opening closes the connection.
+The rebuild never renames the original table first or edits sqlite_schema;
+bindings, role/preamble/cadence rows and request identity references are preserved.
+SQL, record-insertion and commit failure tests verify rollback and enforcement,
+not merely a healthy empty database.
+
+This is a forward-only development boundary: installed TypeScript remains on
+schema 8 and rejects schema 9. Do not use the native preview against user state
+or run old and new writers on the same database. Before distribution, #82/#93
+must provide stopped-writer cutover, consistent backup/recovery and preserved
+old-receipt execution. Replacing a binary does not downgrade a database.
+
 `storage-probe` is a development-only example using that real adapter, not a
 public CLI command or alternate storage implementation. Shared bounded subprocess
 tests compare closed TypeScript schema-prefix fixtures and independent SQL
-observations, reverse-reopen with TypeScript and exercise failure recovery.
-These tests establish storage compatibility, not native request/identity parity.
+observations and exercise failure recovery. Prefixes 0–8 retain historical
+schema/data semantics except the explicit ninth identity amendment; tests assert
+TypeScript rejects the upgraded database without mutation and native reopen is
+idempotent. Independent snapshots retain exact bodies, provenance, horizons and
+attention across the rebuild. The earlier schema-8 reverse-open success is
+superseded by this explicit forward boundary, not silently counted as passing.
+These tests establish migration preservation, not native request/identity parity.
 
 The native `config` command uses core-owned typed values, defaults, editing scope
 and local-clear rules. Its filesystem adapter owns global/XDG/legacy and upward

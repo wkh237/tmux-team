@@ -27,7 +27,7 @@ fn open_enforces_connection_features_and_private_files() {
         storage.health().unwrap(),
         StorageHealth {
             path: fixture.database.clone(),
-            schema_version: 8,
+            schema_version: 9,
             journal_mode: "wal",
             foreign_keys: true,
             busy_timeout_ms: 5000,
@@ -88,7 +88,7 @@ fn open_enforces_connection_features_and_private_files() {
 fn failed_checkpoint_still_closes_and_rolls_back_the_active_transaction() {
     let fixture = Fixture::new();
     let mut storage = Storage::open(&fixture.database).unwrap();
-    storage.connection().unwrap().execute_batch("BEGIN IMMEDIATE; INSERT INTO identities VALUES ('uncommitted', 'Test', 'test', 'now', 'now');").unwrap();
+    storage.connection().unwrap().execute_batch("BEGIN IMMEDIATE; INSERT INTO identities (id, name, canonical_name, created_at, updated_at) VALUES ('uncommitted', 'Test', 'test', 'now', 'now');").unwrap();
     assert_eq!(storage.close().unwrap_err().code, StorageErrorCode::Busy);
     assert_eq!(storage.health().unwrap_err().code, StorageErrorCode::Closed);
     storage.close().unwrap();
@@ -153,7 +153,7 @@ fn concurrent_openers_commit_each_migration_only_once() {
     initial.pragma_update(None, "journal_mode", "WAL").unwrap();
     initial.close().unwrap();
     for result in concurrent_opens(&fixture) {
-        assert_eq!(result.unwrap(), 8);
+        assert_eq!(result.unwrap(), 9);
     }
     assert_complete_history(&fixture);
 }
@@ -165,7 +165,7 @@ fn cold_open_race_only_returns_success_or_retryable_contention() {
     for result in concurrent_opens(&fixture) {
         match result {
             Ok(version) => {
-                assert_eq!(version, 8);
+                assert_eq!(version, 9);
                 successful += 1;
             }
             Err(error) => {
@@ -179,7 +179,7 @@ fn cold_open_race_only_returns_success_or_retryable_contention() {
     }
     assert!(successful > 0);
     let mut recovered = Storage::open(&fixture.database).unwrap();
-    assert_eq!(recovered.health().unwrap().schema_version, 8);
+    assert_eq!(recovered.health().unwrap().schema_version, 9);
     recovered.close().unwrap();
     assert_complete_history(&fixture);
 }
@@ -212,7 +212,7 @@ fn assert_complete_history(fixture: &Fixture) {
     let count: i64 = verification
         .query_row("SELECT COUNT(*) FROM _migrations", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(count, 8);
+    assert_eq!(count, 9);
     let check: String = verification
         .query_row("PRAGMA integrity_check", [], |row| row.get(0))
         .unwrap();
