@@ -3,9 +3,12 @@
 import { isPaneTarget, normalizeName } from './domain/names.js';
 import type { DurableIdentity, TmuxBinding } from './domain/identity.js';
 import type { ActiveRegistration } from './domain/types.js';
+import type { PaneInfo } from './types.js';
 
 /** Internal active target projection carrying the evidence used by delivery. */
 export interface TargetIdentity extends ActiveRegistration {
+  /** Pane details from the same verified observation; not a second discovery. */
+  readonly pane?: PaneInfo;
   readonly evidence?: {
     readonly identity: DurableIdentity;
     readonly binding: TmuxBinding;
@@ -22,7 +25,9 @@ export interface ResolvedTarget {
 /** The minimum capability needed to resolve a user-facing pane or identity target. */
 export interface TargetResolverPort {
   readonly resolvePaneTarget: (target: string) => string | null;
-  readonly listGlobalIdentities: () => TargetIdentity[];
+  readonly listGlobalIdentities: (
+    selection?: { readonly paneId: string } | { readonly canonicalName: string }
+  ) => TargetIdentity[];
 }
 
 export type TargetResolutionErrorCode = 'PANE_NOT_FOUND' | 'NAME_NOT_FOUND';
@@ -54,7 +59,7 @@ export function resolveTarget(resolver: TargetResolverPort, input: string): Targ
       };
     }
     const identity = resolver
-      .listGlobalIdentities()
+      .listGlobalIdentities({ paneId })
       .filter((entry) => entry.paneId === paneId)
       .sort(
         (a, b) =>
@@ -70,7 +75,7 @@ export function resolveTarget(resolver: TargetResolverPort, input: string): Targ
 
   const canonical = normalizeName(input);
   const identity = resolver
-    .listGlobalIdentities()
+    .listGlobalIdentities({ canonicalName: canonical })
     .filter(
       (entry) =>
         (entry.canonicalName && entry.canonicalName === canonical) ||

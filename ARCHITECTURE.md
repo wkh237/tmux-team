@@ -96,7 +96,7 @@ identity-scoped explicit acknowledgement. It does not authorize a duplicate
 service or database, a new X-specific ID format, guessed identity backfill, or
 changes to the shipped `talk`/`reply`/`result` verbs. Reads do not acknowledge;
 service-owned reads may perform logical expiry and bounded opportunistic cleanup;
-`check` remains diagnostic and retains its existing reconciliation behavior.
+`check` remains diagnostic and reconciles only its selected identity binding.
 Timeout remains observer-only; offline queues, leases, memory, and MCP state are
 separate future work. SQLite supplies no autonomous TTL scheduler, so this does
 not promise punctual physical deletion or database-file shrinkage. Keep this
@@ -267,7 +267,7 @@ Recipient resolution precedes originator lookup and remains independent.
 
 The internal target projection carries durable identity and binding evidence,
 without extending public ActiveRegistration. Before preparation, the existing
-binding evaluator checks this evidence against a fresh full endpoint snapshot.
+binding evaluator checks this evidence against a fresh recipient-scoped endpoint snapshot.
 Changed server/socket/process or identity/binding markers fail closed. This is
 a verified observation of the intended recipient, not a guarantee against a
 later rebind before processing. Recipient UUID persists independently of cadence,
@@ -513,10 +513,37 @@ Active discovery still requires a verified binding; explicit data access does no
 
 Discovery and reconciliation use one local binding-evidence evaluator in
 `identity-service.ts`, composing identity/pane presence, server and process
-evidence, and durable metadata agreement. Reconciliation alone applies the
-foreign-socket preservation guard before evaluation; discovery still excludes
-bindings that do not match the current server. The shared predicate does not
+evidence, and durable metadata agreement. Scoped and full reconciliation share
+the foreign-socket preservation guard and binding mutation helper; discovery
+still excludes bindings that do not match the current server. The shared predicate does not
 change publication, transaction, or routing policy.
+
+Single-target operations select only relevant evidence. Caller lookup and unbind
+read the caller pane and its indexed database binding; named lookup reads the
+canonical identity and its unique binding. Binding checks the target and any
+existing location for the selected name, including bounded foreign-server
+probing when needed. Post-publication verification and talk's fresh recipient
+check request only that pane. No scoped observation prunes or touches unrelated
+bindings. Bare `list` and explicit internal reconciliation remain full discovery
+operations and can remove stale current-server bindings. Durable identities are
+never removed by either kind of reconciliation.
+
+The existing target resolver passes pane/canonical-name selection into the
+identity-aware view, preserving pane-first interpretation without materializing
+all identities. Verified target projections retain pane details from the same
+observation, so `list` does not perform a second discovery to render them.
+Identity and binding lookups use existing SQLite unique keys; no schema change,
+alternate resolver, cached presence or new connection is introduced.
+
+The tmux adapter reads pane metadata in the same `list-panes -F` batch as
+endpoint evidence. This format and pane filters are verified on the pinned
+tmux 3.3a; absent metadata does not justify another subprocess per pane.
+Scoped snapshots use tmux's `-f` filter, with a server-only observation when
+the selected pane is absent. Empty scopes never expand to all panes, and
+malformed scopes or incomplete endpoint evidence fail closed. This bounds
+subprocess fan-out and returned pane evidence, not tmux's internal traversal
+time. Metadata publication still explicitly reads the selected pane's options
+to preserve unrelated fields before writing; those failures remain fatal.
 
 Binding publication, active reconciliation and unbind share the repository's
 SQLite immediate-transaction boundary. Authoritative endpoint snapshots are

@@ -106,6 +106,14 @@ export function openIdentityRepository(location: StorageLocation): IdentityRepos
         .get(canonicalName) as IdentityRow | undefined;
       return row ? identity(row) : undefined;
     },
+    findById(id) {
+      const row = requireOpen()
+        .prepare(
+          'SELECT id, name, canonical_name, created_at, updated_at FROM identities WHERE id = ?'
+        )
+        .get(id) as IdentityRow | undefined;
+      return row ? identity(row) : undefined;
+    },
     createIdentity(name, canonicalName) {
       const now = new Date().toISOString();
       const value = {
@@ -141,9 +149,17 @@ export function openIdentityRepository(location: StorageLocation): IdentityRepos
     findBindingByPane(paneId, serverId) {
       const row = requireOpen()
         .prepare(
-          'SELECT id, identity_id, transport, pane_id, server_id, socket_path, server_pid, server_start_time, pane_pid, bound_at, last_verified_at FROM bindings WHERE pane_id = ? AND server_id = ?'
+          "SELECT id, identity_id, transport, pane_id, server_id, socket_path, server_pid, server_start_time, pane_pid, bound_at, last_verified_at FROM bindings WHERE transport = 'tmux' AND pane_id = ? AND server_id = ?"
         )
         .get(paneId, serverId) as BindingRow | undefined;
+      return row ? binding(row) : undefined;
+    },
+    findBindingByIdentity(identityId) {
+      const row = requireOpen()
+        .prepare(
+          'SELECT id, identity_id, transport, pane_id, server_id, socket_path, server_pid, server_start_time, pane_pid, bound_at, last_verified_at FROM bindings WHERE identity_id = ?'
+        )
+        .get(identityId) as BindingRow | undefined;
       return row ? binding(row) : undefined;
     },
     createBinding(value) {

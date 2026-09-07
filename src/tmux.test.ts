@@ -28,6 +28,7 @@ function endpointRow(
     serverPid?: string;
     paneId?: string;
     panePid?: string;
+    metadata?: string;
   } = {}
 ): string {
   return [
@@ -40,7 +41,7 @@ function endpointRow(
     '/foreign',
     'node',
     overrides.panePid ?? '654',
-    '',
+    overrides.metadata ?? '',
   ].join(ENDPOINT_SEPARATOR);
 }
 
@@ -378,7 +379,7 @@ describe('createTmux', () => {
       ]);
     });
 
-    it('falls back to pane options when list-panes omits user metadata', () => {
+    it('does not query pane options when list-panes omits user metadata', () => {
       mockedExecSync.mockReturnValue('%1\tmain:2.0\t/repo\tnode\t\n');
       mockedExecFileSync.mockReturnValue(
         '{"version":1,"globalIdentity":{"name":"Alice","canonicalName":"alice"}}\n'
@@ -390,14 +391,24 @@ describe('createTmux', () => {
           target: 'main:2.0',
           cwd: '/repo',
           command: 'node',
-          metadata: { version: 1, globalIdentity: { name: 'Alice', canonicalName: 'alice' } },
         },
       ]);
-      expect(mockedExecFileSync).toHaveBeenCalledWith(
-        'tmux',
-        ['show-options', '-p', '-t', '%1', '-v', '@tmux-team.agent'],
-        expect.any(Object)
+      expect(mockedExecFileSync).not.toHaveBeenCalled();
+    });
+
+    it('keeps a full 200-pane listing to one tmux subprocess for unbound panes', () => {
+      mockedExecSync.mockReturnValue(
+        Array.from(
+          { length: 200 },
+          (_, index) => `%${index}\tmain:1.${index}\t/repo\tzsh\t\n`
+        ).join('')
       );
+
+      const panes = createTmux().listPanes();
+
+      expect(panes).toHaveLength(200);
+      expect(mockedExecSync).toHaveBeenCalledTimes(1);
+      expect(mockedExecFileSync).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -959,21 +970,15 @@ describe('createTmux', () => {
       expect(mockedExecFileSync).not.toHaveBeenCalled();
     });
 
-    it('propagates strict fallback metadata read failures', () => {
+    it('does not query pane metadata when list output omits it', () => {
       mockedExecFileSync
         .mockReturnValueOnce(`${VALID_SERVER_ID}\n`)
-        .mockReturnValueOnce(`${endpointRow()}\n`)
-        .mockImplementationOnce(() => {
-          throw new Error('metadata fallback failed');
-        });
+        .mockReturnValueOnce(`${endpointRow()}\n`);
 
-      expect(() => createTmux().getEndpointSnapshot?.()).toThrow(
-        expect.objectContaining({
-          name: 'PaneMetadataError',
-          stage: 'read',
-          cause: expect.objectContaining({ message: 'metadata fallback failed' }),
-        })
-      );
+      const snapshot = createTmux().getEndpointSnapshot?.();
+      expect(snapshot?.panes[0]?.id).toBe('%9');
+      expect(snapshot?.panes[0]).not.toHaveProperty('metadata');
+      expect(mockedExecFileSync).toHaveBeenCalledTimes(2);
     });
 
     it('uses integer per-command timeouts bounded by a decreasing shared deadline', () => {
@@ -1003,7 +1008,7 @@ describe('createTmux', () => {
           expect(timeout).toBeLessThanOrEqual(1_000);
           return timeout;
         });
-        expect(timeouts).toEqual([900, 750, 600]);
+        expect(timeouts).toEqual([900, 750]);
       } finally {
         clock.mockRestore();
       }
@@ -1052,6 +1057,130 @@ describe('createTmux', () => {
         ['list-panes', '-a', '-F', expect.stringContaining('#{socket_path}')],
         expect.any(Object)
       );
+    });
+
+    it('keeps a full 200-pane endpoint snapshot to one list subprocess for unbound panes', () => {
+      mockedExecFileSync
+        .mockReturnValueOnce(`${VALID_SERVER_ID}\n`)
+        .mockReturnValueOnce(
+          Array.from({ length: 200 }, (_, index) =>
+            endpointRow({ paneId: `%${index}`, panePid: String(654 + index) })
+          ).join('\n') + '\n'
+        );
+
+      const snapshot = createTmux().getEndpointSnapshot?.();
+
+      expect(snapshot?.panes).toHaveLength(200);
+      expect(mockedExecFileSync).toHaveBeenCalledTimes(2);
+      expect(
+        mockedExecFileSync.mock.calls.some(
+          ([, args]) => Array.isArray(args) && args.includes('show-options') && args.includes('-p')
+        )
+      ).toBe(false);
+    });
+
+    it('scopes pane evidence and metadata to requested IDs while retaining tmux order', () => {
+      mockedExecFileSync
+        .mockReturnValueOnce(`${VALID_SERVER_ID}\n`)
+        .mockReturnValueOnce(
+          `${endpointRow({ paneId: '%10' })}\n${endpointRow({ paneId: '%11' })}\n`
+        );
+
+      const snapshot = createTmux().getEndpointSnapshot?.({ paneIds: ['%11', '%10'] });
+
+      expect(snapshot?.panes.map((pane) => pane.id)).toEqual(['%10', '%11']);
+      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
+        'tmux',
+        [
+          'list-panes',
+          '-a',
+          '-f',
+          expect.stringContaining('#{==:#{pane_id},%11}'),
+          '-F',
+          expect.any(String),
+        ],
+        expect.any(Object)
+      );
+    });
+
+    it('returns coherent server evidence when every scoped pane is absent', () => {
+      mockedExecFileSync
+        .mockReturnValueOnce(`${VALID_SERVER_ID}\n`)
+        .mockReturnValueOnce('')
+        .mockReturnValueOnce(
+          [VALID_SERVER_ID, '/tmp/foreign.sock', '321', '1700000000'].join(ENDPOINT_SEPARATOR) +
+            '\n'
+        );
+
+      const snapshot = createTmux().getEndpointSnapshot?.({ paneIds: ['%404'] });
+
+      expect(snapshot).toEqual({
+        server: {
+          serverId: VALID_SERVER_ID,
+          socketPath: '/tmp/foreign.sock',
+          serverPid: 321,
+          serverStartTime: '1700000000',
+        },
+        panes: [],
+      });
+      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
+        'tmux',
+        ['display-message', '-p', expect.stringContaining('#{socket_path}')],
+        expect.any(Object)
+      );
+    });
+
+    it('uses server-only evidence for an explicitly empty scope', () => {
+      mockedExecFileSync
+        .mockReturnValueOnce(`${VALID_SERVER_ID}\n`)
+        .mockReturnValueOnce(
+          [VALID_SERVER_ID, '/tmp/foreign.sock', '321', '1700000000'].join(ENDPOINT_SEPARATOR) +
+            '\n'
+        );
+
+      const snapshot = createTmux().getEndpointSnapshot?.({ paneIds: [] });
+
+      expect(snapshot?.panes).toEqual([]);
+      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
+        'tmux',
+        ['display-message', '-p', expect.stringContaining('#{socket_path}')],
+        expect.any(Object)
+      );
+      expect(mockedExecFileSync).not.toHaveBeenCalledWith(
+        'tmux',
+        expect.arrayContaining(['list-panes']),
+        expect.any(Object)
+      );
+    });
+
+    it('rejects invalid scoped pane IDs before invoking tmux', () => {
+      expect(() => createTmux().getEndpointSnapshot?.({ paneIds: ['not-a-pane'] })).toThrow(
+        'tmux pane scope contains an invalid pane ID'
+      );
+      expect(mockedExecFileSync).not.toHaveBeenCalled();
+    });
+
+    it('rejects truncated full pane evidence instead of returning a pruning snapshot', () => {
+      mockedExecFileSync
+        .mockReturnValueOnce(`${VALID_SERVER_ID}\n`)
+        .mockReturnValueOnce(
+          `${endpointRow().split(ENDPOINT_SEPARATOR).slice(0, 9).join(ENDPOINT_SEPARATOR)}\n`
+        );
+
+      expect(() => createTmux().getEndpointSnapshot?.()).toThrow(
+        'tmux endpoint snapshot contains inconsistent server evidence'
+      );
+    });
+
+    it('ignores malformed metadata without issuing a pane-specific query', () => {
+      mockedExecFileSync
+        .mockReturnValueOnce(`${VALID_SERVER_ID}\n`)
+        .mockReturnValueOnce(`${endpointRow({ metadata: 'not-json' })}\n`);
+
+      const snapshot = createTmux().getEndpointSnapshot?.();
+
+      expect(snapshot?.panes[0]).not.toHaveProperty('metadata');
+      expect(mockedExecFileSync).toHaveBeenCalledTimes(2);
     });
 
     it('rejects mixed server evidence instead of constructing a torn snapshot', () => {

@@ -12,7 +12,7 @@ import {
 import { openIdentityRepository } from './storage/identity-repository.js';
 import { PaneMetadataError } from './pane-metadata-error.js';
 import type { DurableIdentity, TmuxBinding } from './domain/identity.js';
-import type { PaneInfo, Paths, Tmux, TmuxEndpointSnapshot } from './types.js';
+import type { PaneInfo, Paths, Tmux, TmuxEndpointSnapshot, TmuxOperationOptions } from './types.js';
 
 const directories: string[] = [];
 const repositories: Array<ReturnType<typeof openIdentityRepository>> = [];
@@ -38,7 +38,13 @@ function fixture() {
   const tmux = {
     getCurrentPaneId: () => '%1',
     resolvePaneTarget: (target: string) => (target === '%1' ? '%1' : null),
-    getEndpointSnapshot: () => snapshot,
+    getEndpointSnapshot: (options?: TmuxOperationOptions) => ({
+      ...snapshot,
+      panes:
+        options?.paneIds === undefined
+          ? snapshot.panes
+          : snapshot.panes.filter((pane) => options.paneIds!.includes(pane.id)),
+    }),
     setDurableIdentity: (paneId: string, identity: DurableIdentity, binding: TmuxBinding) => {
       const target = snapshot.panes.find((item) => item.id === paneId);
       if (!target) throw new Error(`Unknown pane '${paneId}'.`);
@@ -313,28 +319,26 @@ describe('durable identity service', () => {
     expect(service.resolveIdentity()).toEqual({ status: 'required' });
   });
 
-  it('fails closed for ambiguous implicit identity evidence', () => {
+  it('enforces caller binding uniqueness in storage instead of enumerating all bindings', () => {
     const test = fixture();
     const base = openIdentityRepository(test.paths.databaseFile);
     repositories.push(base);
     const service = createIdentityService({ tmux: test.tmux, repository: base });
     service.bindCurrent('ambiguous');
-    const ambiguousRepository = {
-      ...base,
-      findBindings: () => {
-        const bindings = base.findBindings();
-        return [...bindings, ...bindings];
-      },
-    };
-    const ambiguousService = createIdentityService({
-      tmux: test.tmux,
-      repository: ambiguousRepository,
+    const binding = base.findBindings()[0]!;
+    const other = base.createIdentity('Other', 'other');
+    expect(() =>
+      base.createBinding({ ...binding, id: 'duplicate', identityId: other.id })
+    ).toThrow();
+    const enumeration = vi.spyOn(base, 'findBindings').mockImplementation(() => {
+      throw new Error('Caller lookup must not enumerate bindings.');
     });
-
-    expect(ambiguousService.resolveIdentity()).toEqual({ status: 'ambiguous' });
-    expect(() => ambiguousService.currentIdentity()).toThrow(
-      expect.objectContaining({ code: 'IDENTITY_AMBIGUOUS' })
-    );
+    expect(service.resolveIdentity()).toMatchObject({
+      status: 'bound',
+      identity: { name: 'ambiguous' },
+    });
+    expect(service.currentIdentity()?.binding.id).toBe(binding.id);
+    expect(enumeration).not.toHaveBeenCalled();
   });
 
   it('creates one durable identity and a verified transient binding', () => {
@@ -1241,5 +1245,81 @@ describe('durable identity service', () => {
     expect(() => service.bindPane('%99', 'missing-pane')).toThrow(
       "Pane target '%99' was not found."
     );
+  });
+
+  it('keeps single-target operations scoped and preserves unrelated stale bindings', () => {
+    const test = fixture();
+    addSecondPane(test);
+    const base = openIdentityRepository(test.paths.databaseFile);
+    repositories.push(base);
+    const service = createIdentityService({ tmux: test.tmux, repository: base });
+    service.bindPane('%2', 'unrelated');
+    const stale = base.findBindingByIdentity(base.findByCanonicalName('unrelated')!.id)!;
+    const allPanes = test.tmux.getEndpointSnapshot!().panes;
+    allPanes.find((pane) => pane.id === '%2')!.metadata = undefined;
+    test.setSnapshot({
+      ...test.tmux.getEndpointSnapshot!(),
+      panes: [
+        ...allPanes,
+        ...Array.from({ length: 198 }, (_, index) => ({
+          id: `%${index + 3}`,
+          panePid: index + 3000,
+          command: 'sh',
+          suggestedName: null,
+        })),
+      ],
+    });
+    const snapshots = vi.spyOn(test.tmux, 'getEndpointSnapshot');
+    const bindings = vi.spyOn(base, 'findBindings').mockImplementation(() => {
+      throw new Error('Single-target operations must not enumerate bindings.');
+    });
+    const identities = vi.spyOn(base, 'listIdentities').mockImplementation(() => {
+      throw new Error('Single-target operations must not enumerate identities.');
+    });
+
+    const identity = service.bindCurrent('scoped');
+    expect(service.currentIdentity()?.identity.id).toBe(identity.id);
+    expect(service.resolveActive('SCOPED')?.identity.id).toBe(identity.id);
+    expect(service.resolveActive('%1')?.identity.id).toBe(identity.id);
+    expect(service.unbindCurrent()?.id).toBe(identity.id);
+    expect(base.findBindingByIdentity(stale.identityId)).toEqual(stale);
+    expect(base.findById(identity.id)).toEqual(identity);
+    expect(snapshots.mock.calls.length).toBeGreaterThan(0);
+    for (const [options] of snapshots.mock.calls) expect(options?.paneIds).toEqual(['%1']);
+    expect(bindings).not.toHaveBeenCalled();
+    expect(identities).not.toHaveBeenCalled();
+
+    bindings.mockRestore();
+    identities.mockRestore();
+    expect(service.activeIdentities()).toEqual([]);
+    expect(base.findBindingByIdentity(stale.identityId)).toBeUndefined();
+    expect(base.findById(stale.identityId)?.name).toBe('unrelated');
+  });
+
+  it('includes the conflicting local pane when binding a name and preserves both locations', () => {
+    const test = fixture();
+    addSecondPane(test);
+    const service = createTestService(test);
+    service.bindPane('%2', 'occupied');
+    const snapshots = vi.spyOn(test.tmux, 'getEndpointSnapshot');
+    expect(() => service.bindPane('%1', 'occupied')).toThrowError(
+      expect.objectContaining({ code: 'NAME_ALREADY_ACTIVE' })
+    );
+    expect(snapshots.mock.calls.map(([options]) => options?.paneIds)).toEqual([
+      ['%1'],
+      ['%1', '%2'],
+    ]);
+    expect(test.pane.metadata).toBeUndefined();
+    expect(service.resolveActive('occupied')?.binding.paneId).toBe('%2');
+  });
+
+  it('does not probe tmux for a missing or offline explicit name', () => {
+    const test = fixture();
+    const service = createTestService(test);
+    service.createIdentity('offline');
+    const snapshot = vi.spyOn(test.tmux, 'getEndpointSnapshot');
+    expect(service.resolveActive('missing')).toBeUndefined();
+    expect(service.resolveActive('offline')).toBeUndefined();
+    expect(snapshot).not.toHaveBeenCalled();
   });
 });

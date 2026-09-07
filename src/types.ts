@@ -136,6 +136,8 @@ export interface Tmux {
 export interface TmuxOperationOptions {
   /** Monotonic deadline shared by every subprocess in one operation. */
   readonly deadlineMs?: number;
+  /** Undefined selects all panes; an explicit set limits endpoint evidence. */
+  readonly paneIds?: readonly string[];
 }
 
 export interface TmuxServerEvidence {

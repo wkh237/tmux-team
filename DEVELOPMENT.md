@@ -90,6 +90,16 @@ and unavailable process information. An environment-stripped fixture is not
 proof that a specific provider sandbox permits process/socket access; report
 that verification gap separately.
 
+Identity performance regressions require mostly-unbound large sessions as well
+as small fixtures. Assert subprocess counts and scoped evidence requests, not
+only elapsed-time thresholds: unrelated panes must not add per-pane subprocesses
+to a single-target operation. Record wall time as diagnostic evidence, with
+startup and transport delays distinguished from identity work. Real Docker
+scenarios must verify bindings, conflicts, untouched metadata, causal replies
+and cleanup; never seed every pane with placeholder metadata to make a test fast.
+Scoped reads must preserve unrelated stale rows while full discovery may reconcile
+them. Both paths must share the existing binding-evidence predicate.
+
 | Changed area                            | Required checks                                                                     |
 | --------------------------------------- | ----------------------------------------------------------------------------------- |
 | Production TypeScript                   | `pnpm type:check`, `pnpm lint`, `pnpm format:check`                                 |

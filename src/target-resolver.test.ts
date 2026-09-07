@@ -33,6 +33,17 @@ describe('shared target resolver', () => {
     expect(result).toMatchObject({ ok: true, value: { paneId: '%3', kind: 'identity' } });
   });
 
+  it('passes a precise pane or canonical-name selector instead of requesting discovery', () => {
+    const listGlobalIdentities = vi.fn(() => []);
+    const port = resolver({ listGlobalIdentities });
+    resolveTarget(port, '%14');
+    resolveTarget(port, ' Ａlice ');
+    expect(listGlobalIdentities.mock.calls).toEqual([
+      [{ paneId: '%14' }],
+      [{ canonicalName: 'alice' }],
+    ]);
+  });
+
   it('preserves internal identity evidence through target resolution', () => {
     const identity = {
       id: 'identity-1',
