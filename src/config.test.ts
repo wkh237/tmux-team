@@ -208,6 +208,23 @@ describe('loadConfig', () => {
     expect(config.defaults.captureLines).toBe(100);
     expect(config.defaults.pasteEnterDelayMs).toBe(500);
     expect(config.exchange.retentionDays).toBe(90);
+    expect(config.ui.paneBadge).toBe('off');
+  });
+
+  it('loads global pane badge while ignoring the local opaque value', () => {
+    const globalConfig = { ui: { paneBadge: 'on', future: { enabled: true } } };
+    const localConfig = { $config: { ui: { paneBadge: 'off' } } };
+
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockImplementation((p) => {
+      if (p === mockPaths.globalConfig) return JSON.stringify(globalConfig);
+      if (p === mockPaths.localConfig) return JSON.stringify(localConfig);
+      return '';
+    });
+
+    const config = loadConfig(mockPaths);
+
+    expect(config.ui.paneBadge).toBe('on');
   });
 
   it('loads global exchange retention but ignores local exchange data', () => {

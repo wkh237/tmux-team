@@ -330,8 +330,8 @@ tmt upgrade
 `name`, `this`, and `add` manage one global identity per pane. Names can be
 undeclared identities; they do not need to match a configured role. `add`
 accepts `%pane_id`, `window.pane`, or `session:window.pane` and stores the
-resolved stable `%pane_id`. There is no daemon. A pane title update is only a
-best-effort side effect and is not a separate command or API.
+resolved stable `%pane_id`. There is no daemon. Identity badges are off by
+default; TMT never changes pane titles or window border layout.
 
 Global identities are independent of the current working directory. `talk`,
 `check`, and `list` accept either a global name or a direct pane target. The
@@ -412,6 +412,33 @@ is no punctual physical deletion. A late accepted final has its own duration
 from submission, so metadata can outlive the original request horizon. Reads
 never acknowledge a result. Cleanup is not file shrinkage or secure erasure;
 wall-clock rollback can delay logical expiry while data remains stored.
+
+`tmt config set ui.paneBadge on --global` opts into a cosmetic pane-local
+`@tmux-team.badge` label, such as `alice (tmt)`; `off` is the default.
+It is global-only and uses `ui.paneBadge` in the same global file. Settings
+changes do not scan panes; the next successful `name`, `this`, or `add` applies
+the setting to that pane. `unbind` clears its badge regardless of the setting.
+With `off`, the next successful binding clears a previously published badge.
+Badge writes are bounded and best-effort; a display failure is not a reason to
+retry a successful identity mutation. Binding commands validate loaded settings
+before mutation.
+
+The label is invisible until the user inserts
+`#{?@tmux-team.badge, [#{@tmux-team.badge}],}` into their own
+`pane-border-format`, for example after the left pane number and before the
+right-aligned repository/branch. Preserve their complete existing format,
+title, border position, colors, and narrow-pane policy. Do not replace a theme
+or enable presentation without authorization. Display labels neutralize `#`
+and control characters and cap names at 48 Unicode code points; identity names
+are unchanged. Previously overwritten titles/layouts require restoration from
+the user's saved theme; do not guess or overwrite them as a migration.
+
+For an explicitly requested black-on-light-blue badge hidden below 80 columns:
+`#{?#{&&:#{@tmux-team.badge},#{e|>=:#{pane_width},80}},#[push-default]#[fg=black bg=colour153] #{@tmux-team.badge} #[default]#[pop-default],}`.
+The width threshold is theme-specific, not automatic fitting. The style
+save/restore is only suitable if the surrounding theme does not already use
+`push-default`; tmux does not support nested saved defaults. Otherwise use the
+theme's existing style restoration rather than inserting a conflicting stack.
 
 Invalid known fields in a loaded config return `CONFIG_ERROR` (exit 1) before
 talk/check effects, even when another layer would override them. Unknown and

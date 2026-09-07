@@ -208,6 +208,15 @@ the existing CLI contract suites, rather than inheriting the one-second unit
 default. Keep child-process termination bounds and behavioral assertions intact;
 test-runner budgets are not production timeout policy.
 
+Pane presentation tests must preserve application titles and user-owned border
+format, position, and style across default-off binding, explicit opt-in,
+configuration changes, conflicts, and unbinding. Use real grouped/linked windows
+to guard against accidentally introducing window-scoped writes. Verify the
+documented theme fragment with literal format-like names, and inject a cosmetic
+write failure while independently checking durable identity state. Configuration
+writes must remain storage-only, and invalid loaded settings must precede any
+identity mutation. A passing mocked adapter assertion alone is insufficient.
+
 ## Installed guidance source ownership
 
 Edit shared agent behavior only in `skills/tmux-team/SKILL.md`. All native

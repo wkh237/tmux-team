@@ -34,7 +34,7 @@ function createCtx(testDir: string, overrides?: Partial<{ flags: Partial<Flags> 
     listPanes: vi.fn(() => []),
     getCurrentPaneId: vi.fn(() => null),
     resolvePaneTarget: vi.fn((target: string) => target),
-    setPaneTitle: vi.fn(),
+    setPaneBadge: vi.fn(),
   };
   return {
     argv: [],

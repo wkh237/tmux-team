@@ -163,6 +163,9 @@ export function loadConfig(paths: Paths): ResolvedConfig {
     if (knownGlobal.exchange?.retentionDays !== undefined) {
       config.exchange.retentionDays = knownGlobal.exchange.retentionDays;
     }
+    if (knownGlobal.ui?.paneBadge !== undefined) {
+      config.ui.paneBadge = knownGlobal.ui.paneBadge;
+    }
   }
 
   // Load local settings. Other local JSON fields remain opaque and are never

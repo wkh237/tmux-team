@@ -42,10 +42,20 @@ export interface GlobalExchangeSettings {
   [key: string]: unknown;
 }
 
+export interface PaneUiConfig {
+  paneBadge: 'on' | 'off';
+}
+
+export interface GlobalUiSettings {
+  paneBadge?: PaneUiConfig['paneBadge'];
+  [key: string]: unknown;
+}
+
 export interface GlobalConfig {
   preambleMode: 'always' | 'disabled';
   defaults: ConfigDefaults;
   exchange?: GlobalExchangeSettings;
+  ui?: GlobalUiSettings;
 }
 
 export interface LocalSettings {
@@ -63,6 +73,7 @@ export interface ResolvedConfig {
   preambleMode: 'always' | 'disabled';
   defaults: ConfigDefaults;
   exchange: ExchangeConfig;
+  ui: PaneUiConfig;
 }
 
 export interface Flags {
@@ -112,7 +123,8 @@ export interface Tmux {
   /** Return only the caller's verified pane; never an ambient/default pane. */
   getCurrentPaneId: () => string | null;
   resolvePaneTarget: (target: string) => string | null;
-  setPaneTitle: (paneId: string, title: string) => void;
+  /** Publish a cosmetic label only; never change user titles or window styles. */
+  setPaneBadge: (paneId: string, name: string | null) => void;
   getEndpointSnapshot?: (options?: TmuxOperationOptions) => TmuxEndpointSnapshot;
   setDurableIdentity?: (
     paneId: string,

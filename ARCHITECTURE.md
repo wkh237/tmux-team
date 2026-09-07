@@ -418,6 +418,24 @@ configuration. Config-consuming talk/check fail before tmux or request storage;
 help retains its safe default fallback. Exchange retention configuration uses
 this same owner, not another loader.
 
+### Opt-in pane presentation
+
+Global-only `ui.paneBadge` defaults to `off` and uses the existing configuration
+validation, raw-file preservation, projection, and CLI owner. Binding commands
+resolve it before identity mutation. Successful `name`/`this`/`add` then publish
+or clear the pane-local `@tmux-team.badge` through `Tmux.setPaneBadge`; `unbind`
+clears it without loading unrelated configuration. Failed identity mutations
+leave presentation untouched. Configuration writes themselves remain
+storage-only: no scan or retroactive refresh of existing panes.
+
+The adapter owns bounded label rendering and one bounded best-effort tmux
+option write. It neutralizes format-introducing hashes and controls and limits
+the name to 48 Unicode code points; durable names are unchanged. Cosmetic
+failure cannot undo a committed binding. This port must never change pane
+titles or window-scoped border format, position, or style. Users own theme
+integration and any restoration of an older overwritten layout. There is no
+automatic theme installer, secondary identity registry, or redraw subprocess.
+
 ## Caller context
 
 The tmux adapter owns current-pane evidence. Complete `TMUX_PANE` and `TMUX`

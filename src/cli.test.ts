@@ -67,7 +67,7 @@ function makeStubContext(): Context {
       listPanes: vi.fn(() => []),
       getCurrentPaneId: vi.fn(() => null),
       resolvePaneTarget: vi.fn((target: string) => target),
-      setPaneTitle: vi.fn(),
+      setPaneBadge: vi.fn(),
     },
     identityService: {
       createIdentity: vi.fn(() => {

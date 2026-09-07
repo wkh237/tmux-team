@@ -1459,31 +1459,44 @@ describe('createTmux', () => {
     });
   });
 
-  describe('pane titles', () => {
-    it('sets the title and displays it right-aligned in the themed pane border', () => {
+  describe('opt-in pane badges', () => {
+    it('sets only the owned pane option with bounded subprocess execution', () => {
       const tmux = createTmux();
 
-      tmux.setPaneTitle('%9', 'backend');
+      tmux.setPaneBadge('%9', 'backend');
 
-      expect(mockedExecFileSync).toHaveBeenNthCalledWith(
-        1,
+      expect(mockedExecFileSync).toHaveBeenCalledTimes(1);
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
         'tmux',
-        ['select-pane', '-t', '%9', '-T', 'backend'],
+        ['set-option', '-p', '-t', '%9', '@tmux-team.badge', 'backend (tmt)'],
+        expect.objectContaining({ timeout: 1000, killSignal: 'SIGKILL', maxBuffer: 1024 * 1024 })
+      );
+    });
+
+    it('clears only the owned pane option', () => {
+      createTmux().setPaneBadge('%9', null);
+      expect(mockedExecFileSync).toHaveBeenCalledTimes(1);
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'tmux',
+        ['set-option', '-p', '-u', '-t', '%9', '@tmux-team.badge'],
         expect.any(Object)
       );
-      expect(mockedExecFileSync).toHaveBeenNthCalledWith(
-        2,
-        'tmux',
-        ['set-window-option', '-t', '%9', 'pane-border-status', 'top'],
-        expect.any(Object)
-      );
-      expect(mockedExecFileSync).toHaveBeenNthCalledWith(
-        3,
-        'tmux',
-        ['set-window-option', '-t', '%9', 'pane-border-format', '#[align=right]#{pane_title}'],
-        expect.any(Object)
-      );
-      expect(mockedExecFileSync.mock.calls[2]?.[1]).not.toContain('#[fg=');
+    });
+
+    it.each([
+      ['#[fg=red]#{pane_title}#(touch nope)', '＃[fg=red]＃{pane_title}＃(touch nope) (tmt)'],
+      ['line\n\u009bname', 'line  name (tmt)'],
+      ['😀'.repeat(49), '😀'.repeat(48) + '… (tmt)'],
+    ])('keeps %s display-only and bounded', (name, expected) => {
+      createTmux().setPaneBadge('%9', name);
+      expect(mockedExecFileSync.mock.calls[0]?.[1]).toEqual([
+        'set-option',
+        '-p',
+        '-t',
+        '%9',
+        '@tmux-team.badge',
+        expected,
+      ]);
     });
   });
 });
