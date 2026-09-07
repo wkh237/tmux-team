@@ -99,7 +99,7 @@ pub fn grammar() -> Command {
                 .subcommand(
                     with_options(general("set", "Set a setting"), &["global"])
                         .arg(operand("key", true))
-                        .arg(operand("value", true)),
+                        .arg(operand("value", true).allow_negative_numbers(true)),
                 )
                 .subcommand(general("clear", "Clear a local setting").arg(operand("key", false))),
         )

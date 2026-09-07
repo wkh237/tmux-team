@@ -891,10 +891,11 @@ failure semantics; merely introducing an interface is not an architectural fix.
 ### Native grammar preview
 
 `rust/` contains a development-only native CLI under #96; installed entry points
-remain TypeScript. `tmt-core` owns pure numeric limits, while `tmt-cli` owns one
-Clap grammar, typed requests, presentation and explicit no-effects rejection for
-unimplemented commands. `tmt-adapters` owns the schema 8 SQLite lifecycle under
-#97; neither core nor typed requests depend on concrete IO.
+remain TypeScript. `tmt-core` owns numeric and settings policy, while `tmt-cli`
+owns one Clap grammar, typed requests, presentation, configuration composition
+and explicit no-effects rejection for unimplemented commands. `tmt-adapters`
+owns the schema 8 SQLite lifecycle under #97 and configuration files under #103;
+neither core nor typed requests depend on concrete IO.
 
 Help and completion use a filtered projection of the same grammar, excluding
 hidden rejection syntax and unrelated inherited options. Parser errors choose
@@ -930,6 +931,22 @@ public CLI command or alternate storage implementation. Shared bounded subproces
 tests compare closed TypeScript schema-prefix fixtures and independent SQL
 observations, reverse-reopen with TypeScript and exercise failure recovery.
 These tests establish storage compatibility, not native request/identity parity.
+
+The native `config` command uses core-owned typed values, defaults, editing scope
+and local-clear rules. Its filesystem adapter owns global/XDG/legacy and upward
+local-path discovery, JSON container validation, known-setting projection and
+raw edits preserving opaque fields. A targeted repair validates shape, edits
+only the intended field, then validates all remaining known values before write.
+Loaded sources and resolved settings come from the same projection. CLI code
+does not contain a competing settings validator, and core imports no JSON or IO
+library. This shared boundary is available to subsequent native use cases;
+configuration operations never acquire the storage or tmux adapters.
+Precedence and source accounting live in core `ResolvedSettings`, not the file
+adapter. Config decoding alone normalizes arbitrary JSON numbers to the prior
+runtime's IEEE-754/stringification semantics; it never rewrites retained reply
+bodies. Ordered JSON maps minimize edit churn. XDG and derived file paths are
+normalized lexically without requiring discarded components to exist or
+resolving user symlinks.
 
 The [Rust rewrite decision](RUST-REWRITE.md) records the proposed native package
 boundaries, compatibility/test matrix, data coexistence gates and dependency

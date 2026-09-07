@@ -1,7 +1,8 @@
 # Rust rewrite preparation
 
-Status: native grammar preview implemented under [#96](https://github.com/wkh237/tmux-team/issues/96),
-not a shipped Rust runtime. Owner: [#93](https://github.com/wkh237/tmux-team/issues/93);
+Status: native grammar (#96), schema 8 lifecycle (#97) and configuration (#103)
+are implemented in the development preview, not a shipped Rust runtime.
+Owner: [#93](https://github.com/wkh237/tmux-team/issues/93);
 preparation: [#94](https://github.com/wkh237/tmux-team/issues/94).
 The compatibility reference is TypeScript main `cb53533f3a9f19a1a2ab95af59dda20df419200b`
 (v5.0.0-alpha.1). [ARCHITECTURE.md](ARCHITECTURE.md) remains the current implementation map.
@@ -48,16 +49,40 @@ is by responsibility, not a mechanical copy of every TypeScript file.
 
 ### Implemented native preview
 
-The `rust/` workspace contains `tmt-core` (pure numeric policy),
+The `rust/` workspace contains `tmt-core` (numeric and settings policy),
 `tmt-cli` (grammar, typed invocation translation and output), and `tmt-adapters`
-(schema 8 SQLite lifecycle under #97). The npm entry points still execute TypeScript. No command silently
+(schema 8 SQLite lifecycle under #97 and configuration files under #103). The npm entry points still execute TypeScript. No command silently
 delegates from native to Node.
 
-The preview implements help, version and Bash/Zsh completion. All recognized
-effectful commands return `NATIVE_NOT_IMPLEMENTED`, exit 1, before any settings,
+The preview implements help, version, Bash/Zsh completion and the existing
+`config` command. Other recognized effectful commands return
+`NATIVE_NOT_IMPLEMENTED`, exit 1, before any settings,
 storage, tmux or input acquisition. Text-only commands reject JSON. Native
 `name`/`this`/`add` parse temporary defaults and save flags; `rm`/`remove` parse
 explicit force. This is not evidence that native lifecycle operations work.
+
+#103 makes settings an invocation-owned shared boundary rather than a rule set
+inside each CLI handler. Core owns typed defaults, scalar bounds, setting scope
+and clear policy; the adapter discovers existing paths, validates/project raw
+JSON and preserves opaque fields during edits. CLI composition renders reports
+after file operations. Config never opens SQLite or contacts tmux. Targeted
+repair validates container shape before editing, then validates remaining known
+values before writing; it does not pre-load unrelated invalid runtime settings.
+Negative numeric config operands reach semantic validation, while unknown flags
+remain parser errors. No JSON identity registry or new configuration setting is
+introduced by this port.
+
+Configuration decoding enables serde_json's `arbitrary_precision` so valid
+large exponents reach the compatibility boundary, then normalizes numbers to
+the reference runtime's IEEE-754/JSON.stringify semantics (non-finite opaque
+values become null when edited; known invalid fields still fail). This policy
+is config-only, not a global reply/body transformation. `preserve_order` avoids
+reordering ordinary user objects on targeted writes. The added locked graph is
+indexmap 2.14.2, hashbrown 0.17.1 and equivalent 1.0.2, with MIT/Apache-2.0 choices
+and declared MSRVs at or below 1.85. RustSec RUSTSEC-2024-0402 is patched before
+the selected hashbrown version; the other two packages had no entries at the
+recorded advisory revision. Structured CLI JSON contracts do not require byte
+equality of whitespace or numeric spelling between serializers.
 
 One Clap registration tree owns recognition and allowed options. Its public
 projection removes hidden rejection syntax and inherited-but-unrelated options
