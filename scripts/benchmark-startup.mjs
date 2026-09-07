@@ -2,15 +2,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { runPackedCommand } from './packed-command.mjs';
+import { resolveCliExecutables } from '../src/test-support/cli-executable.mjs';
 
 // Resource measurement is deliberately macOS-only. Docker scenarios own tmux
 // latency; do not compare these resource samples to Linux timing samples.
 assert.equal(process.platform, 'darwin', 'This resource probe requires macOS /usr/bin/time.');
 assert.equal(process.argv.length, 2, 'This probe does not accept arguments.');
-const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const { cli } = resolveCliExecutables();
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tmt-startup-baseline-'));
 const samples = [];
 try {
@@ -41,7 +41,8 @@ try {
         '-c',
         '/usr/bin/time -lp /bin/sh -c \'exec "$@" 2> "$TMT_BENCH_STDERR"\' bench "$@" 2> "$TMT_BENCH_METRICS"',
         'bench',
-        path.join(repo, 'bin/tmux-team'),
+        cli.executable,
+        ...cli.args,
         ...args,
       ],
       { cwd: root, env }
@@ -79,6 +80,7 @@ try {
   console.log(
     JSON.stringify({
       schemaVersion: 1,
+      executable: cli,
       platform: process.platform,
       arch: process.arch,
       kernel: os.release(),

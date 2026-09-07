@@ -1,10 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { E2EFixture } from './harness.js';
-
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const cliPath = path.join(repoRoot, 'bin', 'tmux-team');
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
@@ -40,9 +36,16 @@ export async function spawnRealTmuxCli(
   const exitPath = path.join(workspace, 'exit');
   const releasePath = path.join(workspace, 'release');
   const holdPath = path.join(workspace, 'hold-until-server-cleanup');
+  const cli = fixture.executables.cli;
+  const invocation = [
+    cli.executable,
+    ...cli.args,
+    ...(options.json === false ? [] : ['--json']),
+    ...args,
+  ];
   const command = [
     `while [ ! -f ${shellQuote(releasePath)} ]; do sleep 0.01; done`,
-    `env${options.stripTmux ? ' -u TMUX' : ''}${options.stripPane ? ' -u TMUX_PANE' : ''} ${shellQuote(cliPath)} ${options.json === false ? '' : '--json '}${args.map(shellQuote).join(' ')} >${shellQuote(outputPath)} 2>${shellQuote(errorPath)}`,
+    `env${options.stripTmux ? ' -u TMUX' : ''}${options.stripPane ? ' -u TMUX_PANE' : ''} ${invocation.map(shellQuote).join(' ')} >${shellQuote(outputPath)} 2>${shellQuote(errorPath)}`,
     `printf '%s' "$?" >${shellQuote(exitPath)}`,
     `while [ ! -f ${shellQuote(holdPath)} ]; do sleep 0.05; done`,
   ].join('; ');

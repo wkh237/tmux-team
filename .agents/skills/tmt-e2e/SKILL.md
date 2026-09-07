@@ -36,6 +36,11 @@ Read the relevant files before changing behavior:
 
 - [`test/e2e/`](../../../test/e2e/): Vitest configuration, scenarios, harness, and mock-agent behavior.
 - [`scripts/run-e2e.mjs`](../../../scripts/run-e2e.mjs): Docker build/run wrapper and exit-code handling.
+- [`DEVELOPMENT.md#selecting-the-cli-under-test`](../../../DEVELOPMENT.md#selecting-the-cli-under-test):
+  shared executable/peer descriptors and container-path requirements. Reuse
+  `src/test-support/cli-executable.mjs`; never add a hard-coded Node launcher or
+  silent TS fallback. Prove selection reaches nested replies and real descendants
+  with causal results. TS-importing worker/pack tests are not native parity.
 - [`PERFORMANCE-BASELINE.md`](../../../PERFORMANCE-BASELINE.md) for optional runtime
   measurements. Use the same isolated fixture and causal assertions; keep timing
   samples out of ordinary CI thresholds and distinguish measured from unavailable

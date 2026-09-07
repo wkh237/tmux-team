@@ -151,9 +151,16 @@ No delay or polling default was changed to obtain these measurements.
 
 ## Native comparison and acceptance
 
-Executable selection is [#95](https://github.com/wkh237/tmux-team/issues/95), not
-implemented here. That slice must also let the resource probe select the native
-executable without changing measurement semantics. Measure **release** builds;
+Executable selection is provided by [#95](https://github.com/wkh237/tmux-team/issues/95).
+Use [the shared descriptors](DEVELOPMENT.md#selecting-the-cli-under-test) for both
+the resource probe and Docker scenarios. New reports record the selected executable
+(and the Docker peer); historical raw baseline reports remain unchanged. The Node
+version describes test tooling, not proof that the selected executable uses Node.
+Resource accounting and output assertions are unchanged. The shared default now
+pins the test runner's Node executable and invokes the same public wrapper,
+instead of finding Node through its shebang and PATH. Re-baseline both runtimes
+with this launcher for comparisons; do not claim these historical timings are
+measurements of the new launcher. Measure **release** builds;
 record toolchain, locked dependencies, target/linkage, binary size and source head.
 
 - Run old and new binaries on the same machine/container/resources with the same

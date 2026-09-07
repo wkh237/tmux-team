@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
+import type { CliExecutables } from '../../src/test-support/cli-executable.mjs';
 import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
 import { durableState } from './identity-state-oracle.js';
@@ -88,6 +89,7 @@ interface BenchmarkSeries {
 }
 
 interface PerformanceBaselineReport {
+  executables: CliExecutables;
   schemaVersion: 1;
   benchmark: 'tmt-performance-baseline';
   generatedAt: string;
@@ -485,6 +487,7 @@ baselineSuite('TMT performance baseline', () => {
             }
 
             const report: PerformanceBaselineReport = {
+              executables: fixture.executables,
               schemaVersion: 1,
               benchmark: 'tmt-performance-baseline',
               generatedAt: new Date().toISOString(),

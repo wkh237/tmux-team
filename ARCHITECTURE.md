@@ -817,6 +817,19 @@ The test mock independently recognizes the documented request instruction frame
 and invokes the public reply CLI, rather than importing a production response
 store or completing requests through a test-only endpoint.
 
+`src/test-support/cli-executable.mjs` owns the test-only executable descriptor:
+an absolute executable plus an argv prefix. CLI-contract sandboxes and E2E
+fixtures validate/freeze the selection before allocating resources; the fixture
+propagates it to real tmux descendants and a separately selectable mock reply
+peer. The startup resource probe uses the same owner. This is plain ESM so mock
+agents and measurement scripts need no TypeScript loader to select a native CLI;
+the adjacent declaration exposes the narrow interface to TypeScript callers.
+Selection does not own spawning or disposal: each existing launcher retains its
+process-group, timeout, stream and cleanup rules. No production code reads these
+test settings, and the entire test-support directory remains excluded from npm.
+See DEVELOPMENT for selector usage and the distinction between selectable CLI
+contracts and TypeScript-only workers/pack probes.
+
 Identity, request and response concurrency suites share the bounded process
 harness in `src/test-support/request-workers.ts`. Each scenario owns its handles
 and stops workers in `finally` before deleting fixture files. Worker entrypoints

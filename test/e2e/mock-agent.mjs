@@ -3,12 +3,13 @@
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
+import { resolveCliExecutables } from '../../src/test-support/cli-executable.mjs';
 
 const mode = process.env.TMT_MOCK_MODE ?? 'respond';
 const delayMs = Number(process.env.TMT_MOCK_DELAY_MS ?? 0);
 const replyDelayMs = Number(process.env.TMT_MOCK_REPLY_DELAY_MS ?? delayMs);
 const logPath = process.env.TMT_MOCK_LOG;
-const cliPath = process.env.TMT_E2E_CLI_PATH;
+const { peer } = resolveCliExecutables();
 const virtualizedLineCount = 200;
 const maxReplyOutputBytes = 64 * 1024;
 const maxInlineReplyBytes = 4 * 1024;
@@ -95,7 +96,6 @@ function killReplyChild(child) {
 }
 
 function runReply(requestId, receipt, body) {
-  if (!cliPath) throw new Error('TMT_E2E_CLI_PATH is required for durable mock replies.');
   if (replyInput !== 'stdin' && replyInput !== 'message') {
     throw new Error(`Unsupported mock reply input mode '${replyInput}'.`);
   }
@@ -108,8 +108,8 @@ function runReply(requestId, receipt, body) {
   const inputArgs = replyInput === 'message' ? ['--message', body] : ['--stdin'];
   return new Promise((resolve) => {
     const child = spawn(
-      process.execPath,
-      [cliPath, 'reply', requestId, '--receipt', receipt, ...inputArgs, '--json'],
+      peer.executable,
+      [...peer.args, 'reply', requestId, '--receipt', receipt, ...inputArgs, '--json'],
       {
         cwd: process.cwd(),
         env: { ...process.env },
