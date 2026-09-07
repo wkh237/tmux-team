@@ -1,35 +1,21 @@
-use std::{
-    fs,
-    path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::{fs, path::PathBuf};
+
+use crate::test_support::TestDirectory;
 
 use super::*;
 
 struct Fixture {
-    directory: PathBuf,
+    directory: TestDirectory,
     database: PathBuf,
 }
 
 impl Fixture {
     fn new() -> Self {
-        static NEXT: AtomicU64 = AtomicU64::new(0);
-        let directory = std::env::temp_dir().join(format!(
-            "tmt-native-storage-{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::create_dir(&directory).expect("create unique test directory");
+        let directory = TestDirectory::new();
         Self {
-            database: directory.join("state").join("tmux-team.db"),
+            database: directory.path.join("state").join("tmux-team.db"),
             directory,
         }
-    }
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        fs::remove_dir_all(&self.directory).expect("remove isolated storage fixture");
     }
 }
 
@@ -148,7 +134,7 @@ fn open_errors_preserve_existing_files() {
         b"unrelated file"
     );
 
-    let corrupt = fixture.directory.join("corrupt.db");
+    let corrupt = fixture.directory.path.join("corrupt.db");
     fs::write(&corrupt, b"not a SQLite database").unwrap();
     let error = Storage::open(&corrupt)
         .err()

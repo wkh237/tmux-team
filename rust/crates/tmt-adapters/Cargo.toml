@@ -10,6 +10,11 @@ publish.workspace = true
 tmt-core.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
+uuid = { workspace = true, features = ["v4"] }
+
+[target.'cfg(unix)'.dependencies]
+subprocess.workspace = true
+nix.workspace = true
 
 [lints]
 workspace = true

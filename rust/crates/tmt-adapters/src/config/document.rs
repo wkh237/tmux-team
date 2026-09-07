@@ -102,42 +102,14 @@ fn shape(value: &Value, path: &Path, scope: Scope) -> Result<(), ConfigError> {
 }
 
 pub(super) fn read(path: &Path, scope: Scope) -> Result<Value, ConfigError> {
-    let mut value = if path.exists() {
+    let value = if path.exists() {
         let content = fs::read_to_string(path).map_err(|error| ConfigError::parse(path, error))?;
-        serde_json::from_str(&content).map_err(|error| ConfigError::parse(path, error))?
+        crate::json_document::parse(&content).map_err(|error| ConfigError::parse(path, error))?
     } else {
         json!({})
     };
-    normalize_numbers(&mut value);
     shape(&value, path, scope)?;
     Ok(value)
-}
-
-fn normalize_numbers(value: &mut Value) {
-    match value {
-        Value::Number(number) => {
-            // JSON.parse uses IEEE-754 for every number, including opaque
-            // fields. JSON.stringify subsequently writes non-finite values as
-            // null. Known numeric settings reject that null during projection.
-            // arbitrary_precision lets the decoder reach this policy even for
-            // a valid JSON exponent outside f64's representable range.
-            *value = number
-                .as_f64()
-                .and_then(|number| {
-                    if number.fract() == 0.0 && number >= 0.0 && number < u64::MAX as f64 {
-                        Some(serde_json::Number::from(number as u64))
-                    } else if number.fract() == 0.0 && number < 0.0 && number >= i64::MIN as f64 {
-                        Some(serde_json::Number::from(number as i64))
-                    } else {
-                        serde_json::Number::from_f64(number)
-                    }
-                })
-                .map_or(Value::Null, Value::Number);
-        }
-        Value::Array(values) => values.iter_mut().for_each(normalize_numbers),
-        Value::Object(values) => values.values_mut().for_each(normalize_numbers),
-        _ => {}
-    }
 }
 
 pub(super) fn project(

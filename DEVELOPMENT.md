@@ -36,6 +36,8 @@ help/version/completion, typed grammar and the existing `config` command.
 Other effectful commands still explicitly fail.
 The separate storage adapter implements schema 8 lifecycle compatibility, tested
 through a development-only probe rather than an installed command.
+The Unix tmux evidence adapter is likewise exercised through a non-installed
+`tmux-probe` example; native identity commands are not implemented by that probe.
 Use the exact toolchain from `rust/rust-toolchain.toml` and run from `rust/`:
 
 ```bash
@@ -44,6 +46,7 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 cargo build --locked
 cargo build --locked --example storage-probe
+cargo build --locked --example tmux-probe
 cargo +1.88.0 build --locked
 ```
 
@@ -88,6 +91,22 @@ current RustSec advisories when changing Cargo.lock. `tmt-core` must remain free
 of CLI/concrete-IO dependencies. `tmt-adapters` owns the concrete SQLite lifecycle;
 keep its raw connection private. See RUST-REWRITE for the dependency
 decision and explicit exceptions under #100.
+
+The Docker image builds Linux adapter test artifacts in a pinned Rust/Debian
+stage matching the runtime image's libc. It runs native adapter unit tests under
+the existing wrapper's `--init --network none` before Vitest. This lets orphaned
+fixture children be reaped by init; running those lifecycle tests in a Docker
+build shell is not equivalent. The native toolchain is not copied to the final
+test image. Keep the same wrapper, private sockets and finally-based cleanup.
+
+`test/e2e/native-tmux.e2e.test.ts` requires `TMT_TEST_TMUX_PROBE`, set by that
+image to the narrow development example. It feeds the descriptor into the
+existing fixture selector, never silently substituting TypeScript. Its caller,
+snapshot, target, metadata and known-server cases are adapter integration, not
+public native CLI parity. The probe requires fixture socket environment as an
+accidental-host-use guard, not an authorization boundary. Never run its tmux
+operations against a host server. Process fixtures use finite children even
+on failure and never signal a recycled PID after observed reaping.
 
 For runtime-rewrite work, read [RUST-REWRITE.md](RUST-REWRITE.md) for the proposed
 boundaries and parity gates. The optional [performance baseline](PERFORMANCE-BASELINE.md)
