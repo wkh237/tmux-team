@@ -33,6 +33,8 @@ pnpm dev -- --help
 
 The `rust/` workspace is not the installed runtime yet. It implements only
 help/version/completion and typed grammar; effectful commands explicitly fail.
+The separate storage adapter implements schema 8 lifecycle compatibility, tested
+through a development-only probe rather than an installed command.
 Use the exact toolchain from `rust/rust-toolchain.toml` and run from `rust/`:
 
 ```bash
@@ -40,6 +42,7 @@ cargo fmt --all --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 cargo build --locked
+cargo build --locked --example storage-probe
 cargo +1.88.0 build --locked
 ```
 
@@ -47,11 +50,19 @@ From the repository root, select the built executable explicitly:
 
 ```bash
 TMT_TEST_CLI='{"executable":"/absolute/checkout/rust/target/debug/tmt","args":[]}' \
-  pnpm test:native:cli
+  TMT_TEST_STORAGE_PROBE='{"executable":"/absolute/checkout/rust/target/debug/examples/storage-probe","args":[]}' \
+  pnpm test:native
 ```
 
 This preview-specific suite reuses the shared sandbox and bounded process
-launcher; it does not replace TypeScript or Docker verification. Also run the
+launcher; it does not replace TypeScript or Docker verification. Storage tests
+create and close TypeScript schema-prefix fixtures, migrate through the actual
+Rust adapter, and compare independent SQL schema/data with the TypeScript result.
+They also exercise reverse opens, rollback, history rejection and bounded writer
+contention. Neither executable selector may silently fall back to TypeScript.
+The probe accepts only a database path and runs open/health/checkpoint/close;
+it has no arbitrary SQL or failure-injection command and is not packaged.
+Also run the
 existing parser-only public contract subset through the same selection:
 
 ```bash
@@ -63,8 +74,8 @@ TMT_TEST_CLI='{"executable":"/absolute/checkout/rust/target/debug/tmt","args":[]
 Keep Cargo workspace version synchronized with the package version while both
 runtimes coexist. Check the resolved dependency graph's licenses, MSRVs and
 current RustSec advisories when changing Cargo.lock. `tmt-core` must remain free
-of CLI/concrete-IO dependencies. Add `tmt-adapters` when concrete storage arrives,
-not as an empty speculative abstraction. See RUST-REWRITE for the dependency
+of CLI/concrete-IO dependencies. `tmt-adapters` owns the concrete SQLite lifecycle;
+keep its raw connection private. See RUST-REWRITE for the dependency
 decision and explicit exceptions under #100.
 
 For runtime-rewrite work, read [RUST-REWRITE.md](RUST-REWRITE.md) for the proposed

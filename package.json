@@ -13,7 +13,7 @@
     "test": "pnpm test:run",
     "test:watch": "vitest",
     "test:e2e": "node scripts/run-e2e.mjs",
-    "test:native:cli": "vitest run --config test/native/vitest.config.ts",
+    "test:native": "vitest run --config test/native/vitest.config.ts",
     "test:run": "vitest run --coverage && node scripts/check-coverage.mjs --threshold 90 --branches 85",
     "lint": "oxlint src/",
     "e2e:typecheck": "tsc --project tsconfig.e2e.json --noEmit",

@@ -893,8 +893,8 @@ failure semantics; merely introducing an interface is not an architectural fix.
 `rust/` contains a development-only native CLI under #96; installed entry points
 remain TypeScript. `tmt-core` owns pure numeric limits, while `tmt-cli` owns one
 Clap grammar, typed requests, presentation and explicit no-effects rejection for
-unimplemented commands. No concrete adapter package is created before #97's first
-storage implementation. Neither core nor typed requests depend on concrete IO.
+unimplemented commands. `tmt-adapters` owns the schema 8 SQLite lifecycle under
+#97; neither core nor typed requests depend on concrete IO.
 
 Help and completion use a filtered projection of the same grammar, excluding
 hidden rejection syntax and unrelated inherited options. Parser errors choose
@@ -904,7 +904,7 @@ invocations without exposing Clap to application use cases. The binary returns
 an exit status through `main` and does not terminate from a domain operation.
 
 Native syntax includes the approved #100 amendment (`rm`/`remove`, temporary
-binding defaults and `-s`/`--save`). Storage, retirement, workspace selection and
+binding defaults and `-s`/`--save`). Identity repositories, retirement, workspace selection and
 promotion are not yet implemented. The durable-global invariants elsewhere in
 this map still describe the shipped TypeScript runtime, not the amended future
 native lifecycle. See [RUST-REWRITE.md](RUST-REWRITE.md) for transition boundaries.
@@ -914,6 +914,22 @@ native-preview process assertions. It requires a selected build, rather than
 silently testing TS. The named shared parser-contract subset remains separate
 from full native parity. Native unit tests cover typed grammar and core policy;
 real tmux behavior remains gated by the existing Docker harness as it is ported.
+
+The native storage adapter owns one synchronous, private rusqlite connection.
+Opening enforces private files, WAL, foreign keys, the five-second busy timeout,
+NORMAL synchronization and real FTS5 availability. Migrations 1–8 retain their
+historical definitions, immediate transaction boundaries and lock-held history
+rechecks. Migration 6 keeps frozen seven-day retention, bounded batches and
+JavaScript-safe saturating timestamps; this is not today's configuration policy.
+Close always releases the connection even if checkpoint fails, preserving the
+primary error. Cold WAL transitions can return retryable contention, as in the
+TypeScript adapter; no new retry loop is hidden in this lifecycle layer.
+
+`storage-probe` is a development-only example using that real adapter, not a
+public CLI command or alternate storage implementation. Shared bounded subprocess
+tests compare closed TypeScript schema-prefix fixtures and independent SQL
+observations, reverse-reopen with TypeScript and exercise failure recovery.
+These tests establish storage compatibility, not native request/identity parity.
 
 The [Rust rewrite decision](RUST-REWRITE.md) records the proposed native package
 boundaries, compatibility/test matrix, data coexistence gates and dependency

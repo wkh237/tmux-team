@@ -48,10 +48,9 @@ is by responsibility, not a mechanical copy of every TypeScript file.
 
 ### Implemented native preview
 
-The `rust/` workspace currently contains `tmt-core` (pure numeric policy) and
-`tmt-cli` (grammar, typed invocation translation and output). `tmt-adapters`
-will be introduced with its first concrete storage consumer in #97, not as an
-empty facade. The npm entry points still execute TypeScript. No command silently
+The `rust/` workspace contains `tmt-core` (pure numeric policy),
+`tmt-cli` (grammar, typed invocation translation and output), and `tmt-adapters`
+(schema 8 SQLite lifecycle under #97). The npm entry points still execute TypeScript. No command silently
 delegates from native to Node.
 
 The preview implements help, version and Bash/Zsh completion. All recognized
@@ -78,13 +77,31 @@ locked builds on both versions are required. The selected released dependencies
 are Clap 4.6.6, clap_complete 4.6.9 and serde_json 1.0.151. Clap disables defaults,
 enabling only std/help/usage/error-context/suggestions/string; the string feature
 supports projecting grammar metadata without a duplicate command inventory.
-No derive, color, async runtime, SQLite or process dependency is introduced yet.
-Published manifests for the locked graph declare MSRVs at or below 1.85; licenses
+No derive, color, async runtime or process dependency is introduced yet.
+Published manifests for the original grammar graph declare MSRVs at or below 1.85; licenses
 are MIT/Apache-2.0 compatible alternatives, with unicode-ident also carrying
 Unicode-3.0. RustSec database revision
 `5a0ebedfe8bdd2e295b171f4162f8c977bcad9a5` contained no advisory entries for the
 locked dependency package names when inspected. This dated inspection is not a
 permanent security guarantee; repeat on dependency updates.
+
+#97 pins rusqlite 0.40.2 with default features disabled and only `bundled` enabled,
+using libsqlite3-sys 0.38.2. This gives a synchronous adapter with a controlled
+SQLite build, including FTS5, without an ORM, pool or extension-loading API.
+The added dependency licenses are MIT or MIT/Apache-2.0. At the same RustSec
+revision, the nine entries for rusqlite, libsqlite3-sys, shlex and smallvec all
+list patched ranges containing the locked versions. Some manifests omit MSRV,
+so actual Rust 1.88 locked compilation remains the acceptance evidence.
+
+Schema 8 remains unchanged. Native migrations retain the historical names,
+column/index/foreign-key definitions and seven-day migration backfill rather
+than applying today's retention configuration retroactively. The private
+connection exposes only lifecycle operations until repositories are ported.
+A non-installed `storage-probe` example allows bounded cross-runtime tests of
+the real adapter, without adding arbitrary SQL or fault flags to public syntax.
+Cold concurrent WAL transitions can report retryable busy errors even with a
+busy timeout; this preserves the existing storage boundary, not an all-openers
+success guarantee. See [SQLite busy-handler behavior](https://sqlite.org/c3ref/busy_handler.html).
 
 ### Execution and resource ownership
 
