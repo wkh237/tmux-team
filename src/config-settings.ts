@@ -2,6 +2,7 @@ import type {
   ConfigDefaults,
   GlobalConfig,
   GlobalExchangeSettings,
+  GlobalUiSettings,
   LocalSettings,
   ResolvedConfig,
 } from './types.js';
@@ -30,6 +31,9 @@ const DEFAULT_CONFIG = {
   exchange: {
     retentionDays: DEFAULT_EXCHANGE_RETENTION_DAYS,
   },
+  ui: {
+    paneBadge: 'off',
+  },
 } as const;
 
 type JsonObject = Record<string, unknown>;
@@ -40,7 +44,8 @@ export type ConfigSettingKey =
   | 'captureLines'
   | 'preambleEvery'
   | 'pasteEnterDelayMs'
-  | 'exchange.retentionDays';
+  | 'exchange.retentionDays'
+  | 'ui.paneBadge';
 
 export class ConfigValidationError extends Error {
   constructor(
@@ -88,6 +93,10 @@ function isValidPreambleMode(value: unknown): value is 'always' | 'disabled' {
   return value === 'always' || value === 'disabled';
 }
 
+function isValidPaneBadge(value: unknown): value is 'on' | 'off' {
+  return value === 'on' || value === 'off';
+}
+
 interface SettingRule {
   readonly valid: (value: unknown) => boolean;
   readonly expected: string;
@@ -113,6 +122,7 @@ const SETTING_RULES: Record<ConfigSettingKey, SettingRule> = {
     valid: isValidExchangeRetentionDays,
     expected: `an integer from ${MIN_EXCHANGE_RETENTION_DAYS} through ${MAX_EXCHANGE_RETENTION_DAYS}`,
   },
+  'ui.paneBadge': { valid: isValidPaneBadge, expected: "'on' or 'off'" },
 };
 
 export function isValidConfigSettingValue(key: ConfigSettingKey, value: unknown): boolean {
@@ -140,6 +150,7 @@ export function validateGlobalConfigShape(
   const root = validateObject(value, filePath, '<root>');
   if (hasOwn(root, 'defaults')) validateObject(root.defaults, filePath, 'defaults');
   if (hasOwn(root, 'exchange')) validateObject(root.exchange, filePath, 'exchange');
+  if (hasOwn(root, 'ui')) validateObject(root.ui, filePath, 'ui');
 }
 
 /** Validate only the JSON container shape so a targeted config repair is possible. */
@@ -171,6 +182,13 @@ export function validateGlobalConfig(
       );
     }
   }
+  if (hasOwn(root, 'ui')) {
+    const ui = root.ui as JsonObject;
+    if (hasOwn(ui, 'paneBadge')) {
+      const rule = SETTING_RULES['ui.paneBadge'];
+      validateKnownField(ui.paneBadge, filePath, 'ui.paneBadge', rule.valid, rule.expected);
+    }
+  }
   if (!hasOwn(root, 'defaults')) return;
   const defaults = root.defaults as JsonObject;
   validateKnownSettings(defaults, filePath, 'defaults.', [
@@ -198,6 +216,7 @@ export interface ValidatedGlobalConfig {
   readonly preambleMode?: GlobalConfig['preambleMode'];
   readonly defaults?: Partial<ConfigDefaults>;
   readonly exchange?: Pick<GlobalExchangeSettings, 'retentionDays'>;
+  readonly ui?: Pick<GlobalUiSettings, 'paneBadge'>;
 }
 
 export interface ValidatedLocalSettings {
@@ -207,6 +226,7 @@ export interface ValidatedLocalSettings {
 function projectGlobalConfig(value: JsonObject): ValidatedGlobalConfig {
   const rawDefaults = isJsonObject(value.defaults) ? value.defaults : undefined;
   const rawExchange = isJsonObject(value.exchange) ? value.exchange : undefined;
+  const rawUi = isJsonObject(value.ui) ? value.ui : undefined;
   return {
     ...(value.preambleMode !== undefined && {
       preambleMode: value.preambleMode as GlobalConfig['preambleMode'],
@@ -230,6 +250,9 @@ function projectGlobalConfig(value: JsonObject): ValidatedGlobalConfig {
     }),
     ...(rawExchange?.retentionDays !== undefined && {
       exchange: { retentionDays: rawExchange.retentionDays as number },
+    }),
+    ...(rawUi?.paneBadge !== undefined && {
+      ui: { paneBadge: rawUi.paneBadge as 'on' | 'off' },
     }),
   };
 }
@@ -274,6 +297,7 @@ export function createDefaultConfig(): ResolvedConfig {
     preambleMode: DEFAULT_CONFIG.preambleMode,
     defaults: { ...DEFAULT_CONFIG.defaults },
     exchange: { ...DEFAULT_CONFIG.exchange },
+    ui: { ...DEFAULT_CONFIG.ui },
   };
 }
 

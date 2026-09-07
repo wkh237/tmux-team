@@ -53,7 +53,7 @@ function createContext(service: PreambleService, flags: Partial<Context['flags']
       listPanes: vi.fn(() => []),
       getCurrentPaneId: vi.fn(() => null),
       resolvePaneTarget: vi.fn(() => null),
-      setPaneTitle: vi.fn(),
+      setPaneBadge: vi.fn(),
     },
     preambleService: service,
     identityService: {

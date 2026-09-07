@@ -38,14 +38,17 @@ export function bindIdentity(
   name: string,
   options: { readonly current?: boolean } = {}
 ): void {
+  // Validate configuration before committing identity effects. Only the actual
+  // cosmetic update below is best-effort.
+  const badgeEnabled = ctx.config.ui.paneBadge === 'on';
   try {
     const identity = options.current
       ? ctx.identityService.bindCurrent(name)
       : ctx.identityService.bindPane(paneId, name);
     try {
-      ctx.tmux.setPaneTitle(paneId, identity.name);
+      ctx.tmux.setPaneBadge(paneId, badgeEnabled ? identity.name : null);
     } catch {
-      // Identity metadata is authoritative; title synchronization is presentation only.
+      // Identity metadata is authoritative; badges are presentation only.
     }
     if (ctx.flags.json) ctx.ui.json({ bound: true, name: identity.name, pane: paneId });
     else ctx.ui.success(`Bound '${identity.name}' to pane ${paneId}`);
@@ -62,6 +65,11 @@ export function unbindIdentity(ctx: Context, paneId: string): void {
     const identity = ctx.identityService.unbindCurrent();
     if (!identity) {
       failIdentity(ctx, 'UNBOUND_PANE', 'Pane has no active global name.');
+    }
+    try {
+      ctx.tmux.setPaneBadge(paneId, null);
+    } catch {
+      // Clearing a cosmetic label cannot undo a successful unbind.
     }
     if (ctx.flags.json) {
       ctx.ui.json({ unbound: true, name: identity.name, pane: paneId });

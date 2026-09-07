@@ -207,6 +207,9 @@ ${colors.yellow('SETTINGS')}
   tmux-team config set exchange.retentionDays 90 --global
   Retention accepts integer days 1..3650, global-only, for new requests only.
   Reads/retries do not renew expiry; cleanup is bounded and opportunistic.
+  tmux-team config set ui.paneBadge on --global
+  Badges default to off; apply on the next name/this/add. Unbind clears them.
+  Display requires your own theme fragment; TMT never changes titles or borders.
   --wait is retired; --lines is only for check, not talk.
   Stored mode/maxCaptureLines settings are inert and preserved, not migrated.
   config clear mode removes only the obsolete local mode key.

@@ -130,22 +130,32 @@ describe.sequential('Exchange attention through the real Docker/tmux fixture', (
 
         // Bind the same durable identity and prove omitted --identity uses verified caller
         // evidence. The explicit offline path above never touched tmux or parsed config.
-        expect(success(await fixture.runJsonCli(['name', 'Alice']))).toEqual({
-          bound: true,
-          name: 'Alice',
-          pane: fixture.pane,
-        });
+        const bindWithValidSettings = async (name: string, pane: string): Promise<void> => {
+          // Binding now validates badge configuration. Repair only for that operation,
+          // then restore malformed settings before each implicit exchange read below.
+          expect(fs.readFileSync(path.join(fixture.globalDir, 'config.json'), 'utf8')).toBe(
+            configs.global
+          );
+          expect(fs.readFileSync(path.join(fixture.workspace, 'tmux-team.json'), 'utf8')).toBe(
+            configs.local
+          );
+          fs.writeFileSync(path.join(fixture.globalDir, 'config.json'), '{}');
+          fs.writeFileSync(path.join(fixture.workspace, 'tmux-team.json'), '{}');
+          expect(success(await fixture.runJsonCli(['name', name]))).toEqual({
+            bound: true,
+            name: 'Alice',
+            pane,
+          });
+          expect(malformedConfig(fixture)).toEqual(configs);
+        };
+        await bindWithValidSettings('Alice', fixture.pane);
         const implicit = success<{ items: Array<Record<string, unknown>> }>(
           await fixture.runJsonCli(['x', 'list'])
         );
         expect(implicit.items.some((item) => item.requestId === requestId)).toBe(true);
 
         const restarted = await fixture.restartServer();
-        expect(success(await fixture.runJsonCli(['name', 'alice']))).toEqual({
-          bound: true,
-          name: 'Alice',
-          pane: restarted.pane,
-        });
+        await bindWithValidSettings('alice', restarted.pane);
         const afterRebind = success<{ identity: PublicIdentity }>(
           await fixture.runJsonCli(['x', 'show', requestId])
         );

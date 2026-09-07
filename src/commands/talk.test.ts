@@ -178,7 +178,7 @@ function createMockTmux(options: { readonly onSend?: (message: string) => void }
     listPanes: () => [],
     getCurrentPaneId: () => null,
     resolvePaneTarget: (target: string) => target,
-    setPaneTitle: () => undefined,
+    setPaneBadge: () => undefined,
     getEndpointSnapshot: () => ({
       server: {
         serverId: ENDPOINT.serverId,

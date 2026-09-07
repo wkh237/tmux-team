@@ -76,7 +76,7 @@ function context(json = false): Context {
       listPanes: vi.fn(() => []),
       getCurrentPaneId: vi.fn(() => '%1'),
       resolvePaneTarget: vi.fn(),
-      setPaneTitle: vi.fn(),
+      setPaneBadge: vi.fn(),
     },
     identityService,
     get requestService(): Context['requestService'] {

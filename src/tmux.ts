@@ -623,18 +623,19 @@ export function createTmux(): Tmux {
       }
     },
 
-    setPaneTitle(paneId: string, title: string): void {
-      execFileSync('tmux', ['select-pane', '-t', paneId, '-T', title], { stdio: 'pipe' });
-      // Keep the title visible in the pane border and let tmux inherit the
-      // active/inactive border colors from the user's theme.
-      execFileSync('tmux', ['set-window-option', '-t', paneId, 'pane-border-status', 'top'], {
-        stdio: 'pipe',
-      });
-      execFileSync(
-        'tmux',
-        ['set-window-option', '-t', paneId, 'pane-border-format', '#[align=right]#{pane_title}'],
-        { stdio: 'pipe' }
-      );
+    setPaneBadge(paneId: string, name: string | null): void {
+      const args = ['set-option', '-p'];
+      if (name === null) args.push('-u');
+      args.push('-t', paneId, '@tmux-team.badge');
+      if (name !== null) {
+        // This is a bounded display label, never identity or executable format.
+        // Replace format introducers and terminal controls rather than allowing
+        // an identity name to inject tmux styling or nested command expansion.
+        const characters = Array.from(name.replaceAll('#', '＃').replace(/\p{Cc}/gu, ' '));
+        const label = characters.slice(0, 48).join('') + (characters.length > 48 ? '…' : '');
+        args.push(`${label} (tmt)`);
+      }
+      execFileSync('tmux', args, { stdio: 'pipe', ...commandOptions() });
     },
 
     getCurrentPaneId(): string | null {

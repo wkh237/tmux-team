@@ -104,6 +104,11 @@ tmt help
 
 ## Boundaries worth knowing
 
+TMT leaves your tmux titles and border layout alone. Identity badges are off by
+default; opt in with `tmt config set ui.paneBadge on --global` and add the
+[badge fragment to your own theme](USER-GUIDE.md#optional-pane-badge).
+Use `tmt config show --json` to inspect settings and their file paths.
+
 TMT routes to live panes on the current tmux server. It does not provide an
 offline recipient queue, remote routing, shared memory, authentication, or MCP
 connectivity. Durable identity records and retained request/reply data are

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { cmdName } from './name.js';
 import { cmdThis } from './this.js';
 import { cmdAdd } from './add.js';
+import { cmdUnbind } from './unbind.js';
 import { IdentityServiceError } from '../identity-service.js';
 import type { Context, IdentityService } from '../types.js';
 import { createDefaultConfig } from '../config-settings.js';
@@ -23,7 +24,7 @@ function context(json = false): Context {
     listPanes: vi.fn(() => []),
     getCurrentPaneId: vi.fn(() => '%1'),
     resolvePaneTarget: vi.fn((target: string) => target),
-    setPaneTitle: vi.fn(),
+    setPaneBadge: vi.fn(),
   };
   const identityService: IdentityService = {
     createIdentity: vi.fn(() => {
@@ -86,14 +87,14 @@ describe('global identity commands', () => {
     expect(() => cmdName(ctx, 'Backend')).toThrow();
     expect(legacyRead).not.toHaveBeenCalled();
     expect(legacyWrite).not.toHaveBeenCalled();
-    expect(ctx.tmux.setPaneTitle).not.toHaveBeenCalled();
+    expect(ctx.tmux.setPaneBadge).not.toHaveBeenCalled();
     expect(ctx.ui.success).not.toHaveBeenCalled();
   });
-  it('binds the current pane through the durable service and keeps title output', () => {
+  it('binds the current pane with the badge disabled by default', () => {
     const ctx = context();
     cmdName(ctx, 'Backend');
     expect(ctx.identityService.bindCurrent).toHaveBeenCalledWith('Backend');
-    expect(ctx.tmux.setPaneTitle).toHaveBeenCalledWith('%1', 'Backend');
+    expect(ctx.tmux.setPaneBadge).toHaveBeenCalledWith('%1', null);
     expect(ctx.ui.success).toHaveBeenCalledWith("Bound 'Backend' to pane %1");
   });
 
@@ -157,7 +158,7 @@ describe('global identity commands', () => {
     expect(ctx.ui.json).toHaveBeenCalledWith({
       error: { code: 'NAME_ALREADY_ACTIVE', message: 'Name is already active on another pane.' },
     });
-    expect(ctx.tmux.setPaneTitle).not.toHaveBeenCalled();
+    expect(ctx.tmux.setPaneBadge).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -206,17 +207,77 @@ describe('global identity commands', () => {
       });
       expect(() => handler(ctx, 'alice')).toThrow('exit(5)');
       expect(ctx.ui.json).toHaveBeenCalledOnce();
-      expect(ctx.tmux.setPaneTitle).not.toHaveBeenCalled();
+      expect(ctx.tmux.setPaneBadge).not.toHaveBeenCalled();
     }
     expect(vi.mocked(contexts[0].ui.json).mock.calls).toEqual(
       vi.mocked(contexts[1].ui.json).mock.calls
     );
   });
 
-  it('keeps a successful bind when title synchronization fails', () => {
+  it.each([cmdName, cmdThis])(
+    'publishes an opted-in badge through the shared binding path',
+    (handler) => {
+      const ctx = context(true);
+      ctx.config.ui.paneBadge = 'on';
+      handler(ctx, 'Backend');
+      expect(ctx.tmux.setPaneBadge).toHaveBeenCalledWith('%1', 'Backend');
+      expect(ctx.ui.json).toHaveBeenCalledWith({ bound: true, name: 'Backend', pane: '%1' });
+    }
+  );
+
+  it('publishes an opted-in explicit-pane badge', () => {
+    const ctx = context(true);
+    ctx.config.ui.paneBadge = 'on';
+    cmdAdd(ctx, '%2', 'Backend');
+    expect(ctx.tmux.setPaneBadge).toHaveBeenCalledWith('%2', 'Backend');
+  });
+
+  it('does not commit a binding when configuration cannot be loaded', () => {
     const ctx = context();
-    (ctx.tmux.setPaneTitle as ReturnType<typeof vi.fn>).mockImplementation(() => {
-      throw new Error('title unavailable');
+    Object.defineProperty(ctx, 'config', {
+      get: () => {
+        throw new Error('invalid configuration');
+      },
+    });
+    expect(() => cmdName(ctx, 'Backend')).toThrow('invalid configuration');
+    expect(ctx.identityService.bindCurrent).not.toHaveBeenCalled();
+    expect(ctx.tmux.setPaneBadge).not.toHaveBeenCalled();
+  });
+
+  it('clears only the badge after a successful unbind without loading settings', () => {
+    const ctx = context(true);
+    vi.mocked(ctx.identityService.unbindCurrent).mockReturnValue(identity());
+    Object.defineProperty(ctx, 'config', {
+      get: () => {
+        throw new Error('unexpected config read');
+      },
+    });
+    cmdUnbind(ctx);
+    expect(ctx.tmux.setPaneBadge).toHaveBeenCalledWith('%1', null);
+    expect(ctx.ui.json).toHaveBeenCalledWith({ unbound: true, name: 'Backend', pane: '%1' });
+  });
+
+  it('does not change a badge when unbind fails', () => {
+    const ctx = context(true);
+    vi.mocked(ctx.identityService.unbindCurrent).mockReturnValue(undefined);
+    expect(() => cmdUnbind(ctx)).toThrow('exit(1)');
+    expect(ctx.tmux.setPaneBadge).not.toHaveBeenCalled();
+  });
+
+  it('keeps a successful unbind when clearing the badge fails', () => {
+    const ctx = context(true);
+    vi.mocked(ctx.identityService.unbindCurrent).mockReturnValue(identity());
+    vi.mocked(ctx.tmux.setPaneBadge).mockImplementation(() => {
+      throw new Error('badge unavailable');
+    });
+    cmdUnbind(ctx);
+    expect(ctx.ui.json).toHaveBeenCalledWith({ unbound: true, name: 'Backend', pane: '%1' });
+  });
+
+  it('keeps a successful bind when badge synchronization fails', () => {
+    const ctx = context();
+    (ctx.tmux.setPaneBadge as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error('badge unavailable');
     });
     cmdName(ctx, 'backend');
     expect(ctx.identityService.bindCurrent).toHaveBeenCalledWith('backend');

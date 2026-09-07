@@ -28,6 +28,7 @@ describe('config settings policy', () => {
         pasteEnterDelayMs: 500,
       },
       exchange: { retentionDays: 90 },
+      ui: { paneBadge: 'off' },
     });
     expect(createDefaultGlobalDefaults()).toEqual(second.defaults);
   });
@@ -45,6 +46,8 @@ describe('config settings policy', () => {
     ['pasteEnterDelayMs', 2_147_483_647],
     ['exchange.retentionDays', 1],
     ['exchange.retentionDays', 3650],
+    ['ui.paneBadge', 'on'],
+    ['ui.paneBadge', 'off'],
   ] as const)('accepts %s=%s', (key, value) => {
     expect(isValidConfigSettingValue(key, value)).toBe(true);
   });
@@ -65,6 +68,8 @@ describe('config settings policy', () => {
     ['exchange.retentionDays', 0],
     ['exchange.retentionDays', 3651],
     ['exchange.retentionDays', 1.5],
+    ['ui.paneBadge', 'enabled'],
+    ['ui.paneBadge', 'ON'],
   ] as const)('rejects %s=%s', (key, value) => {
     expect(isValidConfigSettingValue(key, value)).toBe(false);
   });
@@ -84,6 +89,10 @@ describe('config settings policy', () => {
     );
   });
 
+  it.each([null, [], 'on'])('rejects the invalid ui container %j', (ui) => {
+    expect(() => validateAndProjectGlobalConfig({ ui }, file)).toThrowError(ConfigValidationError);
+  });
+
   it('validates known values in global and local layers, including overridden values', () => {
     expect(() =>
       validateAndProjectGlobalConfig(
@@ -97,6 +106,9 @@ describe('config settings policy', () => {
     expect(() =>
       validateAndProjectLocalSettings({ $config: { preambleEvery: null } }, file)
     ).toThrowError(ConfigValidationError);
+    expect(() =>
+      validateAndProjectGlobalConfig({ ui: { paneBadge: 'enabled' } }, file)
+    ).toThrowError(ConfigValidationError);
   });
 
   it('projects known fields without importing unknown or retired fields', () => {
@@ -107,6 +119,7 @@ describe('config settings policy', () => {
           mode: 'wait',
           defaults: { timeout: 120, maxCaptureLines: 999, future: true },
           exchange: { retentionDays: 90, future: true },
+          ui: { paneBadge: 'on', future: true },
         },
         file
       )
@@ -114,6 +127,7 @@ describe('config settings policy', () => {
       preambleMode: 'disabled',
       defaults: { timeout: 120 },
       exchange: { retentionDays: 90 },
+      ui: { paneBadge: 'on' },
     });
     expect(
       validateAndProjectLocalSettings(
@@ -149,6 +163,7 @@ describe('config settings policy', () => {
     expect(() => validateGlobalConfigShape({ exchange: [] }, file)).toThrowError(
       ConfigValidationError
     );
+    expect(() => validateGlobalConfigShape({ ui: [] }, file)).toThrowError(ConfigValidationError);
     expect(() => validateLocalConfigShape({ $config: [] }, file)).toThrowError(
       ConfigValidationError
     );

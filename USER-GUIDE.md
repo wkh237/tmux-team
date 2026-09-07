@@ -170,6 +170,82 @@ tmt config set preambleEvery 3
 tmt config set exchange.retentionDays 90 --global
 ```
 
+| Setting | Default | Scope |
+| --- | --- | --- |
+| `preambleMode` | `always` | Local override or `--global`; `always` / `disabled` |
+| `preambleEvery` | `3` | Local override or `--global`; `0` disables injection |
+| `pasteEnterDelayMs` | `500` | Local override or `--global`; `0` removes the delay |
+| `exchange.retentionDays` | `90` | Global only; new requests, integer days `1..3650` |
+| `ui.paneBadge` | `off` | Global only; `on` / `off` |
+
+`config show --json` reports resolved values, sources, and actual file paths.
+Global settings normally live in `~/.config/tmux-team/config.json`; local
+overrides live in `./tmux-team.json`. Use the reported paths when a custom home
+or configuration root is in use. Global-only settings cannot be set or cleared
+locally. Unknown fields are preserved; invalid known fields should be repaired,
+not worked around by deleting the file.
+
+### Optional pane badge
+
+TMT never changes `pane_title`, `pane-border-format`, border position, or colors.
+The badge is **off by default**. To opt in:
+
+```bash
+tmt config set ui.paneBadge on --global
+tmt name alice
+```
+
+This publishes `alice (tmt)` in the pane-local `@tmux-team.badge` option.
+It does not display anything until you explicitly insert this fragment at the
+desired position in your own tmux `pane-border-format`:
+
+```text
+#{?@tmux-team.badge, [#{@tmux-team.badge}],}
+```
+
+For a theme showing the pane number on the left and `repo/branch` on the right,
+place the fragment after the pane number, before your right-aligned segment.
+Keep the existing expressions and styles; do not replace the whole theme with
+this fragment. The result is conceptually:
+
+```text
+---10.0 [alice (tmt)]----------------------------repo/branch---
+```
+
+Your theme controls color, alignment, and narrow-pane behavior. TMT does not
+reserve space or move the existing right-hand segment. For black text on a light
+blue background, hidden below 80 columns, an optional fragment is:
+
+```text
+#{?#{&&:#{@tmux-team.badge},#{e|>=:#{pane_width},80}},#[push-default]#[fg=black bg=colour153] #{@tmux-team.badge} #[default]#[pop-default],}
+```
+
+Adjust the width threshold for your theme; it is not an automatic fit calculation.
+The style save/restore assumes your surrounding theme does not already use
+`push-default`: tmux only supports one saved default, not nested style stacks.
+If it does, integrate the colors using that theme's own restoration mechanism.
+See the [tmux styles reference](https://man.openbsd.org/tmux#STYLES).
+
+Display labels replace
+`#` and control characters with non-executable text and truncate names after
+48 Unicode code points; the stored identity name remains unchanged.
+
+Configuration changes do not scan or rewrite panes. They apply on the next
+successful `name`, `this`, or `add` for that pane. To disable the current badge:
+
+```bash
+tmt config set ui.paneBadge off --global
+tmt this alice
+```
+
+`unbind` also clears the badge, even when it is disabled. Failed bindings leave
+it unchanged. Badge writes are bounded and best-effort: display failures do not
+undo a successful identity change. If an older TMT version already replaced
+your title or border format, restore it from your saved tmux configuration;
+TMT cannot reconstruct an overwritten theme.
+
+### Installation troubleshooting
+
 If npm reports a permissions error, use a user-owned Node installation or
 version manager and avoid adding `sudo` blindly. If `tmt` is not found after
 installation, check the npm global prefix and that its `bin` directory is on

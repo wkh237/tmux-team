@@ -15,11 +15,11 @@ import {
 } from '../config.js';
 import { createDefaultGlobalDefaults, isValidConfigSettingValue } from '../config-settings.js';
 
-type EnumConfigKey = 'preambleMode';
+type EnumConfigKey = 'preambleMode' | 'ui.paneBadge';
 type NumericConfigKey = 'preambleEvery' | 'pasteEnterDelayMs' | 'exchange.retentionDays';
 type ConfigKey = EnumConfigKey | NumericConfigKey;
 
-const ENUM_KEYS: EnumConfigKey[] = ['preambleMode'];
+const ENUM_KEYS: EnumConfigKey[] = ['preambleMode', 'ui.paneBadge'];
 const NUMERIC_KEYS: NumericConfigKey[] = [
   'preambleEvery',
   'pasteEnterDelayMs',
@@ -31,12 +31,13 @@ function isValidKey(key: string): key is ConfigKey {
   return VALID_KEYS.includes(key as ConfigKey);
 }
 
-function isGlobalOnlyKey(key: ConfigKey): key is 'exchange.retentionDays' {
-  return key === 'exchange.retentionDays';
+function isGlobalOnlyKey(key: ConfigKey): key is 'exchange.retentionDays' | 'ui.paneBadge' {
+  return key === 'exchange.retentionDays' || key === 'ui.paneBadge';
 }
 
 type ParsedSetting =
-  | { readonly key: EnumConfigKey; readonly value: 'always' | 'disabled' }
+  | { readonly key: 'preambleMode'; readonly value: 'always' | 'disabled' }
+  | { readonly key: 'ui.paneBadge'; readonly value: 'on' | 'off' }
   | { readonly key: NumericConfigKey; readonly value: number };
 
 function parseSetting(key: ConfigKey, value: string): ParsedSetting {
@@ -45,6 +46,12 @@ function parseSetting(key: ConfigKey, value: string): ParsedSetting {
       throw new Error(`Invalid value for ${key}: ${value}. Valid values: always, disabled`);
     }
     return { key, value: value as 'always' | 'disabled' };
+  }
+  if (key === 'ui.paneBadge') {
+    if (!isValidConfigSettingValue(key, value)) {
+      throw new Error(`Invalid value for ${key}: ${value}. Valid values: on, off`);
+    }
+    return { key, value: value as 'on' | 'off' };
   }
   if (value.length === 0 || /\D/u.test(value)) {
     throw new Error(`Invalid value for ${key}: ${value}. Must be a non-negative integer.`);
@@ -76,6 +83,9 @@ function showConfig(ctx: Context): void {
         exchange: {
           retentionDays: ctx.config.exchange.retentionDays,
         },
+        ui: {
+          paneBadge: ctx.config.ui.paneBadge,
+        },
       },
       sources: {
         preambleMode: localSettings?.preambleMode
@@ -97,6 +107,9 @@ function showConfig(ctx: Context): void {
               : 'default',
         exchange: {
           retentionDays: globalConfig.exchange?.retentionDays !== undefined ? 'global' : 'default',
+        },
+        ui: {
+          paneBadge: globalConfig.ui?.paneBadge !== undefined ? 'global' : 'default',
         },
       },
       paths: {
@@ -142,6 +155,11 @@ function showConfig(ctx: Context): void {
         'exchange.retentionDays',
         String(ctx.config.exchange.retentionDays),
         exchangeRetentionSource,
+      ],
+      [
+        'ui.paneBadge',
+        ctx.config.ui.paneBadge,
+        globalConfig.ui?.paneBadge !== undefined ? '(global)' : '(default)',
       ],
     ]
   );
@@ -192,6 +210,8 @@ function setConfig(ctx: Context, key: string, value: string, global: boolean): v
       globalConfig.defaults.pasteEnterDelayMs = parsed.value;
     } else if (parsed.key === 'exchange.retentionDays') {
       globalConfig.exchange = { ...globalConfig.exchange, retentionDays: parsed.value };
+    } else if (parsed.key === 'ui.paneBadge') {
+      globalConfig.ui = { ...globalConfig.ui, paneBadge: parsed.value };
     }
     saveGlobalConfig(ctx.paths, globalConfig);
     ctx.ui.success(`Set ${key}=${value} in global config`);

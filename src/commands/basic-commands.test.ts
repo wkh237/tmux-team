@@ -54,7 +54,7 @@ function createMockTmux(): Tmux {
     listPanes: vi.fn(() => []),
     getCurrentPaneId: vi.fn(() => null),
     resolvePaneTarget: vi.fn((target: string) => target),
-    setPaneTitle: vi.fn(),
+    setPaneBadge: vi.fn(),
   };
 }
 
@@ -667,7 +667,7 @@ describe('basic commands', () => {
       cmdConfig(ctx, configRequest('clear', { key: 'invalidkey', global: false }))
     ).toThrow(`exit(${ExitCodes.ERROR})`);
     expect(ctx.ui.error).toHaveBeenCalledWith(
-      'Invalid key: invalidkey. Valid keys: preambleMode, preambleEvery, pasteEnterDelayMs, exchange.retentionDays'
+      'Invalid key: invalidkey. Valid keys: preambleMode, ui.paneBadge, preambleEvery, pasteEnterDelayMs, exchange.retentionDays'
     );
   });
 

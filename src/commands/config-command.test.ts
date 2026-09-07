@@ -48,6 +48,7 @@ function createCtx(
       pasteEnterDelayMs: 500,
     },
     exchange: { retentionDays: 90 },
+    ui: { paneBadge: 'off' },
     ...configOverrides,
   };
   const tmux: Tmux = {
@@ -56,7 +57,7 @@ function createCtx(
     listPanes: vi.fn(() => []),
     getCurrentPaneId: vi.fn(() => null),
     resolvePaneTarget: vi.fn((target: string) => target),
-    setPaneTitle: vi.fn(),
+    setPaneBadge: vi.fn(),
   };
   return {
     argv: [],
@@ -116,6 +117,8 @@ describe('cmdConfig', () => {
     expect(out.paths).toBeTruthy();
     expect(out.resolved.exchange.retentionDays).toBe(90);
     expect(out.sources.exchange.retentionDays).toBe('default');
+    expect(out.resolved.ui.paneBadge).toBe('off');
+    expect(out.sources.ui.paneBadge).toBe('default');
   });
 
   it('shows config as table in human mode', () => {
@@ -124,6 +127,7 @@ describe('cmdConfig', () => {
     expect(ctx.ui.table).toHaveBeenCalled();
     const tableCall = (ctx.ui.table as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(tableCall[1]).toContainEqual(['exchange.retentionDays', '90', '(default)']);
+    expect(tableCall[1]).toContainEqual(['ui.paneBadge', 'off', '(default)']);
   });
 
   it('rejects invalid keys and values', () => {
@@ -189,6 +193,22 @@ describe('cmdConfig', () => {
     });
   });
 
+  it('sets global pane badge and preserves unknown ui fields', () => {
+    const ctx = createCtx(testDir);
+    fs.mkdirSync(ctx.paths.globalDir, { recursive: true });
+    fs.writeFileSync(
+      ctx.paths.globalConfig,
+      JSON.stringify({ keep: true, ui: { future: { enabled: true } } })
+    );
+
+    cmdConfig(ctx, configRequest('set', { key: 'ui.paneBadge', value: 'on', global: true }));
+
+    expect(JSON.parse(fs.readFileSync(ctx.paths.globalConfig, 'utf8'))).toEqual({
+      keep: true,
+      ui: { future: { enabled: true }, paneBadge: 'on' },
+    });
+  });
+
   it('rejects local exchange retention writes and clears before changing bytes', () => {
     const ctx = createCtx(testDir);
     const original = JSON.stringify({ keep: true, $config: { exchange: { retentionDays: 1 } } });
@@ -204,6 +224,22 @@ describe('cmdConfig', () => {
 
     expect(() =>
       cmdConfig(ctx, configRequest('clear', { key: 'exchange.retentionDays', global: false }))
+    ).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(fs.readFileSync(ctx.paths.localConfig, 'utf8')).toBe(original);
+  });
+
+  it('rejects local pane badge writes and clears before changing bytes', () => {
+    const ctx = createCtx(testDir);
+    const original = JSON.stringify({ keep: true, $config: { ui: { paneBadge: 'on' } } });
+    fs.writeFileSync(ctx.paths.localConfig, original);
+
+    expect(() =>
+      cmdConfig(ctx, configRequest('set', { key: 'ui.paneBadge', value: 'on', global: false }))
+    ).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(fs.readFileSync(ctx.paths.localConfig, 'utf8')).toBe(original);
+
+    expect(() =>
+      cmdConfig(ctx, configRequest('clear', { key: 'ui.paneBadge', global: false }))
     ).toThrow(`exit(${ExitCodes.ERROR})`);
     expect(fs.readFileSync(ctx.paths.localConfig, 'utf8')).toBe(original);
   });
@@ -257,6 +293,18 @@ describe('cmdConfig', () => {
     expect(out.sources.preambleEvery).toBe('global');
     expect(out.resolved.exchange.retentionDays).toBe(30);
     expect(out.sources.exchange.retentionDays).toBe('global');
+  });
+
+  it('shows global pane badge source', () => {
+    const ctx = createCtx(testDir, { json: true }, { ui: { paneBadge: 'on' } });
+    fs.mkdirSync(ctx.paths.globalDir, { recursive: true });
+    fs.writeFileSync(ctx.paths.globalConfig, JSON.stringify({ ui: { paneBadge: 'on' } }));
+
+    cmdConfig(ctx, configRequest('show'));
+
+    const out = (ctx.ui as any).jsonCalls[0] as any;
+    expect(out.resolved.ui.paneBadge).toBe('on');
+    expect(out.sources.ui.paneBadge).toBe('global');
   });
 
   it('shows default source when no config has settings', () => {
@@ -325,6 +373,14 @@ describe('cmdConfig', () => {
     expect(fs.existsSync(ctx.paths.globalConfig)).toBe(false);
   });
 
+  it.each(['enabled', '', 'ON', '1'])('rejects invalid pane badge %j', (value) => {
+    const ctx = createCtx(testDir);
+    expect(() =>
+      cmdConfig(ctx, configRequest('set', { key: 'ui.paneBadge', value, global: true }))
+    ).toThrow(`exit(${ExitCodes.ERROR})`);
+    expect(fs.existsSync(ctx.paths.globalConfig)).toBe(false);
+  });
+
   it('uses strict integer syntax and preserves partial global defaults', () => {
     const ctx = createCtx(testDir);
     fs.mkdirSync(ctx.paths.globalDir, { recursive: true });
@@ -365,5 +421,42 @@ describe('cmdConfig', () => {
       cmdConfig(ctx, configRequest('set', { key: 'preambleEvery', value: '5', global: true }))
     ).toThrow(/Invalid configuration/);
     expect(fs.readFileSync(ctx.paths.globalConfig, 'utf8')).toBe(original);
+  });
+
+  it('repairs an invalid pane badge while preserving ui siblings', () => {
+    const ctx = createCtx(testDir);
+    fs.mkdirSync(ctx.paths.globalDir, { recursive: true });
+    fs.writeFileSync(
+      ctx.paths.globalConfig,
+      JSON.stringify({ ui: { paneBadge: 'invalid', future: { enabled: true } } })
+    );
+
+    cmdConfig(ctx, configRequest('set', { key: 'ui.paneBadge', value: 'off', global: true }));
+
+    expect(JSON.parse(fs.readFileSync(ctx.paths.globalConfig, 'utf8'))).toEqual({
+      ui: { paneBadge: 'off', future: { enabled: true } },
+    });
+  });
+
+  it('preserves bytes when a pane badge repair encounters an invalid container or sibling', () => {
+    const ctx = createCtx(testDir);
+    fs.mkdirSync(ctx.paths.globalDir, { recursive: true });
+
+    const invalidContainer = JSON.stringify({ ui: [] });
+    fs.writeFileSync(ctx.paths.globalConfig, invalidContainer);
+    expect(() =>
+      cmdConfig(ctx, configRequest('set', { key: 'ui.paneBadge', value: 'on', global: true }))
+    ).toThrow(/Invalid configuration/);
+    expect(fs.readFileSync(ctx.paths.globalConfig, 'utf8')).toBe(invalidContainer);
+
+    const invalidSibling = JSON.stringify({
+      ui: { paneBadge: 'off' },
+      defaults: { captureLines: 'bad' },
+    });
+    fs.writeFileSync(ctx.paths.globalConfig, invalidSibling);
+    expect(() =>
+      cmdConfig(ctx, configRequest('set', { key: 'ui.paneBadge', value: 'on', global: true }))
+    ).toThrow(/Invalid configuration/);
+    expect(fs.readFileSync(ctx.paths.globalConfig, 'utf8')).toBe(invalidSibling);
   });
 });
