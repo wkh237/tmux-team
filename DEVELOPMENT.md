@@ -29,6 +29,11 @@ pnpm dev -- --help
 
 ## Running Tests
 
+For runtime-rewrite work, read [RUST-REWRITE.md](RUST-REWRITE.md) for the proposed
+boundaries and parity gates. The optional [performance baseline](PERFORMANCE-BASELINE.md)
+reuses the Docker E2E harness and separately measures macOS startup resources.
+Its wall-clock samples are diagnostic evidence, not an ordinary CI timing gate.
+
 - Watch mode:
 
 ```bash

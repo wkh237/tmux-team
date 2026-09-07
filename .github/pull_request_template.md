@@ -24,5 +24,5 @@ Commands and results:
 ## Project lifecycle
 
 - Maintained docs updated or substantive no-impact rationale:
-- Linear issue updated with scope, decisions, evidence, and deferred work:
+- GitHub issue updated with scope, decisions, evidence, and deferred work:
 - Branch/PR/worktree state and cleanup status:

@@ -875,6 +875,17 @@ failure semantics; merely introducing an interface is not an architectural fix.
 
 ## Known deviations and planned work
 
+The [Rust rewrite decision](RUST-REWRITE.md) records the proposed native package
+boundaries, compatibility/test matrix, data coexistence gates and dependency
+evaluation under [#93](https://github.com/wkh237/tmux-team/issues/93).
+It is not the shipped module map. [Preparation #94](https://github.com/wkh237/tmux-team/issues/94)
+adds opt-in measurement tools reusing the E2E fixture and bounded packed-command
+runner; [PERFORMANCE-BASELINE.md](PERFORMANCE-BASELINE.md) owns their protocol and
+limitations. Production remains TypeScript until an explicitly verified cutover.
+The test-only tmux trace keeps one record per invocation by normalizing newlines
+in logged arguments, while forwarding the original arguments unchanged. A real
+tmux buffer round-trip verifies this separation; it is not a transport rewrite.
+
 These links identify owners of unresolved work, not permission to widen an
 unrelated PR. Update this section and the current map in the delivering PR when
 a gap is resolved; do not leave a permanent exception or label a proposal as shipped.

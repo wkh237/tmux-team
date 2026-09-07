@@ -1,0 +1,323 @@
+{
+  "baselineRevision": "cb53533f3a9f19a1a2ab95af59dda20df419200b",
+  "runs": [
+    {
+      "schemaVersion": 1,
+      "platform": "darwin",
+      "arch": "arm64",
+      "kernel": "25.6.0",
+      "node": "v24.20.0",
+      "cpu": "Apple M4 Pro",
+      "tool": "/usr/bin/time -lp",
+      "samples": [
+        {
+          "scenario": "help",
+          "wallMs": 139.084875,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 100532224
+        },
+        {
+          "scenario": "fresh-storage-create",
+          "wallMs": 144.08862500000004,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 102612992
+        },
+        {
+          "scenario": "existing-storage-show",
+          "wallMs": 137.76045799999997,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 101531648
+        },
+        {
+          "scenario": "help",
+          "wallMs": 137.67337500000002,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 101400576
+        },
+        {
+          "scenario": "fresh-storage-create",
+          "wallMs": 144.654041,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 102334464
+        },
+        {
+          "scenario": "existing-storage-show",
+          "wallMs": 143.10783300000003,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 101875712
+        },
+        {
+          "scenario": "help",
+          "wallMs": 138.18958299999997,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 101056512
+        },
+        {
+          "scenario": "fresh-storage-create",
+          "wallMs": 144.28933300000006,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 102776832
+        },
+        {
+          "scenario": "existing-storage-show",
+          "wallMs": 143.72033299999998,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 100286464
+        },
+        {
+          "scenario": "help",
+          "wallMs": 139.12799999999993,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 100761600
+        },
+        {
+          "scenario": "fresh-storage-create",
+          "wallMs": 142.31404199999997,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 102776832
+        },
+        {
+          "scenario": "existing-storage-show",
+          "wallMs": 142.03787499999999,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 101679104
+        },
+        {
+          "scenario": "help",
+          "wallMs": 137.33045800000014,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 100827136
+        },
+        {
+          "scenario": "fresh-storage-create",
+          "wallMs": 142.28579100000002,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 101662720
+        },
+        {
+          "scenario": "existing-storage-show",
+          "wallMs": 140.68283399999973,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 101351424
+        },
+        {
+          "scenario": "help",
+          "wallMs": 138.6082919999999,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 100663296
+        },
+        {
+          "scenario": "fresh-storage-create",
+          "wallMs": 142.74016600000004,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 103235584
+        },
+        {
+          "scenario": "existing-storage-show",
+          "wallMs": 140.43404099999998,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 99909632
+        },
+        {
+          "scenario": "help",
+          "wallMs": 139.94758300000012,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 99893248
+        },
+        {
+          "scenario": "fresh-storage-create",
+          "wallMs": 142.11454200000026,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 101089280
+        },
+        {
+          "scenario": "existing-storage-show",
+          "wallMs": 138.80520799999977,
+          "userSeconds": 0.13,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 100417536
+        }
+      ],
+      "interpretation": "Fresh processes, not dropped OS caches. CPU includes waited descendants; maximum RSS is not the sum of simultaneously live processes. Timing includes measurement wrappers. No tmux or agent work is measured."
+    },
+    {
+      "schemaVersion": 1,
+      "platform": "darwin",
+      "arch": "arm64",
+      "kernel": "25.6.0",
+      "node": "v24.20.0",
+      "cpu": "Apple M4 Pro",
+      "tool": "/usr/bin/time -lp",
+      "samples": [
+        {
+          "scenario": "help",
+          "wallMs": 152.861916,
+          "userSeconds": 0.15,
+          "systemSeconds": 0.03,
+          "maximumResidentSetBytes": 99893248
+        },
+        {
+          "scenario": "fresh-storage-create",
+          "wallMs": 153.0515,
+          "userSeconds": 0.15,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 101171200
+        },
+        {
+          "scenario": "existing-storage-show",
+          "wallMs": 155.820292,
+          "userSeconds": 0.15,
+          "systemSeconds": 0.03,
+          "maximumResidentSetBytes": 99991552
+        },
+        {
+          "scenario": "help",
+          "wallMs": 153.41783299999997,
+          "userSeconds": 0.15,
+          "systemSeconds": 0.03,
+          "maximumResidentSetBytes": 99500032
+        },
+        {
+          "scenario": "fresh-storage-create",
+          "wallMs": 160.3938330000001,
+          "userSeconds": 0.15,
+          "systemSeconds": 0.03,
+          "maximumResidentSetBytes": 101580800
+        },
+        {
+          "scenario": "existing-storage-show",
+          "wallMs": 155.06574999999998,
+          "userSeconds": 0.15,
+          "systemSeconds": 0.03,
+          "maximumResidentSetBytes": 102219776
+        },
+        {
+          "scenario": "help",
+          "wallMs": 149.94737500000008,
+          "userSeconds": 0.15,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 101072896
+        },
+        {
+          "scenario": "fresh-storage-create",
+          "wallMs": 159.41149999999993,
+          "userSeconds": 0.15,
+          "systemSeconds": 0.03,
+          "maximumResidentSetBytes": 101974016
+        },
+        {
+          "scenario": "existing-storage-show",
+          "wallMs": 152.92941700000006,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.03,
+          "maximumResidentSetBytes": 100073472
+        },
+        {
+          "scenario": "help",
+          "wallMs": 146.89804200000003,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 99975168
+        },
+        {
+          "scenario": "fresh-storage-create",
+          "wallMs": 156.68954200000007,
+          "userSeconds": 0.15,
+          "systemSeconds": 0.03,
+          "maximumResidentSetBytes": 101318656
+        },
+        {
+          "scenario": "existing-storage-show",
+          "wallMs": 153.92624999999998,
+          "userSeconds": 0.15,
+          "systemSeconds": 0.03,
+          "maximumResidentSetBytes": 100057088
+        },
+        {
+          "scenario": "help",
+          "wallMs": 150.70074999999997,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.03,
+          "maximumResidentSetBytes": 98942976
+        },
+        {
+          "scenario": "fresh-storage-create",
+          "wallMs": 158.69829200000004,
+          "userSeconds": 0.15,
+          "systemSeconds": 0.03,
+          "maximumResidentSetBytes": 101220352
+        },
+        {
+          "scenario": "existing-storage-show",
+          "wallMs": 152.9117500000002,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.03,
+          "maximumResidentSetBytes": 100188160
+        },
+        {
+          "scenario": "help",
+          "wallMs": 154.457042,
+          "userSeconds": 0.15,
+          "systemSeconds": 0.03,
+          "maximumResidentSetBytes": 99844096
+        },
+        {
+          "scenario": "fresh-storage-create",
+          "wallMs": 158.21895799999993,
+          "userSeconds": 0.15,
+          "systemSeconds": 0.03,
+          "maximumResidentSetBytes": 101384192
+        },
+        {
+          "scenario": "existing-storage-show",
+          "wallMs": 154.39604199999985,
+          "userSeconds": 0.15,
+          "systemSeconds": 0.03,
+          "maximumResidentSetBytes": 100040704
+        },
+        {
+          "scenario": "help",
+          "wallMs": 149.73987499999976,
+          "userSeconds": 0.14,
+          "systemSeconds": 0.02,
+          "maximumResidentSetBytes": 99549184
+        },
+        {
+          "scenario": "fresh-storage-create",
+          "wallMs": 158.08879100000013,
+          "userSeconds": 0.15,
+          "systemSeconds": 0.03,
+          "maximumResidentSetBytes": 101269504
+        },
+        {
+          "scenario": "existing-storage-show",
+          "wallMs": 153.10112500000014,
+          "userSeconds": 0.15,
+          "systemSeconds": 0.03,
+          "maximumResidentSetBytes": 100597760
+        }
+      ],
+      "interpretation": "Fresh processes, not dropped OS caches. CPU includes waited descendants; maximum RSS is not the sum of simultaneously live processes. Timing includes measurement wrappers. No tmux or agent work is measured."
+    }
+  ]
+}

@@ -27,7 +27,14 @@ export function installTmuxTrace(fixture: E2EFixture): TmuxTrace {
   fs.writeFileSync(
     wrapperPath,
     `#!/bin/sh
-printf '%s\\t%s\\n' "${'$'}1" "${'$'}*" >> ${shellQuote(tracePath)}
+trace_newline='
+'
+trace_args="${'$'}*"
+# Normalize only the trace copy; delegated tmux receives the original "${'$'}@".
+case "${'$'}trace_args" in
+  *"${'$'}trace_newline"*) trace_args=$(printf '%s' "${'$'}trace_args" | tr '\n' ' ') ;;
+esac
+printf '%s\\t%s\\n' "${'$'}1" "${'$'}trace_args" >> ${shellQuote(tracePath)}
 exec ${shellQuote(delegatedWrapperPath)} "${'$'}@"
 `,
     { mode: 0o755 }
