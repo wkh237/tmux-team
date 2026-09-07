@@ -1,14 +1,12 @@
 import { performance } from 'node:perf_hooks';
-import { validateName } from './domain/names.js';
+import { isPaneTarget, normalizeName, validateName } from './domain/names.js';
 import type { DurableIdentity, TmuxBinding } from './domain/identity.js';
 import {
   requireDurableIdentity,
   resolveDurableIdentity,
-  IdentitySelectionError,
   type IdentitySelector,
   type DurableIdentityResolution,
 } from './identity-context.js';
-import { resolveTarget } from './target-resolver.js';
 import { PaneMetadataError } from './pane-metadata-error.js';
 import type { TargetIdentity, TargetResolverPort } from './target-resolver.js';
 import type {
@@ -33,10 +31,12 @@ export interface IdentityServiceOptions {
 export interface IdentityRepository {
   withImmediateTransaction<T>(operation: () => T): T;
   findByCanonicalName(canonicalName: string): DurableIdentity | undefined;
+  findById(id: string): DurableIdentity | undefined;
   createIdentity(name: string, canonicalName: string): DurableIdentity;
   listIdentities(): DurableIdentity[];
   findBindings(): TmuxBinding[];
   findBindingByPane(paneId: string, serverId: string): TmuxBinding | undefined;
+  findBindingByIdentity(identityId: string): TmuxBinding | undefined;
   createBinding(binding: Omit<TmuxBinding, 'id'> & { id?: string }): TmuxBinding;
   touchBinding(id: string, lastVerifiedAt: string): void;
   removeBinding(id: string): void;
@@ -159,11 +159,13 @@ function verifiedBindingEvidence(
 function targetIdentity(item: {
   readonly identity: DurableIdentity;
   readonly binding: TmuxBinding;
+  readonly pane: PaneInfo;
 }): TargetIdentity {
   return {
     name: item.identity.name,
     canonicalName: item.identity.canonicalName,
     paneId: item.binding.paneId,
+    pane: item.pane,
     evidence: {
       identity: item.identity,
       binding: item.binding,
@@ -237,7 +239,7 @@ function verifyPublished(
   paneId: string,
   options: TmuxOperationOptions
 ): void {
-  const snapshot = endpointSnapshot(tmux, options);
+  const snapshot = endpointSnapshot(tmux, { ...options, paneIds: [paneId] });
   const pane = findPane(snapshot, paneId);
   if (
     !pane ||
@@ -266,7 +268,10 @@ function probeForeignEndpoint(
 ): TmuxEndpointProbe {
   if (!tmux.probeEndpoint) return { status: 'unknown' };
   try {
-    return tmux.probeEndpoint(binding.socketPath, binding.serverPid, options);
+    return tmux.probeEndpoint(binding.socketPath, binding.serverPid, {
+      ...options,
+      paneIds: [binding.paneId],
+    });
   } catch {
     return { status: 'unknown' };
   }
@@ -277,7 +282,13 @@ export function identityAwareTmux(tmux: Tmux, service: IdentityService): Tmux & 
   if (!service) throw new Error('Identity service is required for target resolution.');
   return {
     ...tmux,
-    listGlobalIdentities: () => service.activeIdentities().map(targetIdentity),
+    listGlobalIdentities: (selection) => {
+      if (!selection) return service.activeIdentities().map(targetIdentity);
+      const item = service.resolveActive(
+        'paneId' in selection ? selection.paneId : selection.canonicalName
+      );
+      return item ? [targetIdentity(item)] : [];
+    },
   };
 }
 
@@ -309,26 +320,38 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
       message
     );
 
+  // Both scoped and full discovery reconcile only bindings covered by their
+  // snapshot. Foreign sockets are never pruned based on local absence.
+  const activeBinding = (
+    binding: TmuxBinding | undefined,
+    identity: DurableIdentity | undefined,
+    snapshot: TmuxEndpointSnapshot
+  ) => {
+    if (!binding || binding.socketPath !== snapshot.server.socketPath) return undefined;
+    const evidence = verifiedBindingEvidence(binding, identity, snapshot);
+    if (!evidence) {
+      repository.removeBinding(binding.id);
+      return undefined;
+    }
+    repository.touchBinding(binding.id, new Date().toISOString());
+    return { ...evidence, binding };
+  };
+
+  const activePane = (paneId: string, options: TmuxOperationOptions) => {
+    const snapshot = endpointSnapshot(tmux, { ...options, paneIds: [paneId] });
+    const binding = repository.findBindingByPane(paneId, snapshot.server.serverId);
+    return activeBinding(
+      binding,
+      binding ? repository.findById(binding.identityId) : undefined,
+      snapshot
+    );
+  };
+
   const reconcileWithinTransaction = (options: TmuxOperationOptions): TmuxEndpointSnapshot => {
     const snapshot = endpointSnapshot(tmux, options);
-    const allBindings = repository.findBindings();
     const identities = new Map(repository.listIdentities().map((item) => [item.id, item]));
-
-    for (const binding of allBindings) {
-      // A command can observe only its current tmux server. Never prune a
-      // binding owned by another socket merely because its panes are absent
-      // from this endpoint snapshot.
-      if (binding.socketPath !== snapshot.server.socketPath) continue;
-      const evidence = verifiedBindingEvidence(
-        binding,
-        identities.get(binding.identityId),
-        snapshot
-      );
-      if (!evidence) {
-        repository.removeBinding(binding.id);
-      } else {
-        repository.touchBinding(binding.id, new Date().toISOString());
-      }
+    for (const binding of repository.findBindings()) {
+      activeBinding(binding, identities.get(binding.identityId), snapshot);
     }
     return snapshot;
   };
@@ -342,9 +365,10 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
   const currentIdentityContext = () => {
     const currentPane = tmux.getCurrentPaneId();
     if (!currentPane) return undefined;
-    const matches = active().filter((entry) => entry.binding.paneId === currentPane);
-    if (matches.length > 1) return { status: 'ambiguous' as const };
-    return matches[0];
+    return coordinated(
+      (options) => activePane(currentPane, options),
+      'Could not inspect current identity.'
+    );
   };
 
   const active = () => {
@@ -359,7 +383,7 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
     // The authoritative snapshot is repeated only after the writer lock is
     // acquired below; this preflight prevents a missing pane from leaving a
     // newly-created identity behind.
-    paneEvidence(endpointSnapshot(tmux), paneId);
+    paneEvidence(endpointSnapshot(tmux, { paneIds: [paneId] }), paneId);
     let identity: DurableIdentity;
     try {
       identity = createOrResolve(repository, name).identity;
@@ -374,11 +398,18 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
       );
     }
     return coordinated((options) => {
-      const snapshot = endpointSnapshot(tmux, options);
+      const existingIdentityBinding = repository.findBindingByIdentity(identity.id);
+      const snapshot = endpointSnapshot(tmux, {
+        ...options,
+        paneIds: [
+          ...new Set([
+            paneId,
+            ...(existingIdentityBinding ? [existingIdentityBinding.paneId] : []),
+          ]),
+        ],
+      });
       const pane = paneEvidence(snapshot, paneId);
-      const endpointBinding = repository
-        .findBindings()
-        .filter((item) => item.paneId === paneId && item.serverId === snapshot.server.serverId)[0];
+      const endpointBinding = repository.findBindingByPane(paneId, snapshot.server.serverId);
       let current: TmuxBinding | undefined = endpointBinding;
       if (current && (!serverMatches(current, snapshot.server) || !paneMatches(current, pane))) {
         repository.removeBinding(current.id);
@@ -390,9 +421,6 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
           'Pane is already bound to another name.'
         );
       }
-      const existingIdentityBinding = repository
-        .findBindings()
-        .find((item) => item.identityId === identity.id);
       if (existingIdentityBinding && existingIdentityBinding.id !== current?.id) {
         const existingPane = findPane(snapshot, existingIdentityBinding.paneId);
         if (
@@ -506,10 +534,7 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
       if (!current) return undefined;
       const paneId = current;
       return coordinated((options) => {
-        const snapshot = reconcileWithinTransaction(options);
-        const item = mapActive(repository, snapshot, repository.findBindings()).find(
-          (entry) => entry.binding.paneId === paneId
-        );
+        const item = activePane(paneId, options);
         if (!item) return undefined;
         try {
           if (tmux.clearDurableIdentity) {
@@ -535,14 +560,7 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
       }, 'Could not unbind identity state.');
     },
     currentIdentity() {
-      const current = currentIdentityContext();
-      if (current && 'status' in current) {
-        throw new IdentitySelectionError(
-          'IDENTITY_AMBIGUOUS',
-          'Current pane has ambiguous identity binding.'
-        );
-      }
-      return current;
+      return currentIdentityContext();
     },
     resolveIdentity(selector?: IdentitySelector): DurableIdentityResolution {
       return resolveDurableIdentity(
@@ -555,17 +573,17 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
     },
     activeIdentities: active,
     resolveActive(target) {
-      const items = active();
-      const identities = items.map(targetIdentity);
-      const result = resolveTarget(
-        {
-          ...tmux,
-          listGlobalIdentities: () => identities,
-        },
-        target
-      );
-      if (!result.ok) return undefined;
-      return items.find((item) => item.binding.paneId === result.value.paneId);
+      const paneId = isPaneTarget(target) ? tmux.resolvePaneTarget(target) : undefined;
+      if (paneId === null) return undefined;
+      return coordinated((options) => {
+        if (paneId) return activePane(paneId, options);
+        const identity = repository.findByCanonicalName(normalizeName(target));
+        if (!identity) return undefined;
+        const binding = repository.findBindingByIdentity(identity.id);
+        if (!binding) return undefined;
+        const snapshot = endpointSnapshot(tmux, { ...options, paneIds: [binding.paneId] });
+        return activeBinding(binding, identity, snapshot);
+      }, 'Could not inspect target identity.');
     },
     reconcile,
   };

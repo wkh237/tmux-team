@@ -11,6 +11,7 @@ import type {
   PaneInfo,
   TmuxEndpointProbe,
   TmuxEndpointSnapshot,
+  TmuxServerEvidence,
   TmuxOperationOptions,
 } from './types.js';
 import { sendTmuxMessage } from './tmux-message.js';
@@ -70,11 +71,7 @@ function emptyMetadata(): PaneAgentMetadata {
   return { version: 1 };
 }
 
-function parsePaneOutput(
-  output: string,
-  allowMetadataFallback = true,
-  metadataOptions: TmuxOperationOptions & { readonly strictFallback?: boolean } = {}
-): PaneInfo[] {
+function parsePaneOutput(output: string): PaneInfo[] {
   const seen = new Set<string>();
   return output
     .split('\n')
@@ -98,11 +95,11 @@ function parsePaneOutput(
           : fields.length >= 5
             ? [fields[0], fields[1], fields[2], fields[3], undefined, fields[4]]
             : [fields[0], undefined, undefined, fields[1] ?? '', undefined, fields[2] ?? ''];
-      // tmux 3.3 may omit pane user options in list formats. The fallback is
-      // conservative because all independent evidence must still agree.
-      const metadata =
-        safeParseMetadata(metadataText) ??
-        (allowMetadataFallback ? tryReadPaneMetadata(id || '', metadataOptions) : undefined);
+      // User options are expanded in the same list-panes batch as the pane
+      // evidence. A missing or malformed value is simply absent metadata;
+      // querying each pane here would turn an unbound server into O(panes)
+      // subprocesses.
+      const metadata = safeParseMetadata(metadataText);
       return {
         id: id || '',
         ...(target && { target }),
@@ -136,25 +133,39 @@ function endpointFormat(): string {
   ].join(PANE_FIELD_SEPARATOR);
 }
 
-function parseEndpointSnapshot(
-  output: string,
-  options: {
-    readonly expectedServerId?: string;
-    readonly allowMetadataFallback: boolean;
-    readonly metadataOptions?: TmuxOperationOptions & { readonly strictFallback?: boolean };
-    readonly requireCompleteEvidence?: boolean;
-  }
-): TmuxEndpointSnapshot {
-  const rows = output.split('\n').filter((line) => line.trim());
-  if (rows.length === 0) throw new Error('tmux endpoint snapshot is empty');
+function serverFormat(): string {
+  return [`#{${SERVER_ID_OPTION}}`, '#{socket_path}', '#{pid}', '#{start_time}'].join(
+    PANE_FIELD_SEPARATOR
+  );
+}
 
-  const evidence = rows.map((line) => line.split(PANE_FIELD_SEPARATOR).slice(0, 4));
+function scopedPaneIds(options: TmuxOperationOptions): string[] | undefined {
+  if (options.paneIds === undefined) return undefined;
+  const paneIds = [...new Set(options.paneIds)];
+  if (paneIds.some((paneId) => !PANE_ID_PATTERN.test(paneId))) {
+    throw new Error('tmux pane scope contains an invalid pane ID');
+  }
+  return paneIds;
+}
+
+function paneFilter(paneIds: readonly string[]): string {
+  const expressions = paneIds.map((paneId) => `#{==:#{pane_id},${paneId}}`);
+  const first = expressions[0];
+  if (!first) throw new Error('A pane filter requires at least one valid pane ID.');
+  return expressions
+    .slice(1)
+    .reduce((combined, expression) => `#{||:${combined},${expression}}`, first);
+}
+
+function parseServerEvidence(output: string, expectedServerId?: string): TmuxServerEvidence {
+  const rows = output.split('\n').filter((line) => line.trim());
+  if (rows.length === 0) throw new Error('tmux server evidence is empty');
+  const evidence = rows.map((line) => line.split(PANE_FIELD_SEPARATOR));
   const [serverId = '', socketPath, serverPidText, serverStartTime] = evidence[0] ?? [];
   const serverPid = Number(serverPidText);
-  const completeEvidence = rows.every((line) => line.split(PANE_FIELD_SEPARATOR).length >= 10);
   if (
-    (options.expectedServerId !== undefined && serverId !== options.expectedServerId) ||
-    (options.requireCompleteEvidence && (!SERVER_ID_PATTERN.test(serverId) || !completeEvidence)) ||
+    (expectedServerId !== undefined && serverId !== expectedServerId) ||
+    !SERVER_ID_PATTERN.test(serverId) ||
     !socketPath ||
     !serverStartTime ||
     !Number.isSafeInteger(serverPid) ||
@@ -169,11 +180,57 @@ function parseEndpointSnapshot(
   ) {
     throw new Error('tmux endpoint snapshot contains inconsistent server evidence');
   }
+  return { serverId, socketPath, serverPid, serverStartTime };
+}
+
+function endpointListArgs(options: TmuxOperationOptions, socketPath?: string): string[] {
+  const args = socketPath ? ['-S', socketPath] : [];
+  args.push('list-panes', '-a');
+  const paneIds = scopedPaneIds(options);
+  if (paneIds !== undefined && paneIds.length > 0) args.push('-f', paneFilter(paneIds));
+  args.push('-F', endpointFormat());
+  return args;
+}
+
+function serverEvidenceArgs(socketPath?: string): string[] {
+  const args = socketPath ? ['-S', socketPath] : [];
+  args.push('display-message', '-p', serverFormat());
+  return args;
+}
+
+function readServerEvidence(
+  options: TmuxOperationOptions,
+  socketPath: string | undefined,
+  expectedServerId?: string
+): TmuxServerEvidence {
+  const output = execFileSync('tmux', serverEvidenceArgs(socketPath), {
+    encoding: 'utf-8',
+    stdio: ['pipe', 'pipe', 'pipe'],
+    ...commandOptions(options),
+  });
+  return parseServerEvidence(output, expectedServerId);
+}
+
+function parseEndpointSnapshot(
+  output: string,
+  options: {
+    readonly expectedServerId?: string;
+    readonly requireCompleteEvidence?: boolean;
+  }
+): TmuxEndpointSnapshot {
+  const rows = output.split('\n').filter((line) => line.trim());
+  if (rows.length === 0) throw new Error('tmux endpoint snapshot is empty');
+
+  const server = parseServerEvidence(output, options.expectedServerId);
+  const completeEvidence = rows.every((line) => line.split(PANE_FIELD_SEPARATOR).length >= 10);
+  if (options.requireCompleteEvidence && !completeEvidence) {
+    throw new Error('tmux endpoint snapshot contains inconsistent server evidence');
+  }
 
   const paneOutput = rows
     .map((line) => line.split(PANE_FIELD_SEPARATOR).slice(4).join(PANE_FIELD_SEPARATOR))
     .join('\n');
-  const panes = parsePaneOutput(paneOutput, options.allowMetadataFallback, options.metadataOptions);
+  const panes = parsePaneOutput(paneOutput);
   if (
     options.requireCompleteEvidence &&
     (panes.length !== rows.length ||
@@ -188,7 +245,7 @@ function parseEndpointSnapshot(
     throw new Error('tmux endpoint snapshot contains incomplete pane evidence');
   }
   return {
-    server: { serverId, socketPath, serverPid, serverStartTime },
+    server,
     panes,
   };
 }
@@ -418,9 +475,22 @@ function probeEndpoint(
     return { status: 'unknown' };
   }
 
+  let paneIds: string[] | undefined;
+  try {
+    paneIds = scopedPaneIds(options);
+  } catch {
+    return { status: 'unknown' };
+  }
+
   let output: string;
   try {
-    output = execFileSync('tmux', ['-S', socketPath, 'list-panes', '-a', '-F', endpointFormat()], {
+    if (paneIds !== undefined && paneIds.length === 0) {
+      const snapshot = { server: readServerEvidence(options, socketPath), panes: [] };
+      return snapshot.server.socketPath === socketPath
+        ? { status: 'live', snapshot }
+        : { status: 'unknown' };
+    }
+    output = execFileSync('tmux', endpointListArgs(options, socketPath), {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: Math.min(ENDPOINT_PROBE_TIMEOUT_MS, remainingTimeout(options)),
@@ -437,10 +507,14 @@ function probeEndpoint(
   }
 
   try {
-    const snapshot = parseEndpointSnapshot(output, {
-      allowMetadataFallback: false,
-      requireCompleteEvidence: true,
-    });
+    let snapshot: TmuxEndpointSnapshot;
+    if (output.trim()) {
+      snapshot = parseEndpointSnapshot(output, { requireCompleteEvidence: true });
+    } else if (paneIds !== undefined) {
+      snapshot = { server: readServerEvidence(options, socketPath), panes: [] };
+    } else {
+      return { status: 'unknown' };
+    }
     return snapshot.server.socketPath === socketPath
       ? { status: 'live', snapshot }
       : { status: 'unknown' };
@@ -584,40 +658,23 @@ function ensureServerId(options: TmuxOperationOptions = {}): string {
 }
 
 function readEndpointSnapshot(options: TmuxOperationOptions = {}) {
+  const paneIds = scopedPaneIds(options);
   const expectedServerId = ensureServerId(options);
-  const output = execFileSync('tmux', ['list-panes', '-a', '-F', endpointFormat()], {
+  if (paneIds !== undefined && paneIds.length === 0) {
+    return { server: readServerEvidence(options, undefined, expectedServerId), panes: [] };
+  }
+  const output = execFileSync('tmux', endpointListArgs(options), {
     encoding: 'utf-8',
     stdio: ['pipe', 'pipe', 'pipe'],
     ...commandOptions(options),
   });
-  return parseEndpointSnapshot(output, {
-    expectedServerId,
-    allowMetadataFallback: true,
-    metadataOptions: { ...options, strictFallback: true },
-  });
-}
-
-function tryReadPaneMetadata(
-  paneId: string,
-  options: TmuxOperationOptions & { readonly strictFallback?: boolean } = {}
-): PaneAgentMetadata | undefined {
-  if (!paneId) return undefined;
-  if (options.strictFallback) {
-    return readPaneMetadataStrict(paneId, options);
+  if (output.trim()) {
+    return parseEndpointSnapshot(output, { expectedServerId, requireCompleteEvidence: true });
   }
-  try {
-    const output = execFileSync(
-      'tmux',
-      ['show-options', '-p', '-t', paneId, '-v', AGENT_METADATA_OPTION],
-      {
-        encoding: 'utf-8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-      }
-    );
-    return safeParseMetadata(output);
-  } catch {
-    return undefined;
+  if (paneIds === undefined) {
+    throw new Error('tmux endpoint snapshot is empty');
   }
+  return { server: readServerEvidence(options, undefined, expectedServerId), panes: [] };
 }
 
 function readPaneMetadataStrict(

@@ -291,7 +291,13 @@ function createContext(
           activeIdentity(name, `%${index + 1}`)
         )
       ),
-      resolveActive: vi.fn(),
+      resolveActive: vi.fn((target: string) =>
+        (overrides.identities ?? ['claude', 'codex', 'gemini'])
+          .map((name, index) => activeIdentity(name, `%${index + 1}`))
+          .find(
+            (entry) => entry.binding.paneId === target || entry.identity.canonicalName === target
+          )
+      ),
       reconcile: vi.fn(),
     },
     preambleService,

@@ -361,7 +361,7 @@ export async function cmdTalk(
   let endpoint;
   try {
     if (!tmux.getEndpointSnapshot) throw new Error('Tmux endpoint evidence is unavailable.');
-    const snapshot = tmux.getEndpointSnapshot();
+    const snapshot = tmux.getEndpointSnapshot({ paneIds: [pane] });
     if (resolution.value.identity) {
       assertTargetIdentityEvidence(resolution.value.identity, snapshot);
     }

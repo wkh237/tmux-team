@@ -296,13 +296,22 @@ Do not treat a failed bind as permission to delete data or try unrelated names.
 
 ## Commands
 
-`name`, `this`, `whoami` and `unbind` require matching live `TMUX` and
-`TMUX_PANE` caller context. Missing, malformed or stale context returns
-`PANE_NOT_FOUND` (exit 3), not the default pane's identity. Implicit `role`
+`name`, `this`, `whoami` and `unbind` require a verified live caller pane.
+Matching `TMUX` and `TMUX_PANE` provide the normal evidence; missing variables
+may be resolved through a bounded process-ancestry lookup on the selected server.
+Malformed, conflicting or unresolvable context returns `PANE_NOT_FOUND` (exit 3),
+not the default pane's identity. Implicit `role`
 access returns `IDENTITY_REQUIRED` (exit 1). Do not fabricate caller variables:
 outside tmux, use explicit `add <pane-target> <global-name>`, `talk <target>`,
 `check <target>`, or `role show|set|clear --identity <name>`. Explicit selection
 does not bind or authenticate the caller.
+
+Sandbox permissions still apply: tmux operations need socket access, and durable
+operations need access to TMT's SQLite storage. If access is denied, use the
+provider's normal approval flow for the authorized operation; do not fabricate
+caller variables, overwrite pane metadata, or delete storage as a workaround.
+Single-target commands validate the selected binding, not every unrelated pane.
+Use `list` for full active discovery; it is not a prerequisite for `talk` or `check`.
 
 ```bash
 tmt list

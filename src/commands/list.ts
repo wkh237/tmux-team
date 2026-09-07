@@ -17,9 +17,7 @@ function publicIdentity(identity: PublicIdentity): PublicIdentity {
   };
 }
 
-function paneDetails(ctx: Context, paneId: string, panes?: Map<string, PaneInfo>) {
-  const paneMap = panes ?? new Map(ctx.tmux.listPanes().map((pane) => [pane.id, pane]));
-  const pane = paneMap.get(paneId);
+function paneDetails(paneId: string, pane?: PaneInfo) {
   return {
     id: paneId,
     ...(pane?.target && { target: pane.target }),
@@ -45,7 +43,12 @@ export function cmdList(ctx: Context, target?: string): void {
     }
 
     const identity = resolution.value.identity;
-    const pane = paneDetails(ctx, resolution.value.paneId);
+    const paneId = resolution.value.paneId;
+    const observedPane =
+      identity?.pane ??
+      tmux.getEndpointSnapshot?.({ paneIds: [paneId] }).panes.find((pane) => pane.id === paneId);
+    if (!observedPane) throw new Error('Resolved pane evidence is unavailable.');
+    const pane = paneDetails(paneId, observedPane);
     if (flags.json) {
       ui.json({
         target,
@@ -63,12 +66,11 @@ export function cmdList(ctx: Context, target?: string): void {
   }
 
   const identities = sortedGlobalIdentities(runtimeTmux);
-  const panes = new Map(tmux.listPanes().map((pane) => [pane.id, pane]));
 
   if (flags.json) {
     ui.json({
       identities: identities.map((identity) => {
-        const pane = paneDetails(ctx, identity.paneId, panes);
+        const pane = paneDetails(identity.paneId, identity.pane);
         return {
           ...publicIdentity(identity),
           pane: identity.paneId,
@@ -89,7 +91,7 @@ export function cmdList(ctx: Context, target?: string): void {
   ui.table(
     ['NAME', 'PANE', 'TARGET', 'CWD', 'COMMAND'],
     identities.map((identity) => {
-      const pane = paneDetails(ctx, identity.paneId, panes);
+      const pane = paneDetails(identity.paneId, identity.pane);
       return [identity.name, pane.id, pane.target ?? '-', pane.cwd ?? '-', pane.command || '-'];
     })
   );

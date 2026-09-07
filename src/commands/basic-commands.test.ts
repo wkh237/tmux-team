@@ -136,7 +136,12 @@ function createCtx(
     currentIdentity: vi.fn(),
     resolveIdentity: vi.fn(),
     activeIdentities: vi.fn(() => registrations.map(activeIdentity)),
-    resolveActive: vi.fn(),
+    resolveActive: vi.fn((target: string) => {
+      const registration = registrations.find(
+        (entry) => entry.paneId === target || entry.canonicalName === target.toLowerCase()
+      );
+      return registration ? activeIdentity(registration) : undefined;
+    }),
     reconcile: vi.fn(),
   };
   return {
@@ -299,8 +304,17 @@ describe('basic commands', () => {
       flags: { json: true },
       identities: [{ name: 'claude', canonicalName: 'claude', paneId: '%1' }],
     });
-    ctx.tmux.listPanes = vi.fn(() => [
-      { id: '%1', target: 'main:1.0', cwd: '/repo', command: 'claude', suggestedName: 'claude' },
+    vi.mocked(ctx.identityService.activeIdentities).mockReturnValue([
+      {
+        ...activeIdentity({ name: 'claude', canonicalName: 'claude', paneId: '%1' }),
+        pane: {
+          id: '%1',
+          target: 'main:1.0',
+          cwd: '/repo',
+          command: 'claude',
+          suggestedName: 'claude',
+        },
+      },
     ]);
     cmdList(ctx);
     expect((ctx.ui as any).jsonCalls).toEqual([
@@ -319,23 +333,27 @@ describe('basic commands', () => {
     ]);
   });
 
-  it('cmdList joins one pane snapshot into the v5 identity schema', () => {
+  it('cmdList reuses verified pane details without a second discovery', () => {
     const ctx = createCtx(testDir, { flags: { json: true } });
     const identities = [
       { name: 'Zed', canonicalName: 'zed', paneId: '%2' },
       { name: 'Alice', canonicalName: 'alice', paneId: '%1' },
     ];
-    (ctx.identityService.activeIdentities as ReturnType<typeof vi.fn>).mockReturnValue(
-      identities.map(activeIdentity)
-    );
-    ctx.tmux.listPanes = vi.fn(() => [
+    const panes = [
       { id: '%1', target: 'main:1.0', cwd: '/repo', command: 'claude', suggestedName: 'claude' },
       { id: '%2', target: 'main:1.1', cwd: '/tmp', command: 'zsh', suggestedName: null },
-    ]);
+    ];
+    vi.mocked(ctx.identityService.activeIdentities).mockReturnValue(
+      identities.map((entry) => ({
+        ...activeIdentity(entry),
+        pane: panes.find((pane) => pane.id === entry.paneId)!,
+      }))
+    );
 
     cmdList(ctx);
 
-    expect(ctx.tmux.listPanes).toHaveBeenCalledTimes(1);
+    expect(ctx.tmux.listPanes).not.toHaveBeenCalled();
+    expect(ctx.identityService.activeIdentities).toHaveBeenCalledTimes(1);
     expect((ctx.ui as any).jsonCalls).toEqual([
       {
         identities: [
@@ -364,11 +382,20 @@ describe('basic commands', () => {
     const ctx = createCtx(testDir, { flags: { json: true } });
     ctx.tmux.resolvePaneTarget = vi.fn(() => '%9');
     (ctx.identityService.activeIdentities as ReturnType<typeof vi.fn>).mockReturnValue([]);
-    ctx.tmux.listPanes = vi.fn(() => [
-      { id: '%9', target: 'main:9.0', cwd: '/tmp', command: 'zsh', suggestedName: null },
-    ]);
+    ctx.tmux.getEndpointSnapshot = vi.fn(() => ({
+      server: {
+        serverId: 'server',
+        socketPath: '/tmp/tmux.sock',
+        serverPid: 1,
+        serverStartTime: 'now',
+      },
+      panes: [{ id: '%9', target: 'main:9.0', cwd: '/tmp', command: 'zsh', suggestedName: null }],
+    }));
 
     cmdList(ctx, '9.0');
+
+    expect(ctx.tmux.getEndpointSnapshot).toHaveBeenCalledWith({ paneIds: ['%9'] });
+    expect(ctx.tmux.listPanes).not.toHaveBeenCalled();
 
     expect((ctx.ui as any).jsonCalls).toEqual([
       {
@@ -385,6 +412,14 @@ describe('basic commands', () => {
     expect(ctx.ui.info).toHaveBeenCalled();
   });
 
+  it('cmdList rejects missing scoped evidence instead of inventing pane details', () => {
+    const ctx = createCtx(testDir);
+    ctx.tmux.resolvePaneTarget = vi.fn(() => '%9');
+    expect(() => cmdList(ctx, '%9')).toThrow('Resolved pane evidence is unavailable.');
+    expect(ctx.ui.table).not.toHaveBeenCalled();
+    expect(ctx.tmux.listPanes).not.toHaveBeenCalled();
+  });
+
   it('cmdList prints table when agents exist', () => {
     const ctx = createCtx(testDir, {
       identities: [{ name: 'claude', canonicalName: 'claude', paneId: '%1' }],
@@ -393,15 +428,22 @@ describe('basic commands', () => {
     expect(ctx.ui.table).toHaveBeenCalled();
   });
 
-  it('cmdList shows dashes for missing pane metadata', () => {
+  it('cmdList shows dashes for absent details in the verified pane projection', () => {
     const ctx = createCtx(testDir, {
       identities: [{ name: 'claude', canonicalName: 'claude', paneId: '%1' }],
     });
-    ctx.tmux.listPanes = vi.fn(() => [{ id: '%1', command: '', suggestedName: null }]);
+    vi.mocked(ctx.identityService.activeIdentities).mockReturnValue([
+      {
+        ...activeIdentity({ name: 'claude', canonicalName: 'claude', paneId: '%1' }),
+        pane: { id: '%1', command: '', suggestedName: null },
+      },
+    ]);
     cmdList(ctx);
     expect(ctx.ui.table).toHaveBeenCalled();
     const tableCall = (ctx.ui.table as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(tableCall[1][0][2]).toBe('-');
+    expect(ctx.identityService.activeIdentities).toHaveBeenCalledTimes(1);
+    expect(ctx.tmux.listPanes).not.toHaveBeenCalled();
   });
 
   it('cmdList errors when positional target is neither identity nor pane', () => {
