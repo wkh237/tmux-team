@@ -49,6 +49,7 @@ interface CommandError {
 interface PaneTargetRow {
   id: string;
   target: string;
+  sessionAttached: number;
 }
 
 function json<T>(result: CliResult<T>): T {
@@ -61,13 +62,18 @@ function json<T>(result: CliResult<T>): T {
 
 function listPaneTargets(fixture: E2EFixture): PaneTargetRow[] {
   return fixture
-    .tmux(['list-panes', '-a', '-F', '#{pane_id}|#{session_name}:#{window_index}.#{pane_index}'])
+    .tmux([
+      'list-panes',
+      '-a',
+      '-F',
+      '#{pane_id}|#{session_name}:#{window_index}.#{pane_index}|#{session_attached}',
+    ])
     .trim()
     .split('\n')
     .filter(Boolean)
     .map((line) => {
-      const [id = '', target = ''] = line.split('|');
-      return { id, target };
+      const [id = '', target = '', attachedText = '0'] = line.split('|');
+      return { id, target, sessionAttached: Number(attachedText) };
     });
 }
 
@@ -264,6 +270,7 @@ describe.sequential('grouped and linked tmux pane identity evidence', () => {
     await withObservableCleanup(async (fixture) => {
       const trace = installTmuxTrace(fixture);
       fixture.tmux(['new-session', '-d', '-t', 'e2e', '-s', 'grouped']);
+      await fixture.attachSessionClient('e2e');
       expectRepeatedPaneTargets(fixture, fixture.pane);
 
       const descendant = await runRealName(fixture, 'GroupedDescendant', {
@@ -280,6 +287,18 @@ describe.sequential('grouped and linked tmux pane identity evidence', () => {
         trace,
         'grouped'
       );
+      const attachedTargets = expectRepeatedPaneTargets(fixture, explicit.pane).filter(
+        (row) => row.sessionAttached > 0
+      );
+      expect(attachedTargets).toHaveLength(1);
+      const focused = json(
+        await fixture.runJsonCli<FocusedListResult>(['list', fixture.paneTarget(explicit.pane)])
+      );
+      expect(focused.pane.target).toBe(attachedTargets[0]?.target);
+      const listed = json(await fixture.runJsonCli<ListResult>(['list']));
+      expect(
+        listed.identities.find((identity) => identity.name === 'GroupedExplicit')?.target
+      ).toBe(attachedTargets[0]?.target);
       expect(descendant.pane).not.toBe(explicit.pane);
     });
   }, 45_000);
@@ -300,7 +319,9 @@ describe.sequential('grouped and linked tmux pane identity evidence', () => {
         '300',
       ]);
       fixture.tmux(['link-window', '-s', 'e2e:0', '-t', 'independent:']);
-      expectRepeatedPaneTargets(fixture, fixture.pane);
+      await fixture.attachSessionClient('independent');
+      const initialRows = expectRepeatedPaneTargets(fixture, fixture.pane);
+      expect(initialRows[0]?.sessionAttached).toBe(0);
 
       const descendant = await runRealName(fixture, 'LinkedDescendant', {
         linkToSession: 'independent',
@@ -315,6 +336,18 @@ describe.sequential('grouped and linked tmux pane identity evidence', () => {
         'linked'
       );
 
+      const attachedTargets = expectRepeatedPaneTargets(fixture, explicit.pane).filter(
+        (row) => row.sessionAttached > 0
+      );
+      expect(attachedTargets).toHaveLength(1);
+      const focused = json(
+        await fixture.runJsonCli<FocusedListResult>(['list', fixture.paneTarget(explicit.pane)])
+      );
+      expect(focused.pane.target).toBe(attachedTargets[0]?.target);
+      const listed = json(await fixture.runJsonCli<ListResult>(['list']));
+      expect(listed.identities.find((identity) => identity.name === 'LinkedExplicit')?.target).toBe(
+        attachedTargets[0]?.target
+      );
       expect(descendant.pane).not.toBe(explicit.pane);
       const duplicateRows = expectRepeatedPaneTargets(fixture, explicit.pane);
       expect(new Set(duplicateRows.map((row) => row.target)).size).toBeGreaterThan(1);

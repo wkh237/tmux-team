@@ -552,8 +552,11 @@ and linked windows legitimately repeat stable pane IDs with different targets.
 The adapter validates every row before deduplication, including rows that would
 otherwise be discarded. Repeated IDs must agree on pane PID and raw metadata;
 conflicting evidence fails closed. Display target, cwd and foreground command
-are not endpoint identity; the existing projection retains the first row's
-presentation. Current snapshots and foreign probes share this validation.
+are not endpoint identity; the presentation projection prefers a row whose
+`session_attached` value is positive, while retaining first-seen order for ties
+and when all rows are detached. This preference is presentation-only and does
+not alter pane identity, routing, binding validation or caller evidence. Current
+snapshots and foreign probes share this validation.
 
 Binding publication, active reconciliation and unbind share the repository's
 SQLite immediate-transaction boundary. Authoritative endpoint snapshots are

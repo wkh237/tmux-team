@@ -106,6 +106,10 @@ multiple session targets for one stable pane ID, then verify scoped operations
 and full discovery both retain one binding. Validate malformed and conflicting
 duplicate rows in both orders before deduplication; repeated rows alone are not
 incomplete evidence. Preserve subprocess-count gates and causal durable replies.
+Attach a real fixture-owned client when testing target presentation, including
+a detached-first linked row. Assert the attached target through both public
+`list` and focused `list <target>` without changing stable pane routing. Client
+readiness must identify that client, and fixture cleanup must reap it.
 
 | Changed area                            | Required checks                                                                     |
 | --------------------------------------- | ----------------------------------------------------------------------------------- |
