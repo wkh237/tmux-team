@@ -77,9 +77,33 @@ fn cfg_value(meta: &Meta) -> Option<bool> {
 }
 
 pub fn production(item: &Item) -> bool {
-    !attributes(item).iter().any(|attr| {
+    production_attributes(attributes(item))
+}
+
+fn production_attributes(attributes: &[Attribute]) -> bool {
+    !attributes.iter().any(|attr| {
         attr.path().is_ident("cfg")
             && attr.parse_args::<Meta>().ok().and_then(|m| cfg_value(&m)) == Some(false)
+    })
+}
+
+pub fn production_impl(item: &syn::ImplItem) -> bool {
+    production_attributes(match item {
+        syn::ImplItem::Const(i) => &i.attrs,
+        syn::ImplItem::Fn(i) => &i.attrs,
+        syn::ImplItem::Type(i) => &i.attrs,
+        syn::ImplItem::Macro(i) => &i.attrs,
+        _ => &[],
+    })
+}
+
+pub fn production_trait(item: &syn::TraitItem) -> bool {
+    production_attributes(match item {
+        syn::TraitItem::Const(i) => &i.attrs,
+        syn::TraitItem::Fn(i) => &i.attrs,
+        syn::TraitItem::Type(i) => &i.attrs,
+        syn::TraitItem::Macro(i) => &i.attrs,
+        _ => &[],
     })
 }
 
@@ -90,6 +114,18 @@ struct Modules {
 }
 
 impl<'ast> Visit<'ast> for Modules {
+    fn visit_impl_item(&mut self, item: &'ast syn::ImplItem) {
+        if production_impl(item) {
+            visit::visit_impl_item(self, item);
+        }
+    }
+
+    fn visit_trait_item(&mut self, item: &'ast syn::TraitItem) {
+        if production_trait(item) {
+            visit::visit_trait_item(self, item);
+        }
+    }
+
     fn visit_item(&mut self, item: &'ast Item) {
         if production(item) {
             if matches!(item, Item::Verbatim(_)) {

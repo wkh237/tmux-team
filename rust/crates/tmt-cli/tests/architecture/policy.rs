@@ -1,6 +1,6 @@
 //! Review policy, separate from syntax collection and adverse examples.
 
-use super::source::{Source, production};
+use super::source::{Source, production, production_impl, production_trait};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use syn::{
@@ -98,6 +98,18 @@ fn type_named(value: &syn::Type, name: &str) -> bool {
 }
 
 impl<'ast> Visit<'ast> for Facts {
+    fn visit_impl_item(&mut self, item: &'ast syn::ImplItem) {
+        if production_impl(item) {
+            visit::visit_impl_item(self, item);
+        }
+    }
+
+    fn visit_trait_item(&mut self, item: &'ast syn::TraitItem) {
+        if production_trait(item) {
+            visit::visit_trait_item(self, item);
+        }
+    }
+
     fn visit_item(&mut self, item: &'ast Item) {
         if !production(item) {
             return;
@@ -178,7 +190,7 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
         for d in &facts.declarations {
             // Public free functions in core are policy entrypoints. Methods and
             // command-local execute/run helpers do not become reserved names.
-            if !d.public || d.nested || (d.function && source.package != "tmt-core") {
+            if !d.public || (d.function && source.package != "tmt-core") {
                 continue;
             }
             let owner = format!("{}/{}", source.package, source.file);
@@ -199,11 +211,10 @@ pub fn source_violations(sources: &[Source]) -> Vec<String> {
     for (source, facts) in sources.iter().zip(&facts) {
         let location = format!("{}/{}", source.package, source.file);
         for d in &facts.declarations {
-            // Top-level public owners were checked above. Keep one actionable
+            // Public owners (including inline modules) were checked above. Keep one actionable
             // diagnostic per competing owner instead of reporting both ways.
             if owns_declarations(source)
                 && d.public
-                && !d.nested
                 && (!d.function || source.package == "tmt-core")
             {
                 continue;

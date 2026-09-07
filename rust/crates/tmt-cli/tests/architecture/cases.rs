@@ -225,7 +225,7 @@ fn owner_policy_rejects_nested_and_foreign_declarations() {
                 "mod nested { pub struct Identity; }\n",
             ),
         ],
-        &["tmt-core/other.rs: Identity is owned by tmt-core/identity.rs"],
+        &["tmt-core/other.rs: duplicate owner Identity (already tmt-core/identity.rs)"],
     );
     assert_exact(
         &[
@@ -291,6 +291,61 @@ fn comments_text_and_test_only_items_do_not_trigger_policy() {
             "#,
         )],
         &[],
+    );
+}
+
+#[test]
+fn associated_items_respect_cfg_without_hiding_production_bodies() {
+    assert_exact(
+        &[syntax(
+            "tmt-core",
+            "methods.rs",
+            r#"
+        pub struct Subject;
+        pub fn inspect() {}
+        impl Subject {
+            pub fn inspect() {}
+            #[cfg(test)]
+            fn test_io() { std::fs::read("fixture"); }
+        }
+        pub trait Reader {
+            #[cfg(all(test, unix))]
+            fn test_io() { std::fs::read("fixture"); }
+        }
+    "#,
+        )],
+        &[],
+    );
+    for text in [
+        "impl Subject { #[cfg(any(test, unix))] fn read() { std::fs::read(\"fixture\"); } }",
+        "trait Reader { #[cfg(not(test))] fn read() { std::fs::read(\"fixture\"); } }",
+    ] {
+        assert_exact(
+            &[syntax("tmt-core", "methods.rs", text)],
+            &["tmt-core/methods.rs: non-pure core reference std::fs::read"],
+        );
+    }
+}
+
+#[test]
+fn public_inline_declarations_seed_ownership_without_reserving_methods() {
+    assert_exact(
+        &[
+            syntax(
+                "tmt-core",
+                "inline.rs",
+                "pub mod domain { pub struct Record; pub fn inspect() {} }",
+            ),
+            syntax(
+                "tmt-adapters",
+                "copy.rs",
+                "pub struct Record; pub fn inspect() {}",
+            ),
+        ],
+        &[
+            "tmt-adapters/copy.rs: Record is owned by tmt-core/inline.rs",
+            "tmt-adapters/copy.rs: inspect is owned by tmt-core/inline.rs",
+        ],
     );
 }
 
@@ -430,6 +485,43 @@ fn collector_reaches_inline_nested_and_external_modules() {
         .collect::<Vec<_>>();
     assert_eq!(files, vec!["lib.rs", "outer.rs", "outer/inner/mod.rs"]);
     assert!(sources.iter().all(|source| source.package == "fixture"));
+}
+
+#[test]
+fn collector_applies_associated_item_cfg_to_nested_modules() {
+    let fixture = FixtureDirectory::new();
+    fixture.write(
+        "lib.rs",
+        r#"
+        struct Subject;
+        impl Subject {
+            #[cfg(test)]
+            fn test_only() { mod missing; }
+        }
+        trait Reader {
+            #[cfg(all(test, unix))]
+            fn test_only() { mod missing; }
+        }
+        mod inline { mod external; }
+    "#,
+    );
+    fixture.write("inline/external.rs", "pub fn found() {}");
+    let sources = source::collect("fixture", &fixture.root().join("lib.rs")).unwrap();
+    assert_eq!(
+        sources.iter().map(|s| s.file.as_str()).collect::<Vec<_>>(),
+        vec!["inline/external.rs", "lib.rs"]
+    );
+    fixture.write(
+        "lib.rs",
+        "impl Subject { #[cfg(any(test, unix))] fn maybe() { mod missing; } }",
+    );
+    let error = source::collect("fixture", &fixture.root().join("lib.rs"))
+        .err()
+        .unwrap();
+    assert!(
+        error.contains("module missing needs exactly one source file"),
+        "{error}"
+    );
 }
 
 #[test]

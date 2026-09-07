@@ -941,6 +941,7 @@ inline and external modules, conservatively scans unknown platform/feature cfg
 branches, and skips only branches proven absent with `test=false`. Missing,
 ambiguous, escaped, malformed, path-remapped or source-included modules fail
 closed rather than silently disappearing from coverage.
+Associated impl/trait items use the same cfg evaluator as ordinary items.
 
 Core syntax may use reviewed pure standard-library modules, not filesystem,
 process or terminal output. CLI grammar, parser, diagnostics and typed invocation
@@ -949,7 +950,8 @@ must not import adapters or command handlers. Clap stays in the parsing boundary
 declarations and policy functions, typed invocation declarations and shared
 output types supply reserved names directly from their owners: adapters and
 handlers must reuse them, not define competing same-named types or policy
-functions. Generic `From<String> for Failure` is rejected; command-local error
+functions. Public declarations in inline modules also seed ownership; methods
+do not reserve free-function names. Generic `From<String> for Failure` is rejected; command-local error
 mapping must choose its public code and status explicitly.
 
 These are syntactic regression checks, not full Rust name resolution, macro
