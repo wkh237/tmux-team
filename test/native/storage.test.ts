@@ -514,6 +514,26 @@ describe('native SQLite lifecycle compatibility', () => {
     });
   });
 
+  it('preserves a user table that conflicts with the migration replacement name', async () => {
+    await withSandbox(async (sandbox) => {
+      seedStoragePrefix(sandbox.database, 8);
+      const writer = new Database(sandbox.database);
+      try {
+        writer.exec(`
+          CREATE TABLE identities_with_lifetime (note TEXT NOT NULL);
+          INSERT INTO identities_with_lifetime VALUES ('user-owned content');
+        `);
+      } finally {
+        writer.close();
+      }
+      const before = storageSnapshot(sandbox.database);
+      const result = await runStorage(sandbox);
+      expect(result.status).toBe(1);
+      expect(expectError(result, 'migration').error).toMatchObject({ migrationVersion: 9 });
+      expect(storageSnapshot(sandbox.database)).toEqual(before);
+    });
+  });
+
   it('rejects a malformed history table without replacing it', async () => {
     await withSandbox(async (sandbox) => {
       seedStoragePrefix(sandbox.database, 0);
