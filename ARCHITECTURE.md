@@ -420,12 +420,20 @@ this same owner, not another loader.
 
 ## Caller context
 
-The tmux adapter owns current-pane evidence: a strict `TMUX_PANE` ID and the
-socket/server PID in `TMUX` must agree with a bounded, read-only query of that
-explicit pane. Missing, malformed, stale or mismatched evidence yields no caller;
-there is no ambient/default-pane fallback. Environment evidence selects local
-context, not an authenticated principal, and is not a defense against deliberate
-environment spoofing.
+The tmux adapter owns current-pane evidence. Complete `TMUX_PANE` and `TMUX`
+environment evidence must agree with a bounded query of that explicit pane.
+When environment evidence is missing, a bounded read-only process-ancestry
+lookup may identify a unique pane process on the selected tmux server. An
+ambient active pane or session name is never caller evidence. Supplied malformed,
+stale or conflicting evidence must not be rescued by fallback. Missing process
+visibility, inaccessible sockets or ambiguous matches yield no caller. This
+supports environment-stripped descendants, not arbitrary sandbox isolation;
+nondefault servers still need a usable server-selection mechanism.
+The fallback uses the system `ps` utility with a shared one-second deadline
+and a bounded ancestry depth/output size. A system without `ps` cannot use this
+fallback; the normal complete-environment path does not acquire that dependency.
+Environment/process evidence selects local context, not an authenticated
+principal, and is not a defense against deliberate environment spoofing.
 
 `name`, `this`, `whoami` and `unbind` reject missing caller context with
 `PANE_NOT_FOUND` (exit 3) before opening identity storage. Implicit role access
@@ -515,6 +523,15 @@ SQLite immediate-transaction boundary. Authoritative endpoint snapshots are
 taken after acquiring the write lock, so a reconciler cannot prune a new
 binding using evidence captured before publication. Bind verifies the written
 metadata against fresh server/pane evidence before committing its success.
+
+Metadata adapter failures distinguish reads from writes through the narrow
+`pane-metadata-error.ts` contract. Public errors expose only the stage and
+bounded exit/permission classification, never raw stderr, command arguments or
+metadata payloads. Post-publication verification failures identify mismatched
+pane/server or database binding evidence instead of claiming that the write
+failed. These diagnostics do not change transaction rollback or durable-identity
+retention. The CLI does not infer an outside-tmux warning solely from `$TMUX`;
+operation-specific resolution supplies the actual result.
 
 The lock acquisition uses the existing five-second SQLite busy timeout. Tmux
 work inside the boundary shares a three-second monotonic deadline after lock

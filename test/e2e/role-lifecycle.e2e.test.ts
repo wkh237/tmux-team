@@ -170,7 +170,7 @@ describe.sequential('durable role profiles', () => {
     });
   }, 30_000);
 
-  it('distinguishes missing identity, absent role, and missing implicit context without invoking tmux offline', async () => {
+  it('keeps explicit roles offline while rejecting unrelated implicit callers after discovery', async () => {
     await withE2EFixture(async (fixture) => {
       const invalid = await fixture.runJsonCli(['role', 'set', 'inline', '--file', 'file.md']);
       expect(invalid.code).toBe(1);
@@ -180,18 +180,24 @@ describe.sequential('durable role profiles', () => {
       });
       expect(missing.code).toBe(3);
       expect(missing.json).toMatchObject({ error: { code: 'NAME_NOT_FOUND' } });
-      const outside = await fixture.runJsonCli(['role', 'show'], { withoutTmux: true });
+      // Implicit selection may perform bounded read-only discovery. Explicit
+      // identity access above/below must still never invoke tmux.
+      const outside = await fixture.runJsonCli(['role', 'show'], { outsideTmux: true });
       expect(outside.code).toBe(1);
       expect(outside.json).toMatchObject({ error: { code: 'IDENTITY_REQUIRED' } });
       const unbound = await fixture.runJsonCli(['role', 'show']);
       expect(unbound.code).toBe(1);
       expect(unbound.json).toMatchObject({ error: { code: 'IDENTITY_REQUIRED' } });
       expect((await fixture.runJsonCli(['name', 'Empty'])).code).toBe(0);
+      const metadataBefore = fixture.paneMetadata();
+      const profilesBefore = storedProfiles(fixture);
       const outsideWithBoundDefault = await fixture.runJsonCli(['role', 'show'], {
-        withoutTmux: true,
+        outsideTmux: true,
       });
       expect(outsideWithBoundDefault.code).toBe(1);
       expect(outsideWithBoundDefault.json).toMatchObject({ error: { code: 'IDENTITY_REQUIRED' } });
+      expect(fixture.paneMetadata()).toBe(metadataBefore);
+      expect(storedProfiles(fixture)).toEqual(profilesBefore);
       expect((await showOffline(fixture, 'Empty')).role).toBeNull();
       expect(fs.existsSync(fixture.forbiddenTmuxLogPath)).toBe(false);
       // Calibrate the guard: a command that actually needs tmux must trip it.

@@ -14,6 +14,7 @@ import type {
   TmuxOperationOptions,
 } from './types.js';
 import { sendTmuxMessage } from './tmux-message.js';
+import { PaneMetadataError } from './pane-metadata-error.js';
 
 const AGENT_METADATA_OPTION = '@tmux-team.agent';
 const SERVER_ID_OPTION = '@tmux-team.server-id';
@@ -26,6 +27,8 @@ const TMUX_CAPTURE_MAX_BUFFER = 4 * 1024 * 1024;
 const CALLER_PANE_TIMEOUT_MS = 1_000;
 const CALLER_PANE_MAX_BUFFER = 4096;
 const CALLER_PANE_SEPARATOR = '__TMT_CALLER_PANE_4f1c__';
+const CALLER_ANCESTRY_MAX_DEPTH = 64;
+const CALLER_DISCOVERY_MAX_BUFFER = 64 * 1024;
 const SERVER_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PANE_ID_PATTERN = /^%\d+$/;
 
@@ -196,11 +199,13 @@ function isMissingProcess(error: unknown): boolean {
   );
 }
 
-function callerTmuxContext(
-  value: string | undefined
-):
-  | { readonly socketPath: string; readonly serverPid: number; readonly sessionId: string }
-  | undefined {
+interface CallerTmuxContext {
+  readonly socketPath: string;
+  readonly serverPid: number;
+  readonly sessionId: string;
+}
+
+function callerTmuxContext(value: string | undefined): CallerTmuxContext | undefined {
   if (!value) return undefined;
   const lastComma = value.lastIndexOf(',');
   const previousComma = value.lastIndexOf(',', lastComma - 1);
@@ -220,10 +225,31 @@ function callerTmuxContext(
 
 function callerPaneId(): string | null {
   const paneId = process.env.TMUX_PANE;
-  if (!paneId || !PANE_ID_PATTERN.test(paneId)) return null;
-  const context = callerTmuxContext(process.env.TMUX);
-  if (!context) return null;
+  const tmuxValue = process.env.TMUX;
+  if (paneId && !PANE_ID_PATTERN.test(paneId)) return null;
+  const context = callerTmuxContext(tmuxValue);
+  if (tmuxValue && !context) return null;
 
+  // Keep the fully populated environment as the cheap, strict path. In
+  // particular, do not let discovery hide stale or mismatched explicit
+  // evidence.
+  if (paneId && context) return verifyCallerPane(paneId, context);
+  return discoverCallerPane(paneId || undefined, context);
+}
+
+function callerCommandOptions(timeout: number): {
+  timeout: number;
+  maxBuffer: number;
+  killSignal: 'SIGKILL';
+} {
+  return {
+    timeout,
+    maxBuffer: CALLER_DISCOVERY_MAX_BUFFER,
+    killSignal: 'SIGKILL',
+  };
+}
+
+function verifyCallerPane(paneId: string, context: CallerTmuxContext): string | null {
   try {
     const output = execFileSync(
       'tmux',
@@ -258,6 +284,106 @@ function callerPaneId(): string | null {
   } catch {
     return null;
   }
+}
+
+function callerAncestry(deadline: number): Set<number> | null {
+  const ancestry = new Set<number>();
+  let pid = process.pid;
+  for (let depth = 0; depth < CALLER_ANCESTRY_MAX_DEPTH; depth += 1) {
+    if (!Number.isSafeInteger(pid) || pid <= 0 || ancestry.has(pid)) return null;
+    ancestry.add(pid);
+    let output: string;
+    try {
+      const timeout = Math.floor(deadline - performance.now());
+      if (timeout <= 0) return null;
+      output = execFileSync('ps', ['-o', 'pid=,ppid=', '-p', String(pid)], {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        ...callerCommandOptions(timeout),
+      });
+    } catch {
+      return null;
+    }
+    if (typeof output !== 'string') return null;
+    const rows = output
+      .trim()
+      .split(/\r?\n/)
+      .map((row) => row.trim().split(/\s+/))
+      .filter((row) => row.length > 0);
+    if (
+      rows.length !== 1 ||
+      rows[0]?.length !== 2 ||
+      !/^\d+$/.test(rows[0][0] ?? '') ||
+      !/^\d+$/.test(rows[0][1] ?? '')
+    ) {
+      return null;
+    }
+    const returnedPid = Number(rows[0][0]);
+    const parentPid = Number(rows[0][1]);
+    if (returnedPid !== pid || !Number.isSafeInteger(parentPid) || parentPid < 0) return null;
+    if (parentPid === 0) return ancestry;
+    pid = parentPid;
+  }
+  return null;
+}
+
+function discoverCallerPane(
+  paneId: string | undefined,
+  context: CallerTmuxContext | undefined
+): string | null {
+  const deadline = performance.now() + CALLER_PANE_TIMEOUT_MS;
+  const ancestry = callerAncestry(deadline);
+  if (!ancestry) return null;
+  const format = `#{pane_id}${CALLER_PANE_SEPARATOR}#{pane_pid}${CALLER_PANE_SEPARATOR}#{socket_path}${CALLER_PANE_SEPARATOR}#{pid}`;
+  let output: string;
+  try {
+    const timeout = Math.floor(deadline - performance.now());
+    if (timeout <= 0) return null;
+    const args = context
+      ? ['-S', context.socketPath, 'list-panes', '-a', '-F', format]
+      : ['list-panes', '-a', '-F', format];
+    output = execFileSync('tmux', args, {
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'pipe'],
+      ...callerCommandOptions(timeout),
+    });
+  } catch {
+    return null;
+  }
+  if (performance.now() >= deadline) return null;
+  if (typeof output !== 'string') return null;
+  const rows = output.trim().split(/\r?\n/).filter(Boolean);
+  if (rows.length === 0) return null;
+  const parsedRows = rows.map((row) => row.split(CALLER_PANE_SEPARATOR));
+  if (
+    parsedRows.some((fields) => fields.length !== 4) ||
+    parsedRows.some(([id, panePid, socketPath, serverPid]) => {
+      const numericPanePid = Number(panePid);
+      const numericServerPid = Number(serverPid);
+      return (
+        !id ||
+        !PANE_ID_PATTERN.test(id) ||
+        !/^\d+$/.test(panePid ?? '') ||
+        !Number.isSafeInteger(numericPanePid) ||
+        numericPanePid <= 0 ||
+        !socketPath ||
+        !/^\d+$/.test(serverPid ?? '') ||
+        !Number.isSafeInteger(numericServerPid) ||
+        numericServerPid <= 0
+      );
+    })
+  )
+    return null;
+  const candidates = parsedRows
+    .filter(([id, panePid, socketPath, serverPid]) => {
+      const numericPanePid = Number(panePid);
+      if (!ancestry.has(numericPanePid)) return false;
+      if (context && (socketPath !== context.socketPath || serverPid !== String(context.serverPid)))
+        return false;
+      return paneId === undefined || id === paneId;
+    })
+    .map(([id]) => id);
+  return candidates.length === 1 ? (candidates[0] ?? null) : null;
 }
 
 function remainingTimeout(options: TmuxOperationOptions = {}): number {
@@ -396,8 +522,8 @@ export function createTmux(): Tmux {
     },
 
     getCurrentPaneId(): string | null {
-      // Implicit commands may select only a pane proven by the caller's tmux
-      // environment. Never fall back to the ambient/default server.
+      // Select only verified environment or process-ancestry evidence, never
+      // the ambient server's active pane.
       return callerPaneId();
     },
 
@@ -498,15 +624,20 @@ function readPaneMetadataStrict(
   paneId: string,
   options: TmuxOperationOptions = {}
 ): PaneAgentMetadata {
-  const output = execFileSync(
-    'tmux',
-    ['show-options', '-q', '-p', '-t', paneId, '-v', AGENT_METADATA_OPTION],
-    {
-      encoding: 'utf-8',
-      stdio: ['pipe', 'pipe', 'pipe'],
-      ...commandOptions(options),
-    }
-  );
+  let output: string;
+  try {
+    output = execFileSync(
+      'tmux',
+      ['show-options', '-q', '-p', '-t', paneId, '-v', AGENT_METADATA_OPTION],
+      {
+        encoding: 'utf-8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+        ...commandOptions(options),
+      }
+    );
+  } catch (cause) {
+    throw new PaneMetadataError('read', { cause });
+  }
   return safeParseMetadata(output) ?? emptyMetadata();
 }
 
@@ -519,20 +650,24 @@ function writePaneMetadata(
   metadata: PaneAgentMetadata,
   options: TmuxOperationOptions = {}
 ): void {
-  if (!hasMetadata(metadata)) {
-    execFileSync('tmux', ['set-option', '-p', '-u', '-t', paneId, AGENT_METADATA_OPTION], {
-      stdio: 'pipe',
-      ...commandOptions(options),
-    });
-    return;
-  }
-
-  execFileSync(
-    'tmux',
-    ['set-option', '-p', '-t', paneId, AGENT_METADATA_OPTION, JSON.stringify(metadata)],
-    {
-      stdio: 'pipe',
-      ...commandOptions(options),
+  try {
+    if (!hasMetadata(metadata)) {
+      execFileSync('tmux', ['set-option', '-p', '-u', '-t', paneId, AGENT_METADATA_OPTION], {
+        stdio: 'pipe',
+        ...commandOptions(options),
+      });
+      return;
     }
-  );
+
+    execFileSync(
+      'tmux',
+      ['set-option', '-p', '-t', paneId, AGENT_METADATA_OPTION, JSON.stringify(metadata)],
+      {
+        stdio: 'pipe',
+        ...commandOptions(options),
+      }
+    );
+  } catch (cause) {
+    throw new PaneMetadataError('write', { cause });
+  }
 }

@@ -10,6 +10,7 @@ import {
   IdentityServiceError,
 } from './identity-service.js';
 import { openIdentityRepository } from './storage/identity-repository.js';
+import { PaneMetadataError } from './pane-metadata-error.js';
 import type { DurableIdentity, TmuxBinding } from './domain/identity.js';
 import type { PaneInfo, Paths, Tmux, TmuxEndpointSnapshot } from './types.js';
 
@@ -1013,6 +1014,25 @@ describe('durable identity service', () => {
     repository.close();
   });
 
+  it.each(['read', 'write'] as const)(
+    'preserves the %s stage and safe failure classification without committing a binding',
+    (stage) => {
+      const test = fixture();
+      const cause = Object.assign(new Error('private subprocess arguments'), { code: 'EPERM' });
+      test.tmux.setDurableIdentity = () => {
+        throw new PaneMetadataError(stage, { cause });
+      };
+      const service = createTestService(test);
+      expect(() => service.bindCurrent('Stage failure')).toThrow(
+        `Could not ${stage} pane metadata (EPERM).`
+      );
+      const repository = openIdentityRepository(test.paths.databaseFile);
+      expect(repository.findBindings()).toEqual([]);
+      expect(repository.findByCanonicalName('stage failure')).toBeDefined();
+      repository.close();
+    }
+  );
+
   it('rolls back when metadata publication verifies a missing marker while retaining identity data', () => {
     const test = fixture();
     const seed = openIdentityRepository(test.paths.databaseFile);
@@ -1022,7 +1042,9 @@ describe('durable identity service', () => {
     test.tmux.setDurableIdentity = () => {};
     const service = createTestService(test);
 
-    expect(() => service.bindCurrent(identity.name)).toThrow('Could not write pane metadata.');
+    expect(() => service.bindCurrent(identity.name)).toThrow(
+      'Pane metadata verification failed: pane/server identity does not match.'
+    );
     const repository = openIdentityRepository(test.paths.databaseFile);
     expect(repository.findBindings()).toEqual([]);
     expect(repository.findByCanonicalName(identity.canonicalName)).toEqual(identity);

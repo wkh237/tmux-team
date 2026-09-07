@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { withE2EFixture, type CliResult, type E2EFixture } from './harness.js';
+import { readRealTmuxCli, releaseRealTmuxCli, spawnRealTmuxCli } from './real-tmux-caller.js';
 
 interface CommandError {
   error: { code: string; message: string };
@@ -59,6 +60,94 @@ async function seedIdentity(fixture: E2EFixture, name: string, profile: string):
 }
 
 describe.sequential('strict caller context', () => {
+  it.each([
+    ['missing TMUX_PANE', { stripPane: true }],
+    ['missing TMUX and TMUX_PANE', { stripTmux: true, stripPane: true }],
+  ])(
+    'discovers the originating pane from a real tmux child process with %s',
+    async (
+      _label,
+      contextOptions: { readonly stripTmux?: boolean; readonly stripPane?: boolean }
+    ) => {
+      await withE2EFixture(async (fixture) => {
+        const real = await spawnRealTmuxCli(fixture, ['name', 'RealCaller'], {
+          name: contextOptions.stripTmux ? 'caller-both-missing' : 'caller-pane-missing',
+          ...contextOptions,
+        });
+
+        const peer = await fixture.createMockPane('active-peer');
+        fixture.tmux(['select-pane', '-t', peer.pane]);
+        await releaseRealTmuxCli(fixture, real);
+
+        const result = readRealTmuxCli<{ bound: boolean; name: string; pane: string }>(real);
+        expect(result).toEqual({
+          code: 0,
+          stdout: { bound: true, name: 'RealCaller', pane: real.pane },
+          stderr: '',
+        });
+        const binding = durableState(fixture).bindings.find(
+          (row) => (row as { pane_id?: string }).pane_id === real.pane
+        ) as { pane_id: string; pane_pid: number } | undefined;
+        expect(binding).toMatchObject({ pane_id: real.pane, pane_pid: real.panePid });
+        expect(JSON.parse(fixture.paneMetadata(real.pane))).toMatchObject({
+          globalIdentity: { panePid: real.panePid },
+        });
+        expect(fixture.paneMetadata(peer.pane)).toBe('');
+        expect(fixture.mockProcessIsRunning(real.panePid)).toBe(true);
+      });
+    },
+    20_000
+  );
+
+  it('resolves the this alias from the real pane ancestry with both variables missing', async () => {
+    let panePid = 0;
+    let fixtureRef: E2EFixture | undefined;
+    await withE2EFixture(async (fixture) => {
+      fixtureRef = fixture;
+      const real = await spawnRealTmuxCli(fixture, ['this', 'AliasCaller'], {
+        name: 'caller-this-both-missing',
+        stripTmux: true,
+        stripPane: true,
+      });
+      panePid = real.panePid;
+      const peer = await fixture.createMockPane('alias-active-peer');
+      fixture.tmux(['select-pane', '-t', peer.pane]);
+      await releaseRealTmuxCli(fixture, real);
+
+      const result = readRealTmuxCli<{ bound: boolean; name: string; pane: string }>(real);
+      expect(result).toEqual({
+        code: 0,
+        stdout: { bound: true, name: 'AliasCaller', pane: real.pane },
+        stderr: '',
+      });
+      expect(fixture.paneMetadata(peer.pane)).toBe('');
+    });
+    expect(panePid).toBeGreaterThan(0);
+    expect(fixtureRef?.mockProcessIsRunning(panePid)).toBe(false);
+  }, 20_000);
+
+  it('does not report a stripped descendant as outside tmux in human output', async () => {
+    await withE2EFixture(async (fixture) => {
+      const real = await spawnRealTmuxCli(fixture, ['whoami'], {
+        name: 'human-caller-both-missing',
+        stripTmux: true,
+        stripPane: true,
+        json: false,
+      });
+      const bound = await fixture.runJsonCli(['add', real.pane, 'HumanCaller'], {
+        outsideTmux: true,
+      });
+      expect(bound.code, bound.stderr || bound.stdout).toBe(0);
+      await releaseRealTmuxCli(fixture, real);
+
+      const result = readRealTmuxCli<string>(real);
+      expect(result.code).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(result.stdout).toContain("Bound identity 'HumanCaller'");
+      expect(result.stdout).not.toContain('Not running inside tmux. Some features may not work.');
+    });
+  }, 20_000);
+
   it('uses real socket and selected-pane evidence for every implicit identity and role operation', async () => {
     await withE2EFixture(async (fixture) => {
       await seedIdentity(fixture, 'Current', 'initial caller profile');

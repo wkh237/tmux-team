@@ -82,6 +82,14 @@ Changed public CLI behavior needs representative real subprocess input/output
 coverage; tmux integration uses the existing Docker harness. A feature issue
 authorizes its matching tests, not unrelated expansion of the E2E foundation.
 
+Caller discovery regressions require a CLI process genuinely descended from a
+tmux pane process, with environment stripped and another pane active. Spawning
+the CLI outside tmux with injected environment tests a different contract.
+Preserve rejection tests for outside callers, malformed/conflicting evidence
+and unavailable process information. An environment-stripped fixture is not
+proof that a specific provider sandbox permits process/socket access; report
+that verification gap separately.
+
 | Changed area                            | Required checks                                                                     |
 | --------------------------------------- | ----------------------------------------------------------------------------------- |
 | Production TypeScript                   | `pnpm type:check`, `pnpm lint`, `pnpm format:check`                                 |
