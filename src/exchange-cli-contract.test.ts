@@ -429,10 +429,19 @@ describe('real CLI Exchange attention contract', () => {
       withSandbox(async (sandbox) => {
         const seeded = seedExchange(sandbox, 'Alice', 'req_exchange_implicit');
         const tmuxLog = await calibratedTmuxGuard(sandbox);
+        // Fix process visibility independently of the host sandbox: the CLI's
+        // PID has no parent, and the guarded server cannot supply a pane.
+        const psPath = path.join(sandbox.root, 'forbidden-bin', 'ps');
+        writeFileSync(psPath, '#!/bin/sh\nprintf "%s 0\\n" "$4"\n');
+        chmodSync(psPath, 0o755);
         const implicit = await runCli(sandbox, ['x', 'list', '--json']);
         expect(implicit.status).toBe(1);
         expectError(implicit, 'IDENTITY_REQUIRED');
-        expect(existsSync(tmuxLog)).toBe(false);
+        // Implicit selection may discover, but must never mutate tmux or
+        // proceed without evidence. Reset the calibrated guard for explicit
+        // storage-only operations, which must make zero tmux invocations.
+        expect(fs.readFileSync(tmuxLog, 'utf8')).toMatch(/^list-panes -a -F [^\n]+\n$/);
+        fs.rmSync(tmuxLog);
         const missing = await runCli(sandbox, ['x', 'list', '--identity', 'missing', '--json']);
         expect(missing.status).toBe(3);
         expectError(missing, 'NAME_NOT_FOUND');

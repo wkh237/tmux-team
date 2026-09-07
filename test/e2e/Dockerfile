@@ -1,8 +1,9 @@
 FROM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
 
 ARG TMUX_VERSION=3.3a-3
+ARG PROCPS_VERSION=2:4.0.2-3
 RUN apt-get update \
-  && apt-get install --no-install-recommends -y "tmux=${TMUX_VERSION}" \
+  && apt-get install --no-install-recommends -y "tmux=${TMUX_VERSION}" "procps=${PROCPS_VERSION}" \
   && rm -rf /var/lib/apt/lists/*
 
 RUN npm install --global pnpm@10.33.0

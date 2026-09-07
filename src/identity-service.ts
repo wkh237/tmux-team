@@ -9,6 +9,7 @@ import {
   type DurableIdentityResolution,
 } from './identity-context.js';
 import { resolveTarget } from './target-resolver.js';
+import { PaneMetadataError } from './pane-metadata-error.js';
 import type { TargetIdentity, TargetResolverPort } from './target-resolver.js';
 import type {
   IdentityService,
@@ -115,7 +116,7 @@ function endpointSnapshot(tmux: Tmux, options: TmuxOperationOptions = {}): TmuxE
     } catch (error) {
       throw new IdentityServiceError(
         'RECONCILIATION_FAILED',
-        'Could not inspect the tmux endpoint.',
+        error instanceof PaneMetadataError ? error.message : 'Could not inspect the tmux endpoint.',
         {
           cause: error,
         }
@@ -244,11 +245,17 @@ function verifyPublished(
     !paneMatches(binding, pane) ||
     !metadataMatches(pane, identity, binding)
   ) {
-    throw new Error('Durable pane metadata could not be verified.');
+    throw new IdentityServiceError(
+      'RECONCILIATION_FAILED',
+      'Pane metadata verification failed: pane/server identity does not match.'
+    );
   }
   const persisted = repository.findBindingByPane(paneId, binding.serverId);
   if (!persisted || persisted.id !== binding.id || persisted.identityId !== identity.id) {
-    throw new Error('Durable binding could not be verified.');
+    throw new IdentityServiceError(
+      'RECONCILIATION_FAILED',
+      'Pane metadata verification failed: database binding does not match.'
+    );
   }
 }
 
@@ -283,6 +290,9 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
       return operation();
     } catch (error) {
       if (error instanceof IdentityServiceError) throw error;
+      if (error instanceof PaneMetadataError) {
+        throw new IdentityServiceError('RECONCILIATION_FAILED', error.message, { cause: error });
+      }
       throw new IdentityServiceError('RECONCILIATION_FAILED', message, { cause: error });
     }
   };
@@ -446,12 +456,14 @@ export function createIdentityService(options: IdentityServiceOptions): Identity
       try {
         if (!tmux.setDurableIdentity) throw new Error('Durable tmux metadata is unavailable.');
         tmux.setDurableIdentity(paneId, identity, binding, options);
-        verifyPublished(repository, tmux, identity, binding, paneId, options);
       } catch (error) {
-        throw new IdentityServiceError('RECONCILIATION_FAILED', 'Could not write pane metadata.', {
-          cause: error,
-        });
+        throw new IdentityServiceError(
+          'RECONCILIATION_FAILED',
+          error instanceof PaneMetadataError ? error.message : 'Could not write pane metadata.',
+          { cause: error }
+        );
       }
+      verifyPublished(repository, tmux, identity, binding, paneId, options);
       return identity;
     }, 'Could not publish identity state.');
   };

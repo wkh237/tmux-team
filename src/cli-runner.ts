@@ -125,21 +125,6 @@ async function runContextCommand(
       },
     });
 
-    const tmuxRequired = new Set([
-      'talk',
-      'send',
-      'check',
-      'read',
-      'this',
-      'name',
-      'add',
-      'whoami',
-      'unbind',
-    ]);
-    if (!process.env.TMUX && tmuxRequired.has(command)) {
-      ctx.ui.warn('Not running inside tmux. Some features may not work.');
-    }
-
     await runStartupChecks(ctx, command);
     await dispatchCommand(ctx, parsed);
   } catch (error) {

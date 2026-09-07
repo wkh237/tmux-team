@@ -611,9 +611,53 @@ describe('createTmux', () => {
       };
 
       expect(() => createTmux().setDurableIdentity!('%9', identity, binding)).toThrow(
-        'tmux read failed'
+        expect.objectContaining({
+          name: 'PaneMetadataError',
+          stage: 'read',
+          message: 'Could not read pane metadata.',
+          cause: expect.objectContaining({ message: 'tmux read failed' }),
+        })
       );
       expect(mockedExecFileSync).toHaveBeenCalledTimes(1);
+    });
+
+    it('wraps metadata write failures without retrying or leaking subprocess details', () => {
+      const identity: DurableIdentity = {
+        id: 'identity-1',
+        name: 'Alice',
+        canonicalName: 'alice',
+        createdAt: 'created',
+        updatedAt: 'updated',
+      };
+      const binding: TmuxBinding = {
+        id: 'binding-1',
+        identityId: identity.id,
+        transport: 'tmux',
+        paneId: '%9',
+        serverId: 'server-1',
+        socketPath: '/tmp/tmux.sock',
+        serverPid: 321,
+        serverStartTime: 'started',
+        panePid: 654,
+        boundAt: 'bound',
+        lastVerifiedAt: 'verified',
+      };
+      const cause = Object.assign(new Error('private tmux stderr'), { code: 'EPERM' });
+      mockedExecFileSync
+        .mockReturnValueOnce(JSON.stringify({ version: 1 }))
+        .mockImplementationOnce(() => {
+          throw cause;
+        });
+
+      expect(() => createTmux().setDurableIdentity!('%9', identity, binding)).toThrow(
+        expect.objectContaining({
+          name: 'PaneMetadataError',
+          stage: 'write',
+          message: 'Could not write pane metadata (EPERM).',
+          cause,
+        })
+      );
+      expect(mockedExecFileSync).toHaveBeenCalledTimes(2);
     });
 
     it('treats a quiet absent metadata option as an empty metadata object', () => {
@@ -670,13 +714,17 @@ describe('createTmux', () => {
       );
     });
 
-    it('does not fall back to the ambient tmux server without caller evidence', () => {
+    it('uses bounded process evidence when both caller environment values are absent', () => {
       vi.stubEnv('TMUX', '');
       vi.stubEnv('TMUX_PANE', '');
-      mockedExecSync.mockReturnValue('%7\n');
       const tmux = createTmux();
       expect(tmux.getCurrentPaneId()).toBeNull();
-      expect(mockedExecFileSync).not.toHaveBeenCalled();
+      expect(mockedExecFileSync).toHaveBeenCalledTimes(1);
+      expect(mockedExecFileSync).toHaveBeenCalledWith(
+        'ps',
+        ['-o', 'pid=,ppid=', '-p', String(process.pid)],
+        expect.any(Object)
+      );
       expect(mockedExecSync).not.toHaveBeenCalled();
     });
 
@@ -686,7 +734,7 @@ describe('createTmux', () => {
         tmux: undefined,
         pane: '%9',
         output: undefined,
-        calls: 0,
+        calls: 1,
       },
       {
         label: 'malformed pane target',
@@ -762,6 +810,145 @@ describe('createTmux', () => {
       const tmux = createTmux();
       expect(tmux.getCurrentPaneId()).toBeNull();
     });
+
+    it('discovers the unique pane containing the caller process outside tmux env', () => {
+      vi.stubEnv('TMUX', '');
+      vi.stubEnv('TMUX_PANE', '');
+      const parentPid = process.pid + 1;
+      mockedExecFileSync
+        .mockReturnValueOnce(`${process.pid} ${parentPid}\n`)
+        .mockReturnValueOnce(`${parentPid} 0\n`)
+        .mockReturnValueOnce(
+          `%7${CALLER_PANE_SEPARATOR}${parentPid}${CALLER_PANE_SEPARATOR}/tmp/default.sock${CALLER_PANE_SEPARATOR}321\n`
+        );
+
+      expect(createTmux().getCurrentPaneId()).toBe('%7');
+      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
+        'tmux',
+        ['list-panes', '-a', '-F', expect.stringContaining('#{pane_pid}')],
+        expect.objectContaining({
+          timeout: expect.any(Number),
+          maxBuffer: 64 * 1024,
+          killSignal: 'SIGKILL',
+        })
+      );
+    });
+
+    it('rejects an ambiguous process-to-pane match', () => {
+      vi.stubEnv('TMUX', '');
+      vi.stubEnv('TMUX_PANE', '');
+      const parentPid = process.pid + 1;
+      mockedExecFileSync
+        .mockReturnValueOnce(`${process.pid} ${parentPid}\n`)
+        .mockReturnValueOnce(`${parentPid} 0\n`)
+        .mockReturnValueOnce(
+          `%7${CALLER_PANE_SEPARATOR}${parentPid}${CALLER_PANE_SEPARATOR}/tmp/default.sock${CALLER_PANE_SEPARATOR}321\n` +
+            `%8${CALLER_PANE_SEPARATOR}${parentPid}${CALLER_PANE_SEPARATOR}/tmp/default.sock${CALLER_PANE_SEPARATOR}321\n`
+        );
+
+      expect(createTmux().getCurrentPaneId()).toBeNull();
+    });
+
+    it('rejects discovery when process ancestry cannot be read', () => {
+      vi.stubEnv('TMUX', '');
+      vi.stubEnv('TMUX_PANE', '');
+      mockedExecFileSync.mockImplementationOnce(() => {
+        throw new Error('ps unavailable');
+      });
+
+      expect(createTmux().getCurrentPaneId()).toBeNull();
+      expect(mockedExecFileSync).toHaveBeenCalledTimes(1);
+    });
+
+    it('validates partial pane evidence against the discovered process', () => {
+      vi.stubEnv('TMUX', '');
+      vi.stubEnv('TMUX_PANE', '%7');
+      const parentPid = process.pid + 1;
+      mockedExecFileSync
+        .mockReturnValueOnce(`${process.pid} ${parentPid}\n`)
+        .mockReturnValueOnce(`${parentPid} 0\n`)
+        .mockReturnValueOnce(
+          `%8${CALLER_PANE_SEPARATOR}${parentPid}${CALLER_PANE_SEPARATOR}/tmp/default.sock${CALLER_PANE_SEPARATOR}321\n`
+        );
+
+      expect(createTmux().getCurrentPaneId()).toBeNull();
+    });
+
+    it.each([
+      ['/tmp/custom.sock', '321', '%7'],
+      ['/tmp/other.sock', '321', null],
+      ['/tmp/custom.sock', '999', null],
+    ])('checks partial server evidence against %s/%s', (socket, server, expected) => {
+      vi.stubEnv('TMUX', '/tmp/custom.sock,321,0');
+      vi.stubEnv('TMUX_PANE', '');
+      mockedExecFileSync
+        .mockReturnValueOnce(`${process.pid} 0\n`)
+        .mockReturnValueOnce(
+          ['%7', String(process.pid), socket, server].join(CALLER_PANE_SEPARATOR)
+        );
+      expect(createTmux().getCurrentPaneId()).toBe(expected);
+      expect(mockedExecFileSync).toHaveBeenLastCalledWith(
+        'tmux',
+        ['-S', '/tmp/custom.sock', 'list-panes', '-a', '-F', expect.any(String)],
+        expect.any(Object)
+      );
+    });
+
+    it.each([
+      ['', '123', '/tmp/default.sock', '321'],
+      ['%8', '0', '/tmp/default.sock', '321'],
+      ['%8', '123', '', '321'],
+      ['%8', '123', '/tmp/default.sock', '0'],
+      ['%8', '123', '/tmp/default.sock'],
+    ])('rejects malformed rows alongside a valid candidate: %j', (...fields) => {
+      vi.stubEnv('TMUX', '');
+      vi.stubEnv('TMUX_PANE', '');
+      mockedExecFileSync
+        .mockReturnValueOnce(`${process.pid} 0\n`)
+        .mockReturnValueOnce(
+          ['%7', String(process.pid), '/tmp/default.sock', '321'].join(CALLER_PANE_SEPARATOR) +
+            '\n' +
+            fields.join(CALLER_PANE_SEPARATOR)
+        );
+      expect(createTmux().getCurrentPaneId()).toBeNull();
+    });
+
+    it.each(['ancestry', 'pane listing'])(
+      'rejects a shared deadline exhausted during %s',
+      (stage) => {
+        vi.stubEnv('TMUX', '');
+        vi.stubEnv('TMUX_PANE', '');
+        let now = 0;
+        const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+        mockedExecFileSync.mockImplementation((command) => {
+          if (command === 'ps') {
+            if (stage === 'ancestry') now = 1000;
+            return `${process.pid} 0\n`;
+          }
+          now = 1000;
+          return ['%7', String(process.pid), '/tmp/default.sock', '321'].join(
+            CALLER_PANE_SEPARATOR
+          );
+        });
+        try {
+          expect(createTmux().getCurrentPaneId()).toBeNull();
+          expect(mockedExecFileSync).toHaveBeenCalledTimes(stage === 'ancestry' ? 1 : 2);
+        } finally {
+          clock.mockRestore();
+        }
+      }
+    );
+
+    it('does not mistake an unrelated pane process for the caller', () => {
+      vi.stubEnv('TMUX', '');
+      vi.stubEnv('TMUX_PANE', '');
+      mockedExecFileSync
+        .mockReturnValueOnce(`${process.pid} 0\n`)
+        .mockReturnValueOnce(
+          ['%7', String(process.pid + 1), '/tmp/default.sock', '321'].join(CALLER_PANE_SEPARATOR)
+        );
+      expect(createTmux().getCurrentPaneId()).toBeNull();
+    });
   });
 
   describe('durable endpoint snapshots', () => {
@@ -780,7 +967,13 @@ describe('createTmux', () => {
           throw new Error('metadata fallback failed');
         });
 
-      expect(() => createTmux().getEndpointSnapshot?.()).toThrow('metadata fallback failed');
+      expect(() => createTmux().getEndpointSnapshot?.()).toThrow(
+        expect.objectContaining({
+          name: 'PaneMetadataError',
+          stage: 'read',
+          cause: expect.objectContaining({ message: 'metadata fallback failed' }),
+        })
+      );
     });
 
     it('uses integer per-command timeouts bounded by a decreasing shared deadline', () => {
