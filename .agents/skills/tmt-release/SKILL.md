@@ -36,6 +36,13 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
   finalization and unchanged data. The internal preview entrypoint is not a
   public bootstrap or permission to replace a user/package-manager installation.
 - Promotion requires passing Code quality, Unit tests, and Docker E2E checks.
+- For a public native alpha, follow DEVELOPMENT's explicit multi-platform
+  release preparation procedure. The manual artifact workflow never publishes;
+  all four final native verifiers must pass on the recorded reviewed commit.
+  Keep cargo-dist as the merged manifest owner. Authorized publication uses an
+  immutable draft-to-published GitHub release and verifies its attestation and
+  public installer before promoting README instructions. Do not equate a
+  downloadable CI bundle with a published or accepted release.
 - For curl bootstrap, follow DEVELOPMENT's native curl bootstrap verification.
   Generate from final verified cargo-dist artifacts and invoke the existing
   native publisher; do not enable a competing stock installer. Test an actual

@@ -1,14 +1,16 @@
-# TMT native artifact preview
+# TMT native alpha installation
 
-This archive contains a standalone Rust development preview, not a published
-replacement for the npm runtime. It needs no Node.js, Rust toolchain or source
-checkout to run. tmux is still required for pane operations.
+This archive contains the standalone Rust native alpha runtime. It needs no
+Node.js, Rust toolchain or source checkout to run. tmux is still required for
+pane operations. Use the installer asset from a published release; the README
+supplies the verified version URL when one is available.
 
-Use isolated test state until native cutover. Native schema 9 is forward-only:
-the TypeScript runtime cannot reopen it. Replacing a binary is not a database
-downgrade. Do not run this preview against an existing user database.
+Native schema 9 is forward-only: the TypeScript runtime cannot reopen it.
+Installing or replacing a native binary does not migrate, delete or downgrade
+application data. Stop older TMT writers before switching, and do not run the
+native runtime against a database that the TypeScript runtime still uses.
 
-After extracting a verified archive into a chosen test directory:
+After extracting a verified archive into a chosen directory:
 
 ```sh
 tmt_preview_root=$(mktemp -d)
@@ -18,14 +20,16 @@ TMUX_TEAM_HOME="$tmt_preview_root" ./tmt install --dir "$tmt_preview_root/skills
 ```
 
 Skill installation is non-interactive and does not install agent applications.
-This example deliberately keeps its managed files in the temporary preview root.
-Choose a directory your provider discovers and reload its skills. Retain the
-included LICENSE and THIRD-PARTY-NOTICES.txt with redistributed binaries.
+The example keeps its managed files in a temporary directory; for normal use,
+choose a directory your provider discovers and reload its skills. Native pane
+bindings are temporary by default: use `-s`/`--save` with `name` or `add` to
+preserve one, and use `rm <name>` to retire a temporary identity (`--force` is
+required for a saved identity). Retain the included LICENSE and
+THIRD-PARTY-NOTICES.txt with redistributed binaries.
 
 Managed binary receipts, `upgrade`/`update`, and release-generated shell bootstrap
-are implemented in the preview. Public native releases remain a publication gate;
-do not assume a downloadable native release exists yet. Do not overwrite an
-npm, pnpm, Homebrew or manual installation.
+are implemented by the native runtime. Do not overwrite an npm, pnpm, Homebrew
+or manual installation.
 The selected executable's help is the capability authority; the shared alpha
 version number alone does not distinguish native and TypeScript runtimes.
 
@@ -44,34 +48,39 @@ not retry skill work.
 The distribution manifest supplies archive names, target triples and SHA-256
 checksums. Checksums detect corruption, not compromise of the download origin.
 No local test artifact is authenticated by a published GitHub attestation.
-Public immutable-release provenance and verification instructions remain a
-separate release gate; do not describe locally generated checksums as signatures.
+For a published immutable release, `gh release verify <tag> --repo
+wkh237/tmux-team` verifies GitHub's release attestation; `gh release verify-asset
+<tag> <downloaded-file> --repo wkh237/tmux-team` also checks a local asset.
+This optional independent check requires GitHub CLI, not the installed TMT
+runtime. Do not describe locally generated checksums as signatures.
 
-Target candidates are macOS x64/arm64 (deployment target 11.0) and Linux x64/arm64
-with a static musl runtime. Actual target execution and linkage must pass before
-release support is claimed; cross-compilation alone is not acceptance evidence.
+Release targets are macOS x64/arm64 (build deployment target 11.0) and Linux
+x64/arm64 with a static musl runtime. Refer to the release's verification evidence
+for tested host OS versions; a deployment target is not testing on every OS.
 
 ## Curl bootstrap
 
-Public native publication is still pending. Once published, use the release's
-exact `tmt-installer.sh` asset URL (replace `<VERSION>` with its version):
+Use the exact `tmt-installer.sh` asset URL from a published release. The README
+supplies the verified version URL when one is available. Set that URL as
+`TMT_INSTALLER_URL` after checking the release asset before running:
 
 ```sh
 curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
-  'https://github.com/wkh237/tmux-team/releases/download/v<VERSION>/tmt-installer.sh' | sh
+  --output tmt-installer.sh "$TMT_INSTALLER_URL" &&
+sh tmt-installer.sh
 ```
 
-The script fixes the initial version/channel, not a mutable alpha tag. Later
-`tmt upgrade` follows that channel. To inspect first, download the same URL to
-a file, read it, then run `sh tmt-installer.sh`. A failed/truncated download is
-not installation success; check the installed absolute command afterwards.
+The script fixes the initial version and channel, not a mutable alpha tag.
+Later native `tmt upgrade` follows that channel. Inspect the downloaded file
+before running it; a failed or truncated download is not installation success.
+Check the installed absolute command afterwards.
 
 Default prefix: `$HOME/.local`, with commands in `~/.local/bin`. Options after
 `sh -s --` (or the downloaded script):
 
 - `--prefix /absolute/directory`: another prefix, including paths with spaces.
 - `--pin`: pin this release; `tmt upgrade --unpin` resumes channel updates.
-- `--no-skill`: binary only. Otherwise the new absolute command runs the existing
+- `--no-skill`: binary only. Otherwise the new absolute command runs the native
   non-interactive `tmt install`; no provider application is installed.
 
 Requires POSIX shell, curl, tar/gzip, standard filesystem utilities and

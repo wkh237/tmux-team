@@ -50,7 +50,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Help => {
             writeln!(
                 stdout,
-                "Native development preview: configuration, identity create/show/list, talk/reply/result, pane identity name/this/add/whoami/unbind/rm/list, diagnostic check/read, role/preamble, x attention, init, learn, and skill installation are available. Managed native upgrade/update is supported; public release availability is a separate gate. Use isolated test state only.\n"
+                "TMT native alpha — collaborate with terminal agents through durable exchanges.\nRun tmt install to set up agent skills; managed installations use tmt upgrade.\n"
             )?;
             grammar::public_grammar(&grammar::grammar(), true).write_long_help(&mut stdout)?;
             writeln!(stdout)?;

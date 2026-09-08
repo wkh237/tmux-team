@@ -7,6 +7,33 @@ already enforced. [AGENTS.md](AGENTS.md) owns review policy,
 [DEVELOPMENT.md](DEVELOPMENT.md) owns verification commands. Issue specifications
 describe proposals; update this map when the implemented changes land.
 
+## Runtime and release boundary
+
+The standalone Rust native alpha is prepared through the explicit
+`native-release.yml` workflow. The user-facing README advertises its installer
+only after immutable publication and live-download verification. `rust/` owns
+the native runtime; root `src/` and npm entrypoints remain the transitional
+TypeScript reference and test tooling, not a wrapper that downloads Rust.
+The older sections below describe that reference implementation unless they
+explicitly identify native owners. Native lifetime rules (temporary by default,
+explicit save, retirement) supersede durable-only identity assumptions there.
+Source cleanup and measured performance acceptance remain tracked in #93.
+
+Release preparation is orchestration, not a second artifact or install owner.
+`dist-workspace.toml` selects artifacts; cargo-dist merges per-host manifests
+from `target/distrib/*-dist-manifest.json` into the authoritative final manifest.
+The workflow's shared runner matrix maps supported targets to native hosts;
+bootstrap `--plan` compares the final inventory with cargo-dist's complete plan
+so a missing build target cannot silently reduce release coverage. Independent
+artifact selection also requires the same `tmt-cli` owner as native publication.
+Existing bounded archive and bootstrap verifiers execute the final bundle on
+each matching host, including SQLite persistence and exact embedded skills.
+The workflow has read-only repository permission and never publishes. Authorized
+publication uses a draft, exact verified assets and immutable GitHub release
+attestation; the native updater still enforces immutable metadata and dual
+digests. Initial bootstrap trust remains the downloaded script and HTTPS origin,
+not independent client-side attestation verification.
+
 ## Product and state boundaries
 
 TMT is a CLI-owned, local collaboration tool. Each invocation performs its work

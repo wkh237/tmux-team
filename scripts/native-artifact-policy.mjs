@@ -49,6 +49,7 @@ export function selectNativeArtifact(manifestFile, archiveFile, target) {
   assert(/^[a-f0-9]{64}$/.test(artifact.checksums?.sha256), 'Manifest requires SHA-256');
   const releases = manifest.releases?.filter((release) => release.artifacts.includes(name));
   assert.equal(releases?.length, 1, 'Archive must belong to exactly one release');
+  assert.equal(releases[0].app_name, 'tmt-cli', 'Archive must belong to the TMT release');
   const version = releases[0].app_version;
   assert(typeof version === 'string' && version.length > 0, 'Manifest requires a version');
   assert.deepEqual(
