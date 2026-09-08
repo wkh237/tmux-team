@@ -5,8 +5,9 @@ and bounded tmux evidence (#105), shared identity records (#111), and
 storage-only identity commands (#113), and pane identity lifecycle (#109)
 are implemented in the development preview, not a shipped Rust runtime.
 #118 adds the internal transactional request/final foundation; #120 adds compact
-receipt encoding and old-v1 decoding through that same service. Public native
-talk/reply/result and the full #106 short-receipt transition remain unimplemented.
+receipt encoding and old-v1 decoding through that same service. #122 adds public
+native reply/result with bounded input. Native talk and the full #106
+short-receipt transition remain unimplemented.
 Owner: [#93](https://github.com/wkh237/tmux-team/issues/93);
 preparation: [#94](https://github.com/wkh237/tmux-team/issues/94).
 The compatibility reference is TypeScript main `cb53533f3a9f19a1a2ab95af59dda20df419200b`
@@ -65,7 +66,8 @@ delegates from native to Node.
 
 The preview implements help, version, Bash/Zsh completion and the existing
 `config` command plus storage-only `identity create/show/list` (#113) and pane
-identity `name`/`this`/`add`/`whoami`/`unbind`/`rm`/`list` (#109).
+identity `name`/`this`/`add`/`whoami`/`unbind`/`rm`/`list` (#109), plus storage-only
+`reply`/`result` (#122).
 Other recognized effectful commands return
 `NATIVE_NOT_IMPLEMENTED`, exit 1, before any settings,
 storage, tmux or input acquisition. Text-only commands reject JSON. Native
@@ -250,6 +252,17 @@ RUSTSEC-2017-0004 (patched >=0.5.2); selected versions are patched. This dated
 review is not a permanent security guarantee; repeat when dependencies change.
 
 ### Execution and resource ownership
+
+#122 wires storage-only reply/result after bounded exact-text acquisition. It
+adds fs/poll features to the already locked nix 0.31.3 for safe nonblocking file
+open, descriptor inspection/flag restoration and EOF/deadline polling. These
+features add no packages to Cargo.lock; its published manifest declares MIT and
+Rust 1.69. The term feature is dev-only for a private pseudoterminal test and is
+not required by normal runtime builds. No authored unsafe bindings, reader
+thread, alternate subprocess runner or async framework is added. Existing core
+exact-text validation owns body semantics. Public errors retain internal IO
+causes without printing paths or payloads. See ARCHITECTURE for input ownership
+and Darwin socket-backed stdin handling. Installed TypeScript is unchanged.
 
 #105 implements one Unix runner using `subprocess` 1.2.1 for simultaneous pipe
 communication, `nix` 0.31.3 with only signal/process features for typed OS

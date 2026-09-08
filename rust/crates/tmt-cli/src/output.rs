@@ -14,6 +14,7 @@ pub struct Failure {
     pub status: u8,
     cause: Option<Box<dyn Error>>,
     suggestion: Option<String>,
+    request: Option<Box<(String, Option<&'static str>)>>,
 }
 
 impl Failure {
@@ -24,6 +25,7 @@ impl Failure {
             status,
             cause: None,
             suggestion: None,
+            request: None,
         }
     }
 
@@ -37,12 +39,26 @@ impl Failure {
         self
     }
 
+    /// Only explicit public correlation is carried into an error document;
+    /// bodies, receipt proofs and endpoint evidence are never included.
+    pub fn with_request(mut self, request_id: String, status: Option<&'static str>) -> Self {
+        self.request = Some(Box::new((request_id, status)));
+        self
+    }
+
     pub fn publish(&self, mode: OutputMode) -> io::Result<u8> {
         if mode.json {
             let mut document =
                 serde_json::json!({"error": {"code": self.code, "message": self.message}});
             if let Some(suggestion) = &self.suggestion {
                 document["error"]["suggestion"] = suggestion.clone().into();
+            }
+            if let Some(request) = &self.request {
+                let (request_id, status) = request.as_ref();
+                document["requestId"] = request_id.clone().into();
+                if let Some(status) = status {
+                    document["status"] = (*status).into();
+                }
             }
             writeln!(io::stdout().lock(), "{document}")?;
         } else {

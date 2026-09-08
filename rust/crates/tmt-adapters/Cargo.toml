@@ -17,5 +17,8 @@ uuid = { workspace = true, features = ["v4"] }
 subprocess.workspace = true
 nix.workspace = true
 
+[target.'cfg(unix)'.dev-dependencies]
+nix = { workspace = true, features = ["term"] }
+
 [lints]
 workspace = true

@@ -180,10 +180,15 @@ execute original TS-generated v1 receipts against migrated frozen schema-8
 fixtures, including in-flight and orphan finals. This proves service handoff,
 not simultaneous TS/schema-8 access to native/schema-9 state.
 
-Installed TypeScript still emits v1. This slice does not enable public native
-talk/reply/result or change installed skill/help/README instructions. Parent #106
-still owns the public adapters, generated instruction measurements, canonical
-installed guidance and full private-tmux/mock-agent acceptance before cutover.
+Installed TypeScript still emits v1. #122 enables public native preview
+`reply`/`result`, using this codec and the existing service with complete bounded
+input before storage. Both v1 and v2 receipts work without tmux or current config.
+The same submitted/completed/unavailable output and exit contracts apply; a
+stopped schema-8 fixture can migrate through native reply while retaining its v1
+instruction. This is not permission to mix writers after schema-9 migration.
+Native talk is still absent. Parent #106 owns generated instruction measurements,
+canonical installed guidance and full private-tmux/mock-agent acceptance before
+cutover; installed skill/README instructions remain unchanged for now.
 
 ### TMT-39 live durable completion
 
