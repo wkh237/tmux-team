@@ -109,6 +109,21 @@ fn unavailable_observations_do_not_hide_failed_cleanup() {
 }
 
 #[test]
+fn malformed_probe_does_not_retire_a_live_recorded_process() {
+    let tmux = Tmux::new(ScriptedRunner::new([Ok("malformed endpoint snapshot")]));
+    assert_eq!(
+        tmux.probe(
+            "/tmp/private.sock",
+            u64::from(std::process::id()),
+            OperationOptions::default()
+        )
+        .unwrap(),
+        EndpointProbe::Unknown
+    );
+    assert_eq!(tmux.runner.calls.borrow().len(), 1);
+}
+
+#[test]
 fn ancestry_requires_one_coherent_candidate_after_grouped_row_deduplication() {
     const MATCH: &str = "%9__TMT_CALLER_PANE_4f1c__700__TMT_CALLER_PANE_4f1c__/tmp/private.sock__TMT_CALLER_PANE_4f1c__321";
     const OTHER: &str = "%10__TMT_CALLER_PANE_4f1c__900__TMT_CALLER_PANE_4f1c__/tmp/private.sock__TMT_CALLER_PANE_4f1c__321";

@@ -1,8 +1,9 @@
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { expectError, fileSnapshot, runCli, withSandbox } from '../support/cli-process.js';
+import { calibrateTmuxTripwire } from './tmux-tripwire.js';
 
 // This suite is deliberately native-specific. Requiring the shared
 // descriptor prevents an omitted build from silently exercising TypeScript.
@@ -76,6 +77,75 @@ describe('native grammar process contract', () => {
       expect(help.stdout).toContain('keep pane/exchanges');
       expect(help.stdout).not.toContain('--wait');
       expect(fileSnapshot(sandbox.root)).toEqual(before);
+    });
+  });
+
+  it('rejects invalid options before root help or version with JSON diagnostics', async () => {
+    await withSandbox(async (sandbox) => {
+      const tripwire = await calibrateTmuxTripwire(sandbox);
+      const before = fileSnapshot(sandbox.root);
+      const tmuxBaseline = readFileSync(tripwire, 'utf8');
+      for (const args of [
+        ['--json', 'help', '--timeout', '1s'],
+        ['--json', '--help', '--timeout', '1s'],
+        ['--json', '--version', '--timeout', '1s'],
+      ]) {
+        const result = await runCli(sandbox, args);
+        expect(result.status).toBe(1);
+        expectError(result, 'USAGE_ERROR');
+        expect(result.stderr).toBe('');
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+        expect(existsSync(sandbox.database)).toBe(false);
+        expect(readFileSync(tripwire, 'utf8')).toBe(tmuxBaseline);
+      }
+    });
+  });
+
+  it('rejects ignored options in every placement before storage or tmux effects', async () => {
+    await withSandbox(async (sandbox) => {
+      const tripwire = await calibrateTmuxTripwire(sandbox);
+      const before = fileSnapshot(sandbox.root);
+      const tmuxBaseline = readFileSync(tripwire, 'utf8');
+      for (const args of [
+        ['list', '--config', '/tmp/ignored.json', '--json'],
+        ['--config', '/tmp/ignored.json', 'list', '--json'],
+        ['list', '--timeout', '1s', '--json'],
+        ['--timeout', '1s', 'list', '--json'],
+        ['role', 'show', '--timeout', '1s', '--json'],
+        ['--timeout', '1s', 'role', 'show', '--json'],
+      ]) {
+        const result = await runCli(sandbox, args);
+        expect(result.status).toBe(1);
+        expectError(result, 'USAGE_ERROR');
+        expect(result.stderr).toBe('');
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+        expect(existsSync(sandbox.database)).toBe(false);
+        expect(readFileSync(tripwire, 'utf8')).toBe(tmuxBaseline);
+      }
+    });
+  });
+
+  it('rejects JSON mode for text-only commands before side effects', async () => {
+    await withSandbox(async (sandbox) => {
+      const tripwire = await calibrateTmuxTripwire(sandbox);
+      const before = fileSnapshot(sandbox.root);
+      const tmuxBaseline = readFileSync(tripwire, 'utf8');
+      for (const args of [
+        ['help', '--json'],
+        ['--json', '--help'],
+        ['--version', '--json'],
+        ['--json', '--version'],
+        ['completion', 'bash', '--json'],
+        ['learn', '--json'],
+      ]) {
+        const result = await runCli(sandbox, args);
+        expect(result.status).toBe(1);
+        expectError(result, 'JSON_UNSUPPORTED');
+        expect(result.stderr).toBe('');
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
+        expect(existsSync(sandbox.database)).toBe(false);
+        expect(readFileSync(tripwire, 'utf8')).toBe(tmuxBaseline);
+      }
     });
   });
 

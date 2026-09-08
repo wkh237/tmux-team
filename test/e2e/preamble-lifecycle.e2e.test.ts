@@ -16,7 +16,12 @@ interface PreambleValue {
 }
 
 interface RoleValue {
-  identity: { id: string; name: string; canonicalName: string };
+  identity: {
+    id: string;
+    name: string;
+    canonicalName: string;
+    lifetime: 'temporary' | 'saved';
+  };
   role: { content: string; updatedAt: string } | null;
 }
 
@@ -102,7 +107,7 @@ async function causalTalk(
 describe.sequential('durable identity preambles', () => {
   it('stores by durable identity, stays offline, and survives legacy files and rebinding', async () => {
     await withE2EFixture(async (fixture) => {
-      const bound = await fixture.runJsonCli(['name', 'Durable']);
+      const bound = await fixture.runJsonCli(['name', 'Durable', '-s']);
       expect(bound.code).toBe(0);
       const roleText = 'Role remains separate from the preamble.';
       expect((await fixture.runJsonCli(['role', 'set', roleText])).code).toBe(0);

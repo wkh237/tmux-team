@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
-import { durableState } from './identity-state-oracle.js';
+import { durableIdentity, durableState } from './identity-state-oracle.js';
 import { withE2EFixture, type CliResult, type E2EFixture, type MockEvent } from './harness.js';
 import { readRealTmuxCli, releaseRealTmuxCli, spawnRealTmuxCli } from './real-tmux-caller.js';
 import { installTmuxTrace } from './tmux-trace.js';
@@ -14,8 +14,10 @@ interface CommandError {
 
 interface WhoamiResult {
   bound: boolean;
+  id?: string;
   name?: string;
   pane: string;
+  lifetime?: 'temporary' | 'saved';
 }
 
 interface CheckResult {
@@ -36,8 +38,10 @@ interface TalkResult {
 
 interface BindingResult {
   bound: true;
+  id: string;
   name: string;
   pane: string;
+  lifetime: 'temporary' | 'saved';
 }
 
 function json<T>(result: CliResult<T>): T {
@@ -185,7 +189,15 @@ describe.sequential('scoped identity operations in a large tmux session', () => 
           'LargeSession',
         ]);
         expect(named.code).toBe(0);
-        expect(json(named)).toEqual({ bound: true, name: 'LargeSession', pane: fixture.pane });
+        const namedIdentity = durableIdentity(fixture, 'LargeSession');
+        expect(namedIdentity.lifetime).toBe('temporary');
+        expect(json(named)).toEqual({
+          bound: true,
+          id: namedIdentity.id,
+          name: 'LargeSession',
+          pane: fixture.pane,
+          lifetime: 'temporary',
+        });
         const addListInvocations = trace
           .invocations()
           .map(invocationArgs)
@@ -209,15 +221,29 @@ describe.sequential('scoped identity operations in a large tmux session', () => 
         });
         await releaseRealTmuxCli(fixture, realName);
         const realNameResult = readRealTmuxCli<BindingResult>(realName);
-        expect(realNameResult).toMatchObject({
+        const descendantIdentity = durableIdentity(fixture, 'DescendantAlias');
+        expect(descendantIdentity.lifetime).toBe('temporary');
+        expect(realNameResult).toEqual({
           code: 0,
-          stdout: { bound: true, name: 'DescendantAlias', pane: realName.pane },
+          stdout: {
+            bound: true,
+            id: descendantIdentity.id,
+            name: 'DescendantAlias',
+            pane: realName.pane,
+            lifetime: 'temporary',
+          },
           stderr: '',
         });
 
         const whoami = await fixture.runJsonCli<WhoamiResult>(['whoami']);
         expect(whoami.code).toBe(0);
-        expect(json(whoami)).toEqual({ bound: true, name: 'LargeSession', pane: fixture.pane });
+        expect(json(whoami)).toEqual({
+          bound: true,
+          id: namedIdentity.id,
+          name: 'LargeSession',
+          pane: fixture.pane,
+          lifetime: 'temporary',
+        });
 
         const namedCheck = await fixture.runJsonCli<CheckResult>([
           'check',

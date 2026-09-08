@@ -6,11 +6,18 @@ interface PublicIdentity {
   id: string;
   name: string;
   canonicalName: string;
+  lifetime: 'temporary' | 'saved';
 }
 
 interface IdentityResult {
   identity: PublicIdentity;
   created?: boolean;
+}
+
+interface ListedIdentity extends PublicIdentity {
+  presence: 'active' | 'offline' | 'unknown';
+  pane: string | null;
+  command: string;
 }
 
 function success<T>(result: CliResult<T>): T {
@@ -46,7 +53,11 @@ describe.sequential('durable identity lifecycle', () => {
         })
       );
       expect(created.created).toBe(true);
-      expect(created.identity).toMatchObject({ name, canonicalName: 'alice' });
+      expect(created.identity).toMatchObject({
+        name,
+        canonicalName: 'alice',
+        lifetime: 'saved',
+      });
       expect(created.identity.id).toMatch(/^[0-9a-f-]{36}$/);
 
       expect(
@@ -78,10 +89,20 @@ describe.sequential('durable identity lifecycle', () => {
         )
       ).toEqual({ agent: name, preamble, status: 'set' });
 
-      const firstBinding = success<{ bound: true; name: string; pane: string }>(
-        await fixture.runJsonCli(['name', name])
-      );
-      expect(firstBinding).toEqual({ bound: true, name, pane: fixture.pane });
+      const firstBinding = success<{
+        bound: true;
+        id: string;
+        name: string;
+        pane: string;
+        lifetime: 'temporary' | 'saved';
+      }>(await fixture.runJsonCli(['name', name]));
+      expect(firstBinding).toEqual({
+        bound: true,
+        id: created.identity.id,
+        name,
+        pane: fixture.pane,
+        lifetime: 'saved',
+      });
       const stateBeforeRepeat = durableState(fixture);
       expect(stateBeforeRepeat.identities).toHaveLength(1);
       expect(stateBeforeRepeat.identities[0]?.id).toBe(created.identity.id);
@@ -100,10 +121,17 @@ describe.sequential('durable identity lifecycle', () => {
       expect(durableState(fixture)).toEqual(stateBeforeRepeat);
 
       const activeBeforeRestart = success<{
-        identities: Array<Omit<PublicIdentity, 'id'> & { pane: string }>;
+        identities: ListedIdentity[];
       }>(await fixture.runJsonCli(['list']));
       expect(activeBeforeRestart.identities).toEqual([
-        expect.objectContaining({ name, canonicalName: 'alice', pane: fixture.pane }),
+        expect.objectContaining({
+          id: created.identity.id,
+          name,
+          canonicalName: 'alice',
+          lifetime: 'saved',
+          presence: 'active',
+          pane: fixture.pane,
+        }),
       ]);
 
       const preambleBeforeRestart = success<{ agent: string; preamble: string }>(
@@ -113,16 +141,31 @@ describe.sequential('durable identity lifecycle', () => {
 
       expect(success(await fixture.runJsonCli(['unbind']))).toEqual({
         unbound: true,
+        id: created.identity.id,
         name,
         pane: fixture.pane,
+        lifetime: 'saved',
+        retired: false,
       });
-      expect(success(await fixture.runJsonCli(['list']))).toEqual({ identities: [] });
+      expect(success(await fixture.runJsonCli(['list']))).toEqual({
+        identities: [{ ...created.identity, presence: 'offline', pane: null, command: '' }],
+      });
 
       const restarted = await fixture.restartServer();
-      const rebound = success<{ bound: true; name: string; pane: string }>(
-        await fixture.runJsonCli(['name', equivalentName])
-      );
-      expect(rebound).toEqual({ bound: true, name, pane: restarted.pane });
+      const rebound = success<{
+        bound: true;
+        id: string;
+        name: string;
+        pane: string;
+        lifetime: 'temporary' | 'saved';
+      }>(await fixture.runJsonCli(['name', equivalentName]));
+      expect(rebound).toEqual({
+        bound: true,
+        id: created.identity.id,
+        name,
+        pane: restarted.pane,
+        lifetime: 'saved',
+      });
       expect(await showStoredProfile(fixture, name)).toBe(profile);
       expect(
         success(
@@ -132,15 +175,20 @@ describe.sequential('durable identity lifecycle', () => {
           )
         )
       ).toEqual({ agent: name, preamble });
-      expect(
-        success<{ identities: Array<Omit<PublicIdentity, 'id'> & { pane: string }> }>(
-          await fixture.runJsonCli(['list'])
-        )
-      ).toEqual({
-        identities: [
-          expect.objectContaining({ name, canonicalName: 'alice', pane: restarted.pane }),
-        ],
-      });
+      expect(success<{ identities: ListedIdentity[] }>(await fixture.runJsonCli(['list']))).toEqual(
+        {
+          identities: [
+            expect.objectContaining({
+              id: created.identity.id,
+              name,
+              canonicalName: 'alice',
+              lifetime: 'saved',
+              presence: 'active',
+              pane: restarted.pane,
+            }),
+          ],
+        }
+      );
       const finalState = durableState(fixture);
       expect(finalState.identities).toEqual(stateBeforeRepeat.identities);
       expect(finalState.profiles).toEqual(stateBeforeRepeat.profiles);

@@ -1,8 +1,11 @@
-import Database from 'better-sqlite3';
 import fs from 'node:fs';
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { withE2EFixture, type E2EFixture, type CliResult } from './harness.js';
+import {
+  durableIdentity,
+  durableState,
+  withoutVerificationTimestamp,
+} from './identity-state-oracle.js';
 
 function successful<T>(result: CliResult<T>): T {
   expect(result.code, result.stderr || result.stdout).toBe(0);
@@ -11,16 +14,43 @@ function successful<T>(result: CliResult<T>): T {
   return result.json as T;
 }
 
-function durableState(fixture: E2EFixture) {
-  const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
-  try {
-    return {
-      identities: database.prepare('SELECT * FROM identities ORDER BY id').all(),
-      bindings: database.prepare('SELECT * FROM bindings ORDER BY id').all(),
-      profiles: database.prepare('SELECT * FROM role_profiles ORDER BY identity_id').all(),
-    };
-  } finally {
-    database.close();
+interface DurableIdentity {
+  id: string;
+  name: string;
+  lifetime: 'temporary' | 'saved';
+}
+
+interface BoundResult extends DurableIdentity {
+  bound: true;
+  pane: string;
+}
+
+interface ListedIdentity extends DurableIdentity {
+  canonicalName: string;
+  presence: 'active' | 'offline' | 'unknown';
+  pane: string | null;
+  command: string;
+  target?: string;
+  cwd?: string;
+}
+
+interface Listing {
+  identities: ListedIdentity[];
+}
+
+function expectVerificationTimestampsNondecreasing(
+  before: Array<Record<string, unknown>>,
+  after: Array<Record<string, unknown>>
+): void {
+  const beforeById = new Map(before.map((binding) => [String(binding.id), binding]));
+  for (const binding of after) {
+    const prior = beforeById.get(String(binding.id));
+    expect(prior).toBeDefined();
+    const priorTimestamp = Date.parse(String(prior!.last_verified_at));
+    const currentTimestamp = Date.parse(String(binding.last_verified_at));
+    expect(Number.isNaN(priorTimestamp)).toBe(false);
+    expect(Number.isNaN(currentTimestamp)).toBe(false);
+    expect(currentTimestamp).toBeGreaterThanOrEqual(priorTimestamp);
   }
 }
 
@@ -72,28 +102,95 @@ describe.sequential('global identities across isolated tmux servers', () => {
       successful(await b.runJsonCli(['name', 'Remote']));
       successful(await b.runJsonCli(['role', 'set', 'Keep the remote profile.']));
       const before = durableState(b);
+      const remoteIdentity = durableIdentity(b, 'Remote');
       const remoteMetadata = b.paneMetadata();
+      // Neither grouped session is attached: inventory retains the first linked
+      // presentation, while display-message may choose the other session.
+      const remoteTarget = b
+        .tmux([
+          'list-panes',
+          '-a',
+          '-F',
+          '#{pane_id}|#{session_name}:#{window_index}.#{pane_index}',
+        ])
+        .trim()
+        .split('\n')
+        .find((row) => row.startsWith(`${b.pane}|`))!
+        .split('|')[1];
 
-      expect(successful(await a.runJsonCli(['list']))).toEqual({ identities: [] });
-      expect(durableState(a)).toEqual(before);
+      expect(successful(await a.runJsonCli<Listing>(['list']))).toEqual({
+        identities: [
+          {
+            id: remoteIdentity.id,
+            name: 'Remote',
+            canonicalName: 'remote',
+            lifetime: 'temporary',
+            presence: 'active',
+            pane: b.pane,
+            command: 'node',
+            target: remoteTarget,
+            cwd: b.workspace,
+          },
+        ],
+      });
+      const afterList = durableState(a);
+      expect(afterList.identities).toEqual(before.identities);
+      expect(withoutVerificationTimestamp(afterList.bindings)).toEqual(
+        withoutVerificationTimestamp(before.bindings)
+      );
+      expectVerificationTimestampsNondecreasing(before.bindings, afterList.bindings);
+      expect(afterList.profiles).toEqual(before.profiles);
       const collision = await a.runJsonCli(['name', 'REMOTE']);
       expect(collision.code).toBe(5);
       expect(collision.json).toMatchObject({ error: { code: 'NAME_ALREADY_ACTIVE' } });
-      expect(durableState(a)).toEqual(before);
+      const afterCollision = durableState(a);
+      expect(afterCollision.identities).toEqual(before.identities);
+      expect(withoutVerificationTimestamp(afterCollision.bindings)).toEqual(
+        withoutVerificationTimestamp(before.bindings)
+      );
+      expectVerificationTimestampsNondecreasing(before.bindings, afterCollision.bindings);
+      expect(afterCollision.profiles).toEqual(before.profiles);
       expect(a.paneMetadata()).toBe('');
       expect(b.paneMetadata()).toBe(remoteMetadata);
 
       successful(await a.runJsonCli(['name', 'Local']));
+      const localIdentity = durableIdentity(a, 'Local');
       const local = durableState(a).bindings.filter(
         (row) => (row as { socket_path: string }).socket_path === a.socketPath
       );
-      const listB = successful(await b.runJsonCli<{ identities: { name: string }[] }>(['list']));
-      expect(listB.identities.map((entry) => entry.name)).toEqual(['Remote']);
       expect(
         durableState(a).bindings.filter(
           (row) => (row as { socket_path: string }).socket_path === a.socketPath
         )
       ).toEqual(local);
+
+      const listB = successful(await b.runJsonCli<Listing>(['list']));
+      expect(listB).toEqual({
+        identities: [
+          {
+            id: localIdentity.id,
+            name: 'Local',
+            canonicalName: 'local',
+            lifetime: 'temporary',
+            presence: 'active',
+            pane: a.pane,
+            command: 'node',
+            target: a.paneTarget(a.pane),
+            cwd: a.workspace,
+          },
+          {
+            id: remoteIdentity.id,
+            name: 'Remote',
+            canonicalName: 'remote',
+            lifetime: 'temporary',
+            presence: 'active',
+            pane: b.pane,
+            command: 'node',
+            target: remoteTarget,
+            cwd: b.workspace,
+          },
+        ],
+      });
 
       const foreignTalk = await a.runJsonCli(['talk', 'Remote', 'must-not-cross-servers']);
       expect(foreignTalk.code).toBe(3);
@@ -125,13 +222,26 @@ describe.sequential('global identities across isolated tmux servers', () => {
         successful(await b.runJsonCli(['name', 'Remote']));
         successful(await b.runJsonCli(['role', 'set', 'Preserve on uncertain evidence.']));
         const before = durableState(b);
+        const remoteIdentity = durableIdentity(b, 'Remote');
         const metadata = b.paneMetadata();
         const hiddenSocket = `${b.socketPath}.unreachable`;
         if (failure === 'hidden socket') fs.renameSync(b.socketPath, hiddenSocket);
         else process.kill(b.serverPid, 'SIGSTOP');
         try {
           expect(b.serverProcessIsRunning()).toBe(true);
-          expect(successful(await a.runJsonCli(['list']))).toEqual({ identities: [] });
+          expect(successful(await a.runJsonCli<Listing>(['list']))).toEqual({
+            identities: [
+              {
+                id: remoteIdentity.id,
+                name: 'Remote',
+                canonicalName: 'remote',
+                lifetime: 'temporary',
+                presence: 'unknown',
+                pane: null,
+                command: '',
+              },
+            ],
+          });
           expect(successful(await a.runJsonCli(['whoami']))).toMatchObject({ bound: false });
           expect(durableState(a)).toEqual(before);
           const started = Date.now();
@@ -146,9 +256,12 @@ describe.sequential('global identities across isolated tmux servers', () => {
           else process.kill(b.serverPid, 'SIGCONT');
         }
         expect(b.paneMetadata()).toBe(metadata);
-        expect(successful(await b.runJsonCli(['whoami']))).toMatchObject({
+        expect(successful(await b.runJsonCli(['whoami']))).toEqual({
           bound: true,
+          id: remoteIdentity.id,
           name: 'Remote',
+          pane: b.pane,
+          lifetime: 'temporary',
         });
       });
     },
@@ -157,12 +270,20 @@ describe.sequential('global identities across isolated tmux servers', () => {
 
   it('reclaims a proven-dead foreign endpoint without replacing the identity or profile', async () => {
     await withTwoServers(async (a, b) => {
-      successful(await b.runJsonCli(['name', 'Remote']));
+      successful(await b.runJsonCli(['name', 'Remote', '-s']));
       const profile = successful(await b.runJsonCli(['role', 'set', 'Survive endpoint death.']));
       const before = durableState(b);
+      const remoteIdentity = durableIdentity(b, 'Remote');
+      expect(remoteIdentity.lifetime).toBe('saved');
       b.tmux(['kill-server']);
       await b.waitFor(() => !b.serverProcessIsRunning(), 2_000, 'foreign server process exit');
-      successful(await a.runJsonCli(['name', 'Remote']));
+      expect(successful(await a.runJsonCli<BoundResult>(['name', 'Remote']))).toEqual({
+        bound: true,
+        id: remoteIdentity.id,
+        name: 'Remote',
+        pane: a.pane,
+        lifetime: 'saved',
+      });
       const after = durableState(a);
       expect(after.identities).toEqual(before.identities);
       expect(after.profiles).toEqual(before.profiles);
@@ -175,10 +296,13 @@ describe.sequential('global identities across isolated tmux servers', () => {
 
   it('prunes only the restarted socket while retaining another live server and both durable identities', async () => {
     await withTwoServers(async (a, b) => {
-      successful(await a.runJsonCli(['name', 'Local']));
+      successful(await a.runJsonCli(['name', 'Local', '-s']));
       successful(await a.runJsonCli(['role', 'set', 'Survive local restart.']));
       successful(await b.runJsonCli(['name', 'Remote']));
       const before = durableState(a);
+      const localIdentity = durableIdentity(a, 'Local');
+      const remoteIdentity = durableIdentity(a, 'Remote');
+      expect(localIdentity.lifetime).toBe('saved');
       const foreign = before.bindings.filter(
         (row) => (row as { socket_path: string }).socket_path === b.socketPath
       );
@@ -186,27 +310,65 @@ describe.sequential('global identities across isolated tmux servers', () => {
       const oldSocket = a.socketPath;
       await a.restartServer();
       expect(a.socketPath).toBe(oldSocket);
-      expect(successful(await a.runJsonCli(['list']))).toEqual({ identities: [] });
+      expect(successful(await a.runJsonCli<Listing>(['list']))).toEqual({
+        identities: [
+          {
+            id: localIdentity.id,
+            name: 'Local',
+            canonicalName: 'local',
+            lifetime: 'saved',
+            presence: 'offline',
+            pane: null,
+            command: '',
+          },
+          {
+            id: remoteIdentity.id,
+            name: 'Remote',
+            canonicalName: 'remote',
+            lifetime: 'temporary',
+            presence: 'active',
+            pane: b.pane,
+            command: 'node',
+            target: b.paneTarget(b.pane),
+            cwd: b.workspace,
+          },
+        ],
+      });
       const after = durableState(a);
-      expect(after.bindings).toEqual(foreign);
+      expect(withoutVerificationTimestamp(after.bindings)).toEqual(
+        withoutVerificationTimestamp(foreign)
+      );
+      expectVerificationTimestampsNondecreasing(foreign, after.bindings);
       expect(after.identities).toEqual(before.identities);
       expect(after.profiles).toEqual(before.profiles);
-      successful(await a.runJsonCli(['name', 'Local']));
-      expect(durableState(a).identities).toEqual(before.identities);
-      expect(successful(await b.runJsonCli(['whoami']))).toMatchObject({
+      expect(successful(await a.runJsonCli<BoundResult>(['name', 'Local']))).toEqual({
         bound: true,
+        id: localIdentity.id,
+        name: 'Local',
+        pane: a.pane,
+        lifetime: 'saved',
+      });
+      expect(durableState(a).identities).toEqual(before.identities);
+      expect(successful(await b.runJsonCli(['whoami']))).toEqual({
+        bound: true,
+        id: remoteIdentity.id,
         name: 'Remote',
+        pane: b.pane,
+        lifetime: 'temporary',
       });
     });
   }, 30_000);
 
   it('reclaims a dead foreign pane while its original server and another identity remain alive', async () => {
     await withTwoServers(async (a, b) => {
-      successful(await b.runJsonCli(['name', 'Remote']));
+      successful(await b.runJsonCli(['name', 'Remote', '-s']));
       const profile = successful(await b.runJsonCli(['role', 'set', 'Survive pane death.']));
       const peer = await b.createMockPane('survivor');
       successful(await b.runJsonCli(['add', peer.pane, 'Survivor']));
       const before = durableState(b);
+      const remoteIdentity = durableIdentity(b, 'Remote');
+      const survivorIdentity = durableIdentity(b, 'Survivor');
+      expect(remoteIdentity.lifetime).toBe('saved');
       const survivor = before.bindings.filter(
         (row) => (row as { pane_id: string }).pane_id === peer.pane
       );
@@ -215,18 +377,67 @@ describe.sequential('global identities across isolated tmux servers', () => {
       await b.waitFor(() => !b.mockProcessIsRunning(), 2_000, 'foreign pane process exit');
       expect(b.serverProcessIsRunning()).toBe(true);
 
-      expect(successful(await a.runJsonCli(['list']))).toEqual({ identities: [] });
-      expect(durableState(a)).toEqual(before);
-      successful(await a.runJsonCli(['name', 'Remote']));
+      expect(successful(await a.runJsonCli<Listing>(['list']))).toEqual({
+        identities: [
+          {
+            id: remoteIdentity.id,
+            name: 'Remote',
+            canonicalName: 'remote',
+            lifetime: 'saved',
+            presence: 'offline',
+            pane: null,
+            command: '',
+          },
+          {
+            id: survivorIdentity.id,
+            name: 'Survivor',
+            canonicalName: 'survivor',
+            lifetime: 'temporary',
+            presence: 'active',
+            pane: peer.pane,
+            command: 'node',
+            target: b.paneTarget(peer.pane),
+            cwd: peer.workspace,
+          },
+        ],
+      });
+      const observed = durableState(a);
+      expect(observed.identities).toEqual(before.identities);
+      expect(observed.profiles).toEqual(before.profiles);
+      const observedSurvivor = observed.bindings.filter(
+        (binding) => binding.identity_id === survivorIdentity.id
+      );
+      expect(observedSurvivor).toHaveLength(1);
+      expect(withoutVerificationTimestamp(observedSurvivor)).toEqual(
+        withoutVerificationTimestamp(survivor)
+      );
+      expectVerificationTimestampsNondecreasing(survivor, observedSurvivor);
+      expect(successful(await a.runJsonCli<BoundResult>(['name', 'Remote']))).toEqual({
+        bound: true,
+        id: remoteIdentity.id,
+        name: 'Remote',
+        pane: a.pane,
+        lifetime: 'saved',
+      });
       const after = durableState(a);
       expect(after.identities).toEqual(before.identities);
       expect(after.profiles).toEqual(before.profiles);
       expect(after.bindings).toHaveLength(2);
-      expect(after.bindings).toContainEqual(survivor[0]);
+      const afterSurvivor = after.bindings.filter(
+        (binding) => binding.identity_id === survivorIdentity.id
+      );
+      expect(afterSurvivor).toHaveLength(1);
+      expect(withoutVerificationTimestamp(afterSurvivor)).toEqual(
+        withoutVerificationTimestamp(survivor)
+      );
+      expectVerificationTimestampsNondecreasing(survivor, afterSurvivor);
       expect(successful(await a.runJsonCli(['role', 'show']))).toEqual(profile);
-      expect(successful(await b.runJsonCli(['whoami'], { pane: peer.pane }))).toMatchObject({
+      expect(successful(await b.runJsonCli(['whoami'], { pane: peer.pane }))).toEqual({
         bound: true,
+        id: survivorIdentity.id,
         name: 'Survivor',
+        pane: peer.pane,
+        lifetime: 'temporary',
       });
     });
   }, 30_000);

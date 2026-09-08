@@ -5,7 +5,12 @@ import { describe, expect, it } from 'vitest';
 import { withE2EFixture, type E2EFixture, type CliResult } from './harness.js';
 
 interface RoleResult {
-  identity: { id: string; name: string; canonicalName: string };
+  identity: {
+    id: string;
+    name: string;
+    canonicalName: string;
+    lifetime: 'temporary' | 'saved';
+  };
   role: { content: string; updatedAt: string } | null;
 }
 
@@ -37,7 +42,7 @@ async function showOffline(fixture: E2EFixture, identity: string): Promise<RoleR
 describe.sequential('durable role profiles', () => {
   it('preserves one identity profile through unbind, pane death, restart, and rebind', async () => {
     await withE2EFixture(async (fixture) => {
-      expect((await fixture.runJsonCli(['name', 'Alice'])).code).toBe(0);
+      expect((await fixture.runJsonCli(['name', 'Alice', '-s'])).code).toBe(0);
       const empty = successful(await fixture.runJsonCli<RoleResult>(['role', 'show']));
       expect(empty.role).toBeNull();
       const content = '# Reviewer\n\tPreserve evidence.\n';
@@ -95,9 +100,12 @@ describe.sequential('durable role profiles', () => {
           updated_at: bob.role!.updatedAt,
         },
       ]);
-      expect((await fixture.runJsonCli(['whoami'])).json).toMatchObject({
+      expect((await fixture.runJsonCli(['whoami'])).json).toEqual({
         bound: true,
+        id: assigned.identity.id,
         name: 'Alice',
+        pane: fixture.pane,
+        lifetime: 'saved',
       });
       expect(await showOffline(fixture, 'Bob')).toEqual(bob);
       expect(fs.existsSync(fixture.forbiddenTmuxLogPath)).toBe(false);

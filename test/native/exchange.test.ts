@@ -40,6 +40,84 @@ function attentionFixture(sandbox: Sandbox, owner: string, requestId: string) {
 }
 
 describe('native exchange attention process contract', () => {
+  it('renders human attention and reply results without confusing acknowledgment with completion', async () => {
+    await withSandbox(async (sandbox) => {
+      const log = await calibrateTmuxTripwire(sandbox);
+      const owner = (await json(sandbox, ['identity', 'create', 'Reader'])).identity as {
+        id: string;
+      };
+      const seeded = attentionFixture(sandbox, owner.id, 'human-exchange');
+      const before = responseSnapshot(sandbox.database, seeded.requestId);
+      const listed = await runCli(sandbox, ['x', '--identity', 'Reader']);
+      expect(listed.status).toBe(0);
+      expect(listed.stderr).toBe('');
+      expect(listed.stdout).toBe(
+        'REQUEST\tRECIPIENT\tDELIVERY\tFINAL\tREVISION\n' +
+          'human-exchange\t-\tsent\tnot_submitted\t1\n'
+      );
+      expect(responseSnapshot(sandbox.database, seeded.requestId)).toEqual(before);
+      const acknowledged = await runCli(sandbox, [
+        'x',
+        'ack',
+        seeded.requestId,
+        '--revision',
+        '1',
+        '--identity',
+        'Reader',
+      ]);
+      expect(acknowledged.status).toBe(0);
+      expect(acknowledged.stdout).toBe('Acknowledged human-exchange at revision 1.\n');
+      const pending = await json(sandbox, ['x', 'show', seeded.requestId, '--identity', 'Reader']);
+      expect(pending.exchange).toMatchObject({
+        acknowledged: true,
+        settled: false,
+        final: { status: 'not_submitted' },
+      });
+      const empty = await runCli(sandbox, ['x', '--identity', 'Reader']);
+      expect(empty.status).toBe(0);
+      expect(empty.stdout).toBe('No unacknowledged exchanges.\n');
+
+      const body = '  final result\r\nsecond line  ';
+      const submitted = await runCli(sandbox, [
+        'reply',
+        seeded.requestId,
+        '--receipt',
+        seeded.compactReceipt,
+        '--message',
+        body,
+      ]);
+      expect(submitted.status).toBe(0);
+      expect(submitted.stderr).toBe('');
+      expect(submitted.stdout).toBe(
+        `Submitted response for request 'human-exchange' (${Buffer.byteLength(body)} bytes).\n`
+      );
+      expect(responseSnapshot(sandbox.database, seeded.requestId).response).toMatchObject({
+        body,
+        body_bytes: Buffer.byteLength(body),
+      });
+      const result = await runCli(sandbox, ['result', seeded.requestId]);
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(result.stdout).toBe(`Response for request 'human-exchange':\n${body}\n`);
+      const shown = await runCli(sandbox, ['x', 'show', seeded.requestId, '--identity', 'Reader']);
+      expect(shown.status).toBe(0);
+      expect(shown.stdout).toBe(
+        'REQUEST\tDELIVERY\tFINAL\tREVISION\tACKNOWLEDGED\tSETTLED\n' +
+          'human-exchange\tsent\tretained\t2\tfalse\tfalse\n' +
+          `Prompt (retained):\nprompt for human-exchange\nFinal:\n${body}\n`
+      );
+      const all = await runCli(sandbox, ['x', 'ackall', '--identity', 'Reader']);
+      expect(all.status).toBe(0);
+      expect(all.stdout).toBe(
+        "Acknowledged identity 'Reader' through revision 2. Later revisions remain unacknowledged.\n"
+      );
+      expect(
+        (await json(sandbox, ['x', 'show', seeded.requestId, '--identity', 'Reader'])).exchange
+      ).toMatchObject({ acknowledged: true, settled: true });
+      expect(readFileSync(log, 'utf8')).toBe('\n');
+    });
+  });
+
   it('keeps retired-name history with its original UUID rather than the replacement identity', async () => {
     await withSandbox(async (sandbox) => {
       await calibrateTmuxTripwire(sandbox);

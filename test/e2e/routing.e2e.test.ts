@@ -7,6 +7,9 @@ interface IdentitySummary {
 }
 
 interface IdentityListItem extends IdentitySummary {
+  id: string;
+  lifetime: 'temporary' | 'saved';
+  presence: 'active' | 'offline' | 'unknown';
   pane: string;
   target?: string;
   cwd?: string;
@@ -21,6 +24,14 @@ interface CommandError {
   };
 }
 
+interface BoundResult {
+  bound: true;
+  id: string;
+  name: string;
+  pane: string;
+  lifetime: 'temporary' | 'saved';
+}
+
 describe.sequential('global identity and runtime routing', () => {
   it('routes names, an ordinary all identity, and direct pane targets across workspaces', async () => {
     await withE2EFixture(async (fixture) => {
@@ -30,28 +41,34 @@ describe.sequential('global identity and runtime routing', () => {
       const alpha = await fixture.createMockPane('alpha', alphaWorkspace);
       const all = await fixture.createMockPane('all', allWorkspace);
 
-      const alphaBinding = await fixture.runJsonCli<{
-        bound: boolean;
-        name: string;
-        pane: string;
-      }>(['add', alpha.pane, 'Alpha'], { cwd: alphaWorkspace });
-      expect(alphaBinding).toMatchObject({
-        code: 0,
-        json: { bound: true, name: 'Alpha', pane: alpha.pane },
+      const alphaBinding = await fixture.runJsonCli<BoundResult>(['add', alpha.pane, 'Alpha'], {
+        cwd: alphaWorkspace,
       });
+      expect(alphaBinding.code).toBe(0);
+      expect(alphaBinding.json).toEqual({
+        bound: true,
+        id: expect.any(String),
+        name: 'Alpha',
+        pane: alpha.pane,
+        lifetime: 'temporary',
+      });
+      const alphaId = alphaBinding.json!.id;
       expect(JSON.parse(fixture.paneMetadata(alpha.pane))).toMatchObject({
         globalIdentity: { name: 'Alpha', canonicalName: 'alpha' },
       });
 
-      const allBinding = await fixture.runJsonCli<{
-        bound: boolean;
-        name: string;
-        pane: string;
-      }>(['add', all.pane, 'all'], { cwd: allWorkspace });
-      expect(allBinding).toMatchObject({
-        code: 0,
-        json: { bound: true, name: 'all', pane: all.pane },
+      const allBinding = await fixture.runJsonCli<BoundResult>(['add', all.pane, 'all'], {
+        cwd: allWorkspace,
       });
+      expect(allBinding.code).toBe(0);
+      expect(allBinding.json).toEqual({
+        bound: true,
+        id: expect.any(String),
+        name: 'all',
+        pane: all.pane,
+        lifetime: 'temporary',
+      });
+      const allId = allBinding.json!.id;
       expect(JSON.parse(fixture.paneMetadata(all.pane))).toMatchObject({
         globalIdentity: { name: 'all', canonicalName: 'all' },
       });
@@ -63,16 +80,22 @@ describe.sequential('global identity and runtime routing', () => {
       expect(listed.json).toEqual({
         identities: [
           {
+            id: allId,
             name: 'all',
             canonicalName: 'all',
+            lifetime: 'temporary',
+            presence: 'active',
             pane: all.pane,
             target: fixture.paneTarget(all.pane),
             cwd: allWorkspace,
             command: 'node',
           },
           {
+            id: alphaId,
             name: 'Alpha',
             canonicalName: 'alpha',
+            lifetime: 'temporary',
+            presence: 'active',
             pane: alpha.pane,
             target: fixture.paneTarget(alpha.pane),
             cwd: alphaWorkspace,
@@ -96,7 +119,10 @@ describe.sequential('global identity and runtime routing', () => {
       expect(alphaTalk.json).toMatchObject({
         target: normalizedTarget,
         pane: alpha.pane,
-        identity: { name: 'Alpha', canonicalName: 'alpha' },
+        identity: {
+          name: 'Alpha',
+          canonicalName: 'alpha',
+        },
         status: 'completed',
       });
       expect(alphaTalk.json?.response).toContain(`mock-agent response: ${alphaMessage}`);
@@ -125,7 +151,10 @@ describe.sequential('global identity and runtime routing', () => {
         json: {
           target: 'all',
           pane: all.pane,
-          identity: { name: 'all', canonicalName: 'all' },
+          identity: {
+            name: 'all',
+            canonicalName: 'all',
+          },
           status: 'completed',
         },
       });
@@ -175,7 +204,10 @@ describe.sequential('global identity and runtime routing', () => {
         json: {
           target: normalizedTarget,
           pane: alpha.pane,
-          identity: { name: 'Alpha', canonicalName: 'alpha' },
+          identity: {
+            name: 'Alpha',
+            canonicalName: 'alpha',
+          },
           lines: 25,
         },
       });
@@ -247,7 +279,7 @@ describe.sequential('global identity and runtime routing', () => {
       expect(teamCommand.json).toEqual({
         error: {
           code: 'UNSUPPORTED_TEAM',
-          message: 'Team-scoped commands and --team are not supported in tmt v5.',
+          message: 'Team workflows are not supported.',
         },
       });
 
@@ -262,7 +294,7 @@ describe.sequential('global identity and runtime routing', () => {
       expect(teamFlag.json).toEqual({
         error: {
           code: 'UNSUPPORTED_TEAM',
-          message: 'Team-scoped commands and --team are not supported in tmt v5.',
+          message: 'Team workflows are not supported.',
         },
       });
 

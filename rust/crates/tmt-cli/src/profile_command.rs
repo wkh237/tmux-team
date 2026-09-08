@@ -134,6 +134,10 @@ fn run(request: Invocation) -> Result<Report, Failure> {
     let unavailable = |error| {
         Failure::new(error_code(kind), "Could not access profile storage.", 1).caused_by(error)
     };
+    let selector = action
+        .as_ref()
+        .map(|_| identity_context::required(name.as_deref()))
+        .transpose()?;
     let paths = ConfigPaths::discover().map_err(|error| {
         Failure::new(error_code(kind), "Could not discover profile storage.", 1).caused_by(error)
     })?;
@@ -145,15 +149,18 @@ fn run(request: Invocation) -> Result<Report, Failure> {
                 .map(Report::List)
                 .map_err(unavailable);
         };
-        let identity =
-            identity_context::resolve(&mut storage, name.as_deref()).map_err(|error| {
-                if error.code == "IDENTITY_ERROR" {
-                    Failure::new(error_code(kind), "Could not access profile identity.", 1)
-                        .caused_by(error)
-                } else {
-                    error
-                }
-            })?;
+        let identity = identity_context::resolve(
+            &mut storage,
+            selector.expect("profile action selects identity"),
+        )
+        .map_err(|error| {
+            if error.code == "IDENTITY_ERROR" {
+                Failure::new(error_code(kind), "Could not access profile identity.", 1)
+                    .caused_by(error)
+            } else {
+                error
+            }
+        })?;
         let (value, change) = match action {
             Action::Show => (
                 storage

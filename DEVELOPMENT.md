@@ -153,15 +153,16 @@ TMT_TEST_CLI='{"executable":"/absolute/checkout/rust/target/debug/tmt","args":[]
   pnpm test:native
 ```
 
-This preview-specific suite reuses the shared sandbox and bounded process
+This native-specific suite reuses the shared sandbox and bounded process
 launcher; it does not replace TypeScript or Docker verification. Storage tests
-create and close TypeScript schema-prefix fixtures, migrate through the actual
-Rust adapter, and compare independent SQL schema/data with the TypeScript result,
+materialize frozen TypeScript schema-prefix fixtures, migrate through the actual
+Rust adapter, and compare independent SQL schema/data with the frozen TypeScript result,
 allowing only the specified identity-table/index/history amendment. They verify
 saved backfill, name reuse without UUID inheritance, preserved dependent records,
-explicit TypeScript rejection of schema 9 without mutation, native reopen,
+native reopen,
 rollback, history rejection and bounded writer
-contention. Neither executable selector may silently fall back to TypeScript.
+contention. TS future-schema rejection remains a separate transitional unit
+test, not a cross-runtime native test. Neither executable selector may silently fall back to TypeScript.
 The probe accepts only a database path and runs open/health/checkpoint/close;
 it has no arbitrary SQL or failure-injection command and is not packaged.
 Runner-level Rust tests also hold a real rollback-journal reader across migration
@@ -247,7 +248,8 @@ on failure and never signal a recycled PID after observed reaping.
 `test/native/binding.test.ts` checks isolated public preflight, offline removal,
 and lifetime/presence output. `test/e2e/native-identity.e2e.test.ts` selects the
 Docker-built `TMT_TEST_NATIVE_CLI` through the same fixture descriptor; it does
-not change the selected runtime for unported TS transport scenarios. Exercise
+not create a separate fixture or runtime policy. The shared Docker scenarios
+also default to native under #153. Exercise
 real descendant caller resolution, temporary/save/unbind/rm lifecycle, global
 cross-directory/server discovery, grouped/linked presentation, publication
 failure/retry and theme-preserving badge behavior. The read-only SQL oracle
@@ -298,7 +300,7 @@ in `test/e2e/Dockerfile` from the current checkout, runs Vitest inside it with
 own tmux server on a private socket and
 launches the deterministic mock agent from `test/e2e/mock-agent.mjs`; no real
 agent, credentials, or host tmux session is used. The tests invoke
-`bin/tmux-team` by default as a subprocess and exercise CLI process propagation, tmux
+the Docker-built `/opt/tmt-tests/tmt` by default as a subprocess and exercise CLI process propagation, tmux
 transport, pane movement, and fixture cleanup. Failures include the
 container/Vitest output, and each fixture kills its private server and removes
 its temporary state.
@@ -306,7 +308,9 @@ its temporary state.
 ### Selecting the CLI under test
 
 `TMT_TEST_CLI` is a JSON descriptor with exactly `executable` (absolute path to an
-executable file) and `args` (string-array argv prefix). Omission selects the
+executable file) and `args` (string-array argv prefix). The Docker image sets it
+to its built Rust CLI; an omitted peer inherits that native selection. Outside
+Docker, omission still selects the
 current test runner's absolute Node executable plus the checkout's public
 TypeScript wrapper as its prefix. This preserves tests that deliberately remove
 Node/provider discovery from PATH; it does not skip the wrapper's child process.
@@ -317,14 +321,15 @@ Shell fragments are not parsed. Paths and prefix arguments may contain spaces
 and quotes. Selection is frozen per sandbox/fixture, before resource allocation.
 
 ```bash
-# Host CLI contracts; use a real native build only once it supports the subset.
+# Native public-process contracts require a built executable.
 TMT_TEST_CLI='{"executable":"/absolute/path/to/tmt","args":[]}' \
-  pnpm exec vitest run src/identity-cli-contract.test.ts
+  pnpm exec vitest run --config test/native/vitest.config.ts test/native/identity.test.ts
 
 # Docker paths refer to files INSIDE the image, not host executable paths.
-TMT_TEST_CLI='{"executable":"/workspace/bin/tmux-team","args":[]}' pnpm test:e2e
+TMT_TEST_CLI='{"executable":"/opt/tmt-tests/tmt","args":[]}' pnpm test:e2e
 
-# Explicit Node+wrapper is also a descriptor, not a special runtime mode.
+# The selector can address the historical wrapper, but the maintained shared
+# scenarios now assert native lifetime/listing/receipt contracts, not TS parity.
 TMT_TEST_CLI='{"executable":"/usr/local/bin/node","args":["/workspace/bin/tmux-team"]}' \
 TMT_TEST_PEER_CLI='{"executable":"/workspace/bin/tmux-team","args":[]}' pnpm test:e2e
 ```

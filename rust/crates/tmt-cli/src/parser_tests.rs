@@ -578,11 +578,21 @@ fn capture_and_exchange_integers_accept_exact_boundaries() {
         &["check", "peer", "--lines", "2147483648"][..],
         &["check", "peer", "--lines", "1.5"][..],
         &["check", "peer", "--lines", "-1"][..],
+        &["--lines", "2147483648", "check", "peer", "0"][..],
+        &["check", "peer", "0", "--lines", "1.5"][..],
+        &["check", "peer", "2147483648", "--lines", "0"][..],
         &["x", "list", "--after", "9007199254740992"][..],
         &["x", "ack", "request-1", "--revision", "0"][..],
     ] {
         assert_eq!(parse_error(argv).code, "USAGE_ERROR", "arguments: {argv:?}");
     }
+    assert_eq!(
+        parsed(&["--lines", "12", "check", "peer", "0"]).invocation,
+        Invocation::Check {
+            target: "peer".into(),
+            lines: Some(0)
+        }
+    );
 }
 
 #[test]

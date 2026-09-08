@@ -74,9 +74,14 @@ describe.sequential('committed identity retention', () => {
       expect(fixture.paneTitle()).toBe(originalTitle);
 
       const list = success(
-        await fixture.runJsonCli<{ identities: Array<{ name: string }> }>(['list'])
+        await fixture.runJsonCli<{ identities: Array<{ name: string; presence: string }> }>([
+          'list',
+        ])
       );
-      expect(list.identities.map((identity) => identity.name)).toEqual(['Occupied']);
+      expect(list.identities.map(({ name, presence }) => ({ name, presence }))).toEqual([
+        { name: 'Occupied', presence: 'active' },
+        { name: 'Retained', presence: 'offline' },
+      ]);
       const beforeEvents = fixture.events();
       const inactive = await fixture.runJsonCli(['talk', 'Retained', 'must not be delivered']);
       expect(inactive.code).toBe(3);

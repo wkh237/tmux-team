@@ -1,25 +1,31 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { durableState } from './identity-state-oracle.js';
+import { durableIdentity, durableState } from './identity-state-oracle.js';
 import { withE2EFixture, type CliResult, type E2EFixture } from './harness.js';
 import { readRealTmuxCli, releaseRealTmuxCli, spawnRealTmuxCli } from './real-tmux-caller.js';
 import { installTmuxTrace } from './tmux-trace.js';
 
 interface BindingResult {
   bound: true;
+  id: string;
   name: string;
   pane: string;
+  lifetime: 'temporary' | 'saved';
 }
 
 interface WhoamiResult {
   bound: boolean;
+  id?: string;
   name?: string;
   pane: string;
+  lifetime?: 'temporary' | 'saved';
 }
 
 interface IdentityListItem {
+  id: string;
   name: string;
   canonicalName: string;
+  lifetime: 'temporary' | 'saved';
   pane: string;
   target?: string;
   cwd?: string;
@@ -32,7 +38,12 @@ interface ListResult {
 
 interface FocusedListResult {
   target: string;
-  identity: { name: string; canonicalName: string } | null;
+  identity: {
+    id: string;
+    name: string;
+    canonicalName: string;
+    lifetime: 'temporary' | 'saved';
+  } | null;
   pane: { id: string; target?: string; cwd?: string; command: string };
 }
 
@@ -130,9 +141,16 @@ async function runRealName(
   }
   expectRepeatedPaneTargets(fixture, real.pane);
   await releaseRealTmuxCli(fixture, real);
+  const identity = durableIdentity(fixture, name);
   expect(readRealTmuxCli<BindingResult>(real)).toEqual({
     code: 0,
-    stdout: { bound: true, name, pane: real.pane },
+    stdout: {
+      bound: true,
+      id: identity.id,
+      name,
+      pane: real.pane,
+      lifetime: 'temporary',
+    },
     stderr: '',
   });
   return { pane: real.pane, pid: real.panePid };
@@ -162,13 +180,27 @@ async function exerciseBoundMockPane(
   const peerMetadataBeforeConflict = fixture.paneMetadata(peer.pane);
 
   const added = await fixture.runJsonCli<BindingResult>(['add', pane.pane, identityName]);
-  expect(json(added)).toEqual({ bound: true, name: identityName, pane: pane.pane });
+  const identity = durableIdentity(fixture, identityName);
+  const peerIdentity = durableIdentity(fixture, peer.name);
+  expect(json(added)).toEqual({
+    bound: true,
+    id: identity.id,
+    name: identityName,
+    pane: pane.pane,
+    lifetime: 'temporary',
+  });
   const metadataAfterAdd = fixture.paneMetadata(pane.pane);
   expect(JSON.parse(metadataAfterAdd)).toMatchObject(opaqueMetadata);
 
   trace.clear();
   const whoami = await fixture.runJsonCli<WhoamiResult>(['whoami'], { pane: pane.pane });
-  expect(json(whoami)).toEqual({ bound: true, name: identityName, pane: pane.pane });
+  expect(json(whoami)).toEqual({
+    bound: true,
+    id: identity.id,
+    name: identityName,
+    pane: pane.pane,
+    lifetime: 'temporary',
+  });
   const scopedInvocations = trace.invocations();
   const paneQueries = scopedInvocations.filter((invocation) =>
     invocation.startsWith('list-panes\t')
@@ -189,11 +221,18 @@ async function exerciseBoundMockPane(
   expect(listed.identities).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
+        id: identity.id,
         name: identityName,
         canonicalName: identityName.toLowerCase(),
+        lifetime: 'temporary',
         pane: pane.pane,
       }),
-      expect.objectContaining({ name: peer.name, pane: peer.pane }),
+      expect.objectContaining({
+        id: peerIdentity.id,
+        name: peer.name,
+        lifetime: 'temporary',
+        pane: peer.pane,
+      }),
     ])
   );
 
@@ -206,7 +245,12 @@ async function exerciseBoundMockPane(
   );
   expect(focused).toMatchObject({
     target,
-    identity: { name: identityName, canonicalName: identityName.toLowerCase() },
+    identity: {
+      id: identity.id,
+      name: identityName,
+      canonicalName: identityName.toLowerCase(),
+      lifetime: 'temporary',
+    },
     pane: { id: pane.pane },
   });
   expect(focused.pane.target).toBeDefined();

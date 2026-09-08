@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { withE2EFixture, type CliResult, type E2EFixture } from './harness.js';
-import { durableState } from './identity-state-oracle.js';
+import { durableIdentity, durableState } from './identity-state-oracle.js';
 
 const BADGE_OPTION = '@tmux-team.badge';
 const USER_FORMAT = '#[align=left]#{window_index}.#{pane_index}#[align=right]repo/branch';
@@ -117,6 +117,8 @@ describe.sequential('non-invasive pane badge presentation', () => {
       successful(await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'on', '--global']));
       const name = '#[fg=red]#{pane_title}#(false)';
       successful(await fixture.runJsonCli(['name', name]));
+      const identity = durableIdentity(fixture, name);
+      expect(identity.lifetime).toBe('temporary');
       const label = '＃[fg=red]＃{pane_title}＃(false) (tmt)';
       expect(badge(fixture)).toBe(label);
       expect(
@@ -124,8 +126,10 @@ describe.sequential('non-invasive pane badge presentation', () => {
       ).toBe(`[${label}]`);
       expect(successful(await fixture.runJsonCli(['whoami']))).toEqual({
         bound: true,
+        id: identity.id,
         name,
         pane: fixture.pane,
+        lifetime: 'temporary',
       });
     });
   });
@@ -168,10 +172,14 @@ describe.sequential('non-invasive pane badge presentation', () => {
           )
       );
       successful(await fixture.runJsonCli(['name', 'alice']));
+      const identity = durableIdentity(fixture, 'alice');
+      expect(identity.lifetime).toBe('temporary');
       expect(successful(await fixture.runJsonCli(['whoami']))).toEqual({
         bound: true,
+        id: identity.id,
         name: 'alice',
         pane: fixture.pane,
+        lifetime: 'temporary',
       });
       expect(durableState(fixture).bindings).toHaveLength(1);
       successful(await fixture.runJsonCli(['unbind']));

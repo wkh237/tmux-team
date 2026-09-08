@@ -3,7 +3,11 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { E2EFixture, withE2EFixture, type CliResult, type MockPane } from './harness.js';
-import { durableState } from './identity-state-oracle.js';
+import {
+  durableIdentity,
+  durableState,
+  withoutVerificationTimestamp,
+} from './identity-state-oracle.js';
 
 interface Identity {
   name: string;
@@ -35,16 +39,15 @@ async function listIdentities(fixture: E2EFixture): Promise<IdentityListItem[]> 
   return json(result).identities;
 }
 
-function metadata(fixture: E2EFixture, pane: MockPane): Record<string, unknown> {
-  return JSON.parse(fixture.paneMetadata(pane.pane)) as Record<string, unknown>;
+function boundProjection(fixture: E2EFixture, name: string, pane: string, lifetime = 'temporary') {
+  const row = durableIdentity(fixture, name);
+  expect(row.id).toMatch(/^[0-9a-f-]{36}$/);
+  expect(row.lifetime).toBe(lifetime);
+  return { bound: true, id: row.id, name, pane, lifetime };
 }
 
-function withoutVerificationTimestamp(
-  bindings: Array<Record<string, unknown>>
-): Array<Record<string, unknown>> {
-  return bindings
-    .map(({ last_verified_at: _lastVerifiedAt, ...binding }) => binding)
-    .sort((left, right) => String(left.id).localeCompare(String(right.id)));
+function metadata(fixture: E2EFixture, pane: MockPane): Record<string, unknown> {
+  return JSON.parse(fixture.paneMetadata(pane.pane)) as Record<string, unknown>;
 }
 
 function eventCount(
@@ -127,41 +130,51 @@ describe.sequential('global identity lifecycle', () => {
         'Lifecycle',
       ]);
       expect(namedJson.code).toBe(0);
-      expect(json(namedJson)).toEqual({ bound: true, name: 'Lifecycle', pane });
+      const initialBinding = boundProjection(fixture, 'Lifecycle', pane);
+      expect(json(namedJson)).toEqual(initialBinding);
 
       const namedHuman = await fixture.runCli(['name', 'Lifecycle']);
       expect(namedHuman.code).toBe(0);
-      expect(namedHuman.stdout).toContain(`Bound 'Lifecycle' to pane ${pane}`);
+      expect(namedHuman.stdout).toContain(`Bound temporary identity 'Lifecycle' on pane ${pane}`);
       expect(namedHuman.stderr).toBe('');
 
       const whoamiHuman = await fixture.runCli(['whoami']);
       expect(whoamiHuman.code).toBe(0);
-      expect(whoamiHuman.stdout).toContain(`Bound identity 'Lifecycle' on pane ${pane}`);
+      expect(whoamiHuman.stdout).toContain(`Bound temporary identity 'Lifecycle' on pane ${pane}`);
       expect(whoamiHuman.stderr).toBe('');
 
       const whoamiJson = await fixture.runJsonCli<{ bound: true; name: string; pane: string }>([
         'whoami',
       ]);
       expect(whoamiJson.code).toBe(0);
-      expect(json(whoamiJson)).toEqual({ bound: true, name: 'Lifecycle', pane });
+      expect(json(whoamiJson)).toEqual(initialBinding);
 
       const unboundJson = await fixture.runJsonCli<{ unbound: true; name: string; pane: string }>([
         'unbind',
       ]);
       expect(unboundJson.code).toBe(0);
-      expect(json(unboundJson)).toEqual({ unbound: true, name: 'Lifecycle', pane });
+      expect(json(unboundJson)).toEqual({
+        unbound: true,
+        id: initialBinding.id,
+        name: 'Lifecycle',
+        pane,
+        lifetime: 'temporary',
+        retired: true,
+      });
 
       const rebound = await fixture.runJsonCli<{ bound: true; name: string; pane: string }>([
         'this',
         'Lifecycle',
       ]);
       expect(rebound.code).toBe(0);
-      expect(json(rebound)).toEqual(json(namedJson));
+      const reboundBinding = boundProjection(fixture, 'Lifecycle', pane);
+      expect(json(rebound)).toEqual(reboundBinding);
+      expect(reboundBinding.id).not.toBe(initialBinding.id);
       expect(rebound.stderr).toBe('');
 
       const reboundHuman = await fixture.runCli(['this', 'Lifecycle']);
       expect(reboundHuman.code).toBe(0);
-      expect(reboundHuman.stdout).toContain(`Bound 'Lifecycle' to pane ${pane}`);
+      expect(reboundHuman.stdout).toContain(`Bound temporary identity 'Lifecycle' on pane ${pane}`);
       expect(reboundHuman.stderr).toBe('');
 
       const beforeConflictList = await listIdentities(fixture);
@@ -175,11 +188,20 @@ describe.sequential('global identity lifecycle', () => {
       });
       expect(json(thisConflict)).toEqual(json(nameConflict));
       expect(fixture.paneMetadata(pane)).toBe(beforeConflictMetadata);
-      expect(await listIdentities(fixture)).toEqual(beforeConflictList);
+      const retainedConflict = {
+        id: durableIdentity(fixture, 'Conflict').id,
+        name: 'Conflict',
+        canonicalName: 'conflict',
+        lifetime: 'temporary',
+        presence: 'offline',
+        pane: null,
+        command: '',
+      };
+      expect(await listIdentities(fixture)).toEqual([retainedConflict, ...beforeConflictList]);
 
       const unboundHuman = await fixture.runCli(['unbind']);
       expect(unboundHuman.code).toBe(0);
-      expect(unboundHuman.stdout).toContain(`Unbound pane ${pane}`);
+      expect(unboundHuman.stdout).toContain(`Unbound 'Lifecycle' from pane ${pane}`);
       expect(unboundHuman.stderr).toBe('');
 
       const repeated = await fixture.runJsonCli<CommandError>(['unbind']);
@@ -188,7 +210,7 @@ describe.sequential('global identity lifecycle', () => {
         error: { code: 'UNBOUND_PANE', message: 'Pane has no active global name.' },
       });
       expect(fixture.paneMetadata(peer.pane)).toBe(peerMetadata);
-      expect(await listIdentities(fixture)).toEqual(peerList);
+      expect(await listIdentities(fixture)).toEqual([retainedConflict, ...peerList]);
 
       const finalWhoami = await fixture.runJsonCli<{ bound: false; pane: string }>(['whoami']);
       expect(finalWhoami.code).toBe(0);
@@ -210,7 +232,7 @@ describe.sequential('global identity lifecycle', () => {
         '  Alpha  ',
       ]);
       expect(alphaAdd.code).toBe(0);
-      expect(json(alphaAdd)).toEqual({ bound: true, name: 'Alpha', pane: alpha.pane });
+      expect(json(alphaAdd)).toEqual(boundProjection(fixture, 'Alpha', alpha.pane));
 
       const betaAdd = await fixture.runJsonCli<{ bound: true; name: string; pane: string }>([
         'add',
@@ -218,7 +240,7 @@ describe.sequential('global identity lifecycle', () => {
         'Beta',
       ]);
       expect(betaAdd.code).toBe(0);
-      expect(json(betaAdd)).toEqual({ bound: true, name: 'Beta', pane: beta.pane });
+      expect(json(betaAdd)).toEqual(boundProjection(fixture, 'Beta', beta.pane));
 
       const gammaAdd = await fixture.runJsonCli<{ bound: true; name: string; pane: string }>([
         'add',
@@ -226,7 +248,7 @@ describe.sequential('global identity lifecycle', () => {
         'Gamma',
       ]);
       expect(gammaAdd.code).toBe(0);
-      expect(json(gammaAdd)).toEqual({ bound: true, name: 'Gamma', pane: gamma.pane });
+      expect(json(gammaAdd)).toEqual(boundProjection(fixture, 'Gamma', gamma.pane));
 
       expect(metadata(fixture, alpha)).toMatchObject({
         version: 1,
@@ -245,7 +267,7 @@ describe.sequential('global identity lifecycle', () => {
       const beforeMetadata = fixture.paneMetadata(alpha.pane);
       const idempotent = await fixture.runJsonCli(['add', alpha.pane, ' ＡＬＰＨＡ ']);
       expect(idempotent.code).toBe(0);
-      expect(json(idempotent)).toEqual({ bound: true, name: 'Alpha', pane: alpha.pane });
+      expect(json(idempotent)).toEqual(json(alphaAdd));
       expect(fixture.paneMetadata(alpha.pane)).toBe(beforeMetadata);
       expect(await listIdentities(fixture)).toEqual(beforeIdempotent);
 
@@ -270,7 +292,18 @@ describe.sequential('global identity lifecycle', () => {
       expect(json(nameConflict)).toEqual({
         error: { code: 'NAME_ALREADY_ACTIVE', message: 'Name is already active on another pane.' },
       });
-      expect(await listIdentities(fixture)).toEqual(beforeConflictList);
+      expect(await listIdentities(fixture)).toEqual([
+        ...beforeConflictList,
+        {
+          id: durableIdentity(fixture, 'Other').id,
+          name: 'Other',
+          canonicalName: 'other',
+          lifetime: 'temporary',
+          presence: 'offline',
+          pane: null,
+          command: '',
+        },
+      ]);
       expect([
         fixture.paneMetadata(alpha.pane),
         fixture.paneMetadata(beta.pane),
@@ -374,6 +407,9 @@ describe.sequential('global identity lifecycle', () => {
       expect(await listIdentities(fixture)).toEqual([
         {
           name: 'Peer',
+          id: boundProjection(fixture, 'Peer', peer.pane).id,
+          lifetime: 'temporary',
+          presence: 'active',
           canonicalName: 'peer',
           pane: peer.pane,
           target: fixture.paneTarget(peer.pane),
@@ -453,6 +489,9 @@ describe.sequential('global identity lifecycle', () => {
       expect(await listIdentities(fixture)).toEqual([
         {
           name: 'AfterRestart',
+          id: boundProjection(fixture, 'AfterRestart', restarted.pane).id,
+          lifetime: 'temporary',
+          presence: 'active',
           canonicalName: 'afterrestart',
           pane: restarted.pane,
           target: fixture.paneTarget(restarted.pane),
@@ -466,7 +505,7 @@ describe.sequential('global identity lifecycle', () => {
   it('preserves a durable identity across pane death and a later rebind', async () => {
     await withE2EFixture(async (fixture) => {
       const gone = await fixture.createMockPane('durable');
-      const original = await fixture.runJsonCli(['add', gone.pane, 'Durable']);
+      const original = await fixture.runJsonCli(['add', gone.pane, 'Durable', '-s']);
       expect(original.code).toBe(0);
       const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
         readonly: true,
@@ -489,7 +528,19 @@ describe.sequential('global identity lifecycle', () => {
         2_000,
         'durable pane to disappear'
       );
-      expect((await fixture.runJsonCli(['list'])).json).toEqual({ identities: [] });
+      expect((await fixture.runJsonCli(['list'])).json).toEqual({
+        identities: [
+          {
+            id: identity.id,
+            name: 'Durable',
+            canonicalName: 'durable',
+            lifetime: 'saved',
+            presence: 'offline',
+            pane: null,
+            command: '',
+          },
+        ],
+      });
 
       const afterDeath = new Database(path.join(fixture.globalDir, 'tmux-team.db'), {
         readonly: true,
@@ -626,7 +677,7 @@ describe.sequential('global identity lifecycle', () => {
         'FreshExplicit',
       ]);
       expect(explicit.code).toBe(0);
-      expect(json(explicit)).toEqual({ bound: true, name: 'FreshExplicit', pane: oldPane.pane });
+      expect(json(explicit)).toEqual(boundProjection(fixture, 'FreshExplicit', oldPane.pane));
       expect(fixture.paneMetadata(collidingOldPane.pane)).toBe(collidingOldMarkerBytes);
       expect(fixture.paneMetadata(malformedPane.pane)).toBe(malformedMarkerBytes);
       expect(fs.readFileSync(legacyPath, 'utf8')).toBe(legacyBytes);
@@ -701,7 +752,20 @@ describe.sequential('global identity lifecycle', () => {
 
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const listed = await listIdentities(fixture);
-        expect(listed.map(({ name }) => name)).toEqual(['HealthyCurrent', 'HealthyPeer']);
+        expect(listed.map(({ name }) => name)).toEqual([
+          'HealthyCurrent',
+          'HealthyPeer',
+          'MalformedCurrent',
+        ]);
+        expect(listed.find(({ name }) => name === 'MalformedCurrent')).toEqual({
+          id: affectedIdentityId,
+          name: 'MalformedCurrent',
+          canonicalName: 'malformedcurrent',
+          lifetime: 'temporary',
+          presence: 'offline',
+          pane: null,
+          command: '',
+        });
         expect(fixture.paneMetadata(fixture.pane)).toBe(healthyMetadata);
         expect(fixture.paneMetadata(affectedPane.pane)).toBe(affectedMetadata);
         expect(fixture.paneMetadata(peerPane.pane)).toBe(peerMetadata);

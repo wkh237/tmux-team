@@ -9,7 +9,7 @@ describe proposals; update this map when the implemented changes land.
 
 ## Runtime and release boundary
 
-The standalone Rust native alpha is prepared through the explicit
+The standalone Rust native alpha is published through the explicit
 `native-release.yml` workflow. The user-facing README advertises its installer
 only after immutable publication and live-download verification. `rust/` owns
 the native runtime; root `src/` and npm entrypoints remain the transitional
@@ -17,10 +17,10 @@ TypeScript reference and test tooling, not a wrapper that downloads Rust.
 The older sections below describe that reference implementation unless they
 explicitly identify native owners. Native lifetime rules (temporary by default,
 explicit save, retirement) supersede durable-only identity assumptions there.
-Source cleanup and measured performance acceptance remain tracked in #93.
+Source cleanup remains tracked in #93; #151 completed paired performance acceptance.
 
-Paired performance acceptance (#151) retains the TypeScript reference until
-measurements are captured. Both startup and private-tmux benchmarks reuse the
+Paired performance acceptance (#151) records the retained TypeScript reference
+and release-native measurements. Both startup and private-tmux benchmarks reuse the
 test-only executable selector and a shared independent help-command oracle in
 `test/support/performance-contract.mjs`; they do not import runtime grammar.
 The E2E Dockerfile can select an optimized CLI with `TMT_NATIVE_PROFILE=release`
@@ -823,9 +823,9 @@ and test-support workers are excluded from the package; runtime TypeScript and
 the canonical skill remains distributed. Retired command/plugin assets are rejected
 by the package inventory check rather than maintained as compatibility copies.
 
-### Rust preview installation ownership (#133)
+### Native skill installation ownership (#133)
 
-The preview embeds the same authored skill bytes at compile time. The core
+The native executable embeds the same authored skill bytes at compile time. The core
 `skill_provider::Provider` inventory owns native names/order and feeds grammar,
 completion and adapter selection. `skill_installation::ProviderEnvironment`
 captures provider path inputs once; its target and legacy candidates are shared
@@ -873,11 +873,11 @@ provider detection or second registry is involved. Install and refresh share
 one explicit lock-release/error-composition helper.
 
 The hidden `__native-refresh-skills` command is a new-executable composition
-boundary for the future updater: only the activated executable has the new
+boundary for the managed updater (#142): only the activated executable has the new
 embedded skill. It uses existing path discovery without reading configuration
 contents, opening SQLite or probing tmux. Its one JSON document retains
 refreshed/skipped/conflicted paths on failure; the shared output owner formats
-the error envelope. This is not yet public network-update integration.
+the error envelope. Public upgrade/update invokes it after binary activation.
 
 ## Current module map
 
@@ -995,10 +995,10 @@ failure semantics; merely introducing an interface is not an architectural fix.
 
 ## Known deviations and planned work
 
-### Native grammar preview
+### Native grammar
 
-`rust/` contains a development-only native CLI under #96; installed entry points
-remain TypeScript. `tmt-core` owns numeric and settings policy, while `tmt-cli`
+`rust/` contains the published native CLI, originally introduced under #96.
+The npm entrypoints alone remain transitional TypeScript. `tmt-core` owns numeric and settings policy, while `tmt-cli`
 owns one Clap grammar, typed requests, presentation, configuration and identity command composition
 and explicit no-effects rejection for unimplemented commands. `tmt-adapters`
 owns the SQLite lifecycle under #97 and native schema 9 under #108, configuration files under #103,
@@ -1023,14 +1023,15 @@ The storage-only identity record foundation under #111 supplies shared creation,
 promotion and non-retired selection; #113 wires storage-only create/show/list.
 Binding command wiring, retirement and presence listing are implemented under
 #109. The durable-global invariants elsewhere in
-this map still describe the shipped TypeScript runtime, not the amended
+this map still describe the transitional TypeScript reference, not the amended
 native lifecycle. See [RUST-REWRITE.md](RUST-REWRITE.md) for transition boundaries.
 
 `test/native/` uses the existing CLI sandbox/executable selector for explicit
-native-preview process assertions. It requires a selected build, rather than
+native process assertions. It requires a selected build, rather than
 silently testing TS. The named shared parser-contract subset remains separate
 from full native parity. Native unit tests cover typed grammar and core policy;
-real tmux behavior remains gated by the existing Docker harness as it is ported.
+real tmux behavior is gated by the existing Docker harness, which now selects
+the built native CLI and inherited native mock replies by default (#153).
 
 #### Native architecture guards
 
@@ -1209,8 +1210,8 @@ The reviewed pure SHA-256 dependency is permitted only in core; base64 is
 permitted only in adapters. Existing serde_json handles bounded v1 envelopes,
 not v2 digest serialization. Architecture tests enforce these dependency edges
 with positive and adverse cases. This is local correlation, not remote access
-control. #129 uses compact receipts in native talk; #106 still owns the installed
-recipient-instruction transition before native cutover.
+control. #129 uses compact receipts in native talk; the published alpha and its
+embedded skill both use that instruction contract (#106).
 
 #122 adds `response_command` for public storage-only reply/result. It consumes
 the parser's existing typed invocation and the codec before any input acquisition.
@@ -1295,6 +1296,10 @@ hide retired owners; profile operations do not promote lifetime or change cadenc
 
 CLI `identity_context` composes explicit canonical lookup or existing verified
 caller/binding evidence, never pane-target routing for an explicit identity.
+Required implicit selection rejects an unavailable caller before opening or
+migrating storage. The resulting selector is resolved through the same verified
+binding owner; optional talk attribution uses that same selection path. This
+preflight is not permission to accept an unverified pane or bypass identity lookup.
 `profile_command` acquires role files before opening storage, resolves identity,
 normalizes content, applies the shared operation and closes before presentation.
 Explicit access does not load settings or probe tmux. Role and preamble retain
@@ -1474,7 +1479,8 @@ evaluation under [#93](https://github.com/wkh237/tmux-team/issues/93).
 It is not the shipped module map. [Preparation #94](https://github.com/wkh237/tmux-team/issues/94)
 adds opt-in measurement tools reusing the E2E fixture and bounded packed-command
 runner; [PERFORMANCE-BASELINE.md](PERFORMANCE-BASELINE.md) owns their protocol and
-limitations. Production remains TypeScript until an explicitly verified cutover.
+limitations. Published production is native; transitional TS source and npm
+artifact gates remain until their assertions are mapped and retired explicitly.
 The test-only tmux trace keeps one record per invocation by normalizing newlines
 in logged arguments, while forwarding the original arguments unchanged. A real
 tmux buffer round-trip verifies this separation; it is not a transport rewrite.
@@ -1513,10 +1519,10 @@ SQLite profile checks with an empty runtime PATH and isolated state. The existin
 npm packed matrix remains a distinct transitional TypeScript gate.
 
 Unsigned checksums detect corruption, not origin compromise. Native binary
-bootstrap, public network update and authenticated public release
-provenance remain #82 gates. These developer archives do not change installed
-entrypoints or authorize publication. Candidate targets require actual matching
-target execution before they become supported release platforms.
+bootstrap, public network update and public release provenance were verified
+for alpha2 under #149. Local developer archives alone do not authorize another
+publication. Future candidate targets still require actual matching-target
+execution before they become supported release platforms.
 
 ## Managed native installation boundary
 
@@ -1610,8 +1616,8 @@ nonzero exits retain bounded output in `CommandError`; formatting never exposes
 that output. The skill command owns its JSON protocol validator. The updater
 preserves valid partial reports and returns failure without claiming binary
 rollback when skill refresh fails. Timeouts, malformed reports and oversized
-output are failures, not successful updates. Shell bootstrap, public publication
-and installed-runtime cutover are separate delivery gates.
+output are failures, not successful updates. Shell bootstrap and public alpha2
+publication are delivered under #149; source/npm-gate retirement remains separate.
 
 ### Release-generated curl bootstrap
 
