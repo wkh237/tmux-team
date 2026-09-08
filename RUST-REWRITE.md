@@ -76,9 +76,10 @@ The preview implements help, version, Bash/Zsh completion and the existing
 identity `name`/`this`/`add`/`whoami`/`unbind`/`rm`/`list` (#109), plus storage-only
 `reply`/`result` (#122), diagnostic `check`/`read` (#125), role/preamble (#127), and
 durable `talk` (#129), identity-scoped `x list/show/ack/ackall` (#131), and
-`init`/`learn`/`install` (#133). Native network `upgrade` returns
-`NATIVE_NOT_IMPLEMENTED`, exit 1, before any settings,
-storage, tmux or input acquisition. Text-only commands reject JSON. Native
+`init`/`learn`/`install` (#133), and managed native `upgrade`/`update` (#142).
+Updates validate the executing installation before network and reuse the offline
+publisher; unmanaged package-manager executables are rejected without writes.
+Public release availability remains a separate gate. Text-only commands reject JSON. Native
 `name`/`this`/`add` create temporary bindings unless `-s`/`--save` promotes or
 creates a saved identity. `rm`/`remove` require explicit force for saved rows.
 
@@ -534,7 +535,8 @@ local archives without application-state discovery. See ARCHITECTURE's managed
 native installation boundary for ownership and partial-finalization semantics.
 Managed skill refresh prerequisite #141 supplies an internal new-executable
 entrypoint over the existing skill owner, preserving modified and missing
-integrations with partial-effect reporting. It is not wired to public updates yet.
-HTTPS bootstrap, public upgrade/update composition, authenticated
+integrations with partial-effect reporting. #142 wires it to native upgrade/update
+with bounded canonical HTTPS discovery and compare-before-activation fencing.
+HTTPS bootstrap, authenticated
 public provenance and installed-runtime cutover remain #82/#93 work, not
 capabilities supplied by the archive generator or offline installer alone.

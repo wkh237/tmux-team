@@ -10,6 +10,45 @@ fn args(values: &[&str]) -> Vec<OsString> {
 }
 
 #[test]
+fn native_upgrade_alias_and_selection_share_one_typed_contract() {
+    for command in ["upgrade", "update"] {
+        let invocation = parsed(&[
+            command,
+            "--channel",
+            "alpha",
+            "--to",
+            "5.0.0-alpha.3",
+            "--json",
+        ]);
+        assert!(invocation.mode.json);
+        assert_eq!(
+            invocation.invocation,
+            Invocation::Upgrade {
+                channel: Some(tmt_core::native_install::Channel::Alpha),
+                exact: Some("5.0.0-alpha.3".into()),
+                unpin: false,
+            }
+        );
+        assert_eq!(
+            parsed(&[command, "--unpin"]).invocation,
+            Invocation::Upgrade {
+                channel: None,
+                exact: None,
+                unpin: true
+            }
+        );
+        assert_eq!(
+            parse_error(&[command, "--to", "5.0.0", "--unpin", "--json"]).code,
+            "USAGE_ERROR"
+        );
+        assert_eq!(
+            parse_error(&[command, "--channel", "beta", "--json"]).code,
+            "USAGE_ERROR"
+        );
+    }
+}
+
+#[test]
 fn internal_native_install_requires_explicit_inputs_and_typed_pin_policy() {
     use tmt_core::native_install::{Channel, PinAction};
     let input = [

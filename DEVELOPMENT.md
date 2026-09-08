@@ -38,7 +38,9 @@ storage-only `identity create/show/list` under #113, and pane identity
 `reply`/`result` under #122, diagnostic `check`/`read` under #125, and
 `role`/`preamble` under #127, durable `talk` under #129, X attention under #131,
 and `init`/`learn`/managed skill installation under #133.
-Native network `upgrade` still explicitly fails.
+Native `upgrade`/`update` under #142 compose verified HTTPS acquisition, the
+offline publication owner and new-executable managed-skill refresh. Public
+release availability and installed-runtime cutover remain separate gates.
 The #118 request/final service is the shared transactional foundation;
 public reply/result composition is supplied by #122 and talk by #129. Its real SQLite
 tests run in ordinary adapter Cargo tests and therefore in the existing Docker
@@ -647,6 +649,56 @@ process error as proof of the intended check. Inspect exact manifest and archive
 bytes from the final source before running the reviewed CI candidate.
 
 ## Offline native installer preview
+
+### Native update verification
+
+`tmt upgrade [--channel stable|alpha] [--to <version> | --unpin] [--json]`
+and `tmt update` share one grammar and implementation. Use task-owned managed
+prefixes, never a user's installed command or app data. The invoking executable
+must be the active release; an unmanaged checkout binary fails before networking.
+Production has no test endpoint or TLS bypass. API fixtures inject only the
+adapter's acquisition boundary; actual local TLS fixtures use test-only trust.
+Test old/new real release archives separately from synthetic tar fixtures, with
+different embedded skills, to prove the newly active executable supplies refresh.
+
+Check pinned no-network behavior, explicit pin/unpin, unchanged release identity,
+preserved old bytes, missing/mutable release rejection, dual digest checks,
+same-version integrity and concurrent pin fencing. Cancellation and finalization
+tests must inspect active receipts and surviving executables, not only exit codes.
+After activation, skill failures retain a partial report and nonzero status;
+malformed/nonzero/oversized/timed-out child output is never a success. The existing
+process runner retains bounded output only for completed nonzero exits and never
+prints it implicitly. Verify both byte preservation and task-owned cleanup.
+
+The synchronous HTTPS dependency is pinned ureq 3.4.0 (MIT/Apache-2.0, upstream
+MSRV 1.85), selected without an async runtime or curl fallback. The lockfile and
+workspace MSRV 1.88 remain authoritative for the complete graph. rustls and
+platform-verifier use native trust and library proxy environment behavior.
+Runtime attribution includes ISC crypto and CDLA-Permissive-2.0 certificate data;
+generate target-filtered notices through cargo-about and retain complete texts.
+rcgen/rustls local-server fixtures are dev-only, not production endpoint options.
+
+The explicit actual-archive acceptance test requires separately versioned,
+matching-host cargo-dist artifacts with different embedded skills. It is ignored
+by ordinary tests, not counted as release proof until selected and passed:
+
+```sh
+TMT_UPGRADE_OLD_ARCHIVE=/absolute/old/archive.tar.gz \
+TMT_UPGRADE_OLD_MANIFEST=/absolute/old/manifest.json \
+TMT_UPGRADE_NEW_ARCHIVE=/absolute/new/archive.tar.gz \
+TMT_UPGRADE_NEW_MANIFEST=/absolute/new/manifest.json \
+TMT_UPGRADE_TARGET=aarch64-apple-darwin \
+cargo test --locked --manifest-path rust/Cargo.toml -p tmt-adapters \
+  cargo_dist_upgrade_refreshes_real_artifacts_and_preserves_conflicts -- --ignored
+```
+
+Require one selected passing test, not an empty filtered run. This test injects
+canonical acquisition responses but executes real old/new binaries, managed
+skill installation, partial hidden refresh and repair in scrubbed task-owned
+state. It does not claim to contact a public release or exercise the public CLI
+over a fake production endpoint. Run the independent artifact verifier too.
+
+### Offline composition
 
 The internal entrypoint consumes a local cargo-dist archive and manifest. It is
 not advertised by help/completion and does not change `tmt install` skill syntax.

@@ -14,7 +14,8 @@ use std::{
     path::Path,
 };
 
-const COMPRESSED_LIMIT: usize = 64 * 1024 * 1024;
+pub(super) const COMPRESSED_LIMIT: usize = 64 * 1024 * 1024;
+pub(super) const MANIFEST_LIMIT: usize = 4 * 1024 * 1024;
 const EXPANDED_LIMIT: usize = 128 * 1024 * 1024;
 pub(super) const FILES: [&str; 4] = [
     "tmt",
@@ -42,15 +43,55 @@ impl Artifact {
 }
 
 pub(super) fn acquire(manifest: &Path, archive: &Path, target: &str) -> io::Result<Artifact> {
-    let bytes =
-        bounded_file::read_no_follow(manifest, 4 * 1024 * 1024).map_err(io::Error::other)?;
+    let bytes = bounded_file::read_no_follow(manifest, MANIFEST_LIMIT).map_err(io::Error::other)?;
     let manifest: Value = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
     let name = archive
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| invalid("Native archive requires an ASCII filename."))?;
-    let root = name
-        .strip_suffix(".tar.gz")
+    let (version, sha256) = metadata(&manifest, name, target)?;
+    let compressed =
+        bounded_file::read_no_follow(archive, COMPRESSED_LIMIT).map_err(io::Error::other)?;
+    if digest(&compressed) != sha256 {
+        return Err(invalid("Native archive checksum mismatch."));
+    }
+    let files = decode(&compressed, archive_root(name)?)?;
+    Ok(Artifact {
+        name: name.into(),
+        version,
+        target: target.into(),
+        sha256,
+        files,
+    })
+}
+
+pub(super) fn select(manifest: &[u8], target: &str) -> io::Result<(String, Version)> {
+    if manifest.len() > MANIFEST_LIMIT {
+        return Err(invalid("Native manifest exceeds its bound."));
+    }
+    let manifest: Value = serde_json::from_slice(manifest).map_err(io::Error::other)?;
+    let matches = manifest["artifacts"]
+        .as_object()
+        .ok_or_else(|| invalid("Native manifest artifacts are missing."))?
+        .iter()
+        .filter(|(_, value)| {
+            value["kind"] == "executable-zip"
+                && value["target_triples"] == serde_json::json!([target])
+        })
+        .map(|(name, _)| name)
+        .collect::<Vec<_>>();
+    if matches.len() != 1 {
+        return Err(invalid(
+            "Native manifest must select exactly one target archive.",
+        ));
+    }
+    let name = matches[0];
+    let (version, _) = metadata(&manifest, name, target)?;
+    Ok((name.clone(), version))
+}
+
+fn archive_root(name: &str) -> io::Result<&str> {
+    name.strip_suffix(".tar.gz")
         .filter(|root| {
             root.as_bytes()
                 .first()
@@ -59,7 +100,11 @@ pub(super) fn acquire(manifest: &Path, archive: &Path, target: &str) -> io::Resu
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
         })
-        .ok_or_else(|| invalid("Invalid native archive filename."))?;
+        .ok_or_else(|| invalid("Invalid native archive filename."))
+}
+
+fn metadata(manifest: &Value, name: &str, target: &str) -> io::Result<(Version, String)> {
+    archive_root(name)?;
     let metadata = &manifest["artifacts"][name];
     if metadata["kind"] != "executable-zip"
         || metadata["name"] != name
@@ -69,12 +114,7 @@ pub(super) fn acquire(manifest: &Path, archive: &Path, target: &str) -> io::Resu
     }
     let sha256 = metadata["checksums"]["sha256"]
         .as_str()
-        .filter(|hash| {
-            hash.len() == 64
-                && hash
-                    .bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        })
+        .filter(|hash| crate::content_digest::is_sha256(hash))
         .ok_or_else(|| invalid("Native archive requires a SHA-256 checksum."))?;
     let mut inventory = metadata["assets"]
         .as_array()
@@ -112,19 +152,7 @@ pub(super) fn acquire(manifest: &Path, archive: &Path, target: &str) -> io::Resu
         .ok_or_else(|| invalid("Native release version is missing."))?
         .parse()
         .map_err(|_| invalid("Native release version is invalid."))?;
-    let compressed =
-        bounded_file::read_no_follow(archive, COMPRESSED_LIMIT).map_err(io::Error::other)?;
-    if digest(&compressed) != sha256 {
-        return Err(invalid("Native archive checksum mismatch."));
-    }
-    let files = decode(&compressed, root)?;
-    Ok(Artifact {
-        name: name.into(),
-        version,
-        target: target.into(),
-        sha256: sha256.into(),
-        files,
-    })
+    Ok((version, sha256.into()))
 }
 
 fn decode(compressed: &[u8], root: &str) -> io::Result<BTreeMap<String, Vec<u8>>> {

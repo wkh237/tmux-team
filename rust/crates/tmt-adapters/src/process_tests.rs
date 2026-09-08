@@ -19,6 +19,36 @@ const SHELL: &str = "/bin/sh";
 const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const CLEANUP_WAIT: Duration = Duration::from_secs(2);
 
+#[test]
+fn nonzero_exit_preserves_bounded_protocol_output_without_formatting_it() {
+    let args = shell_args(
+        "printf 'private stdout'; printf 'private stderr' >&2; exit 1",
+        &[],
+    );
+    let error =
+        execute_shell(&UnixCommandRunner, &args, &[], Duration::from_secs(2), 64).unwrap_err();
+    assert_eq!(
+        error.kind,
+        CommandFailure::Exit {
+            code: Some(1),
+            signal: None
+        }
+    );
+    assert!(!error.cleanup_failed());
+    assert!(!error.to_string().contains("private"));
+    let output = error.output.unwrap();
+    assert_eq!(output.stdout, b"private stdout");
+    assert_eq!(output.stderr, b"private stderr");
+
+    let error =
+        execute_shell(&UnixCommandRunner, &args, &[], Duration::from_secs(2), 3).unwrap_err();
+    assert_eq!(error.kind, CommandFailure::OutputLimit);
+    assert!(
+        error.output.is_none(),
+        "incomplete oversized output is not a protocol report"
+    );
+}
+
 fn shell_args(script: &'static str, extra: &[OsString]) -> Vec<OsString> {
     let mut args = vec![
         OsString::from("-c"),

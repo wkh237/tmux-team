@@ -12,6 +12,7 @@ mod init_command;
 mod install_command;
 mod invocation;
 mod native_install_command;
+mod native_upgrade_command;
 mod output;
 mod parser;
 mod profile_command;
@@ -49,7 +50,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Help => {
             writeln!(
                 stdout,
-                "Native development preview: configuration, identity create/show/list, talk/reply/result, pane identity name/this/add/whoami/unbind/rm/list, diagnostic check/read, role/preamble, x attention, init, learn, and skill installation are available. Native network upgrade is not implemented yet. Use isolated test state only.\n"
+                "Native development preview: configuration, identity create/show/list, talk/reply/result, pane identity name/this/add/whoami/unbind/rm/list, diagnostic check/read, role/preamble, x attention, init, learn, and skill installation are available. Managed native upgrade/update is supported; public release availability is a separate gate. Use isolated test state only.\n"
             )?;
             grammar::public_grammar(&grammar::grammar(), true).write_long_help(&mut stdout)?;
             writeln!(stdout)?;
@@ -130,13 +131,13 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
             drop(stdout);
             return binding_command::execute(request, parsed.mode);
         }
-        Invocation::Upgrade => {
+        Invocation::Upgrade {
+            channel,
+            exact,
+            unpin,
+        } => {
             drop(stdout);
-            return failure(
-                parsed.mode,
-                "NATIVE_NOT_IMPLEMENTED",
-                "This command is not implemented by the native development preview. No effects were performed; use the installed TypeScript CLI until native cutover.",
-            );
+            return native_upgrade_command::execute(channel, exact.as_deref(), unpin, parsed.mode);
         }
         Invocation::NativeRefreshSkills => {
             drop(stdout);

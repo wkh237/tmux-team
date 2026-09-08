@@ -22,10 +22,24 @@ This example deliberately keeps its managed files in the temporary preview root.
 Choose a directory your provider discovers and reload its skills. Retain the
 included LICENSE and THIRD-PARTY-NOTICES.txt with redistributed binaries.
 
-Native shell bootstrap, managed binary receipts and network `upgrade` are not
-available yet. Do not overwrite an npm, pnpm, Homebrew or manual installation.
+Managed binary receipts and `upgrade`/`update` are implemented in the preview.
+Shell bootstrap and public native releases remain separate publication gates;
+do not assume a downloadable native release exists yet. Do not overwrite an
+npm, pnpm, Homebrew or manual installation.
 The selected executable's help is the capability authority; the shared alpha
 version number alone does not distinguish native and TypeScript runtimes.
+
+For a verified managed native installation, `tmt upgrade` retains its channel;
+`tmt upgrade --channel alpha` selects alpha, `--to 5.0.0-alpha.2` pins an exact
+version, and `--unpin` resumes channel updates. `tmt update` is the same command.
+Downgrades are rejected. An ordinary pinned invocation does not access the
+network. Use `--json` for a single structured result. The update refreshes only
+previously managed skills through the new binary; missing integrations stay
+missing and user modifications are preserved. Reload the agent after changes.
+A skill failure can occur after binary activation and is reported as partial
+completion, not rollback; resolve reported conflicts and repeat the original
+selection, including `--to <version>` when pinned. Ordinary pinned updates do
+not retry skill work.
 
 The distribution manifest supplies archive names, target triples and SHA-256
 checksums. Checksums detect corruption, not compromise of the download origin.

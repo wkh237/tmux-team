@@ -16,6 +16,37 @@ fn document(report: &RefreshReport) -> Value {
     })
 }
 
+/// The updater consumes this same owner's bounded JSON contract, not arbitrary
+/// child stdout. Error details retain the shared CLI error-envelope shape.
+pub(crate) fn parse_document(bytes: &[u8]) -> Option<Value> {
+    let value: Value = serde_json::from_slice(bytes).ok()?;
+    let object = value.as_object()?;
+    if object.len() != 3 + usize::from(object.contains_key("error")) {
+        return None;
+    }
+    if !value["refreshed"].as_array()?.iter().all(|item| {
+        item.as_object().is_some_and(|item| item.len() == 2)
+            && item["target"].is_string()
+            && item["changed"].is_boolean()
+    }) {
+        return None;
+    }
+    for key in ["skipped", "conflicts"] {
+        if !value[key].as_array()?.iter().all(Value::is_string) {
+            return None;
+        }
+    }
+    if !value["conflicts"].as_array()?.is_empty() && !object.contains_key("error") {
+        return None;
+    }
+    if let Some(error) = object.get("error")
+        && (!error["code"].is_string() || !error["message"].is_string())
+    {
+        return None;
+    }
+    Some(value)
+}
+
 pub fn execute(mode: OutputMode) -> io::Result<u8> {
     let (report, failure) = match ConfigPaths::discover() {
         Err(error) => (RefreshReport::default(), Some(Failure::from(error))),

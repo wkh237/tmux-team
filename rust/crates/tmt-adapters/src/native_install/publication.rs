@@ -13,18 +13,37 @@ use std::{
 };
 use uuid::Uuid;
 
+#[derive(Debug)]
+pub(super) struct ActivatedError(io::Error);
+
+impl std::fmt::Display for ActivatedError {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            output,
+            "Release activated, but installation finalization failed; retry to repair command links: {}",
+            self.0
+        )
+    }
+}
+
+impl std::error::Error for ActivatedError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.0)
+    }
+}
+
 pub(super) struct Layout {
     pub prefix: PathBuf,
     pub root: PathBuf,
 }
 
-fn directory(path: &Path) -> io::Result<()> {
+fn directory(path: &Path, create: bool) -> io::Result<()> {
     match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_dir() => Ok(()),
         Ok(_) => Err(invalid(
             "Native installation directory is occupied by another entry.",
         )),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+        Err(error) if create && error.kind() == io::ErrorKind::NotFound => {
             fs::DirBuilder::new().mode(0o700).create(path)?;
             if let Some(parent) = path.parent() {
                 File::open(parent)?.sync_all()?;
@@ -36,6 +55,21 @@ fn directory(path: &Path) -> io::Result<()> {
 }
 
 impl Layout {
+    pub fn existing(prefix: &Path) -> io::Result<Self> {
+        directory(prefix, false)?;
+        let prefix = fs::canonicalize(prefix)?;
+        let root = prefix.join("lib/tmux-team");
+        for path in [
+            prefix.join("lib"),
+            prefix.join("bin"),
+            root.clone(),
+            root.join("releases"),
+        ] {
+            directory(&path, false)?;
+        }
+        Ok(Self { prefix, root })
+    }
+
     pub fn open(prefix: &Path) -> io::Result<Self> {
         if prefix.as_os_str().is_empty() {
             return Err(invalid("Installation prefix must not be empty."));
@@ -47,13 +81,13 @@ impl Layout {
         if let Some(parent) = requested.parent() {
             create_prefix_ancestors(parent)?;
         }
-        directory(&requested)?;
+        directory(&requested, true)?;
         let prefix = fs::canonicalize(&requested)?;
-        directory(&prefix.join("lib"))?;
-        directory(&prefix.join("bin"))?;
+        directory(&prefix.join("lib"), true)?;
+        directory(&prefix.join("bin"), true)?;
         let root = prefix.join("lib/tmux-team");
-        directory(&root)?;
-        directory(&root.join("releases"))?;
+        directory(&root, true)?;
+        directory(&root.join("releases"), true)?;
         Ok(Self { prefix, root })
     }
 
@@ -199,8 +233,10 @@ impl Layout {
         }
         result.map_err(|error| {
             if activated {
-                io::Error::new(error.kind(), format!("Release activated, but installation finalization failed; retry to repair command links: {error}"))
-            } else { error }
+                io::Error::new(error.kind(), ActivatedError(error))
+            } else {
+                error
+            }
         })
     }
 }

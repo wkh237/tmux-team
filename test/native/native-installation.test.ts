@@ -256,6 +256,42 @@ describe('native installation process contract', () => {
           channel: 'alpha',
           pinned_version: fixture.version,
         });
+        const managed = {
+          ...sandbox,
+          cli: { executable: pinned.executable, args: [] },
+          env: { ...sandbox.env, PATH: path.dirname(pinned.executable) },
+        };
+        const pinnedReceipt = readFileSync(receiptPath(prefix));
+        for (const command of ['upgrade', 'update']) {
+          const result = await runCli(managed, [command, '--json']);
+          expect(result.status).toBe(0);
+          expect(result.stderr).toBe('');
+          expect(parseWholeStdout(result)).toMatchObject({
+            version: fixture.version,
+            changed: false,
+            channel: 'alpha',
+            pinned: true,
+            pinnedVersion: fixture.version,
+            skippedPinned: true,
+            skills: null,
+            pathWarning: null,
+          });
+        }
+        const shadowed = await runCli({ ...managed, env: { ...managed.env, PATH: '' } }, [
+          'upgrade',
+          '--json',
+        ]);
+        expect(shadowed.status).toBe(0);
+        expect(parseWholeStdout(shadowed).pathWarning).toContain('PATH does not select');
+        const badChannel = await runCli(managed, ['upgrade', '--channel', 'stable', '--json']);
+        expect(badChannel.status).toBe(1);
+        expectError(
+          badChannel,
+          'NATIVE_UPGRADE_FAILED',
+          'The installation is pinned; explicitly select a version or unpin it.'
+        );
+        expect(readFileSync(receiptPath(prefix))).toEqual(pinnedReceipt);
+        expect(existsSync(sandbox.database)).toBe(false);
         expect(
           readFileSync(path.join(prefix, 'lib', 'tmux-team', 'releases', originalId, 'tmt')).equals(
             originalBytes
@@ -265,6 +301,23 @@ describe('native installation process contract', () => {
         const unpinned = await install(sandbox, fixture, prefix, ['--unpin']);
         const unpinnedId = currentReleaseId(prefix);
         expect(unpinned.changed).toBe(true);
+        const stale = await runCli(
+          {
+            ...sandbox,
+            cli: {
+              executable: path.join(prefix, 'lib', 'tmux-team', 'releases', pinnedId, 'tmt'),
+              args: [],
+            },
+          },
+          ['upgrade', '--json']
+        );
+        expect(stale.status).toBe(1);
+        expectError(
+          stale,
+          'NATIVE_UPGRADE_FAILED',
+          'This executable is not the active managed release. Run the current native installation, or update using its original package manager.'
+        );
+        expect(currentReleaseId(prefix)).toBe(unpinnedId);
         expect(unpinnedId).not.toBe(pinnedId);
         expect(receipt(prefix)).toMatchObject({
           version: fixture.version,

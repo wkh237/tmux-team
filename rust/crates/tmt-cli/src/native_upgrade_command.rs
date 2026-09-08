@@ -1,0 +1,263 @@
+//! Native update composition; the newly activated executable owns skill refresh.
+
+use crate::{invocation::OutputMode, output::Failure};
+use serde_json::{Value, json};
+use std::{
+    fs,
+    io::{self, Write},
+    os::unix::fs::PermissionsExt,
+    path::Path,
+    time::{Duration, Instant},
+};
+use tmt_adapters::{
+    native_install::{self, UpgradeReport, UpgradeRequest},
+    process::{CommandFailure, CommandRequest, CommandRunner, UnixCommandRunner},
+};
+use tmt_core::native_install::Channel;
+
+pub fn execute(
+    channel: Option<Channel>,
+    exact: Option<&str>,
+    unpin: bool,
+    mode: OutputMode,
+) -> io::Result<u8> {
+    let interrupt = match tmt_adapters::interrupt::Interrupt::install() {
+        Ok(interrupt) => interrupt,
+        Err(error) => {
+            return Failure::new("NATIVE_UPGRADE_FAILED", error.to_string(), 1)
+                .caused_by(error)
+                .publish(mode);
+        }
+    };
+    let result = (|| {
+        let executable = std::env::current_exe()?;
+        native_install::upgrade(
+            UpgradeRequest {
+                executable: &executable,
+                channel,
+                exact,
+                unpin,
+            },
+            || {
+                if interrupt.is_interrupted() {
+                    Err(io::Error::new(
+                        io::ErrorKind::Interrupted,
+                        "Native update interrupted.",
+                    ))
+                } else {
+                    Ok(())
+                }
+            },
+        )
+    })();
+    let report = match result {
+        Ok(report) => report,
+        Err(mut error) => {
+            let activated = error.activated.take();
+            let status = if error.kind() == io::ErrorKind::Interrupted {
+                130
+            } else {
+                1
+            };
+            let message = activated.as_deref().map_or_else(
+                || error.to_string(),
+                |report| format!("{} {}", error, retry_hint(report)),
+            );
+            let failure = Failure::new("NATIVE_UPGRADE_FAILED", message, status).caused_by(error);
+            return publish(activated.as_deref(), None, Some(failure), mode);
+        }
+    };
+    if report.skipped_pinned {
+        return publish(Some(&report), None, None, mode);
+    }
+    if interrupt.is_interrupted() {
+        return publish(
+            Some(&report),
+            None,
+            Some(Failure::new(
+                "NATIVE_UPGRADE_INTERRUPTED",
+                format!(
+                    "Native binary installation completed; managed skill refresh was interrupted. {}",
+                    retry_hint(&report)
+                ),
+                130,
+            )),
+            mode,
+        );
+    }
+    let refreshed =
+        native_install::with_active_release(&report.installation.active_executable, || {
+            refresh(&report.installation.active_executable, &UnixCommandRunner)
+        })
+        .unwrap_or_else(|error| Err((None, error)));
+    let (skills, mut failure) = match refreshed {
+        Ok(skills) => (Some(skills), None),
+        Err((skills, cause)) => (skills, Some(Failure::new(
+            "NATIVE_UPGRADE_SKILLS_FAILED",
+            format!("Native binary installation completed, but managed skill refresh failed. User-owned skill content was not overwritten. {}", retry_hint(&report)), 1,
+        ).caused_by(cause))),
+    };
+    if interrupt.is_interrupted() {
+        failure = Some(Failure::new(
+            "NATIVE_UPGRADE_INTERRUPTED",
+            format!(
+                "Native binary installation completed; update was interrupted during managed skill refresh. Inspect the skill report. {}",
+                retry_hint(&report)
+            ),
+            130,
+        ));
+    }
+    publish(Some(&report), skills, failure, mode)
+}
+
+fn refresh(
+    executable: &Path,
+    runner: &impl CommandRunner,
+) -> Result<Value, (Option<Value>, io::Error)> {
+    let result = runner.execute(CommandRequest {
+        program: executable.as_os_str(),
+        args: &["__native-refresh-skills".into(), "--json".into()],
+        input: &[],
+        deadline: Instant::now() + Duration::from_secs(30),
+        max_output_bytes: 4 * 1024 * 1024,
+    });
+    let (output, failure) = match result {
+        Ok(output) => (output, None),
+        Err(mut error) => {
+            if !matches!(
+                error.kind,
+                CommandFailure::Exit {
+                    code: Some(1),
+                    signal: None
+                }
+            ) || error.cleanup_failed()
+            {
+                return Err((None, io::Error::other(error)));
+            }
+            let Some(output) = error.output.take() else {
+                return Err((None, io::Error::other(error)));
+            };
+            (output, Some(error))
+        }
+    };
+    let document = crate::skill_refresh_command::parse_document(&output.stdout)
+        .filter(|value| {
+            output.stderr.is_empty() && value.get("error").is_some() == failure.is_some()
+        })
+        .ok_or_else(|| {
+            (
+                None,
+                io::Error::other("New executable returned an invalid managed-skill report."),
+            )
+        })?;
+    match failure {
+        None => Ok(document),
+        Some(error) => Err((Some(document), io::Error::other(error))),
+    }
+}
+
+fn publish(
+    report: Option<&UpgradeReport>,
+    skills: Option<Value>,
+    failure: Option<Failure>,
+    mode: OutputMode,
+) -> io::Result<u8> {
+    let mut document = report.map_or_else(|| json!({"changed": false}), |report| json!({
+        "executable": report.installation.executable, "version": report.installation.version,
+        "changed": report.installation.changed, "channel": report.state.channel.as_str(),
+        "pinnedVersion": report.state.pinned_version.as_ref().map(ToString::to_string),
+        "pinned": report.state.pinned_version.is_some(),
+        "skippedPinned": report.skipped_pinned,
+    }));
+    document["skills"] = skills.unwrap_or(Value::Null);
+    let warning = report.and_then(|report| path_warning(&report.installation.executable));
+    document["pathWarning"] = warning.clone().into();
+    if let Some(failure) = &failure {
+        document["error"] = failure.document()["error"].clone();
+    }
+    if mode.json {
+        writeln!(io::stdout().lock(), "{document}")?;
+    } else {
+        if let Some(report) = report {
+            writeln!(
+                io::stdout().lock(),
+                "{} tmt {} at {}",
+                if report.skipped_pinned {
+                    "Pinned"
+                } else if report.installation.changed {
+                    "Updated"
+                } else {
+                    "Current"
+                },
+                report.installation.version,
+                report.installation.executable.display()
+            )?;
+            if !report.skipped_pinned
+                && let Some(refreshed) = document["skills"]["refreshed"].as_array()
+            {
+                let skipped = document["skills"]["skipped"].as_array().map_or(0, Vec::len);
+                let conflicts = document["skills"]["conflicts"]
+                    .as_array()
+                    .expect("validated skill report");
+                writeln!(
+                    io::stdout().lock(),
+                    "Managed skills: {} current/refreshed, {skipped} missing, {} conflicts preserved.",
+                    refreshed.len(),
+                    conflicts.len()
+                )?;
+                for target in conflicts {
+                    writeln!(
+                        io::stdout().lock(),
+                        "Resolve skill conflict at {}",
+                        target.as_str().expect("validated skill path")
+                    )?;
+                }
+                if !refreshed.is_empty() {
+                    writeln!(
+                        io::stdout().lock(),
+                        "Reload or restart your agent to use updated guidance; existing conversations can read tmt learn --skill."
+                    )?;
+                }
+            }
+        }
+        if let Some(warning) = warning {
+            writeln!(io::stderr().lock(), "{warning}")?;
+        }
+        if let Some(failure) = &failure {
+            failure.publish(mode)?;
+        }
+    }
+    Ok(failure.map_or(0, |failure| failure.status))
+}
+
+fn path_warning(executable: &Path) -> Option<String> {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let selected = std::env::split_paths(&path)
+        .map(|directory| directory.join("tmt"))
+        .find(|candidate| {
+            fs::metadata(candidate).is_ok_and(|metadata| {
+                metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+            })
+        });
+    let expected = fs::canonicalize(executable).ok();
+    if expected.is_some() && selected.and_then(|path| fs::canonicalize(path).ok()) == expected {
+        return None;
+    }
+    Some(format!(
+        "PATH does not select this managed tmt. Use {} directly or put its bin directory first; no shell profile or package-manager files were changed.",
+        executable.display()
+    ))
+}
+
+fn retry_hint(report: &UpgradeReport) -> String {
+    match &report.state.pinned_version {
+        Some(version) => format!(
+            "Run the current managed tmt with upgrade --to {version} to retry without clearing the pin."
+        ),
+        None => "Run the current managed tmt upgrade to retry.".into(),
+    }
+}
+
+#[cfg(test)]
+#[path = "native_upgrade_command_tests.rs"]
+mod tests;

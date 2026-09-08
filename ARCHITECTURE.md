@@ -700,7 +700,8 @@ It must not throw exit control flow across an event callback. Neither timeout
 nor interruption cancels recipient work or alters recorded delivery certainty.
 
 Text-only help/version/completion/learn reject JSON mode with `JSON_UNSUPPORTED`
-before effects; upgrade retains its JSON rejection. No new text-command schemas
+before effects; the TypeScript upgrade retains its JSON rejection while native
+upgrade has the structured contract described below. No new text-command schemas
 or grammar are introduced. Runtime boot failures before application loading and
 unwritable output streams are outside the one-document guarantee.
 
@@ -1471,7 +1472,7 @@ target execution before they become supported release platforms.
 Under #138, the hidden `__native-install` entrypoint composes the offline
 `tmt-adapters::native_install` owner. It does not discover application settings,
 open SQLite, inspect tmux or install skills. The public `install` command still
-installs agent guidance. Public network upgrade remains unavailable in preview.
+installs agent guidance. #142 composes the same owner for public native updates.
 
 `tmt-core::native_install` owns channel and forward-only version/pin policy using
 semver precedence. Stable accepts stable versions; alpha accepts the alpha
@@ -1513,6 +1514,53 @@ encoding. Skill-specific assets, registry, backup and path policy remain in
 `skill_installation`; the binary installer does not reuse that registry as proof
 of binary ownership. HTTPS acquisition must call this same native owner rather
 than introducing a second shell publication mechanism.
+
+### Native HTTPS update composition
+
+`upgrade` and its `update` alias accept an optional retained channel, exact
+`--to` pin or `--unpin`. Core resolves that intent before discovery. A pinned
+ordinary invocation validates ownership/integrity and returns without network
+or skill writes. The actual executing file must match the active immutable
+release, not a retained old executable or another command found through PATH.
+This read-only inspection does not create directories or discover app settings.
+
+`release_http` is the sole synchronous HTTPS transport, using pinned ureq with
+rustls and the platform certificate verifier. Native trusted corporate roots and
+the library's proxy environment apply; there is no insecure switch, arbitrary
+origin override, async runtime or curl subprocess. Only canonical GitHub/API and
+GitHub asset origins are allowed, including redirects. Three redirects, bounded
+headers/bodies and a shared 60-second network deadline constrain acquisition.
+OS resolver/CA work is subject to platform behavior; this is not a guarantee
+that arbitrary blocking system calls can be forcibly cancelled.
+
+`native_install::release` owns canonical repository discovery: at most three
+100-entry pages, channel-scoped semantic maximum or exact version, a non-draft
+immutable release, and unique uploaded assets with GitHub size/SHA-256 metadata.
+The cargo-dist manifest remains the target/version/inventory authority. Both API
+and manifest digests are checked before publication. Receipt provenance records
+canonical repository/release ID and manifest digest; local archives remain
+explicitly local. This trusts authenticated HTTPS and the canonical origin,
+not independent client-side attestation verification or a compromised origin.
+
+Downloads happen outside the publication lock. Invocation-owned staging has
+explicit cleanup; the observed release UUID is checked under the existing lock
+before activation, including same-version pin changes. Typed partial activation
+evidence survives finalization or staging cleanup failures. No second publisher,
+pin registry, SQLite owner, provider discovery or automatic release pruning is
+introduced.
+
+The CLI runs the newly activated immutable executable's hidden managed-skill
+refresh via the existing bounded Unix process runner. Skill refresh is permitted
+only after revalidating current release ownership while holding
+the installation lock for that bounded child. This prevents an earlier updater
+from publishing old skill bytes after a later binary activation. Lock order is
+installation then skill publication, never network under either lock. Only fully observed
+nonzero exits retain bounded output in `CommandError`; formatting never exposes
+that output. The skill command owns its JSON protocol validator. The updater
+preserves valid partial reports and returns failure without claiming binary
+rollback when skill refresh fails. Timeouts, malformed reports and oversized
+output are failures, not successful updates. Shell bootstrap, public publication
+and installed-runtime cutover are separate delivery gates.
 
 ## Maintenance contract
 
