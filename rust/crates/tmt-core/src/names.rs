@@ -45,7 +45,7 @@ impl Error for NameError {}
 
 // ECMAScript WhiteSpace plus LineTerminator, also used by its regular-expression
 // \s. Rust's is_whitespace differs: it includes NEL and excludes BOM.
-fn ecmascript_space(character: char) -> bool {
+pub(crate) fn ecmascript_space(character: char) -> bool {
     matches!(character,
         '\u{0009}'..='\u{000d}' | '\u{0020}' | '\u{00a0}' | '\u{1680}' |
         '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' |

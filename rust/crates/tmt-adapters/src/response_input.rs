@@ -10,10 +10,8 @@ use nix::{
 };
 use std::{
     error::Error,
-    fmt,
-    fs::OpenOptions,
-    io::{self, Read},
-    os::{fd::AsFd, unix::fs::OpenOptionsExt},
+    fmt, io,
+    os::fd::AsFd,
     path::Path,
     time::{Duration, Instant},
 };
@@ -114,22 +112,13 @@ fn decode(bytes: &[u8]) -> Result<String, ResponseInputError> {
 }
 
 pub fn read_file(path: &Path) -> Result<String, ResponseInputError> {
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(OFlag::O_NONBLOCK.bits())
-        .open(path)
-        .map_err(|cause| ResponseInputError::io(ResponseInputFailure::File, cause))?;
-    if !file
-        .metadata()
-        .map_err(|cause| ResponseInputError::io(ResponseInputFailure::File, cause))?
-        .is_file()
-    {
-        return Err(ResponseInputFailure::File.into());
-    }
-    let mut bytes = Vec::new();
-    file.take(MAX_EXCHANGE_TEXT_BYTES as u64 + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|cause| ResponseInputError::io(ResponseInputFailure::File, cause))?;
+    let bytes =
+        crate::bounded_file::read(path, MAX_EXCHANGE_TEXT_BYTES).map_err(|error| match error {
+            crate::bounded_file::FileReadError::TooLarge => ResponseInputFailure::TooLarge.into(),
+            crate::bounded_file::FileReadError::Io(cause) => {
+                ResponseInputError::io(ResponseInputFailure::File, cause)
+            }
+        })?;
     decode(&bytes)
 }
 

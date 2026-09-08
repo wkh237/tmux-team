@@ -62,7 +62,7 @@ describe('native grammar preview process contract', () => {
       expect(help.stderr).toBe('');
       expect(help.stdout).toContain('Native development preview');
       expect(help.stdout).toContain(
-        'configuration, storage-only identity create/show/list and reply/result, pane identity name/this/add/whoami/unbind/rm/list, and diagnostic check/read are available'
+        'configuration, identity create/show/list, reply/result, pane identity name/this/add/whoami/unbind/rm/list, diagnostic check/read, and role/preamble are available'
       );
       expect(help.stdout).toContain('Talk is not implemented yet.');
       expect(help.stdout).toContain('Manage identity records without probing tmux');
@@ -81,8 +81,6 @@ describe('native grammar preview process contract', () => {
       for (const args of [
         ['talk', 'worker', 'hello'],
         ['init'],
-        ['role', 'show'],
-        ['preamble'],
         ['x', 'ackall'],
         ['install', '--dir', sandbox.cwd],
       ]) {
