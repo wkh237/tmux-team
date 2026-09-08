@@ -1,7 +1,7 @@
 use super::support::{Fixture, NOW_MS, endpoint, prepare_input, service};
 use rusqlite::OptionalExtension;
 use tmt_core::identity::{Lifetime, create_or_resolve};
-use tmt_core::request::{Originator, SubmitResponse};
+use tmt_core::request::{Originator, ResponseProof, SubmitResponse};
 
 #[test]
 fn late_final_uses_original_provenance_after_identity_retirement_and_name_reuse() {
@@ -52,8 +52,10 @@ fn late_final_uses_original_provenance_after_identity_retirement_and_name_reuse(
         let final_response = requests
             .submit_response(SubmitResponse {
                 request_id: prepared.request_id.clone(),
-                attempt_id: prepared.attempt_id.clone(),
-                endpoint: target,
+                proof: ResponseProof::Recorded {
+                    attempt_id: prepared.attempt_id.clone(),
+                    endpoint: target,
+                },
                 body: "late final after retirement".into(),
             })
             .expect("accept late final for retired identity");

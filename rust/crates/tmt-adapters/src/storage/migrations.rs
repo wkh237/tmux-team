@@ -6,6 +6,10 @@ use super::errors::{StorageError, StorageErrorCode, classify, incompatible};
 #[cfg(test)]
 #[path = "identity_lifetime_tests.rs"]
 mod identity_lifetime_tests;
+#[cfg(test)]
+mod receipt_tests;
+#[cfg(test)]
+mod test_support;
 
 struct Migration {
     name: &'static str,

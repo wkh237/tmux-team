@@ -5,8 +5,8 @@ use super::support::{
 };
 use crate::storage::Storage;
 use tmt_core::request::{
-    Originator, RequestError, RequestPrompt, RequestService, ResponseRejection, Settlement,
-    SubmitResponse,
+    Originator, RequestError, RequestPrompt, RequestService, ResponseProof, ResponseRejection,
+    Settlement, SubmitResponse,
 };
 
 #[test]
@@ -30,8 +30,10 @@ fn retained_final_survives_restart_and_missing_attempt_without_renewing_retry_de
         .unwrap();
     let submission = || SubmitResponse {
         request_id: prepared.request_id.clone(),
-        attempt_id: prepared.attempt_id.clone(),
-        endpoint: target.clone(),
+        proof: ResponseProof::Recorded {
+            attempt_id: prepared.attempt_id.clone(),
+            endpoint: target.clone(),
+        },
         body: "\u{feff}\0 exact\r\n".into(),
     };
     let first = service(&mut fixture).submit_response(submission()).unwrap();
@@ -116,8 +118,10 @@ fn pruned_body_completion_marker_prevents_recreation_and_false_refund() {
         .unwrap();
     let submission = || SubmitResponse {
         request_id: prepared.request_id.clone(),
-        attempt_id: prepared.attempt_id.clone(),
-        endpoint: target.clone(),
+        proof: ResponseProof::Recorded {
+            attempt_id: prepared.attempt_id.clone(),
+            endpoint: target.clone(),
+        },
         body: "final".into(),
     };
     service(&mut fixture).submit_response(submission()).unwrap();
@@ -177,8 +181,10 @@ fn late_final_extends_metadata_not_original_prompt_or_attention_acknowledgment()
     let final_response = service(&mut fixture)
         .submit_response(SubmitResponse {
             request_id: prepared.request_id.clone(),
-            attempt_id: prepared.attempt_id.clone(),
-            endpoint: target,
+            proof: ResponseProof::Recorded {
+                attempt_id: prepared.attempt_id.clone(),
+                endpoint: target,
+            },
             body: "late final".into(),
         })
         .unwrap();
@@ -282,8 +288,10 @@ fn request_clock_is_sampled_only_while_the_real_writer_lock_is_held() {
     requests
         .submit_response(SubmitResponse {
             request_id: "clock".into(),
-            attempt_id: "clock-attempt".into(),
-            endpoint: endpoint("%73", 173),
+            proof: ResponseProof::Recorded {
+                attempt_id: "clock-attempt".into(),
+                endpoint: endpoint("%73", 173),
+            },
             body: "done".into(),
         })
         .unwrap();

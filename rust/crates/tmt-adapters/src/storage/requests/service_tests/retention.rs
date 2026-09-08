@@ -1,5 +1,7 @@
 use super::support::{DAY_MS, Fixture, NOW_MS, count_rows, endpoint, prepare_input, service};
-use tmt_core::request::{Originator, RequestError, RequestPrompt, Settlement, SubmitResponse};
+use tmt_core::request::{
+    Originator, RequestError, RequestPrompt, ResponseProof, Settlement, SubmitResponse,
+};
 
 #[test]
 fn cleanup_failure_rolls_back_earlier_prompt_scrubbing() {
@@ -27,8 +29,10 @@ fn cleanup_failure_rolls_back_earlier_prompt_scrubbing() {
         requests
             .submit_response(SubmitResponse {
                 request_id: "cleanup-rollback".into(),
-                attempt_id: "cleanup-rollback-attempt".into(),
-                endpoint: target,
+                proof: ResponseProof::Recorded {
+                    attempt_id: "cleanup-rollback-attempt".into(),
+                    endpoint: target,
+                },
                 body: "final".into(),
             })
             .unwrap();
@@ -101,8 +105,10 @@ fn cleanup_scrubs_prompt_and_final_body_at_equality_before_metadata() {
         requests
             .submit_response(SubmitResponse {
                 request_id: prepared.request_id.clone(),
-                attempt_id: prepared.attempt_id.clone(),
-                endpoint: target,
+                proof: ResponseProof::Recorded {
+                    attempt_id: prepared.attempt_id.clone(),
+                    endpoint: target,
+                },
                 body: "retained final".into(),
             })
             .expect("submit retention final");
@@ -201,8 +207,10 @@ fn cleanup_drains_each_phase_in_deterministic_batches_of_one_hundred() {
             requests
                 .submit_response(SubmitResponse {
                     request_id: prepared.request_id,
-                    attempt_id: prepared.attempt_id,
-                    endpoint: endpoint(&format!("%{}", index + 30), (index + 130) as u64),
+                    proof: ResponseProof::Recorded {
+                        attempt_id: prepared.attempt_id,
+                        endpoint: endpoint(&format!("%{}", index + 30), (index + 130) as u64),
+                    },
                     body: format!("body-{index:03}"),
                 })
                 .expect("submit batch final");

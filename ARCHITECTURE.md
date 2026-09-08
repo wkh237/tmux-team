@@ -1086,8 +1086,23 @@ remain independent; only first submission/explicit settlement can extend metadat
 record decoding and SQL stay in the adapter. Ordered bounded cleanup retains the
 existing horizon-index protection and settlement floor. Attention counter writes
 preserve acknowledgment watermarks; revision arithmetic belongs to core. No schema,
-receipt table or alternate persistence owner is introduced. #106 retains short-token
-encoding and old-v1 receipt execution, and #93 retains public transport integration.
+receipt table or alternate persistence owner is introduced.
+
+#120 adds `request::correlation` for pure association hashing and the
+`reply_receipt` wire adapter for compact encoding and decode-only v1 compatibility.
+The exact [receipt protocol](REQUEST-RESPONSE.md#native-compact-receipt-preview-120-under-106)
+has one maintained definition. One `SubmitResponse` carries typed `ResponseProof`;
+there is no parallel submission API. The existing transaction derives/compares
+compact proofs from its retained-final-first lookup, then uses the same final
+validation and mutation. No new repository method or schema is needed. Wire
+decoding never opens storage. Malformed tokens and proof mismatch remain distinct.
+
+The reviewed pure SHA-256 dependency is permitted only in core; base64 is
+permitted only in adapters. Existing serde_json handles bounded v1 envelopes,
+not v2 digest serialization. Architecture tests enforce these dependency edges
+with positive and adverse cases. This is local correlation, not remote access
+control. #106 still owns public adapters and installed recipient instructions;
+#93 retains native message transport integration.
 
 #### Native storage and runtime adapters
 

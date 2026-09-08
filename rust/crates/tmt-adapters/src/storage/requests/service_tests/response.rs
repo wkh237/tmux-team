@@ -3,8 +3,8 @@ use super::support::{
 };
 use tmt_core::limits::MAX_JS_SAFE_INTEGER;
 use tmt_core::request::{
-    AttemptStatus, Originator, PrepareRequest, RequestError, ResponseRejection, Settlement,
-    SubmitResponse,
+    AttemptStatus, Originator, PrepareRequest, RequestError, ResponseProof, ResponseRejection,
+    Settlement, SubmitResponse,
 };
 
 fn prepare_sending(
@@ -46,8 +46,10 @@ fn submit(
     let mut requests = service(fixture);
     requests.submit_response(SubmitResponse {
         request_id: request_id.into(),
-        attempt_id: attempt_id.into(),
-        endpoint: target,
+        proof: ResponseProof::Recorded {
+            attempt_id: attempt_id.into(),
+            endpoint: target,
+        },
         body: body.into(),
     })
 }
@@ -279,8 +281,10 @@ fn response_first_settlement_does_not_refund_reserved_cadence() {
         requests
             .submit_response(SubmitResponse {
                 request_id: prepared.request_id.clone(),
-                attempt_id: prepared.attempt_id.clone(),
-                endpoint: target,
+                proof: ResponseProof::Recorded {
+                    attempt_id: prepared.attempt_id.clone(),
+                    endpoint: target,
+                },
                 body: "response arrived first".into(),
             })
             .expect("submit response before settlement");

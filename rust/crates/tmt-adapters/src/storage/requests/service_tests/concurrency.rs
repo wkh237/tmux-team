@@ -5,7 +5,7 @@ use crate::storage::{Storage, StorageError};
 use std::{path::Path, sync::mpsc, thread, time::Duration};
 use tmt_core::request::{
     FinalResponse, Originator, PreambleReservation, PrepareRequest, PreparedRequest, RequestError,
-    RequestService, ResponseRejection, SubmitResponse,
+    RequestService, ResponseProof, ResponseRejection, SubmitResponse, correlation::response_token,
 };
 
 type Operation<T> = Box<dyn FnOnce(&mut Storage) -> T + Send>;
@@ -134,8 +134,18 @@ fn identical_and_conflicting_final_writers_keep_one_body_marker_and_revision() {
                     RequestService::new(storage, || NOW_MS + 10 + index as u64).submit_response(
                         SubmitResponse {
                             request_id: "final-race".into(),
-                            attempt_id: "final-race-attempt".into(),
-                            endpoint: endpoint("%61", 161),
+                            proof: if index == 0 {
+                                ResponseProof::Recorded {
+                                    attempt_id: "final-race-attempt".into(),
+                                    endpoint: endpoint("%61", 161),
+                                }
+                            } else {
+                                ResponseProof::Compact(response_token(
+                                    "final-race",
+                                    "final-race-attempt",
+                                    &endpoint("%61", 161),
+                                ))
+                            },
                             body: bodies[index].into(),
                         },
                     )
@@ -227,8 +237,11 @@ fn cleanup_and_late_submission_serialize_without_refund_or_lost_final() {
                 RequestService::new(storage, || now)
                     .submit_response(SubmitResponse {
                         request_id: "cleanup-race".into(),
-                        attempt_id: "cleanup-race-attempt".into(),
-                        endpoint: endpoint("%62", 162),
+                        proof: ResponseProof::Compact(response_token(
+                            "cleanup-race",
+                            "cleanup-race-attempt",
+                            &endpoint("%62", 162),
+                        )),
                         body: "late final".into(),
                     })
                     .map(Some)

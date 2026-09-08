@@ -4,6 +4,7 @@ pub mod config;
 mod json_document;
 #[cfg(unix)]
 pub mod process;
+pub mod reply_receipt;
 pub mod storage;
 #[cfg(unix)]
 pub mod tmux;

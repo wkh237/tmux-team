@@ -44,6 +44,15 @@ reads, since those reads can perform housekeeping. Inject clocks for deadline
 equality/rollback and use bounded barriers between real connections for races.
 Retained final retries, attention rollback, cadence refunds and late replies
 after identity retirement are service evidence, not CLI/receipt/transport parity.
+The #120 receipt codec adds canonical v2/old-v1 wire cases and submits both proof
+types through the same service. Compare digest goldens with an independent
+implementation; an encode/decode round trip alone cannot prove field ordering.
+Malformed-UTF-8 fixtures must first be valid canonical base64, or they never
+exercise decoding. Migration receipt cases reuse the frozen historical fixture
+and a TS-generated v1 literal, with independent SQL for retained timestamps,
+attention and no-mutation checks. Compact/recorded writers race through the
+existing bounded connection harness. These remain internal service tests, not
+public native talk/reply/result acceptance.
 The separate storage adapter upgrades historical schemas 0–8 to native schema 9,
 tested through a development-only probe rather than an installed command.
 Use isolated test databases only: installed TypeScript cannot reopen schema 9.

@@ -369,6 +369,7 @@ fn dependency_policy_handles_normal_build_target_renamed_and_dev_entries() {
             "tmt-core",
             vec![
                 dependency("uuid", "normal", None, None),
+                dependency("sha2", "normal", None, None),
                 dependency("serde_json", "dev", None, None)
             ],
         )),
@@ -418,6 +419,31 @@ fn dependency_policy_rejects_unknown_workspace_packages() {
         policy::dependency_violations(&package("unknownpackage", Vec::new())),
         vec!["unreviewed workspace package unknownpackage"],
     );
+}
+
+#[test]
+fn receipt_dependencies_stay_at_their_reviewed_layer() {
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-adapters",
+            vec![dependency("base64", "normal", None, None)]
+        ))
+        .is_empty()
+    );
+    for (owner, name) in [
+        ("tmt-core", "base64"),
+        ("tmt-cli", "sha2"),
+        ("tmt-cli", "base64"),
+    ] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                owner,
+                vec![dependency(name, "normal", None, None)]
+            ))
+            .len(),
+            1
+        );
+    }
 }
 
 struct FixtureDirectory {

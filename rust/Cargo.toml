@@ -22,6 +22,8 @@ uuid = { version = "=1.26.0", default-features = false, features = ["std"] }
 icu_normalizer = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
 icu_casemap = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
 icu_locale_core = { version = "=2.3.0", default-features = false }
+sha2 = { version = "=0.11.0", default-features = false }
+base64 = { version = "=0.22.1", default-features = false, features = ["alloc"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

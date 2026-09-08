@@ -5,10 +5,14 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         &mut self,
         input: SubmitResponse,
     ) -> Result<FinalResponse, RequestError<R::Error>> {
-        if input.request_id.is_empty()
-            || input.attempt_id.is_empty()
-            || endpoint_valid::<R::Error>(&input.endpoint).is_err()
-        {
+        let invalid_proof = match &input.proof {
+            ResponseProof::Recorded {
+                attempt_id,
+                endpoint,
+            } => attempt_id.is_empty() || endpoint_valid::<R::Error>(endpoint).is_err(),
+            ResponseProof::Compact(_) => false,
+        };
+        if input.request_id.is_empty() || invalid_proof {
             return Err(RequestError::Response(ResponseRejection::InputInvalid));
         }
         validate_exact_text(input.body.as_bytes())
@@ -19,7 +23,12 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             // No housekeeping on a rejected submission: even unrelated rows
             // must remain unchanged. Retained finals are authoritative for retries.
             if let Some(existing) = records.find_response(&input.request_id)? {
-                validate_fence(&existing.attempt_id, &existing.endpoint, &input)?;
+                validate_proof(
+                    &existing.request_id,
+                    &existing.attempt_id,
+                    &existing.endpoint,
+                    &input.proof,
+                )?;
                 if now >= existing.response_expires_at_ms {
                     return Err(RequestError::Response(ResponseRejection::Expired));
                 }
@@ -31,7 +40,12 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             let attempt = records
                 .find_request(&input.request_id)?
                 .ok_or(RequestError::Response(ResponseRejection::RequestNotFound))?;
-            validate_fence(&attempt.attempt_id, &attempt.endpoint, &input)?;
+            validate_proof(
+                &attempt.request_id,
+                &attempt.attempt_id,
+                &attempt.endpoint,
+                &input.proof,
+            )?;
             if attempt.response_submitted_at_ms.is_some()
                 || response_deadline_passed(now, attempt.prepared_at_ms, attempt.expires_at_ms)
             {
@@ -45,8 +59,8 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             }
             let response = FinalResponse {
                 request_id: input.request_id,
-                attempt_id: input.attempt_id,
-                endpoint: input.endpoint,
+                attempt_id: attempt.attempt_id,
+                endpoint: attempt.endpoint,
                 body_bytes: input.body.len() as u64,
                 body: input.body,
                 submitted_at_ms: now,
@@ -77,16 +91,29 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
     }
 }
 
-fn validate_fence<E>(
+fn validate_proof<E>(
+    request_id: &str,
     attempt_id: &str,
     endpoint: &RequestEndpoint,
-    input: &SubmitResponse,
+    proof: &ResponseProof,
 ) -> Result<(), RequestError<E>> {
-    if attempt_id != input.attempt_id {
-        return Err(RequestError::Response(ResponseRejection::AttemptMismatch));
-    }
-    if endpoint != &input.endpoint {
-        return Err(RequestError::Response(ResponseRejection::RecipientMismatch));
+    match proof {
+        ResponseProof::Recorded {
+            attempt_id: supplied_id,
+            endpoint: supplied_endpoint,
+        } => {
+            if attempt_id != supplied_id {
+                return Err(RequestError::Response(ResponseRejection::AttemptMismatch));
+            }
+            if endpoint != supplied_endpoint {
+                return Err(RequestError::Response(ResponseRejection::RecipientMismatch));
+            }
+        }
+        ResponseProof::Compact(token) => {
+            if *token != correlation::response_token(request_id, attempt_id, endpoint) {
+                return Err(RequestError::Response(ResponseRejection::ReceiptMismatch));
+            }
+        }
     }
     Ok(())
 }
