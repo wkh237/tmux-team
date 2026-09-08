@@ -145,6 +145,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["whoami"] => Invocation::Whoami,
         ["unbind"] => Invocation::Unbind,
         ["upgrade"] => Invocation::Upgrade,
+        ["__native-refresh-skills"] => Invocation::NativeRefreshSkills,
         ["__native-install"] => Invocation::NativeInstall {
             archive: required(m, "archive"),
             manifest: required(m, "manifest"),

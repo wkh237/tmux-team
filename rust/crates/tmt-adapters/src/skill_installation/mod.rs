@@ -4,7 +4,11 @@ mod assets;
 mod drift;
 mod files;
 mod providers;
+mod refresh;
 mod registry;
+pub use refresh::{RefreshFailure, RefreshReport, RefreshedSkill, refresh};
+#[cfg(test)]
+mod refresh_tests;
 pub use drift::inspect_local_drift;
 pub use providers::ProviderEnvironment;
 #[cfg(test)]
@@ -152,8 +156,7 @@ fn install_with_publisher(
         for (_, target) in &targets {
             files::safe_target(assets.root(), target)?;
         }
-        let lock = files::lock(&global)?;
-        let operation = (|| {
+        files::with_lock(&global, || {
             registry::read(&global)?;
             let source = assets.materialize()?;
             registry::remember(&global, targets.iter().map(|(_, target)| target.clone()))?;
@@ -202,18 +205,7 @@ fn install_with_publisher(
                 }
             }
             Ok(())
-        })();
-        let released = lock.unlock().map_err(|(guard, error)| {
-            drop(guard);
-            io::Error::other(format!(
-                "Could not release skill installation lock: {error}"
-            ))
-        });
-        match (operation, released) {
-            (Err(primary), Err(cleanup)) => Err(io::Error::other(format!("{primary}; {cleanup}"))),
-            (Err(error), _) | (_, Err(error)) => Err(error),
-            _ => Ok(()),
-        }
+        })
     })();
     match pending {
         Ok(()) => Ok(report),

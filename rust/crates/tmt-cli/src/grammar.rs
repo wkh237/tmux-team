@@ -190,6 +190,7 @@ pub fn grammar() -> Command {
         )
         .subcommand(general("completion", "Generate shell completion").arg(operand("shell", false)))
         .subcommand(general("upgrade", "Upgrade the CLI and refresh skills"))
+        .subcommand(general("__native-refresh-skills", "Internal managed skill refresh").hide(true))
         .subcommand(
             general("__native-install", "Internal offline native installation")
                 .hide(true)
