@@ -37,6 +37,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "sha2",
         ],
         "tmt-cli" => &[
+            "unicode-width",
             "tmt-core",
             "tmt-adapters",
             "clap",

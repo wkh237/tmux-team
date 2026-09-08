@@ -52,8 +52,8 @@ describe('native exchange attention process contract', () => {
       expect(listed.status).toBe(0);
       expect(listed.stderr).toBe('');
       expect(listed.stdout).toBe(
-        'REQUEST\tRECIPIENT\tDELIVERY\tFINAL\tREVISION\n' +
-          'human-exchange\t-\tsent\tnot_submitted\t1\n'
+        'REQUEST         RECIPIENT  DELIVERY  FINAL          REVISION\n' +
+          'human-exchange  -          sent      not_submitted  1\n'
       );
       expect(responseSnapshot(sandbox.database, seeded.requestId)).toEqual(before);
       const acknowledged = await runCli(sandbox, [
@@ -77,7 +77,7 @@ describe('native exchange attention process contract', () => {
       expect(empty.status).toBe(0);
       expect(empty.stdout).toBe('No unacknowledged exchanges.\n');
 
-      const body = '  final result\r\nsecond line  ';
+      const body = '  final\tresult\r\nsecond line \u001b[31mred\u001b[0m  ';
       const submitted = await runCli(sandbox, [
         'reply',
         seeded.requestId,
@@ -102,8 +102,8 @@ describe('native exchange attention process contract', () => {
       const shown = await runCli(sandbox, ['x', 'show', seeded.requestId, '--identity', 'Reader']);
       expect(shown.status).toBe(0);
       expect(shown.stdout).toBe(
-        'REQUEST\tDELIVERY\tFINAL\tREVISION\tACKNOWLEDGED\tSETTLED\n' +
-          'human-exchange\tsent\tretained\t2\tfalse\tfalse\n' +
+        'REQUEST         DELIVERY  FINAL     REVISION  ACKNOWLEDGED  SETTLED\n' +
+          'human-exchange  sent      retained  2         false         false\n' +
           `Prompt (retained):\nprompt for human-exchange\nFinal:\n${body}\n`
       );
       const all = await runCli(sandbox, ['x', 'ackall', '--identity', 'Reader']);

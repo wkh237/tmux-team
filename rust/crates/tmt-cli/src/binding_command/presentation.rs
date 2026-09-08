@@ -1,7 +1,7 @@
 //! Public projections deliberately omit binding markers and process evidence.
 
 use super::Report;
-use crate::output::identity_document;
+use crate::output::{identity_document, table};
 use serde_json::{Value, json};
 use std::io::{self, Write};
 use tmt_core::{binding::IdentityPresence, endpoint::PaneObservation, identity::Identity};
@@ -73,23 +73,21 @@ pub(super) fn document(report: &Report) -> Value {
     }
 }
 
-fn identity_row(
-    output: &mut impl Write,
-    identity: &Identity,
-    status: &str,
-    pane: Option<&PaneObservation>,
-) -> io::Result<()> {
-    writeln!(
-        output,
-        "{}\t{}\t{}\t{}\t{}\t{}\t{}",
-        identity.name,
+const HEADERS: [&str; 7] = [
+    "NAME", "LIFETIME", "STATUS", "PANE", "TARGET", "CWD", "COMMAND",
+];
+
+fn identity_row(identity: &Identity, status: &str, pane: Option<&PaneObservation>) -> [String; 7] {
+    [
+        identity.name.as_str(),
         identity.lifetime.as_str(),
         status,
         pane.map_or("-", |pane| pane.id.as_str()),
         pane.and_then(|pane| pane.target.as_deref()).unwrap_or("-"),
         pane.and_then(|pane| pane.cwd.as_deref()).unwrap_or("-"),
-        pane.map_or("", |pane| pane.command.as_str())
-    )
+        pane.map_or("", |pane| pane.command.as_str()),
+    ]
+    .map(str::to_owned)
 }
 
 pub(super) fn text(output: &mut impl Write, report: &Report) -> io::Result<()> {
@@ -130,27 +128,21 @@ pub(super) fn text(output: &mut impl Write, report: &Report) -> io::Result<()> {
             entry.identity.name
         ),
         Report::Listed(rows) if rows.is_empty() => writeln!(output, "No identities found."),
-        Report::Listed(rows) => {
-            writeln!(output, "NAME\tLIFETIME\tSTATUS\tPANE\tTARGET\tCWD\tCOMMAND")?;
-            for row in rows {
-                identity_row(
-                    output,
-                    &row.identity,
-                    row.presence.as_str(),
-                    row.pane.as_ref(),
-                )?;
-            }
-            Ok(())
-        }
-        Report::Named { row, .. } => {
-            writeln!(output, "NAME\tLIFETIME\tSTATUS\tPANE\tTARGET\tCWD\tCOMMAND")?;
-            identity_row(
-                output,
+        Report::Listed(rows) => table::write(
+            output,
+            HEADERS,
+            rows.iter()
+                .map(|row| identity_row(&row.identity, row.presence.as_str(), row.pane.as_ref())),
+        ),
+        Report::Named { row, .. } => table::write(
+            output,
+            HEADERS,
+            [identity_row(
                 &row.identity,
                 row.presence.as_str(),
                 row.pane.as_ref(),
-            )
-        }
+            )],
+        ),
         Report::Pane { pane, identity, .. } => {
             writeln!(
                 output,
@@ -160,8 +152,11 @@ pub(super) fn text(output: &mut impl Write, report: &Report) -> io::Result<()> {
                 pane.command
             )?;
             if let Some(identity) = identity {
-                writeln!(output, "NAME\tLIFETIME\tSTATUS\tPANE\tTARGET\tCWD\tCOMMAND")?;
-                identity_row(output, identity, "active", Some(pane))
+                table::write(
+                    output,
+                    HEADERS,
+                    [identity_row(identity, "active", Some(pane))],
+                )
             } else {
                 writeln!(output, "Pane has no active global identity.")
             }

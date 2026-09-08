@@ -157,34 +157,13 @@ fn show_text(
             loaded.source(SettingKey::PaneBadge),
         ),
     ];
-    let key_width = rows.iter().map(|row| row.0.len()).max().unwrap_or(3).max(3);
-    let value_width = rows.iter().map(|row| row.1.len()).max().unwrap_or(5).max(5);
-    let source_width = rows
-        .iter()
-        .map(|row| row.2.len() + 2)
-        .max()
-        .unwrap_or(6)
-        .max(6);
     writeln!(output, "ℹ Current configuration:\n")?;
-    writeln!(
+    crate::output::table::write(
         output,
-        "  {:key_width$} {:value_width$} {:source_width$}",
-        "Key", "Value", "Source"
+        ["Key", "Value", "Source"],
+        rows.into_iter()
+            .map(|(key, value, source)| [key.to_owned(), value, format!("({source})")]),
     )?;
-    writeln!(
-        output,
-        "  {} {} {}",
-        "─".repeat(key_width),
-        "─".repeat(value_width),
-        "─".repeat(source_width)
-    )?;
-    for (key, value, source) in rows {
-        writeln!(
-            output,
-            "  {key:key_width$} {value:value_width$} {:source_width$}",
-            format!("({source})")
-        )?;
-    }
     writeln!(output, "ℹ \nPaths:")?;
     writeln!(output, "ℹ   Global: {}", paths.global_config.display())?;
     writeln!(output, "ℹ   Local:  {}", paths.local_config.display())
