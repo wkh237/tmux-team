@@ -17,16 +17,17 @@ fn document(report: &RefreshReport) -> Value {
 }
 
 pub fn execute(mode: OutputMode) -> io::Result<u8> {
-    let paths = match ConfigPaths::discover() {
-        Ok(paths) => paths,
-        Err(error) => return Failure::from(error).publish(mode),
-    };
-    let (report, failure) = match skill_installation::refresh(&paths.global_dir) {
-        Ok(report) => (report, None),
-        Err(error) => {
-            let failure = Failure::new("SKILL_REFRESH_FAILED", error.to_string(), 1);
-            (error.report, Some(failure))
-        }
+    let (report, failure) = match ConfigPaths::discover() {
+        Err(error) => (RefreshReport::default(), Some(Failure::from(error))),
+        Ok(paths) => match skill_installation::refresh(&paths.global_dir) {
+            Ok(report) => (report, None),
+            Err(mut error) => {
+                let report = std::mem::take(&mut error.report);
+                let failure =
+                    Failure::new("SKILL_REFRESH_FAILED", error.to_string(), 1).caused_by(error);
+                (report, Some(failure))
+            }
+        },
     };
     if mode.json {
         let mut value = document(&report);
