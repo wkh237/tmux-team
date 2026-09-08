@@ -2,7 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const defaultWrapper = fileURLToPath(new URL('../../bin/tmux-team', import.meta.url));
+const defaultNativeExecutable = fileURLToPath(
+  new URL('../../rust/target/debug/tmt', import.meta.url)
+);
 
 // Test infrastructure only. Production commands never inspect these selectors.
 export function resolveCliExecutables(env = process.env) {
@@ -19,7 +21,7 @@ function resolveDescriptor(serialized, label) {
   try {
     value =
       serialized === undefined
-        ? { executable: process.execPath, args: [defaultWrapper] }
+        ? { executable: defaultNativeExecutable, args: [] }
         : JSON.parse(serialized);
   } catch {
     throw new Error(`${label} must be a JSON executable descriptor.`);
@@ -43,9 +45,16 @@ function resolveDescriptor(serialized, label) {
     if (!fs.statSync(value.executable).isFile()) throw new Error('not a regular file');
     fs.accessSync(value.executable, fs.constants.X_OK);
   } catch (error) {
-    throw new Error(`${label} executable is unavailable or not executable: ${value.executable}`, {
-      cause: error,
-    });
+    const hint =
+      serialized === undefined
+        ? ' Build it with cargo build --manifest-path rust/Cargo.toml --locked, or set an explicit test executable descriptor.'
+        : '';
+    throw new Error(
+      `${label} executable is unavailable or not executable: ${value.executable}.${hint}`,
+      {
+        cause: error,
+      }
+    );
   }
   return Object.freeze({ executable: value.executable, args: Object.freeze([...value.args]) });
 }

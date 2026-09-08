@@ -55,6 +55,12 @@ Read the repository guidance before planning work:
 
 ## Architecture maintenance
 
+Rust is the sole product runtime; Node modules under scripts and test directories
+are developer tooling. Keep native process, Docker and tooling checks distinct,
+and never substitute obsolete TypeScript coverage percentages for native
+verification. A raw-binary platform smoke does not replace the release archive,
+bootstrap or upgrade gates. Keep their shared runtime proof in one owner.
+
 For installed-agent guidance changes, follow DEVELOPMENT's installed guidance
 source ownership: edit the single canonical skill, verify native provider links
 and local drift detection, and review semantic changes and provider invocation

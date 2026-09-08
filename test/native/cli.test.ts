@@ -5,9 +5,8 @@ import { describe, expect, it } from 'vitest';
 import { expectError, fileSnapshot, runCli, withSandbox } from '../support/cli-process.js';
 import { calibrateTmuxTripwire } from './tmux-tripwire.js';
 
-// This suite is deliberately native-specific. Requiring the shared
-// descriptor prevents an omitted build from silently exercising TypeScript.
-if (!process.env.TMT_TEST_CLI) throw new Error('Select the native build with TMT_TEST_CLI.');
+// The shared selector validates the repository native build before allocating
+// each sandbox. Explicit descriptors remain available for moved executables.
 
 describe('native grammar process contract', () => {
   it('generates valid shells without offering rejected or unrelated options', async () => {

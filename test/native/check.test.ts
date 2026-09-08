@@ -4,8 +4,6 @@ import { describe, expect, it } from 'vitest';
 import { expectError, fileSnapshot, runCli, withSandbox } from '../support/cli-process.js';
 import { calibrateTmuxTripwire } from './tmux-tripwire.js';
 
-if (!process.env.TMT_TEST_CLI) throw new Error('Select the native build with TMT_TEST_CLI.');
-
 describe('native check process preflight', () => {
   it('validates configuration before any tmux call or storage creation', async () => {
     for (const local of [false, true]) {

@@ -21,8 +21,6 @@ import {
   type Sandbox,
 } from '../support/cli-process.js';
 
-if (!process.env.TMT_TEST_CLI) throw new Error('Select the native build with TMT_TEST_CLI.');
-
 const REQUIRED_FILES = ['tmt', 'LICENSE', 'NATIVE-INSTALL.md', 'THIRD-PARTY-NOTICES.txt'];
 // Debug payload hashing/decompression and fsync are installation work, not the
 // ordinary command-startup budget. Keep a separate finite process deadline.

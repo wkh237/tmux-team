@@ -26,8 +26,6 @@ import {
   type ResponseEndpoint,
 } from './response-fixture.js';
 
-if (!process.env.TMT_TEST_CLI) throw new Error('Select the native build with TMT_TEST_CLI.');
-
 describe('native response authorization and retention boundaries', () => {
   it.each(['v1', 'v2'] as const)(
     'rejects every %s request/attempt/endpoint mismatch without mutation',

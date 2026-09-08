@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { imports } from '../support/source-imports.js';
 
-const sourceRoot = fileURLToPath(new URL('../../src/', import.meta.url));
+const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url));
+const sourceRoot = path.join(repositoryRoot, 'src');
 
 function retainedTestFiles(directory: string): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -24,6 +25,21 @@ function legacyTestImports(file: string, text: string): string[] {
 }
 
 describe('retained developer tooling boundaries', () => {
+  it('has one native product runtime and a private developer-only Node package', () => {
+    const packageMetadata = JSON.parse(
+      fs.readFileSync(path.join(repositoryRoot, 'package.json'), 'utf8')
+    );
+    expect(packageMetadata.private).toBe(true);
+    expect(packageMetadata.bin).toBeUndefined();
+    expect(packageMetadata.files).toBeUndefined();
+    expect(packageMetadata.dependencies).toBeUndefined();
+    expect(fs.existsSync(sourceRoot)).toBe(false);
+    expect(fs.existsSync(path.join(repositoryRoot, 'bin', 'tmux-team'))).toBe(false);
+    expect(
+      fs.existsSync(path.join(repositoryRoot, 'rust', 'crates', 'tmt-cli', 'src', 'main.rs'))
+    ).toBe(true);
+  });
+
   it('rejects legacy runtime imports from retained native test infrastructure', () => {
     const file = path.join(sourceRoot, '../test/native/example.ts');
     for (const form of [
@@ -45,6 +61,7 @@ describe('retained developer tooling boundaries', () => {
     const directories = ['native', 'e2e', 'support', 'tooling'].map((name) =>
       path.join(sourceRoot, '../test', name)
     );
+    directories.push(path.join(sourceRoot, '../scripts'));
     const files = directories.flatMap(retainedTestFiles);
     expect(files.some((file) => file.endsWith('/storage-fixture.ts'))).toBe(true);
     expect(files.some((file) => file.endsWith('/cli-process.ts'))).toBe(true);

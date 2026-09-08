@@ -22,6 +22,8 @@ WORKDIR /verification
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --ignore-scripts
 COPY scripts/native-artifact-policy.mjs scripts/verify-native-artifact.mjs scripts/verify-native-installation.mjs scripts/packed-command.mjs scripts/
+COPY scripts/native-runtime-proof.mjs scripts/
+COPY test/support/performance-contract.mjs test/support/performance-contract.mjs
 COPY scripts/native-bootstrap.mjs scripts/native-bootstrap.sh scripts/generate-native-bootstrap.mjs scripts/verify-native-bootstrap.mjs scripts/
 COPY skills/tmux-team/SKILL.md expected-skill.md
 COPY --from=build /workspace/native-manifest.json ./

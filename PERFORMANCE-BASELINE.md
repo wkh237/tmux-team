@@ -2,8 +2,8 @@
 
 ## Native closeout comparison (#151)
 
-The native alpha is published. Before removing the TypeScript reference, this
-comparison measures both runtimes from source `e3c8bd7e9a2fdaab0ccfe59a03be7967a7719fcb`
+The native alpha is published. Collected before TypeScript source retirement,
+this comparison measures both runtimes from source `e3c8bd7e9a2fdaab0ccfe59a03be7967a7719fcb`
 on the same host with unchanged command defaults. All raw observations, source
 trees, build identity and failed-calibration dispositions are retained in
 [paired evidence](benchmarks/native-paired-performance.json). The historical

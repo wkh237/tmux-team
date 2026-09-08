@@ -27,10 +27,13 @@ WORKDIR /workspace
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY . .
-COPY --from=native-tests /native-artifacts/ /opt/tmt-tests/
+COPY --from=native-tests /native-artifacts/tmux-probe /opt/tmt-tests/tmux-probe
+COPY --from=native-tests /native-artifacts/adapter-tests /opt/tmt-tests/adapter-tests
+# Exercise the same unset-selector path as a native developer checkout.
+# The selected dev/release profile changes bytes, not this fixture location.
+COPY --from=native-tests /native-artifacts/tmt /workspace/rust/target/debug/tmt
 ENV TMT_TEST_TMUX_PROBE='{"executable":"/opt/tmt-tests/tmux-probe","args":[]}'
-ENV TMT_TEST_NATIVE_CLI='{"executable":"/opt/tmt-tests/tmt","args":[]}'
-ENV TMT_TEST_CLI='{"executable":"/opt/tmt-tests/tmt","args":[]}'
+ENV TMT_TEST_NATIVE_CLI='{"executable":"/workspace/rust/target/debug/tmt","args":[]}'
 
 # Run process lifecycle tests under the wrapper's --init, not a build-stage
 # shell that may retain orphan zombies. Both suites share network isolation.

@@ -18,8 +18,9 @@ The native runtime requires macOS or Linux and tmux for pane operations, but no
 Node.js, Rust toolchain or source checkout. Native `tmt upgrade` (also
 available as `tmt update`) follows its retained stable/alpha channel; use
 `--to <version>` to pin or `--unpin` to resume channel updates. Package-manager
-installations are a separate legacy TypeScript runtime and must use their
-original manager.
+installations from older releases are a separate legacy TypeScript runtime.
+Use their original manager to remove them before switching; current repository
+source is not an npm product installation. See the replacement guidance below.
 
 After installation, load or reload the `tmux-team` skill in every agent that
 will send or receive TMT work. Installation places the provider integration;

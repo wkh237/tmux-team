@@ -15,7 +15,7 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
 - Before any branch mutation, verify the relevant remote refs and ancestry. Never force-push or repoint a long-lived line.
 - A v4 maintenance fix requires a tracked issue, a dedicated branch and worktree, and a reviewable pull request. Keep the fix on the v4 line unless an explicitly scoped backport is requested.
 - Use the checks available on the v4 line for maintenance pull requests; do not require contexts that the target branch cannot produce. Record any coverage gap in the issue.
-- Synchronize `package.json`, the `src/version.ts` fallback, and its test whenever a release version changes. The native skill ships with the CLI; there is no separately versioned plugin or marketplace.
+- The native version is owned by `rust/Cargo.toml` and exposed through Cargo's package version; there is no TypeScript fallback. Keep any retained developer package version and public release instructions consistent when changing versions. The native skill ships with the CLI; there is no separately versioned plugin or marketplace.
 - Follow `AGENTS.md` for GitHub issue state, branch and pull-request links, verification evidence, and safe worktree cleanup.
 
 ## Promotion and prerelease checks
@@ -23,12 +23,12 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
 - For Rust archives, follow DEVELOPMENT's native Rust release archive procedure.
   Keep cargo-dist's manifest as the artifact metadata owner; independently verify
   bounded extraction, notices, linkage, skill installation and persisted state.
-  The npm packed matrix does not establish Rust target support. Do not enable a
+  Raw PR runtime checks do not establish release archive correctness. Do not enable a
   generated installer or publication workflow merely to obtain local archives.
-- Follow DEVELOPMENT's packed native-install verification for artifact changes.
-  Verify the installed application's schema and behavior, not only driver loading
-  or manifest equality. Keep broken-artifact failure and cleanup evidence; do not
-  seed schema through checkout test helpers or ship test-only sources.
+- Follow DEVELOPMENT's native runtime and archive verification for artifact changes.
+  Reuse the shared runtime proof for linkage, exact embedded skills and SQLite
+  reopen behavior. Keep the independent archive inventory/checksum/notices and
+  installer failure/cleanup evidence; raw binaries are not release artifacts.
 - For native binary publication changes, also follow DEVELOPMENT's offline
   installer lifecycle procedure using actual separately versioned archives.
   Keep ownership anchored in the installation prefix, not application-state
@@ -52,4 +52,6 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
   not permission to delete old state or silently uninstall another manager.
 - Tags, GitHub Releases, npm publishing, and npm dist-tags are separate operations that require explicit authorization; this skill never assumes permission for them.
 - Update user-facing installation or channel documentation whenever a version change would make it inaccurate.
-- A future prerelease publish must use a non-`latest` npm dist-tag. Before declaring it available, inspect the registry dist-tags and install the exact published version in a clean temporary environment.
+- The v5 root npm package is private developer tooling, not a product distribution.
+  Do not restore npm publishing or a download wrapper without a separately scoped
+  distribution decision. Historical v4 publishing uses that branch's own rules.
