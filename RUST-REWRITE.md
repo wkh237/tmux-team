@@ -4,6 +4,8 @@ Status: native grammar (#96), storage lifecycle (#97) with native identity schem
 and bounded tmux evidence (#105), shared identity records (#111), and
 storage-only identity commands (#113), and pane identity lifecycle (#109)
 are implemented in the development preview, not a shipped Rust runtime.
+#118 adds the internal transactional request/final foundation; public native
+talk/reply/result and the #106 short-receipt transition remain unimplemented.
 Owner: [#93](https://github.com/wkh237/tmux-team/issues/93);
 preparation: [#94](https://github.com/wkh237/tmux-team/issues/94).
 The compatibility reference is TypeScript main `cb53533f3a9f19a1a2ab95af59dda20df419200b`
@@ -205,6 +207,25 @@ zerovec-derive's RUSTSEC-2024-0346 are patched before the selected 0.11.8/0.11.6
 The other added package names had no entries in that dated snapshot. Baked
 data manifests record ICU release-78.1rc/CLDR 48.2.1; no data download occurs
 at CLI startup. Repeat the graph/advisory review on dependency updates.
+
+### Native request foundation
+
+#118 ports request preparation, begin-send/settlement, waiter release, final
+submission and retained context/result reads into one `core::request` service.
+Its narrow transaction-scoped records port composes the existing private SQLite
+connection and immediate transaction helper. No new migration or dependency is
+needed. Retention moves out of settings into a shared pure owner consumed by
+both settings and request policy, avoiding two independently evolving defaults.
+Historical migration saturation is not replaced by runtime checked arithmetic.
+
+The foundation preserves exact bodies, full endpoint fences, independently
+frozen horizons, bounded cleanup, cadence refunds and attention revisions.
+Final insertion/marker/revision are one transaction; retries can use a retained
+final without attempt metadata. No current identity lookup authorizes a reply.
+Real SQLite tests cover retirement/name reuse and late submission, but this is
+not old receipt execution or public CLI transport acceptance. #106 consumes this
+same owner for compact correlation; it must not add a token-specific final store.
+Native command adapters and transport remain explicit follow-on slices under #93.
 
 ### Execution and resource ownership
 

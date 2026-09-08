@@ -1051,6 +1051,46 @@ storage/path failures use bounded IDENTITY_ERROR/1. RAII remains the fallback,
 not the ordinary close path. No general service container, second error writer
 or new resource framework is introduced by this slice.
 
+#### Native transactional requests
+
+Under #118, `core::request::RequestService` owns preparation, delivery-state
+transitions, waiter release, exact final submission, context/result reads and
+bounded housekeeping. `RequestRecords` is available only inside the existing
+Storage immediate transaction. The clock is sampled after acquiring that lock;
+the concrete caller supplies attempt IDs and frozen settings before entry.
+There is no service-owned connection, tmux lookup, file input or configuration
+loader. This foundation does not enable public native talk/reply/result yet.
+
+`core::retention` is the shared settings/runtime owner for day limits and checked
+JavaScript-safe deadlines. Historical migration arithmetic remains frozen.
+`core::exact_text` validates UTF-8 bytes without normalization; request and final
+bodies share the 1 MiB bound but retain feature-specific errors. Rust strings
+already exclude lone surrogates; byte-oriented input must reject malformed UTF-8.
+
+Preparation reserves cadence and known-originator attention with its original
+prompt and immutable endpoint. Begin-send and settlement remain separate commits.
+Expired prepared attempts commit waiter release/refund before reporting failure;
+expired sending attempts become uncertain without refund. Same terminal settlement
+and waiter release are idempotent. No request transaction spans transport or polling.
+
+Final submission checks an existing retained final first, allowing exact retries
+after attempt metadata removal. Otherwise it validates the request/attempt/full
+recorded endpoint, eligibility and completion marker before writing a final,
+marker, horizon and attention revision atomically. It never consults current
+identity/pane presence; retirement/name reuse does not redirect historical replies.
+Rejected submissions perform no housekeeping or other mutation. Reads can perform
+bounded cleanup but never acknowledge attention. Prompt, body and metadata expiry
+remain independent; only first submission/explicit settlement can extend metadata.
+
+`storage::requests` composes the private connection and shared transaction helper;
+record decoding and SQL stay in the adapter. Ordered bounded cleanup retains the
+existing horizon-index protection and settlement floor. Attention counter writes
+preserve acknowledgment watermarks; revision arithmetic belongs to core. No schema,
+receipt table or alternate persistence owner is introduced. #106 retains short-token
+encoding and old-v1 receipt execution, and #93 retains public transport integration.
+
+#### Native storage and runtime adapters
+
 Native migration 9 adds `lifetime` (default `saved` for existing identities) and
 nullable `retired_at_ms` to that same identity table. A partial unique index
 reserves canonical names only for non-retired rows; old UUID/name metadata can

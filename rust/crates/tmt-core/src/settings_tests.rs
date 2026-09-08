@@ -1,7 +1,8 @@
 use super::limits::{MAX_CAPTURE_LINES, MAX_JS_SAFE_INTEGER, MAX_TIMER_DELAY_MS};
+use super::retention::DEFAULT_RETENTION_DAYS;
 use super::settings::{
-    DEFAULT_RETENTION_DAYS, EDITABLE_KEYS, LocalClear, PaneBadge, PreambleMode, ResolvedSettings,
-    Scalar, Scope, Setting, SettingKey, Settings,
+    EDITABLE_KEYS, LocalClear, PaneBadge, PreambleMode, ResolvedSettings, Scalar, Scope, Setting,
+    SettingKey, Settings,
 };
 
 #[test]

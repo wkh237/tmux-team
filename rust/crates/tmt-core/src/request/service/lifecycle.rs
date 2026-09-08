@@ -1,0 +1,118 @@
+use super::*;
+
+impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
+    pub fn begin_send(&mut self, attempt_id: &str) -> Result<(), RequestError<R::Error>> {
+        nonempty(attempt_id)?;
+        let clock = &self.clock;
+        let expired = self.repository.with_request_transaction(|records| {
+            let now = positive(clock())?;
+            let attempt = records
+                .find_attempt(attempt_id)?
+                .ok_or(RequestError::NotFound)?;
+            if now >= attempt.retention_expires_at_ms {
+                return Err(RequestError::Expired);
+            }
+            if attempt.status != AttemptStatus::Prepared {
+                return Err(RequestError::StateInvalid);
+            }
+            if now >= attempt.expires_at_ms {
+                if attempt.wait_active {
+                    records.release_wait(attempt_id, now)?;
+                }
+                if !fail_unsent(records, &attempt, now, None)? {
+                    return Err(RequestError::StateInvalid);
+                }
+                // Commit refund/release before reporting expiry to the caller.
+                return Ok(true);
+            }
+            if !records.update_state(
+                &attempt,
+                AttemptStatus::Sending,
+                attempt.cadence_reserved,
+                now,
+                None,
+            )? {
+                return Err(RequestError::StateInvalid);
+            }
+            Ok(false)
+        })?;
+        if expired {
+            return Err(RequestError::Expired);
+        }
+        Ok(())
+    }
+
+    pub fn settle(
+        &mut self,
+        attempt_id: &str,
+        outcome: Settlement,
+    ) -> Result<(), RequestError<R::Error>> {
+        nonempty(attempt_id)?;
+        let clock = &self.clock;
+        self.repository.with_request_transaction(|records| {
+            let now = positive(clock())?;
+            let attempt = records
+                .find_attempt(attempt_id)?
+                .ok_or(RequestError::NotFound)?;
+            if now >= attempt.retention_expires_at_ms
+                && matches!(
+                    attempt.status,
+                    AttemptStatus::Prepared | AttemptStatus::Sending
+                )
+            {
+                return Err(RequestError::Expired);
+            }
+            let cannot_prove_unsent = (attempt.status == AttemptStatus::Sending
+                && now >= attempt.expires_at_ms)
+                || (attempt.response_submitted_at_ms.is_some()
+                    && matches!(
+                        attempt.status,
+                        AttemptStatus::Sending | AttemptStatus::Uncertain
+                    ));
+            let effective = match outcome {
+                Settlement::Sent => AttemptStatus::Sent,
+                Settlement::Uncertain => AttemptStatus::Uncertain,
+                Settlement::DefinitelyFailed if cannot_prove_unsent => AttemptStatus::Uncertain,
+                Settlement::DefinitelyFailed => AttemptStatus::DefinitelyFailed,
+            };
+            if matches!(
+                attempt.status,
+                AttemptStatus::Sent | AttemptStatus::Uncertain | AttemptStatus::DefinitelyFailed
+            ) {
+                return if attempt.status == effective {
+                    Ok(())
+                } else {
+                    Err(RequestError::StateInvalid)
+                };
+            }
+            if effective != AttemptStatus::DefinitelyFailed
+                && attempt.status != AttemptStatus::Sending
+            {
+                return Err(RequestError::StateInvalid);
+            }
+            let horizon = Some(
+                attempt
+                    .retention_expires_at_ms
+                    .max(deadline(now, METADATA_SETTLEMENT_FLOOR_MS)?),
+            );
+            let changed = if effective == AttemptStatus::DefinitelyFailed {
+                fail_unsent(records, &attempt, now, horizon)?
+            } else {
+                records.update_state(&attempt, effective, attempt.cadence_reserved, now, horizon)?
+            };
+            if !changed {
+                return Err(RequestError::StateInvalid);
+            }
+            Ok(())
+        })
+    }
+
+    pub fn release_wait(&mut self, attempt_id: &str) -> Result<(), RequestError<R::Error>> {
+        nonempty(attempt_id)?;
+        let clock = &self.clock;
+        self.repository.with_request_transaction(|records| {
+            records.release_wait(attempt_id, positive(clock())?)?;
+            Ok(())
+        })
+    }
+}
