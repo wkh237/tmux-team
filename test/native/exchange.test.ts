@@ -7,7 +7,7 @@ import {
   runCli,
   withSandbox,
   type Sandbox,
-} from '../../src/test-support/cli-process.js';
+} from '../support/cli-process.js';
 import { seedResponse, responseSnapshot } from './response-fixture.js';
 import { calibrateTmuxTripwire } from './tmux-tripwire.js';
 

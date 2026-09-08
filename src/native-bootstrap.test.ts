@@ -13,7 +13,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import * as tar from 'tar';
-import { runCli, withSandbox, type Sandbox } from './test-support/cli-process.js';
+import { runCli, withSandbox, type Sandbox } from '../test/support/cli-process.js';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { generateNativeBootstrap } = (await import(

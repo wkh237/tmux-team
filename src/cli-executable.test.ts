@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { resolveCliExecutables } from './test-support/cli-executable.mjs';
-import { createCliProbe } from './test-support/cli-probe.js';
-import { createSandbox, parseWholeStdout, runCli } from './test-support/cli-process.js';
+import { resolveCliExecutables } from '../test/support/cli-executable.mjs';
+import { createCliProbe } from '../test/support/cli-probe.js';
+import { createSandbox, parseWholeStdout, runCli } from '../test/support/cli-process.js';
 
 const temporaryRoots: string[] = [];
 

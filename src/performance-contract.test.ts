@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assertBenchmarkHelp } from './test-support/performance-contract.mjs';
+import { assertBenchmarkHelp } from '../test/support/performance-contract.mjs';
 
 const commands = ['talk', 'reply', 'result', 'identity', 'config'];
 const inventory = commands.map((command) => `  ${command} <arguments>  Description`).join('\n');

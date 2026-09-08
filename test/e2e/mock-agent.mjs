@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import readline from 'node:readline';
-import { resolveCliExecutables } from '../../src/test-support/cli-executable.mjs';
+import { resolveCliExecutables } from '../support/cli-executable.mjs';
 
 const mode = process.env.TMT_MOCK_MODE ?? 'respond';
 const delayMs = Number(process.env.TMT_MOCK_DELAY_MS ?? 0);

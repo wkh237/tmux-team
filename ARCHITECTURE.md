@@ -22,7 +22,7 @@ Source cleanup and measured performance acceptance remain tracked in #93.
 Paired performance acceptance (#151) retains the TypeScript reference until
 measurements are captured. Both startup and private-tmux benchmarks reuse the
 test-only executable selector and a shared independent help-command oracle in
-`src/test-support/performance-contract.mjs`; they do not import runtime grammar.
+`test/support/performance-contract.mjs`; they do not import runtime grammar.
 The E2E Dockerfile can select an optimized CLI with `TMT_NATIVE_PROFILE=release`
 without changing the default regression profile or creating another harness.
 Timing never replaces exact output, independent state, mock-submission and
@@ -912,7 +912,7 @@ The test mock independently recognizes the documented request instruction frame
 and invokes the public reply CLI, rather than importing a production response
 store or completing requests through a test-only endpoint.
 
-`src/test-support/cli-executable.mjs` owns the test-only executable descriptor:
+`test/support/cli-executable.mjs` owns the test-only executable descriptor:
 an absolute executable plus an argv prefix. CLI-contract sandboxes and E2E
 fixtures validate/freeze the selection before allocating resources; the fixture
 propagates it to real tmux descendants and a separately selectable mock reply
@@ -924,6 +924,18 @@ process-group, timeout, stream and cleanup rules. No production code reads these
 test settings, and the entire test-support directory remains excluded from npm.
 See DEVELOPMENT for selector usage and the distinction between selectable CLI
 contracts and TypeScript-only workers/pack probes.
+
+Retained native, Docker and process test infrastructure lives under `test/`, not
+the transitional TypeScript product tree. The AST boundary check in
+`src/architecture.test.ts` rejects imports from these retained modules into `src/`.
+The only TypeScript database initializer is
+`src/test-support/legacy-storage-fixture.ts`, for TypeScript-only contract tests.
+Historical migration tests instead copy immutable databases from
+`test/fixtures/storage-history/`: schema 0-8 inputs and independently produced
+TypeScript schema 8 reference results. Their provenance and integrity manifest
+must remain auditable; never regenerate the expected results with the native
+implementation under test. The read-only SQL snapshot oracle still owns full
+structural/data comparisons, while schema 9 behavior has explicit assertions.
 
 Identity, request and response concurrency suites share the bounded process
 harness in `src/test-support/request-workers.ts`. Each scenario owns its handles

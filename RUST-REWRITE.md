@@ -422,6 +422,14 @@ No existing test proves Rust parity or mixed-runtime operation. Explicitly add:
 
 ## Test architecture transition
 
+Current closeout: #149 published native `v5.0.0-alpha.2` with immutable public
+installation assets; #151/PR #154 validated paired startup performance. #152 moves
+retained harness owners to `test/support/` and freezes historical SQLite fixtures
+outside `src/`. #153 owns missing shared native scenarios and the explicit default
+switch. Production TypeScript removal and replacement of transitional npm artifact
+gates still follow that evidence. Earlier delivery-gate notes below describe their
+original sequencing, not a claim that the published native installer is unfinished.
+
 Keep Vitest, Docker, private tmux sockets and deterministic mock agents.
 [#95](https://github.com/wkh237/tmux-team/issues/95) adds the shared test-only
 executable descriptor (absolute binary plus argv prefix), validated before fixture

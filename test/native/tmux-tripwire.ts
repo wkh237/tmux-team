@@ -1,7 +1,7 @@
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect } from 'vitest';
-import { runCli, type Sandbox } from '../../src/test-support/cli-process.js';
+import { runCli, type Sandbox } from '../support/cli-process.js';
 
 /** A task-owned executable that fails visibly instead of touching host tmux. */
 export function installTmuxTripwire(sandbox: Sandbox): string {

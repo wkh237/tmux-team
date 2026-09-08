@@ -2,8 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { resolveCliExecutables } from '../../src/test-support/cli-executable.mjs';
-import { createCliProbe } from '../../src/test-support/cli-probe.js';
+import { resolveCliExecutables } from '../support/cli-executable.mjs';
+import { createCliProbe } from '../support/cli-probe.js';
 import { E2EFixture, withE2EFixture } from './harness.js';
 import { spawnRealTmuxCli, releaseRealTmuxCli, readRealTmuxCli } from './real-tmux-caller.js';
 

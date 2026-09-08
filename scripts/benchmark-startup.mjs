@@ -4,8 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { runPackedCommand } from './packed-command.mjs';
-import { resolveCliExecutables } from '../src/test-support/cli-executable.mjs';
-import { assertBenchmarkHelp } from '../src/test-support/performance-contract.mjs';
+import { resolveCliExecutables } from '../test/support/cli-executable.mjs';
+import { assertBenchmarkHelp } from '../test/support/performance-contract.mjs';
 
 // Resource measurement is deliberately macOS-only. Docker scenarios own tmux
 // latency; do not compare these resource samples to Linux timing samples.

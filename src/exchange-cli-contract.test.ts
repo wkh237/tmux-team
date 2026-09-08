@@ -10,7 +10,7 @@ import {
   runCli,
   withSandbox,
   type Sandbox,
-} from './test-support/cli-process.js';
+} from '../test/support/cli-process.js';
 
 const endpoint = {
   serverId: 'exchange-contract-server',

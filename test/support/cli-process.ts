@@ -3,8 +3,6 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:
 import os from 'node:os';
 import path from 'node:path';
 import { expect } from 'vitest';
-import { CURRENT_MIGRATIONS } from '../storage/migrations.js';
-import { openStorageWithMigrations } from '../storage/sqlite-adapter.js';
 import { resolveCliExecutables, type CliExecutable } from './cli-executable.mjs';
 
 export interface Sandbox {
@@ -206,14 +204,5 @@ export async function withSandbox<T>(callback: (sandbox: Sandbox) => T | Promise
     return await callback(sandbox);
   } finally {
     rmSync(sandbox.root, { recursive: true, force: true });
-  }
-}
-
-export function initializeDatabase(sandbox: Sandbox): void {
-  let storage: ReturnType<typeof openStorageWithMigrations> | undefined;
-  try {
-    storage = openStorageWithMigrations(sandbox.database, CURRENT_MIGRATIONS);
-  } finally {
-    storage?.close();
   }
 }

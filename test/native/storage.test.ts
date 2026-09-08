@@ -1,21 +1,21 @@
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
-import { openStorage } from '../../src/storage/sqlite-adapter.js';
-import { resolveCliExecutables } from '../../src/test-support/cli-executable.mjs';
+import { resolveCliExecutables } from '../support/cli-executable.mjs';
 import {
   expectError,
   parseWholeStdout,
   runCli,
   withSandbox,
   type Sandbox,
-} from '../../src/test-support/cli-process.js';
+} from '../support/cli-process.js';
 import {
   FIXTURE_ATTEMPT_COUNT,
   FIXTURE_FINAL_BODY,
   FIXTURE_FINAL_REQUEST_ID,
   FIXTURE_IDENTITY_ID,
   seedStoragePrefix,
+  seedStorageReference,
   storageSnapshot,
 } from './storage-fixture.js';
 
@@ -29,27 +29,6 @@ const { cli: probe } = resolveCliExecutables({
 
 function runStorage(sandbox: Sandbox, file = sandbox.database) {
   return runCli({ ...sandbox, cli: probe }, [file], { deadlineMs: 10_000 });
-}
-
-function upgradeWithTypeScript(file: string): void {
-  const storage = openStorage(file);
-  try {
-    expect(storage.health().schemaVersion).toBe(8);
-  } finally {
-    storage.close();
-  }
-}
-
-function rejectSchema9WithTypeScript(file: string): void {
-  let error: unknown;
-  let opened: ReturnType<typeof openStorage> | undefined;
-  try {
-    opened = openStorage(file);
-  } catch (thrown) {
-    error = thrown;
-  }
-  opened?.close();
-  expect(error).toMatchObject({ code: 'incompatible-schema' });
 }
 
 function migrationTimestamps(file: string): string[] {
@@ -138,10 +117,9 @@ describe('native SQLite lifecycle compatibility', () => {
     async (version) => {
       await withSandbox(async (sandbox) => {
         const reference = path.join(sandbox.root, 'reference', 'state.db');
-        seedStoragePrefix(reference, version);
+        seedStorageReference(reference, version);
         seedStoragePrefix(sandbox.database, version);
         const originalTimestamps = migrationTimestamps(sandbox.database);
-        upgradeWithTypeScript(reference);
 
         const result = await runStorage(sandbox);
         expect(result.status).toBe(0);
@@ -192,10 +170,6 @@ describe('native SQLite lifecycle compatibility', () => {
         for (const timestamp of timestamps) {
           expect(timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
         }
-        // Forward native compatibility has intentionally not been added to TypeScript.
-        const beforeTypeScriptOpen = storageSnapshot(sandbox.database);
-        rejectSchema9WithTypeScript(sandbox.database);
-        expect(storageSnapshot(sandbox.database)).toEqual(beforeTypeScriptOpen);
         expect((await runStorage(sandbox)).status).toBe(0);
         expect(storageSnapshot(sandbox.database)).toEqual(migrated);
         expect(migrationTimestamps(sandbox.database)).toEqual(timestamps);
@@ -203,23 +177,11 @@ describe('native SQLite lifecycle compatibility', () => {
     }
   );
 
-  it('rejects a native schema 9 database from TypeScript without mutation', async () => {
-    await withSandbox(async (sandbox) => {
-      expect((await runStorage(sandbox)).status).toBe(0);
-      const before = storageSnapshot(sandbox.database);
-      rejectSchema9WithTypeScript(sandbox.database);
-      expect(storageSnapshot(sandbox.database)).toEqual(before);
-      expect((await runStorage(sandbox)).status).toBe(0);
-      expect(storageSnapshot(sandbox.database)).toEqual(before);
-    });
-  });
-
   it('converges concurrent native processes on an existing historical WAL database', async () => {
     await withSandbox(async (sandbox) => {
       const reference = path.join(sandbox.root, 'reference', 'state.db');
-      seedStoragePrefix(reference, 8);
+      seedStorageReference(reference, 8);
       seedStoragePrefix(sandbox.database, 8);
-      upgradeWithTypeScript(reference);
       // Wait for every bounded child before the sandbox can be removed, even
       // when an individual launch fails. No child may escape failed assertions.
       const results = await Promise.allSettled(
@@ -337,7 +299,6 @@ describe('native SQLite lifecycle compatibility', () => {
       } finally {
         database.close();
       }
-      rejectSchema9WithTypeScript(sandbox.database);
     });
   });
 
@@ -649,14 +610,13 @@ describe('native SQLite lifecycle compatibility', () => {
         repair.close();
       }
       expect((await runStorage(sandbox)).status).toBe(0);
-      rejectSchema9WithTypeScript(sandbox.database);
     });
   });
 
   it('reports bounded writer contention and leaves storage usable after lock release', async () => {
     await withSandbox(async (sandbox) => {
       const reference = path.join(sandbox.root, 'reference', 'state.db');
-      seedStoragePrefix(reference, 8);
+      seedStorageReference(reference, 8);
       seedStoragePrefix(sandbox.database, 8);
       const before = storageSnapshot(sandbox.database);
       const writer = new Database(sandbox.database);
@@ -671,7 +631,6 @@ describe('native SQLite lifecycle compatibility', () => {
       }
       expect(storageSnapshot(sandbox.database)).toEqual(before);
       expect((await runStorage(sandbox)).status).toBe(0);
-      upgradeWithTypeScript(reference);
       expectNativeSchema9(storageSnapshot(reference), storageSnapshot(sandbox.database));
     });
   }, 15_000);

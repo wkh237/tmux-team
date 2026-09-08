@@ -1,12 +1,7 @@
 import Database from 'better-sqlite3';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import {
-  expectError,
-  fileSnapshot,
-  runCli,
-  withSandbox,
-} from '../../src/test-support/cli-process.js';
+import { expectError, fileSnapshot, runCli, withSandbox } from '../support/cli-process.js';
 import { calibrateTmuxTripwire } from './tmux-tripwire.js';
 
 if (!process.env.TMT_TEST_CLI) throw new Error('Select the native build with TMT_TEST_CLI.');

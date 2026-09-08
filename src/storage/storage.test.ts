@@ -193,6 +193,22 @@ describe('SQLite storage adapter', () => {
     }
   });
 
+  it('rejects forward schema 9 history without mutating the stopped database', () => {
+    const directory = temporaryDirectory();
+    const file = location(directory).databaseFile;
+    openStorage(location(directory)).close();
+    const database = new Database(file);
+    database.exec(
+      "INSERT INTO _migrations VALUES (9, 'add identity lifetimes and reusable retired names', '2026-01-01T00:00:00.000Z')"
+    );
+    database.close();
+    const before = fs.readFileSync(file);
+    expect(() => openStorage(location(directory))).toThrowError(
+      expect.objectContaining({ code: 'incompatible-schema' })
+    );
+    expect(fs.readFileSync(file)).toEqual(before);
+  });
+
   it('rolls back a failed migration and can recover on the next open', () => {
     const directory = temporaryDirectory();
     let shouldFail = true;

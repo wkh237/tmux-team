@@ -21,7 +21,7 @@ import {
   runCli,
   type Sandbox,
   withSandbox,
-} from '../../src/test-support/cli-process.js';
+} from '../support/cli-process.js';
 
 if (!process.env.TMT_TEST_CLI) throw new Error('Select the native build with TMT_TEST_CLI.');
 
