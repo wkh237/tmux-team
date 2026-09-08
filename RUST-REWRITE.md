@@ -456,12 +456,17 @@ in the existing Rust request service concurrency suite. Attention races and
 rollback reuse that suite plus the service's `attention.rs` tests; waiter release
 uses `waiter_release_is_idempotent_isolated_and_does_not_cancel_delivery`.
 
-[#156](https://github.com/wkh237/tmux-team/issues/156) blocks deletion of the
-remaining unmatched protections: concurrent binding, process-death transaction
-rollback, final/failure and equal-expiry races, human talk output, and interactive
-passive reminder output. Existing drift/eligibility unit tests are not a terminal
-process assertion; a returned-error rollback is not a SIGKILL assertion. These
-are explicit follow-on acceptance gates, not claims of complete rewrite parity.
+[#156](https://github.com/wkh237/tmux-team/issues/156) supplies the remaining
+protections in the same owners: `sigkill_rolls_back_preparation_without_losing_committed_state`,
+`finalization_and_failure_orders_preserve_or_reject_exactly`, and
+`equal_expiry_finalization_is_rejected_before_or_after_cleanup` cover the actual
+request transaction boundaries. The existing same-canonical-name publication
+race now waits for the independent contender to open SQLite before commit and
+correlates both successful UUIDs with the sole durable identity/binding.
+Native-talk E2E covers human completion/detach/timeout and overlap warning versus
+force/JSON suppression; skill-reminder E2E uses a real private terminal and
+fixture-owned provider home. Unit-only drift eligibility or returned-error
+rollback would not establish those process guarantees.
 Developer artifact/selector guards also remain until relocated during source retirement.
 Node wrapper/npm-upgrade implementation details are not native runtime features;
 their retirement must be explicit rather than silently counted as covered.

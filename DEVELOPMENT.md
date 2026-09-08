@@ -202,6 +202,18 @@ retired-name reuse, and implicit selection failure before housekeeping.
 gated mock replies with verified pane identity; reuse shared descriptors and
 oracles, and run the Docker lifecycle suite twice before delivery.
 
+#156 closes the remaining worker/output evidence gaps in existing owners.
+`storage::requests::service_tests::crash` proves SIGKILL rollback after actual
+prepare writes and uses a commit-enabled positive control. Its concurrency
+neighbor explicitly covers both final/failure and equal-expiry orders; do not
+label ordered connections as a simultaneous race. `publication-race` observes
+both the writer lock and the contender's open database before releasing it,
+then checks canonical UUID convergence and complete binding counts. Human talk
+tests retain exact bodies and request IDs across completion, detach, timeout and
+overlap-warning suppression. The shared real-tmux caller can preserve terminal
+streams for passive skill reminder tests; default redirected caller tests stay
+unchanged. Provider directories remain inside the private fixture.
+
 Keep Cargo workspace version synchronized with the package version while both
 runtimes coexist. Check the resolved dependency graph's licenses, MSRVs and
 current RustSec advisories when changing Cargo.lock. `tmt-core` must remain free

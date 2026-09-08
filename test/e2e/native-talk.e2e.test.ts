@@ -68,6 +68,69 @@ async function submittedBody(
 }
 
 describe.sequential('native public talk/reply/result', () => {
+  it.each(['completed', 'detached', 'timeout'] as const)(
+    'keeps human %s output correlated with the durable request and exact final',
+    async (mode) => {
+      const body = '  human final\r\nsecond line  ';
+      await withE2EFixture(
+        async (fixture) => {
+          const args = [
+            'talk',
+            fixture.pane,
+            `human-${mode}`,
+            '--no-preamble',
+            ...(mode === 'detached' ? ['--detach'] : ['--timeout', mode === 'timeout' ? '1' : '8']),
+          ];
+          const result = await fixture.runCli(args);
+          expect(result.code, result.stderr || result.stdout).toBe(mode === 'timeout' ? 4 : 0);
+          const attempts = requestAttempts(fixture);
+          expect(attempts).toHaveLength(1);
+          const requestId = attempts[0]!.request_id;
+          expect(requestId).toMatch(/^req_[0-9a-f-]+$/);
+          expect(attempts[0]).toMatchObject({
+            message_text: `human-${mode}`,
+            status: 'sent',
+            wait_active: 0,
+          });
+          if (mode === 'timeout') {
+            expect(result.stdout).toBe('');
+            expect(result.stderr).toBe(
+              `Timed out waiting for ${fixture.pane} after 1s\nInspect with 'tmt result ${requestId}' and 'tmt check ${fixture.pane}' before deciding whether to retry.\n`
+            );
+          } else {
+            expect(result.stderr).toBe('');
+            expect(result.stdout).toBe(
+              (mode === 'completed'
+                ? `Completed request ${requestId} for ${fixture.pane} (${fixture.pane}).\n${body}\n`
+                : `Sent request ${requestId} to ${fixture.pane} (${fixture.pane}).\n`) +
+                `Retrieve later with 'tmt result ${requestId}'.\n`
+            );
+          }
+          if (mode !== 'completed') {
+            expect(fixture.events().filter((event) => event.event === 'submitted')).toEqual([]);
+            fixture.releaseReplyGate(requestId);
+          }
+          await submittedBody(fixture, requestId, body);
+          expect(
+            success(
+              await fixture.runJsonCli<TalkOutput>(['result', requestId], { withoutTmux: true })
+            )
+          ).toMatchObject({
+            requestId,
+            status: 'completed',
+            response: body,
+            bodyBytes: Buffer.byteLength(body),
+          });
+        },
+        options({
+          replyGate: mode !== 'completed',
+          responseBodyBase64: Buffer.from(body).toString('base64'),
+        })
+      );
+    },
+    15_000
+  );
+
   it.each([
     ['empty', ''],
     ['whitespace', ' \t  \n\r\n '],
@@ -522,107 +585,120 @@ describe.sequential('native public talk/reply/result', () => {
     }, options());
   }, 20_000);
 
-  it('keeps overlapping native requests independently gated and correlated', async () => {
-    await withE2EFixture(
-      async (fixture) => {
-        const slow = fixture.runCliProcess<TalkOutput>([
-          '--json',
-          'talk',
-          fixture.pane,
-          'native slow overlap',
-          '--no-preamble',
-          '--timeout',
-          '8',
-        ]);
-        const fast = fixture.runCliProcess<TalkOutput>([
-          '--json',
-          'talk',
-          fixture.pane,
-          'native fast overlap',
-          '--no-preamble',
-          '--timeout',
-          '8',
-        ]);
-        const slowRequest = await fixture.waitForEvent(
-          (event) => event.event === 'request' && event.message === 'native slow overlap',
-          5_000
-        );
-        const fastRequest = await fixture.waitForEvent(
-          (event) => event.event === 'request' && event.message === 'native fast overlap',
-          5_000
-        );
-        expect(slowRequest.requestId).toEqual(expect.stringMatching(/^req_[0-9a-f-]+$/));
-        expect(fastRequest.requestId).toEqual(expect.stringMatching(/^req_[0-9a-f-]+$/));
-        expect(slowRequest.requestId).not.toBe(fastRequest.requestId);
-        await fixture.waitFor(
-          () =>
-            requestAttempts(fixture).filter(
-              (row) =>
-                (row.request_id === slowRequest.requestId ||
-                  row.request_id === fastRequest.requestId) &&
-                row.status === 'sent' &&
-                row.wait_active === 1
-            ).length === 2,
-          5_000,
-          'overlapping native requests to settle independently'
-        );
+  it.each(['json', 'human', 'forced'] as const)(
+    'keeps %s overlapping requests correlated with appropriate warnings',
+    async (mode) => {
+      await withE2EFixture(
+        async (fixture) => {
+          const slow = fixture.runCliProcess<TalkOutput>([
+            '--json',
+            'talk',
+            fixture.pane,
+            'native slow overlap',
+            '--no-preamble',
+            '--timeout',
+            '8',
+          ]);
+          const slowRequest = await fixture.waitForEvent(
+            (event) => event.event === 'request' && event.message === 'native slow overlap',
+            5_000
+          );
+          const fast = fixture.runCliProcess<TalkOutput>([
+            ...(mode === 'json' ? ['--json'] : mode === 'forced' ? ['--force'] : []),
+            'talk',
+            fixture.pane,
+            'native fast overlap',
+            '--no-preamble',
+            '--timeout',
+            '8',
+          ]);
+          const fastRequest = await fixture.waitForEvent(
+            (event) => event.event === 'request' && event.message === 'native fast overlap',
+            5_000
+          );
+          expect(slowRequest.requestId).toEqual(expect.stringMatching(/^req_[0-9a-f-]+$/));
+          expect(fastRequest.requestId).toEqual(expect.stringMatching(/^req_[0-9a-f-]+$/));
+          expect(slowRequest.requestId).not.toBe(fastRequest.requestId);
+          await fixture.waitFor(
+            () =>
+              requestAttempts(fixture).filter(
+                (row) =>
+                  (row.request_id === slowRequest.requestId ||
+                    row.request_id === fastRequest.requestId) &&
+                  row.status === 'sent' &&
+                  row.wait_active === 1
+              ).length === 2,
+            5_000,
+            'overlapping native requests to settle independently'
+          );
 
-        fixture.releaseReplyGate(fastRequest.requestId);
-        await submittedBody(
-          fixture,
-          fastRequest.requestId ?? '',
-          'mock-agent response: native fast overlap'
-        );
-        expect(
-          fixture
-            .events()
-            .some(
-              (event) => event.event === 'submitted' && event.requestId === slowRequest.requestId
-            )
-        ).toBe(false);
-        const fastResult = await fast.result;
-        expect(fastResult).toMatchObject({
-          code: 0,
-          json: {
-            status: 'completed',
-            requestId: fastRequest.requestId,
-            response: 'mock-agent response: native fast overlap',
-          },
-        });
+          fixture.releaseReplyGate(fastRequest.requestId);
+          await submittedBody(
+            fixture,
+            fastRequest.requestId ?? '',
+            'mock-agent response: native fast overlap'
+          );
+          expect(
+            fixture
+              .events()
+              .some(
+                (event) => event.event === 'submitted' && event.requestId === slowRequest.requestId
+              )
+          ).toBe(false);
+          const fastResult = await fast.result;
+          expect(fastResult.code).toBe(0);
+          if (mode === 'json') {
+            expect(fastResult.json).toMatchObject({
+              status: 'completed',
+              requestId: fastRequest.requestId,
+              response: 'mock-agent response: native fast overlap',
+            });
+          } else {
+            expect(fastResult.stdout).toContain(
+              `Completed request ${fastRequest.requestId} for ${fixture.pane} (${fixture.pane}).\nmock-agent response: native fast overlap\n`
+            );
+          }
+          expect(fastResult.stderr).toBe(
+            mode === 'human'
+              ? `Another recent request exists for '${fixture.pane}' (id: ${slowRequest.requestId}). Input processing is not serialized; durable results remain associated by request ID.\n`
+              : ''
+          );
 
-        fixture.releaseReplyGate(slowRequest.requestId);
-        await submittedBody(
-          fixture,
-          slowRequest.requestId ?? '',
-          'mock-agent response: native slow overlap'
-        );
-        const slowResult = await slow.result;
-        expect(slowResult).toMatchObject({
-          code: 0,
-          json: {
-            status: 'completed',
-            requestId: slowRequest.requestId,
-            response: 'mock-agent response: native slow overlap',
-          },
-        });
-        expect(requestAttempts(fixture)).toEqual(
-          expect.arrayContaining([
-            expect.objectContaining({
-              request_id: slowRequest.requestId,
-              status: 'sent',
-              wait_active: 0,
-            }),
-            expect.objectContaining({
-              request_id: fastRequest.requestId,
-              status: 'sent',
-              wait_active: 0,
-            }),
-          ])
-        );
-      },
-      options({ replyGate: true })
-    );
-  }, 25_000);
+          fixture.releaseReplyGate(slowRequest.requestId);
+          await submittedBody(
+            fixture,
+            slowRequest.requestId ?? '',
+            'mock-agent response: native slow overlap'
+          );
+          const slowResult = await slow.result;
+          expect(slowResult).toMatchObject({
+            code: 0,
+            json: {
+              status: 'completed',
+              requestId: slowRequest.requestId,
+              response: 'mock-agent response: native slow overlap',
+            },
+          });
+          expect(requestAttempts(fixture)).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                request_id: slowRequest.requestId,
+                status: 'sent',
+                wait_active: 0,
+              }),
+              expect.objectContaining({
+                request_id: fastRequest.requestId,
+                status: 'sent',
+                wait_active: 0,
+              }),
+            ])
+          );
+        },
+        options({ replyGate: true })
+      );
+    },
+    25_000
+  );
 
   it('reports ambiguous paste without replaying native talk input', async () => {
     const original = 'ambiguous! send';

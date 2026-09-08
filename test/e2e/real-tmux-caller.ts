@@ -28,6 +28,8 @@ export async function spawnRealTmuxCli(
     readonly stripTmux?: boolean;
     readonly stripPane?: boolean;
     readonly json?: boolean;
+    /** Keep all three standard streams on the pane's real terminal. */
+    readonly terminal?: boolean;
   }
 ): Promise<RealTmuxCli> {
   const workspace = fixture.createWorkspace(`real-${options.name}`);
@@ -45,7 +47,7 @@ export async function spawnRealTmuxCli(
   ];
   const command = [
     `while [ ! -f ${shellQuote(releasePath)} ]; do sleep 0.01; done`,
-    `env${options.stripTmux ? ' -u TMUX' : ''}${options.stripPane ? ' -u TMUX_PANE' : ''} ${invocation.map(shellQuote).join(' ')} >${shellQuote(outputPath)} 2>${shellQuote(errorPath)}`,
+    `env${options.stripTmux ? ' -u TMUX' : ''}${options.stripPane ? ' -u TMUX_PANE' : ''} ${invocation.map(shellQuote).join(' ')}${options.terminal ? '' : ` >${shellQuote(outputPath)} 2>${shellQuote(errorPath)}`}`,
     `printf '%s' "$?" >${shellQuote(exitPath)}`,
     `while [ ! -f ${shellQuote(holdPath)} ]; do sleep 0.05; done`,
   ].join('; ');

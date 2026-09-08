@@ -1,18 +1,16 @@
 use super::*;
-use crate::test_support::TestDirectory;
+use crate::test_support::{TestChild, TestDirectory};
 use nix::{sys::stat::Mode, unistd::mkfifo};
 use std::{
     env, fs,
     os::unix::fs::symlink,
-    process::{Child, Command, ExitStatus, Stdio},
-    thread,
-    time::{Duration, Instant},
+    process::{Command, Stdio},
+    time::Duration,
 };
 
 const FIFO_FIXTURE_TEST: &str = "bounded_file::tests::fifo_fixture";
 const FIFO_FIXTURE_PATH: &str = "TMT_BOUNDED_FILE_FIFO";
 const FIFO_EXIT_TIMEOUT: Duration = Duration::from_secs(2);
-const POLL_INTERVAL: Duration = Duration::from_millis(10);
 
 #[test]
 fn bounded_reads_accept_regular_files_and_reject_oversized_content() {
@@ -57,7 +55,7 @@ fn no_follow_rejects_directories_without_waiting() {
     let fifo = directory.path.join("fifo");
     mkfifo(&fifo, Mode::S_IRUSR | Mode::S_IWUSR).unwrap();
     let mut fixture = FifoFixture::start(&fifo);
-    let status = wait_for_exit(&mut fixture.child, FIFO_EXIT_TIMEOUT);
+    let status = fixture.child.wait_for_exit(FIFO_EXIT_TIMEOUT);
     assert!(
         status.success(),
         "FIFO fixture rejected input unsuccessfully: {status}"
@@ -65,7 +63,7 @@ fn no_follow_rejects_directories_without_waiting() {
 }
 
 struct FifoFixture {
-    child: Child,
+    child: TestChild,
 }
 
 impl FifoFixture {
@@ -83,31 +81,9 @@ impl FifoFixture {
             .stderr(Stdio::null())
             .spawn()
             .expect("spawn task-owned FIFO fixture");
-        Self { child }
-    }
-}
-
-impl Drop for FifoFixture {
-    fn drop(&mut self) {
-        if matches!(self.child.try_wait(), Ok(None)) {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
+        Self {
+            child: TestChild::new(child),
         }
-    }
-}
-
-fn wait_for_exit(child: &mut Child, timeout: Duration) -> ExitStatus {
-    let deadline = Instant::now() + timeout;
-    loop {
-        if let Some(status) = child.try_wait().expect("inspect FIFO fixture status") {
-            return status;
-        }
-        if Instant::now() >= deadline {
-            let _ = child.kill();
-            let status = child.wait().expect("reap timed-out FIFO fixture");
-            panic!("FIFO fixture did not exit before deadline: {status}");
-        }
-        thread::sleep(POLL_INTERVAL);
     }
 }
 

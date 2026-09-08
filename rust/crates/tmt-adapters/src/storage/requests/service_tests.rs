@@ -1,6 +1,7 @@
 mod acceptance;
 mod attention;
 mod concurrency;
+mod crash;
 mod lifecycle;
 mod receipts;
 mod response;

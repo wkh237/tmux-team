@@ -3,16 +3,18 @@ use super::{
     receipt::Receipt,
     test_support::{artifact, state},
 };
-use crate::{interrupt::Interrupt, test_support::TestDirectory};
+use crate::{
+    interrupt::Interrupt,
+    test_support::{TestChild, TestDirectory},
+};
 use nix::{
     sys::signal::{Signal, kill},
     unistd::Pid,
 };
 use std::{
     env, fs, io,
-    path::{Path, PathBuf},
-    process::{Child, Command, ExitStatus, Stdio},
-    thread,
+    path::PathBuf,
+    process::{Command, Stdio},
     time::{Duration, Instant},
 };
 
@@ -20,15 +22,15 @@ const FIXTURE_TEST: &str = "native_install::interrupt_tests::subprocess_fixture"
 const FIXTURE_ROOT: &str = "TMT_NATIVE_INSTALL_INTERRUPT_ROOT";
 const FIXTURE_READY: &str = "TMT_NATIVE_INSTALL_INTERRUPT_READY";
 const FIXTURE_EVENT: &str = "TMT_NATIVE_INSTALL_INTERRUPT_EVENT";
-const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(2);
 const EXIT_TIMEOUT: Duration = Duration::from_secs(4);
 
 struct Fixture {
+    // Drop the child before the directory removes its readiness/event paths.
+    child: TestChild,
     _directory: TestDirectory,
     ready: PathBuf,
     event: PathBuf,
-    child: Child,
 }
 
 impl Fixture {
@@ -50,73 +52,24 @@ impl Fixture {
             _directory: directory,
             ready,
             event,
-            child,
-        }
-    }
-
-    fn wait_for_content(&mut self, path: &Path, expected: &str, timeout: Duration) {
-        let deadline = Instant::now() + timeout;
-        loop {
-            if fs::read_to_string(path).ok().as_deref() == Some(expected) {
-                return;
-            }
-            if let Some(status) = self
-                .child
-                .try_wait()
-                .expect("inspect native-install interrupt fixture")
-            {
-                panic!(
-                    "native-install interrupt fixture exited before {}: {status}",
-                    path.display()
-                );
-            }
-            assert!(
-                Instant::now() < deadline,
-                "native-install interrupt fixture did not publish {expected:?}"
-            );
-            thread::sleep(POLL_INTERVAL);
-        }
-    }
-
-    fn wait_for_exit(&mut self, timeout: Duration) -> ExitStatus {
-        let deadline = Instant::now() + timeout;
-        loop {
-            if let Some(status) = self
-                .child
-                .try_wait()
-                .expect("inspect native-install interrupt fixture")
-            {
-                return status;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "native-install interrupt fixture did not exit"
-            );
-            thread::sleep(POLL_INTERVAL);
-        }
-    }
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        if matches!(self.child.try_wait(), Ok(None)) {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
+            child: TestChild::new(child),
         }
     }
 }
 
 fn fixture_pid(fixture: &Fixture) -> Pid {
-    Pid::from_raw(i32::try_from(fixture.child.id()).expect("fixture PID fits in pid_t"))
+    Pid::from_raw(i32::try_from(fixture.child.child.id()).expect("fixture PID fits in pid_t"))
 }
 
 #[test]
 fn sigint_cleans_staged_native_publication_and_allows_retry() {
     let mut fixture = Fixture::start();
-    fixture.wait_for_content(&fixture.ready.clone(), "staged", STARTUP_TIMEOUT);
+    fixture
+        .child
+        .wait_for_content(&fixture.ready.clone(), "staged", STARTUP_TIMEOUT);
     kill(fixture_pid(&fixture), Signal::SIGINT).expect("signal task-owned fixture child");
 
-    let status = fixture.wait_for_exit(EXIT_TIMEOUT);
+    let status = fixture.child.wait_for_exit(EXIT_TIMEOUT);
     assert!(
         status.success(),
         "native-install interrupt fixture failed: {status}"

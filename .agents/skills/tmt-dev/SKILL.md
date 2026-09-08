@@ -42,6 +42,12 @@ Read the repository guidance before planning work:
 6. Run the exact checks required by the changed layer and report their commands
    and results. Add behavioral tests for changed contracts, including relevant
    failure, cleanup, or lifecycle cases.
+   During runtime retirement, map assertions rather than file names or counts:
+   returned-error rollback is not crash recovery, and policy tests are not
+   terminal-output tests. Preserve a positive control when a fixture could pass
+   without executing its intended mutation. Review resource destruction order
+   when consolidating cleanup helpers; reuse the existing test-only child owner
+   and stop/reap children before their files are removed.
 7. Before an authorized merge, verify all required CI passed on the current
    reviewed commit. Review later edits and rerun affected checks. Keep
    GitHub issue status, branch/PR links, verification evidence, and deferred work
