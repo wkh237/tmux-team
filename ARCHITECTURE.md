@@ -1133,6 +1133,29 @@ other probe failures stay errors. Public messages remain bounded and exclude pat
 and OS causes. Existing nix adds only fs/poll runtime features; term is test-only
 for an isolated pseudoterminal rejection case, with no new locked packages.
 
+#124 adds `tmux::transport` on the existing Tmux/CommandRunner boundary. Its
+explicit socket and stable pane inputs are routing results, not permission or
+fresh identity evidence. The caller retains the original prompt; this adapter
+alone protects ASCII exclamation marks and ensures a trailing newline for pane
+transport. An invocation owns a UUID-named buffer, one paste (or one literal
+fallback after set-buffer failure), the configured delay and one Enter. A failed
+paste, literal input or Enter is uncertain delivery and must never be replayed.
+Ordinary owned-buffer cleanup is best effort; failed subprocess cleanup is
+retained and prevents fallback. Delivery errors keep primary and secondary
+cleanup causes without exposing payloads or endpoint paths.
+
+Send commands retain a one-second, 64 KiB-per-stream subprocess budget; capture
+uses one second and 4 MiB per stream. These are per-command bounds, not an
+overall send/observer deadline: configured Enter delay remains separate. Capture
+is complete diagnostic text or failure, never a completion signal. Both paths
+use the same process group/deadline/reaping owner as endpoint evidence, with no
+new process runner or dependencies. Public talk/check composition, response
+observation and installed-runtime promotion remain separate integration work.
+The development-only tmux probe exercises these APIs in the existing private
+Docker fixture. Fault injection parses the actual tmux command after socket
+options, keeping explicit native and ambient TypeScript calls observable through
+one harness path.
+
 #### Native storage and runtime adapters
 
 Native migration 9 adds `lifetime` (default `saved` for existing identities) and

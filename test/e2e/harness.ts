@@ -68,6 +68,8 @@ export interface CliRunOptions {
   };
   /** Touch this file when the child has made its first tmux invocation. */
   progressFile?: string;
+  /** Record transport sequencing without injecting a failure. */
+  transportTrace?: boolean;
   /** Inject one transport-stage failure into this CLI process only. */
   transportFault?: {
     /** set-buffer is safe to fall back from; paste and submit are uncertain. */
@@ -194,16 +196,23 @@ if [ -n "${'$'}{TMT_E2E_PROGRESS_FILE:-}" ]; then
 fi
 metadata_write=0
 metadata_clear=0
-# Keep explicit-socket native calls visible to the same publication barrier.
+# Keep explicit-socket native calls visible to the same barriers and fault injection.
 # Inspect the command without changing argv passed to the real tmux binary.
 tmux_command=""
+tmux_command_arg_count=0
+tmux_last_arg=""
 skip_option_value=0
 for arg in "${'$'}@"; do
+  if [ -n "${'$'}tmux_command" ]; then
+    tmux_command_arg_count=${'$'}((tmux_command_arg_count + 1))
+    tmux_last_arg="${'$'}arg"
+    continue
+  fi
   if [ "${'$'}skip_option_value" = "1" ]; then skip_option_value=0; continue; fi
   case "${'$'}arg" in
     -S|-L|-f) skip_option_value=1 ;;
     -*) ;;
-    *) tmux_command="${'$'}arg"; break ;;
+    *) tmux_command="${'$'}arg" ;;
   esac
 done
 if [ "${'$'}tmux_command" = "set-option" ]; then
@@ -253,11 +262,11 @@ trace_transport() {
   printf '%s|%s\n' "${'$'}trace_stage" "${'$'}trace_argv" >> "${'$'}TMT_E2E_TRANSPORT_TRACE_FILE"
 }
 transport_stage=""
-case "${'$'}1" in
+case "${'$'}tmux_command" in
   set-buffer) transport_stage="set-buffer" ;;
   paste-buffer) transport_stage="paste-buffer" ;;
   send-keys)
-    if [ "${'$'}#" -eq 4 ] && [ "${'$'}4" = "Enter" ]; then
+    if [ "${'$'}tmux_command_arg_count" -eq 3 ] && [ "${'$'}tmux_last_arg" = "Enter" ]; then
       transport_stage="submit"
     else
       transport_stage="literal-input"
@@ -387,6 +396,8 @@ exit ${'$'}status
     if (options.progressFile) env.TMT_E2E_PROGRESS_FILE = options.progressFile;
     if (options.transportFault) {
       env.TMT_E2E_TRANSPORT_FAULT_STAGE = options.transportFault.stage;
+    }
+    if (options.transportTrace || options.transportFault) {
       env.TMT_E2E_TRANSPORT_TRACE_FILE = this.transportTracePath;
     }
     const child = spawn(this.executables.cli.executable, [...this.executables.cli.args, ...args], {

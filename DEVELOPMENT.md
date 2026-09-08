@@ -64,6 +64,12 @@ flag restoration and an isolated test-only pseudoterminal. The Darwin socket
 case must reproduce the unsupported terminal probe, not weaken the public stdin
 assertion. Keep the real five-second CLI timeout separately from short injected
 adapter deadlines. This is public storage-only acceptance, not native talk.
+#124 adds adapter send/capture coverage through `test/e2e/native-transport.e2e.test.ts`
+and the existing development-only tmux probe. These scenarios assert causal mock
+input and exact no-replay traces for explicit-socket native operations, preserve
+unrelated buffers, and compare diagnostic capture independently. They do not
+make public native talk/check available. Scripted adapter tests reuse the tmux
+test runner to verify caps, stage errors and cleanup precedence without host tmux.
 The separate storage adapter upgrades historical schemas 0–8 to native schema 9,
 tested through a development-only probe rather than an installed command.
 Use isolated test databases only: installed TypeScript cannot reopen schema 9.

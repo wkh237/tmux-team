@@ -1,69 +1,8 @@
+use super::test_support::{ScriptedRunner, failure};
 use super::*;
 use crate::process::CommandOutput;
-use std::{cell::RefCell, collections::VecDeque, io};
 
 const SERVER_ID: &str = "123e4567-e89b-42d3-a456-426614174000";
-
-#[derive(Debug)]
-struct Invocation {
-    program: String,
-    args: Vec<String>,
-    deadline: Instant,
-    max_output_bytes: usize,
-}
-
-#[derive(Default)]
-struct ScriptedRunner {
-    results: RefCell<VecDeque<Result<CommandOutput, CommandError>>>,
-    calls: RefCell<Vec<Invocation>>,
-}
-
-impl ScriptedRunner {
-    fn new(results: impl IntoIterator<Item = Result<&'static str, CommandError>>) -> Self {
-        Self {
-            results: RefCell::new(
-                results
-                    .into_iter()
-                    .map(|result| {
-                        result.map(|text| CommandOutput {
-                            stdout: text.as_bytes().to_vec(),
-                            stderr: Vec::new(),
-                        })
-                    })
-                    .collect(),
-            ),
-            ..Self::default()
-        }
-    }
-}
-
-impl CommandRunner for ScriptedRunner {
-    fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
-        assert!(request.input.is_empty());
-        self.calls.borrow_mut().push(Invocation {
-            program: request.program.to_str().unwrap().into(),
-            args: request
-                .args
-                .iter()
-                .map(|value| value.to_str().unwrap().into())
-                .collect(),
-            deadline: request.deadline,
-            max_output_bytes: request.max_output_bytes,
-        });
-        self.results
-            .borrow_mut()
-            .pop_front()
-            .expect("unexpected extra subprocess")
-    }
-}
-
-fn failure(cleanup_failed: bool) -> CommandError {
-    let mut error = CommandError::new(CommandFailure::Timeout);
-    if cleanup_failed {
-        error.cleanup_error = Some(io::Error::from_raw_os_error(Errno::EPERM as i32));
-    }
-    error
-}
 
 fn full_environment() -> CallerEnvironment {
     CallerEnvironment {
