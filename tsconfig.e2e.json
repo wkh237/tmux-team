@@ -4,6 +4,11 @@
     "rootDir": ".",
     "noEmit": true
   },
-  "include": ["test/e2e/**/*.ts", "test/native/**/*.ts"],
+  "include": [
+    "test/e2e/**/*.ts",
+    "test/native/**/*.ts",
+    "test/tooling/**/*.ts",
+    "test/support/**/*.ts"
+  ],
   "exclude": ["node_modules", "dist"]
 }

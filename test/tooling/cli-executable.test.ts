@@ -2,9 +2,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { resolveCliExecutables } from '../test/support/cli-executable.mjs';
-import { createCliProbe } from '../test/support/cli-probe.js';
-import { createSandbox, parseWholeStdout, runCli } from '../test/support/cli-process.js';
+import { resolveCliExecutables } from '../support/cli-executable.mjs';
+import { createCliProbe } from '../support/cli-probe.js';
+import { createSandbox, parseWholeStdout, runCli } from '../support/cli-process.js';
 
 const temporaryRoots: string[] = [];
 
@@ -61,7 +61,7 @@ afterEach(() => {
 });
 
 describe('CLI executable descriptors', () => {
-  it('uses the TypeScript executable by default for both invocation roles', () => {
+  it('transitional: uses the TypeScript executable by default for both invocation roles', () => {
     const executables = resolveCliExecutables({});
 
     expect(path.isAbsolute(executables.cli.executable)).toBe(true);

@@ -427,6 +427,15 @@ tests forbidden examples as well as repository files. It does not prove semantic
 architecture correctness; primary review and the architecture-impact record
 remain required.
 
+Retained developer-script and artifact tests live in `test/tooling/` and run in
+the same `pnpm test:run` suite, with unchanged TypeScript product coverage gates.
+`pnpm e2e:typecheck`, `pnpm e2e:lint`, and `pnpm e2e:format:check` also include this
+directory and its shared helpers. Its architecture guard independently rejects
+imports into the transitional product from retained native, E2E, support and
+tooling modules. Both architecture guards reuse `test/support/source-imports.ts`.
+Moving a test does not retire its assertions: native source retirement must
+separately resolve the transitional selector default and npm artifact policies.
+
 Runner routing tests keep one module import and reset stable context/handler
 mocks between cases. Do not rebuild the full dependency graph for each argument
 case with module-cache resets; reserve those for tests of module initialization
@@ -862,7 +871,7 @@ entrypoint, then repeat with `--entrypoint node` and
 artifacts/<archive-name> --target <target> --skill expected-skill.md`. Keep
 `--rm --init --network none` and remove only the task-owned image afterwards.
 
-`src/native-bootstrap.test.ts` covers the generated shell's negative paths with
+`test/tooling/native-bootstrap.test.ts` covers the generated shell's negative paths with
 the existing bounded CLI sandbox and a synthetic executable for orchestration.
 Do not count that stub as native publication evidence; pair it with the actual
 artifact verifier. Run `pnpm check`, unit tests and two Docker lifecycle passes

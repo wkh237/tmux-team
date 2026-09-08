@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const { FORBIDDEN_PACKED_PATHS, REQUIRED_PACKED_PATHS, verifyPackedArtifact } = (await import(
   pathToFileURL(path.join(repositoryRoot, 'scripts', 'packed-artifact-policy.mjs')).href
 )) as unknown as {
