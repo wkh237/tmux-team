@@ -10,11 +10,11 @@ use std::{
     error::Error,
     io::{self, Write},
     path::Path,
-    time::{SystemTime, UNIX_EPOCH},
 };
 use tmt_adapters::{
     config::ConfigPaths,
     reply_receipt::decode_reply_receipt,
+    request_runtime::wall_time_ms,
     response_input::{ResponseInputError, ResponseInputFailure, read_file, read_stdin},
     storage::{Storage, StorageError},
 };
@@ -115,13 +115,7 @@ fn run(request: Invocation) -> Result<Report, Failure> {
     let mut storage = Storage::open(paths.database).map_err(unavailable)?;
     // Invalid clocks fail closed through the service's safe-integer validation.
     // Sample inside its transaction, not once before acquiring the writer lock.
-    let mut service = RequestService::new(&mut storage, || {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .ok()
-            .and_then(|time| u64::try_from(time.as_millis()).ok())
-            .unwrap_or(0)
-    });
+    let mut service = RequestService::new(&mut storage, wall_time_ms);
     let pending = match submission {
         Some(input) => service
             .submit_response(input)

@@ -1059,8 +1059,8 @@ bounded housekeeping. `RequestRecords` is available only inside the existing
 Storage immediate transaction. The clock is sampled after acquiring that lock;
 the concrete caller supplies attempt IDs and frozen settings before entry.
 There is no service-owned connection, tmux lookup, file input or configuration
-loader. #122 supplies public native reply/result composition; native talk remains
-unimplemented in this preview.
+loader. #122 supplies public native reply/result composition; #129 composes
+public talk over the same service and bounded transport.
 
 `core::retention` is the shared settings/runtime owner for day limits and checked
 JavaScript-safe deadlines. Historical migration arithmetic remains frozen.
@@ -1102,8 +1102,8 @@ The reviewed pure SHA-256 dependency is permitted only in core; base64 is
 permitted only in adapters. Existing serde_json handles bounded v1 envelopes,
 not v2 digest serialization. Architecture tests enforce these dependency edges
 with positive and adverse cases. This is local correlation, not remote access
-control. #106 still owns native talk integration and installed recipient instructions;
-#93 retains native message transport integration.
+control. #129 uses compact receipts in native talk; #106 still owns the installed
+recipient-instruction transition before native cutover.
 
 #122 adds `response_command` for public storage-only reply/result. It consumes
 the parser's existing typed invocation and the codec before any input acquisition.
@@ -1149,8 +1149,8 @@ uses one second and 4 MiB per stream. These are per-command bounds, not an
 overall send/observer deadline: configured Enter delay remains separate. Capture
 is complete diagnostic text or failure, never a completion signal. Both paths
 use the same process group/deadline/reaping owner as endpoint evidence, with no
-new process runner or dependencies. Public talk/check composition, response
-observation and installed-runtime promotion remain separate integration work.
+new process runner or dependencies. Public check and talk composition are supplied
+by #125 and #129 respectively; installed-runtime promotion remains separate work.
 The development-only tmux probe exercises these APIs in the existing private
 Docker fixture. Fault injection parses the actual tmux command after socket
 options, keeping explicit native and ambient TypeScript calls observable through
@@ -1199,6 +1199,43 @@ role and reply: nonblocking open, regular-file check, maximum-plus-one read,
 and overflow rejection before decoding. Callers retain their respective UTF-8
 and content policies. Reply stdin flags, deadlines and exact-body validation are
 unchanged; role does not gain stdin. This is not a path-confinement boundary.
+
+#### Native durable talk composition
+
+#129 adds `talk_command`, with preparation, observation and presentation local
+to that use case. It reuses `target`, `identity_context`, profile reads,
+`RequestService`, compact receipts and `Tmux` transport; no handler SQL or
+parallel lifecycle is introduced. Config and exact original input validate
+before endpoint/storage effects. Optional attribution permits an unknown caller;
+explicit selection stays lookup-only. After pre-send delay, a fresh scoped
+snapshot passes through the existing binding evaluator before preparation.
+This is evidence, not a processing lease.
+
+Preparation persists the exact original prompt; only transport payload adds
+reserved preamble and reply guidance. Roles are never injected. Independent
+request/attempt UUIDs feed the existing 25-character v2 encoder. Begin-send and
+settlement remain separate service commits around transport. Proven preparation
+failure maps to `DELIVERY_PREPARATION_FAILED`; uncertain paste/literal/submit
+maps to `DELIVERY_UNCERTAIN`, with stage and request correlation. Neither retries.
+Every post-preparation waiting path releases only its waiter; late finals remain
+eligible. A monotonic deadline begins before begin-send, includes transport, and
+is checked before/after reads. Crossing reads lose without rereading. Positive
+polling intervals round up to a millisecond and clip to the remaining deadline.
+The shared adapter wall clock is separately sampled inside service transactions.
+
+Adapter `interrupt` owns SIGINT registrations through pinned `signal-hook` and
+a nonblocking Unix self-pipe waited through existing nix poll. No worker thread
+or second process runner is added. First SIGINT wakes observation; a second
+retains emergency termination during blocked synchronous work. Bounded process/
+SQLite operations and configured Enter delay are not instantly cancellable.
+The guard stays through waiter/storage cleanup and publication, then unregisters
+its callbacks and closes descriptors. The library's OS dispatcher remains until
+process exit; this is a CLI lifetime, not host-application signal restoration.
+
+Shared failure output carries public target/request/stage fields, while primary
+and secondary cleanup causes stay internal. Storage closes before publication;
+close failure cannot publish success. Installed-runtime and skill cutover remain
+separate delivery gates.
 
 #### Native storage and runtime adapters
 
@@ -1291,15 +1328,15 @@ optional/unknown results, but failed subprocess cleanup propagates as an error.
 It cannot trigger fallback server initialization or be hidden by best-effort
 observation. Metadata reads remain fatal before writes; unknown siblings survive
 marker replacement/clear. Binding coordination uses the application port above;
-there is still no native message transport.
+message transport uses the same bounded runner under #124.
 
 The non-installed `tmux-probe` example exposes only narrow adapter operations
 and counts runner calls. The existing Docker fixture selects it through the
 shared executable descriptor. The same pinned Debian image builds native
 artifacts, runs adapter unit tests under `--init`, and executes real private-tmux
 scenarios with mock agents and no network. These are adapter integration tests,
-not evidence that unported native talk commands work. The same image separately
-builds the native CLI and selects it for the identity lifecycle suite under #109.
+not public command acceptance on their own. The same image separately selects
+the native CLI for identity lifecycle (#109) and durable talk (#129) scenarios.
 
 The [Rust rewrite decision](RUST-REWRITE.md) records the proposed native package
 boundaries, compatibility/test matrix, data coexistence gates and dependency

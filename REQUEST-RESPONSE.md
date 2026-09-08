@@ -144,7 +144,7 @@ does not undo or justify repeating an accepted final.
 
 ### Native compact receipt preview (#120 under #106)
 
-The native internal codec emits exactly 25 ASCII characters: `v2_` plus
+Native talk (#129) uses the shared codec to emit exactly 25 ASCII characters: `v2_` plus
 canonical unpadded base64url of the first 16 SHA-256 digest bytes. The preimage
 starts with ASCII `tmux-team/reply-receipt/v2` and NUL, followed in order by
 request ID, attempt ID, server ID, socket path, server PID, server start time,
@@ -186,9 +186,10 @@ input before storage. Both v1 and v2 receipts work without tmux or current confi
 The same submitted/completed/unavailable output and exit contracts apply; a
 stopped schema-8 fixture can migrate through native reply while retaining its v1
 instruction. This is not permission to mix writers after schema-9 migration.
-Native talk is still absent. Parent #106 owns generated instruction measurements,
-canonical installed guidance and full private-tmux/mock-agent acceptance before
-cutover; installed skill/README instructions remain unchanged for now.
+Native talk (#129) emits compact instructions through the same codec and proves
+the public flow with private-tmux/native mock replies. Parent #106 still owns
+canonical installed guidance before cutover; installed skill/README instructions
+remain unchanged for now.
 
 ### TMT-39 live durable completion
 

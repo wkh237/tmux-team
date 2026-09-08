@@ -16,6 +16,7 @@ uuid = { workspace = true, features = ["v4"] }
 [target.'cfg(unix)'.dependencies]
 subprocess.workspace = true
 nix.workspace = true
+signal-hook.workspace = true
 
 [target.'cfg(unix)'.dev-dependencies]
 nix = { workspace = true, features = ["term"] }

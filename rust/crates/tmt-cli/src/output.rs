@@ -12,9 +12,24 @@ pub struct Failure {
     pub code: &'static str,
     pub message: String,
     pub status: u8,
-    cause: Option<Box<dyn Error>>,
+    diagnostics: Option<Box<Diagnostics>>,
     suggestion: Option<String>,
     request: Option<Box<(String, Option<&'static str>)>>,
+    target: Option<Box<TargetDetails>>,
+    stage: Option<&'static str>,
+}
+
+#[derive(Debug, Default)]
+struct Diagnostics {
+    cause: Option<Box<dyn Error>>,
+    secondary: Vec<Box<dyn Error>>,
+}
+
+#[derive(Debug)]
+struct TargetDetails {
+    target: String,
+    pane: String,
+    identity: Option<(String, String)>,
 }
 
 impl Failure {
@@ -23,14 +38,16 @@ impl Failure {
             code,
             message: message.into(),
             status,
-            cause: None,
+            diagnostics: None,
             suggestion: None,
             request: None,
+            target: None,
+            stage: None,
         }
     }
 
     pub fn caused_by(mut self, cause: impl Error + 'static) -> Self {
-        self.cause = Some(Box::new(cause));
+        self.diagnostics.get_or_insert_default().cause = Some(Box::new(cause));
         self
     }
 
@@ -39,10 +56,38 @@ impl Failure {
         self
     }
 
+    pub fn with_secondary_error(mut self, error: impl Error + 'static) -> Self {
+        self.diagnostics
+            .get_or_insert_default()
+            .secondary
+            .push(Box::new(error));
+        self
+    }
+
     /// Only explicit public correlation is carried into an error document;
     /// bodies, receipt proofs and endpoint evidence are never included.
     pub fn with_request(mut self, request_id: String, status: Option<&'static str>) -> Self {
         self.request = Some(Box::new((request_id, status)));
+        self
+    }
+
+    pub fn with_target(
+        mut self,
+        target: &str,
+        pane: &str,
+        identity: Option<&tmt_core::identity::Identity>,
+    ) -> Self {
+        self.target = Some(Box::new(TargetDetails {
+            target: target.into(),
+            pane: pane.into(),
+            identity: identity
+                .map(|identity| (identity.name.clone(), identity.canonical_name.clone())),
+        }));
+        self
+    }
+
+    pub fn at_stage(mut self, stage: &'static str) -> Self {
+        self.stage = Some(stage);
         self
     }
 
@@ -59,6 +104,17 @@ impl Failure {
                 if let Some(status) = status {
                     document["status"] = (*status).into();
                 }
+            }
+            if let Some(target) = &self.target {
+                document["target"] = target.target.clone().into();
+                document["pane"] = target.pane.clone().into();
+                if let Some((name, canonical_name)) = &target.identity {
+                    document["identity"] =
+                        serde_json::json!({"name": name, "canonicalName": canonical_name});
+                }
+            }
+            if let Some(stage) = self.stage {
+                document["error"]["stage"] = stage.into();
             }
             writeln!(io::stdout().lock(), "{document}")?;
         } else {
@@ -84,7 +140,9 @@ impl fmt::Display for Failure {
 
 impl Error for Failure {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
-        self.cause.as_deref()
+        self.diagnostics
+            .as_ref()
+            .and_then(|details| details.cause.as_deref())
     }
 }
 
@@ -97,7 +155,10 @@ pub fn after_cleanup<T, E: Error + 'static>(
 ) -> Result<T, Failure> {
     let cleanup = cleanup();
     match pending {
-        Err(primary) => Err(primary),
+        Err(primary) => Err(match cleanup {
+            Ok(()) => primary,
+            Err(secondary) => primary.with_secondary_error(secondary),
+        }),
         Ok(report) => cleanup.map(|()| report).map_err(|error| {
             Failure::new(
                 "CLEANUP_ERROR",
@@ -166,6 +227,11 @@ mod tests {
             assert_eq!(failure.message, "Missing identity");
             assert_eq!(failure.status, 3);
             assert_eq!(failure.source().unwrap().to_string(), "primary cause");
+            let diagnostics = failure.diagnostics.as_ref().unwrap();
+            assert_eq!(diagnostics.secondary.len(), usize::from(fail_cleanup));
+            if fail_cleanup {
+                assert_eq!(diagnostics.secondary[0].to_string(), "cleanup cause");
+            }
         }
     }
 }

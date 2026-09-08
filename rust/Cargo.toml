@@ -24,6 +24,7 @@ icu_casemap = { version = "=2.3.0", default-features = false, features = ["compi
 icu_locale_core = { version = "=2.3.0", default-features = false }
 sha2 = { version = "=0.11.0", default-features = false }
 base64 = { version = "=0.22.1", default-features = false, features = ["alloc"] }
+signal-hook = { version = "=0.4.4", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
