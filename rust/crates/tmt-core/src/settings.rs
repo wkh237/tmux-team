@@ -6,8 +6,7 @@ use crate::limits::{
     is_valid_timer_delay_ms,
 };
 
-pub const DEFAULT_RETENTION_DAYS: u64 = 90;
-pub const MAX_RETENTION_DAYS: u64 = 3650;
+use crate::retention::{DEFAULT_RETENTION_DAYS, MAX_RETENTION_DAYS, valid_retention_days};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scope {
@@ -213,7 +212,8 @@ impl Setting {
                 Some(Self::PasteEnterDelayMs(value))
             }
             (SettingKey::RetentionDays, Scalar::Number(value))
-                if unsigned_integer(value, MAX_RETENTION_DAYS) && value >= 1.0 =>
+                if unsigned_integer(value, MAX_RETENTION_DAYS)
+                    && valid_retention_days(value as u64) =>
             {
                 Some(Self::RetentionDays(value as u64))
             }

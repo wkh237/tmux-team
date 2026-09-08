@@ -36,6 +36,14 @@ help/version/completion, typed grammar, the existing `config` command and
 storage-only `identity create/show/list` under #113, and pane identity
 `name`/`this`/`add`/`whoami`/`unbind`/`rm`/`list` under #109.
 Other effectful commands still explicitly fail.
+The #118 request/final service is an internal transactional foundation only;
+it does not make public native talk/reply/result available. Its real SQLite
+tests run in ordinary adapter Cargo tests and therefore in the existing Docker
+adapter-test stage. They must verify committed rows independently of service
+reads, since those reads can perform housekeeping. Inject clocks for deadline
+equality/rollback and use bounded barriers between real connections for races.
+Retained final retries, attention rollback, cadence refunds and late replies
+after identity retirement are service evidence, not CLI/receipt/transport parity.
 The separate storage adapter upgrades historical schemas 0–8 to native schema 9,
 tested through a development-only probe rather than an installed command.
 Use isolated test databases only: installed TypeScript cannot reopen schema 9.
