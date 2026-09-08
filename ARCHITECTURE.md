@@ -1237,6 +1237,27 @@ and secondary cleanup causes stay internal. Storage closes before publication;
 close failure cannot publish success. Installed-runtime and skill cutover remain
 separate delivery gates.
 
+#### Native exchange attention
+
+#131 adds `x list/show/ack/ackall` through the same `RequestService` and
+transaction-scoped `RequestRecords`. The attention module defines typed summary
+and detail projections, sharing final-state metadata and acknowledgment rules.
+The existing request adapter owns joined metadata-only list queries and guarded
+updates; it adds no schema, connection, revision allocator or retention policy.
+Detail reuses the original-context projection and reads exact final text only
+for detail, never for listing. Immutable submission markers distinguish expired
+or unavailable bodies from work that has never received a final.
+
+Explicit identity selection is storage-only; implicit selection requires a
+verified caller before request access. Retired-name reuse does not transfer
+UUID-owned history. Reads never acknowledge. Exact-revision ack conflicts with
+a newer final; repeated current ack is idempotent. Ackall captures the current
+identity watermark atomically without a preliminary client read, and later
+revisions remain visible. Final submission plus current acknowledgment defines
+settled state, independently of delivery or observer exit. Cleanup and ack share
+the existing transaction and clock; failure rolls both back. CLI storage closes
+before presentation. Installation and installed-skill cutover remain separate.
+
 #### Native storage and runtime adapters
 
 Native migration 9 adds `lifetime` (default `saved` for existing identities) and

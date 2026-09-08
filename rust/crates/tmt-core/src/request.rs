@@ -1,6 +1,7 @@
 //! Durable request policy and transaction-scoped ports. No live endpoint lookup,
 //! configuration loading or external effects belong inside this boundary.
 
+pub mod attention;
 pub mod correlation;
 mod service;
 pub use service::RequestService;
@@ -175,6 +176,27 @@ pub struct RequestContext {
 /// is held. Domain decisions remain in RequestService, not in SQL adapters.
 pub trait RequestRecords {
     type Error;
+    fn find_attention(
+        &self,
+        identity_id: &str,
+        request_id: &str,
+    ) -> Result<Option<attention::AttentionRecord>, Self::Error>;
+    fn list_attention(
+        &self,
+        identity_id: &str,
+        after: u64,
+        limit: u64,
+        now_ms: u64,
+    ) -> Result<Vec<attention::AttentionRecord>, Self::Error>;
+    /// Guard the observed revision; a missing update must not count as an ack.
+    fn acknowledge_revision(
+        &mut self,
+        identity_id: &str,
+        request_id: &str,
+        revision: u64,
+    ) -> Result<bool, Self::Error>;
+    /// Advance the watermark only for the transaction's observed latest revision.
+    fn acknowledge_through(&mut self, identity_id: &str, latest: u64) -> Result<bool, Self::Error>;
     fn find_attempt(&self, attempt_id: &str) -> Result<Option<RequestAttempt>, Self::Error>;
     fn find_request(&self, request_id: &str) -> Result<Option<RequestAttempt>, Self::Error>;
     fn find_context(&self, request_id: &str) -> Result<Option<RawRequestContext>, Self::Error>;
@@ -282,6 +304,7 @@ pub enum RequestError<E> {
     CounterExhausted,
     RevisionExhausted,
     Response(ResponseRejection),
+    Attention(attention::AttentionRejection),
     Repository(E),
 }
 
@@ -304,6 +327,7 @@ impl<E> fmt::Display for RequestError<E> {
                 f.write_str("Exchange attention revision counter is exhausted.")
             }
             Self::Response(reason) => f.write_str(reason.code()),
+            Self::Attention(reason) => reason.fmt(f),
             Self::Repository(_) => f.write_str("Could not access request state."),
         }
     }

@@ -174,6 +174,19 @@ their exclusion is not parity evidence. The native suite separately exercises
 configuration validation through `config show`, path discovery, scoped edits,
 no-op clear and file preservation, without starting SQLite or tmux.
 
+Native attention uses the existing request-service SQLite fixtures and bounded
+multi-connection race harness. Verify revision pagination, foreign/retired-name
+isolation, pending acknowledgment followed by a late final, exact-revision
+conflicts, idempotence, and ackall/final races with independent read-only SQL.
+Advance the fixture clock when proving that acknowledgment does not renew
+retention. Injected ack failure must roll back eligible housekeeping as well.
+A deliberately unreadable final body proves that listing reads metadata only.
+`test/native/exchange.test.ts` covers public storage-only selectors, exact JSON,
+retired-name reuse, and implicit selection failure before housekeeping.
+`test/e2e/native-exchange-attention.e2e.test.ts` exercises real native talk and
+gated mock replies with verified pane identity; reuse shared descriptors and
+oracles, and run the Docker lifecycle suite twice before delivery.
+
 Keep Cargo workspace version synchronized with the package version while both
 runtimes coexist. Check the resolved dependency graph's licenses, MSRVs and
 current RustSec advisories when changing Cargo.lock. `tmt-core` must remain free

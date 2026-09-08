@@ -57,6 +57,104 @@ fn concurrent_pair<T: Send>(database: &Path, operations: [Operation<T>; 2]) -> [
 }
 
 #[test]
+fn acknowledgement_racing_a_final_never_silently_consumes_a_later_revision() {
+    for bulk in [false, true] {
+        let mut fixture = Fixture::new();
+        let identity = fixture.identity_id.clone();
+        let target = endpoint("%81", 181);
+        let input = prepare_input(
+            &fixture,
+            "attention-race",
+            target.clone(),
+            false,
+            NOW_MS + 3_600_001,
+            Originator::Explicit(identity.clone()),
+            false,
+        );
+        service(&mut fixture)
+            .prepare(input, "attention-race-attempt".into(), 7)
+            .unwrap();
+        service(&mut fixture)
+            .begin_send("attention-race-attempt")
+            .unwrap();
+        service(&mut fixture)
+            .settle(
+                "attention-race-attempt",
+                tmt_core::request::Settlement::Sent,
+            )
+            .unwrap();
+        let acknowledge: Operation<Result<u64, RequestError<StorageError>>> =
+            Box::new(move |storage| {
+                let mut service = RequestService::new(storage, || NOW_MS);
+                if bulk {
+                    service.acknowledge_all_exchanges(&identity)
+                } else {
+                    service
+                        .acknowledge_exchange(&identity, "attention-race", 1)
+                        .map(|ack| u64::from(ack.changed))
+                }
+            });
+        let submit: Operation<Result<u64, RequestError<StorageError>>> = Box::new(move |storage| {
+            RequestService::new(storage, || NOW_MS)
+                .submit_response(SubmitResponse {
+                    request_id: "attention-race".into(),
+                    proof: ResponseProof::Recorded {
+                        attempt_id: "attention-race-attempt".into(),
+                        endpoint: target,
+                    },
+                    body: "exact racing final\r\n".into(),
+                })
+                .map(|_| 0)
+        });
+        let [ack, submitted] = concurrent_pair(&fixture.database, [acknowledge, submit]);
+        submitted.unwrap();
+        let oracle = rusqlite::Connection::open_with_flags(
+            &fixture.database,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        let (latest, through, revision, individual, body): (i64, i64, i64, i64, String) = oracle.query_row(
+            "SELECT s.latest_revision, s.acknowledged_through, a.attention_revision,
+                    a.attention_acknowledged_revision, r.body
+             FROM request_attempts a JOIN request_attention_identities s ON s.identity_id = a.originator_identity_id
+             JOIN request_responses r USING(request_id) WHERE a.request_id = 'attention-race'",
+            [], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        ).unwrap();
+        assert_eq!((latest, revision), (2, 2));
+        assert_eq!(body, "exact racing final\r\n");
+        if bulk {
+            let cutoff = ack.unwrap();
+            assert!([1, 2].contains(&cutoff));
+            assert_eq!((through, individual), (i64::try_from(cutoff).unwrap(), 0));
+        } else {
+            assert_eq!(through, 0);
+            match ack {
+                Ok(changed) => {
+                    assert_eq!(changed, 1);
+                    assert_eq!(individual, 1);
+                }
+                Err(RequestError::Attention(
+                    tmt_core::request::attention::AttentionRejection::RevisionConflict {
+                        current: 2,
+                        expected: 1,
+                    },
+                )) => assert_eq!(individual, 0),
+                unexpected => panic!("unexpected concurrent acknowledgement: {unexpected:?}"),
+            }
+        }
+        let identity = fixture.identity_id.clone();
+        let pending = service(&mut fixture)
+            .list_exchanges(&identity, None, None)
+            .unwrap();
+        assert_eq!(pending.items.len(), usize::from(through < 2));
+        if let Some(item) = pending.items.first() {
+            assert_eq!(item.revision, 2);
+            assert!(!item.acknowledged);
+        }
+    }
+}
+
+#[test]
 fn concurrent_prepare_connections_serialize_cadence_and_preserve_both_attempts() {
     let fixture = Fixture::new();
     let operations: [Operation<Result<PreparedRequest, RequestError<StorageError>>>; 2] =

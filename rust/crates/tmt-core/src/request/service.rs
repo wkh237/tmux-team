@@ -1,6 +1,7 @@
 //! Short transactional use cases. The clock is sampled after acquiring the
 //! write lock; callers generate IDs and freeze configuration before entry.
 
+mod attention;
 mod lifecycle;
 mod responses;
 
@@ -128,29 +129,7 @@ impl<'a, R: RequestRepository, C: Fn() -> u64> RequestService<'a, R, C> {
         request_id: &str,
     ) -> Result<Option<RequestContext>, RequestError<R::Error>> {
         nonempty(request_id)?;
-        self.read(|records, now| {
-            let Some(raw) = records.find_context(request_id)? else {
-                return Ok(None);
-            };
-            if now >= raw.attempt.retention_expires_at_ms {
-                return Ok(None);
-            }
-            let prompt = match (raw.expires_at_ms, raw.message, raw.message_bytes) {
-                (None, _, _) => RequestPrompt::Unavailable,
-                (Some(expiry), Some(message), Some(message_bytes)) if now < expiry => {
-                    RequestPrompt::Retained(StoredPrompt {
-                        message,
-                        message_bytes,
-                        expires_at_ms: expiry,
-                    })
-                }
-                (Some(expires_at_ms), _, _) => RequestPrompt::Expired { expires_at_ms },
-            };
-            Ok(Some(RequestContext {
-                attempt: raw.attempt,
-                prompt,
-            }))
-        })
+        self.read(|records, now| context(records, request_id, now))
     }
 
     fn read<T>(
@@ -167,6 +146,34 @@ impl<'a, R: RequestRepository, C: Fn() -> u64> RequestService<'a, R, C> {
             operation(records, now)
         })
     }
+}
+
+fn context<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    request_id: &str,
+    now: u64,
+) -> Result<Option<RequestContext>, RequestError<E>> {
+    let Some(raw) = records.find_context(request_id)? else {
+        return Ok(None);
+    };
+    if now >= raw.attempt.retention_expires_at_ms {
+        return Ok(None);
+    }
+    let prompt = match (raw.expires_at_ms, raw.message, raw.message_bytes) {
+        (None, _, _) => RequestPrompt::Unavailable,
+        (Some(expiry), Some(message), Some(message_bytes)) if now < expiry => {
+            RequestPrompt::Retained(StoredPrompt {
+                message,
+                message_bytes,
+                expires_at_ms: expiry,
+            })
+        }
+        (Some(expires_at_ms), _, _) => RequestPrompt::Expired { expires_at_ms },
+    };
+    Ok(Some(RequestContext {
+        attempt: raw.attempt,
+        prompt,
+    }))
 }
 
 fn nonempty<E>(value: &str) -> Result<(), RequestError<E>> {

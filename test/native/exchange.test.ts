@@ -1,0 +1,304 @@
+import Database from 'better-sqlite3';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+import {
+  expectError,
+  parseWholeStdout,
+  runCli,
+  withSandbox,
+  type Sandbox,
+} from '../../src/test-support/cli-process.js';
+import { seedResponse, responseSnapshot } from './response-fixture.js';
+import { calibrateTmuxTripwire } from './tmux-tripwire.js';
+
+async function json(sandbox: Sandbox, args: string[]) {
+  const result = await runCli(sandbox, [...args, '--json']);
+  expect(result.status, result.stdout || result.stderr).toBe(0);
+  return parseWholeStdout(result);
+}
+
+function attentionFixture(sandbox: Sandbox, owner: string, requestId: string) {
+  const seeded = seedResponse(sandbox.database, requestId);
+  const database = new Database(sandbox.database);
+  try {
+    database.transaction(() => {
+      database
+        .prepare(
+          'INSERT INTO request_attention_identities (identity_id, latest_revision, acknowledged_through) VALUES (?, 1, 0)'
+        )
+        .run(owner);
+      database
+        .prepare(
+          "UPDATE request_attempts SET originator_kind = 'explicit', originator_identity_id = ?, attention_revision = 1 WHERE request_id = ?"
+        )
+        .run(owner, requestId);
+    })();
+  } finally {
+    database.close();
+  }
+  return seeded;
+}
+
+describe('native exchange attention process contract', () => {
+  it('keeps retired-name history with its original UUID rather than the replacement identity', async () => {
+    await withSandbox(async (sandbox) => {
+      await calibrateTmuxTripwire(sandbox);
+      const owner = (await json(sandbox, ['identity', 'create', 'Reusable'])).identity as {
+        id: string;
+      };
+      attentionFixture(sandbox, owner.id, 'old-owner-request');
+      const before = responseSnapshot(sandbox.database, 'old-owner-request');
+      await json(sandbox, ['rm', 'Reusable', '--force']);
+      const replacement = (await json(sandbox, ['identity', 'create', 'Reusable'])).identity as {
+        id: string;
+      };
+      expect(replacement.id).not.toBe(owner.id);
+      expect(await json(sandbox, ['x', '--identity', 'Reusable'])).toMatchObject({ items: [] });
+      expect(await json(sandbox, ['x', 'ackall', '--identity', 'Reusable'])).toMatchObject({
+        acknowledgedThrough: 0,
+      });
+      const hidden = await runCli(sandbox, [
+        'x',
+        'show',
+        'old-owner-request',
+        '--identity',
+        'Reusable',
+        '--json',
+      ]);
+      expect(hidden.status).toBe(3);
+      expectError(hidden, 'X_NOT_FOUND');
+      expect(responseSnapshot(sandbox.database, 'old-owner-request')).toEqual(before);
+      const oracle = new Database(sandbox.database, { readonly: true });
+      try {
+        expect(oracle.prepare('SELECT originator_identity_id FROM request_attempts').get()).toEqual(
+          { originator_identity_id: owner.id }
+        );
+        expect(
+          oracle
+            .prepare('SELECT identity_id, acknowledged_through FROM request_attention_identities')
+            .all()
+        ).toEqual([{ identity_id: owner.id, acknowledged_through: 0 }]);
+      } finally {
+        oracle.close();
+      }
+    });
+  });
+
+  it('rejects an unverified implicit caller before request housekeeping', async () => {
+    await withSandbox(async (sandbox) => {
+      await calibrateTmuxTripwire(sandbox);
+      await json(sandbox, ['identity', 'create', 'Offline']);
+      seedResponse(sandbox.database, 'unread-expired-prompt');
+      const writer = new Database(sandbox.database);
+      try {
+        writer
+          .prepare('UPDATE request_attempts SET message_expires_at_ms = ? WHERE request_id = ?')
+          .run(Date.now() - 1000, 'unread-expired-prompt');
+      } finally {
+        writer.close();
+      }
+      const before = responseSnapshot(sandbox.database, 'unread-expired-prompt');
+      for (const operation of [[], ['show', 'unread-expired-prompt'], ['ackall']]) {
+        const result = await runCli(sandbox, ['x', ...operation, '--json']);
+        expect(result.status).toBe(1);
+        expectError(result, 'IDENTITY_REQUIRED');
+        expect(responseSnapshot(sandbox.database, 'unread-expired-prompt')).toEqual(before);
+      }
+      // Calibrate the housekeeping oracle: valid explicit access must scrub it.
+      await json(sandbox, ['x', '--identity', 'Offline']);
+      expect(
+        responseSnapshot(sandbox.database, 'unread-expired-prompt').attempt?.message_text
+      ).toBeNull();
+    });
+  });
+
+  it('uses explicit offline identity without config or tmux and keeps reads separate from acknowledgment', async () => {
+    await withSandbox(async (sandbox) => {
+      const log = await calibrateTmuxTripwire(sandbox);
+      const created = await json(sandbox, ['identity', 'create', 'Owner']);
+      const identity = created.identity as {
+        id: string;
+        name: string;
+        canonicalName: string;
+        lifetime: string;
+      };
+      expect(identity).toMatchObject({
+        id: expect.any(String),
+        name: 'Owner',
+        canonicalName: 'owner',
+        lifetime: 'saved',
+      });
+      const seeded = attentionFixture(sandbox, identity.id, 'native-attention');
+      writeFileSync(sandbox.globalConfig, '{ invalid config');
+      writeFileSync(sandbox.localConfig, '{ invalid config');
+      const listed = await json(sandbox, ['x', '--identity', 'OWNER']);
+      expect(listed).toMatchObject({
+        identity,
+        nextAfter: null,
+        items: [
+          {
+            requestId: seeded.requestId,
+            revision: 1,
+            delivery: 'sent',
+            final: { status: 'not_submitted' },
+            acknowledged: false,
+            settled: false,
+          },
+        ],
+      });
+      const shown = await json(sandbox, ['x', 'show', seeded.requestId, '--identity', 'Owner']);
+      expect(shown).toMatchObject({
+        identity,
+        exchange: {
+          revision: 1,
+          prompt: { status: 'retained', message: `prompt for ${seeded.requestId}` },
+        },
+      });
+      expect(await json(sandbox, ['x', '--identity', 'Owner'])).toEqual(listed);
+      expect(await json(sandbox, ['x', 'ackall', '--identity', 'Owner'])).toEqual({
+        identity,
+        acknowledgedThrough: 1,
+      });
+      expect(await json(sandbox, ['x', '--identity', 'Owner'])).toEqual({
+        identity,
+        items: [],
+        nextAfter: null,
+      });
+      const body = '\uFEFF exact final\r\n日本語  ';
+      await json(sandbox, [
+        'reply',
+        seeded.requestId,
+        '--receipt',
+        seeded.compactReceipt,
+        '--message',
+        body,
+      ]);
+      const after = await json(sandbox, ['x', 'list', '--identity', 'Owner']);
+      expect(after).toMatchObject({
+        items: [
+          {
+            revision: 2,
+            acknowledged: false,
+            settled: false,
+            final: { status: 'retained', bodyBytes: Buffer.byteLength(body) },
+          },
+        ],
+      });
+      expect(JSON.stringify(after)).not.toContain('exact final');
+      expect(JSON.stringify(after)).not.toContain('prompt for');
+      expect(JSON.stringify(after)).not.toContain('receipt');
+      const stale = await runCli(sandbox, [
+        'x',
+        'ack',
+        seeded.requestId,
+        '--revision',
+        '1',
+        '--identity',
+        'Owner',
+        '--json',
+      ]);
+      expect(stale.status).toBe(5);
+      expectError(stale, 'X_REVISION_CONFLICT');
+      expect(
+        await json(sandbox, [
+          'x',
+          'ack',
+          seeded.requestId,
+          '--revision',
+          '2',
+          '--identity',
+          'Owner',
+        ])
+      ).toEqual({
+        identity,
+        requestId: seeded.requestId,
+        revision: 2,
+        acknowledged: true,
+        changed: true,
+      });
+      expect(
+        await json(sandbox, [
+          'x',
+          'ack',
+          seeded.requestId,
+          '--revision',
+          '2',
+          '--identity',
+          'Owner',
+        ])
+      ).toMatchObject({ changed: false });
+      expect(
+        await json(sandbox, ['x', 'show', seeded.requestId, '--identity', 'Owner'])
+      ).toMatchObject({
+        exchange: {
+          acknowledged: true,
+          settled: true,
+          final: { status: 'retained', response: body },
+        },
+      });
+      expect(readFileSync(log, 'utf8')).toBe('\n');
+      const oracle = new Database(sandbox.database, { readonly: true });
+      try {
+        expect(
+          oracle
+            .prepare(
+              'SELECT latest_revision, acknowledged_through FROM request_attention_identities'
+            )
+            .get()
+        ).toEqual({ latest_revision: 2, acknowledged_through: 1 });
+        expect(
+          oracle
+            .prepare(
+              'SELECT attention_revision, attention_acknowledged_revision FROM request_attempts'
+            )
+            .get()
+        ).toEqual({ attention_revision: 2, attention_acknowledged_revision: 2 });
+      } finally {
+        oracle.close();
+      }
+    });
+  });
+
+  it('rejects unknown and foreign selectors without creating identities or acknowledging another owner', async () => {
+    await withSandbox(async (sandbox) => {
+      const log = await calibrateTmuxTripwire(sandbox);
+      const owner = (await json(sandbox, ['identity', 'create', 'Owner'])).identity as {
+        id: string;
+      };
+      expect(owner.id).toEqual(expect.any(String));
+      await json(sandbox, ['identity', 'create', 'Foreign']);
+      attentionFixture(sandbox, owner.id, 'private-exchange');
+      const identitiesBefore = await json(sandbox, ['identity', 'list']);
+      const before = responseSnapshot(sandbox.database, 'private-exchange');
+      for (const operation of [
+        ['show', 'private-exchange'],
+        ['ack', 'private-exchange', '--revision', '1'],
+      ]) {
+        const result = await runCli(sandbox, [
+          'x',
+          ...operation,
+          '--identity',
+          'Foreign',
+          '--json',
+        ]);
+        expect(result.status).toBe(3);
+        expectError(result, 'X_NOT_FOUND');
+      }
+      const missing = await runCli(sandbox, [
+        'x',
+        'ackall',
+        '--identity',
+        'NeverCreated',
+        '--json',
+      ]);
+      expect(missing.status).toBe(3);
+      expectError(missing, 'NAME_NOT_FOUND');
+      expect(await json(sandbox, ['x', 'ackall', '--identity', 'Foreign'])).toMatchObject({
+        acknowledgedThrough: 0,
+      });
+      expect(responseSnapshot(sandbox.database, 'private-exchange')).toEqual(before);
+      expect(await json(sandbox, ['identity', 'list'])).toEqual(identitiesBefore);
+      expect(readFileSync(log, 'utf8')).toBe('\n');
+    });
+  });
+});
