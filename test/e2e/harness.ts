@@ -70,6 +70,8 @@ export interface CliRunOptions {
   progressFile?: string;
   /** Record transport sequencing without injecting a failure. */
   transportTrace?: boolean;
+  /** Fail only diagnostic capture, after target resolution has succeeded. */
+  captureFault?: 'exit' | 'overflow' | 'timeout';
   /** Inject one transport-stage failure into this CLI process only. */
   transportFault?: {
     /** set-buffer is safe to fall back from; paste and submit are uncertain. */
@@ -215,6 +217,13 @@ for arg in "${'$'}@"; do
     *) tmux_command="${'$'}arg" ;;
   esac
 done
+if [ "${'$'}tmux_command" = "capture-pane" ]; then
+  case "${'$'}{TMT_E2E_CAPTURE_FAULT:-}" in
+    exit) exit 97 ;;
+    overflow) exec head -c 4194305 /dev/zero ;;
+    timeout) exec sleep 5 ;;
+  esac
+fi
 if [ "${'$'}tmux_command" = "set-option" ]; then
   unset_metadata=0
   pane_metadata=0
@@ -394,6 +403,7 @@ exit ${'$'}status
       env.TMT_E2E_FORBIDDEN_TMUX_LOG = this.forbiddenTmuxLogPath;
     }
     if (options.progressFile) env.TMT_E2E_PROGRESS_FILE = options.progressFile;
+    if (options.captureFault) env.TMT_E2E_CAPTURE_FAULT = options.captureFault;
     if (options.transportFault) {
       env.TMT_E2E_TRANSPORT_FAULT_STAGE = options.transportFault.stage;
     }

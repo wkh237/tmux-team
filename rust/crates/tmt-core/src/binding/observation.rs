@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     identity::{self, IdentityError, Lifetime},
-    names::validate_name,
+    names::{normalize_name, validate_name},
 };
 use std::collections::BTreeMap;
 
@@ -170,13 +170,55 @@ pub fn pane_presence<R: BindingRepository, O: BindingEndpoint>(
             .cloned()
             .ok_or_else(|| BindingError::PaneNotFound(pane_id.into()))?;
         let entry = records.entry_by_pane(pane_id, &snapshot.server.server_id)?;
-        let identity = match entry {
+        let server = snapshot.server.clone();
+        let active = match entry {
             Some(entry) => reconcile(records, entry, &EndpointProbe::Live(snapshot))?
-                .filter(|row| row.presence == Presence::Active)
-                .map(|row| row.identity),
+                .filter(|row| row.presence == Presence::Active),
             None => None,
         };
-        Ok(PaneIdentity { pane, identity })
+        let (identity, binding) =
+            active.map_or((None, None), |row| (Some(row.identity), row.binding));
+        Ok(PaneIdentity {
+            server,
+            pane,
+            identity,
+            binding,
+        })
+    })
+}
+
+/// Routing is scoped to the current server, unlike global presence reporting.
+/// Lookup does not impose creation-name validation or probe a foreign server.
+pub fn current_name_presence<R: BindingRepository, O: BindingEndpoint>(
+    repository: &mut R,
+    endpoint: &mut O,
+    name: &str,
+) -> Result<Option<PaneIdentity>, BindingError<R::Error, O::Error>> {
+    repository.with_binding_transaction(|records| {
+        endpoint.begin_coordination();
+        let Some(identity) = records.find_identity(&normalize_name(name))? else {
+            return Ok(None);
+        };
+        let Some(entry) = records.entry_by_id(&identity.id)? else {
+            return Ok(None);
+        };
+        let Some(binding) = &entry.binding else {
+            return Ok(None);
+        };
+        let snapshot = endpoint
+            .current_snapshot(std::slice::from_ref(&binding.pane_id))
+            .map_err(BindingError::Endpoint)?;
+        let server = snapshot.server.clone();
+        let active = reconcile(records, entry, &EndpointProbe::Live(snapshot))?
+            .filter(|row| row.presence == Presence::Active);
+        Ok(active.and_then(|row| {
+            row.pane.map(|pane| PaneIdentity {
+                server,
+                pane,
+                identity: Some(row.identity),
+                binding: row.binding,
+            })
+        }))
     })
 }
 

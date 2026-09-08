@@ -62,9 +62,9 @@ describe('native grammar preview process contract', () => {
       expect(help.stderr).toBe('');
       expect(help.stdout).toContain('Native development preview');
       expect(help.stdout).toContain(
-        'configuration, storage-only identity create/show/list and reply/result, and pane identity name/this/add/whoami/unbind/rm/list are available'
+        'configuration, storage-only identity create/show/list and reply/result, pane identity name/this/add/whoami/unbind/rm/list, and diagnostic check/read are available'
       );
-      expect(help.stdout).toContain('Transport commands are not implemented yet.');
+      expect(help.stdout).toContain('Talk is not implemented yet.');
       expect(help.stdout).toContain('Manage identity records without probing tmux');
       expect(help.stdout).toContain('temporary unless saved');
       expect(help.stdout).toContain('rm');
@@ -80,7 +80,6 @@ describe('native grammar preview process contract', () => {
       const before = fileSnapshot(sandbox.root);
       for (const args of [
         ['talk', 'worker', 'hello'],
-        ['check', '%14'],
         ['init'],
         ['role', 'show'],
         ['preamble'],

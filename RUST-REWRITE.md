@@ -9,7 +9,8 @@ receipt encoding and old-v1 decoding through that same service. #122 adds public
 native reply/result with bounded input. Native talk and the full #106
 short-receipt transition remain unimplemented.
 #124 adds the bounded native send/capture adapter and isolated real-tmux
-acceptance; public talk/check routing and composition are still pending.
+acceptance. #125 adds shared current-server target resolution and public
+diagnostic check/read. Public talk composition and observation remain pending.
 Owner: [#93](https://github.com/wkh237/tmux-team/issues/93);
 preparation: [#94](https://github.com/wkh237/tmux-team/issues/94).
 The compatibility reference is TypeScript main `cb53533f3a9f19a1a2ab95af59dda20df419200b`
@@ -69,7 +70,7 @@ delegates from native to Node.
 The preview implements help, version, Bash/Zsh completion and the existing
 `config` command plus storage-only `identity create/show/list` (#113) and pane
 identity `name`/`this`/`add`/`whoami`/`unbind`/`rm`/`list` (#109), plus storage-only
-`reply`/`result` (#122).
+`reply`/`result` (#122) and diagnostic `check`/`read` (#125).
 Other recognized effectful commands return
 `NATIVE_NOT_IMPLEMENTED`, exit 1, before any settings,
 storage, tmux or input acquisition. Text-only commands reject JSON. Native

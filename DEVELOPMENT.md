@@ -35,7 +35,7 @@ The `rust/` workspace is not the installed runtime yet. It implements only
 help/version/completion, typed grammar, the existing `config` command and
 storage-only `identity create/show/list` under #113, and pane identity
 `name`/`this`/`add`/`whoami`/`unbind`/`rm`/`list` under #109, plus storage-only
-`reply`/`result` under #122.
+`reply`/`result` under #122, and diagnostic `check`/`read` under #125.
 Other effectful commands still explicitly fail.
 The #118 request/final service is an internal transactional foundation only;
 its public reply/result composition is supplied by #122, not native talk. Its real SQLite
@@ -70,6 +70,13 @@ input and exact no-replay traces for explicit-socket native operations, preserve
 unrelated buffers, and compare diagnostic capture independently. They do not
 make public native talk/check available. Scripted adapter tests reuse the tmux
 test runner to verify caps, stage errors and cleanup precedence without host tmux.
+#125 adds `test/native/check.test.ts` for configuration-before-effects and
+lookup-only misses, plus `test/e2e/native-check.e2e.test.ts` for real public
+diagnostic output, foreign-server rejection, selected-pane cost and capture
+failure propagation. Native command suites reuse `test/native/tmux-tripwire.ts`;
+calibration proves that the task-owned executable would record accidental tmux
+access. Routing storage tests retain full binding evidence and use independent
+read-only SQL to detect unwanted foreign/unknown/unrelated binding touches.
 The separate storage adapter upgrades historical schemas 0–8 to native schema 9,
 tested through a development-only probe rather than an installed command.
 Use isolated test databases only: installed TypeScript cannot reopen schema 9.

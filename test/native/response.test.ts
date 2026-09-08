@@ -1,7 +1,8 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { installTmuxTripwire } from './tmux-tripwire.js';
 import {
   expectError,
   expectJsonSuccess,
@@ -32,21 +33,6 @@ function temporaryFile(sandbox: Sandbox, name: string, bytes: string | Uint8Arra
   const file = path.join(sandbox.root, name);
   writeFileSync(file, bytes);
   return file;
-}
-
-function installTmuxTripwire(sandbox: Sandbox): string {
-  const directory = path.join(sandbox.root, 'tripwire-bin');
-  const logPath = path.join(sandbox.root, 'tmux-invocations.log');
-  mkdirSync(directory);
-  const executable = path.join(directory, 'tmux');
-  writeFileSync(
-    executable,
-    '#!/bin/sh\nprintf "%s\\n" "$*" >> "$TMT_NATIVE_RESPONSE_TMUX_LOG"\nexit 97\n'
-  );
-  chmodSync(executable, 0o755);
-  sandbox.env.PATH = `${directory}${path.delimiter}${process.env.PATH ?? ''}`;
-  sandbox.env.TMT_NATIVE_RESPONSE_TMUX_LOG = logPath;
-  return logPath;
 }
 
 function malformedConfig(sandbox: Sandbox): void {

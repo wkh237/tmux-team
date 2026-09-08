@@ -1,4 +1,6 @@
 mod binding_command;
+mod binding_error;
+mod check_command;
 mod config_command;
 mod diagnostics;
 mod grammar;
@@ -7,6 +9,7 @@ mod invocation;
 mod output;
 mod parser;
 mod response_command;
+mod target;
 
 use std::io::{self, Write};
 use std::process::ExitCode;
@@ -35,7 +38,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Help => {
             writeln!(
                 stdout,
-                "Native development preview: configuration, storage-only identity create/show/list and reply/result, and pane identity name/this/add/whoami/unbind/rm/list are available. Transport commands are not implemented yet. Use isolated test state only.\n"
+                "Native development preview: configuration, storage-only identity create/show/list and reply/result, pane identity name/this/add/whoami/unbind/rm/list, and diagnostic check/read are available. Talk is not implemented yet. Use isolated test state only.\n"
             )?;
             grammar::public_grammar(&grammar::grammar(), true).write_long_help(&mut stdout)?;
             writeln!(stdout)?;
@@ -68,6 +71,10 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Identity(request) => {
             drop(stdout);
             return identity_command::execute(request, parsed.mode);
+        }
+        Invocation::Check { target, lines } => {
+            drop(stdout);
+            return check_command::execute(target, lines, parsed.mode);
         }
         request @ (Invocation::Reply { .. } | Invocation::Result { .. }) => {
             drop(stdout);

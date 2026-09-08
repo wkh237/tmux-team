@@ -6,7 +6,9 @@ mod operations;
 #[cfg(test)]
 mod evidence_tests;
 
-pub use observation::{evaluate_binding, list_presence, name_presence, pane_presence};
+pub use observation::{
+    current_name_presence, evaluate_binding, list_presence, name_presence, pane_presence,
+};
 pub use operations::{bind_identity, remove_identity, unbind_identity};
 
 use crate::{
@@ -79,8 +81,10 @@ pub struct IdentityPresence {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaneIdentity {
+    pub server: ServerEvidence,
     pub pane: PaneObservation,
     pub identity: Option<Identity>,
+    pub binding: Option<Binding>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1156,6 +1156,27 @@ Docker fixture. Fault injection parses the actual tmux command after socket
 options, keeping explicit native and ambient TypeScript calls observable through
 one harness path.
 
+#125 adds current-server routing and public diagnostic check/read. The existing
+`PaneIdentity` observation retains its server and optional binding alongside the
+pane/identity, so later delivery can consume the same evidence rather than
+rediscovering discarded fields. `binding::current_name_presence` performs a
+normalized lookup and one scoped current snapshot under the existing binding
+transaction. It reuses `reconcile`/`evaluate_binding`; foreign socket evidence
+cannot become an active route, and unknown evidence does not authorize cleanup.
+Global `name_presence`/listing remain separate presence reporting, not routing
+permission. No new record port, SQL owner or name-creation policy is introduced.
+
+CLI `target` composes pane-first selector IO and these core projections.
+`binding_error` is the shared presentation translation for binding and target
+callers, not a second policy owner. `check_command` validates configuration,
+opens one Storage handle, resolves the target, captures outside the binding
+transaction, explicitly closes storage, then emits diagnostic output. Only
+public identity name/canonical-name fields enter that report; server/process
+evidence stays internal. Terminal text still never completes a request.
+Native process tests share one calibrated tmux tripwire instead of copying
+host-protection wrappers across command suites. Docker's existing wrapper owns
+capture failure injection after successful target resolution.
+
 #### Native storage and runtime adapters
 
 Native migration 9 adds `lifetime` (default `saved` for existing identities) and
