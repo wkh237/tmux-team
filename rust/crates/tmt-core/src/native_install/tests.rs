@@ -1,0 +1,246 @@
+use semver::Version;
+
+use super::*;
+
+fn version(value: &str) -> Version {
+    Version::parse(value).expect("test version must be valid")
+}
+
+fn installed(value: &str, channel: Channel, pinned: Option<&str>) -> InstalledVersion {
+    InstalledVersion {
+        version: version(value),
+        channel,
+        pinned_version: pinned.map(version),
+    }
+}
+
+#[test]
+fn first_install_and_explicit_pin_advancement_preserve_exact_state() {
+    let candidate = version("5.0.0-alpha.10");
+    for pin in [
+        PinAction::Preserve,
+        PinAction::Clear,
+        PinAction::PinCandidate,
+    ] {
+        let plan = plan_version(None, &candidate, Channel::Alpha, pin).unwrap();
+        assert!(plan.changed);
+        assert_eq!(plan.state.version, candidate);
+        assert_eq!(plan.state.channel, Channel::Alpha);
+        assert_eq!(
+            plan.state.pinned_version,
+            (pin == PinAction::PinCandidate).then(|| candidate.clone())
+        );
+    }
+    let current = installed("5.0.0-alpha.2", Channel::Alpha, Some("5.0.0-alpha.2"));
+    for pin in [PinAction::Clear, PinAction::PinCandidate] {
+        let plan = plan_version(Some(&current), &candidate, Channel::Alpha, pin).unwrap();
+        assert!(plan.changed);
+        assert_eq!(plan.state.version, candidate);
+        assert_eq!(
+            plan.state.pinned_version,
+            (pin == PinAction::PinCandidate).then(|| candidate.clone())
+        );
+    }
+}
+
+#[test]
+fn channel_names_and_version_families_are_explicit() {
+    assert_eq!(Channel::ALL, [Channel::Stable, Channel::Alpha]);
+    assert_eq!(Channel::Stable.as_str(), "stable");
+    assert_eq!(Channel::Alpha.as_str(), "alpha");
+    assert_eq!(Channel::parse("STABLE"), Some(Channel::Stable));
+    assert_eq!(Channel::parse("Alpha"), Some(Channel::Alpha));
+    assert_eq!(Channel::parse("beta"), None);
+    assert_eq!(Channel::parse(" stable"), None);
+
+    assert!(Channel::Stable.accepts(&version("1.2.3")));
+    assert!(!Channel::Stable.accepts(&version("1.2.3-alpha.1")));
+    assert!(!Channel::Stable.accepts(&version("1.2.3-beta.1")));
+    assert!(Channel::Alpha.accepts(&version("1.2.3-alpha.1")));
+    assert!(Channel::Alpha.accepts(&version("1.2.3-alpha.10")));
+    assert!(!Channel::Alpha.accepts(&version("1.2.3")));
+    assert!(!Channel::Alpha.accepts(&version("1.2.3-beta.1")));
+
+    assert_eq!(
+        plan_version(
+            None,
+            &version("1.2.3-alpha.1"),
+            Channel::Stable,
+            PinAction::Preserve,
+        ),
+        Err(VersionError::WrongChannel)
+    );
+    assert_eq!(
+        plan_version(None, &version("1.2.3"), Channel::Alpha, PinAction::Preserve,),
+        Err(VersionError::WrongChannel)
+    );
+}
+
+#[test]
+fn alpha_prerelease_numeric_order_is_semantic() {
+    let current = installed("5.0.0-alpha.2", Channel::Alpha, None);
+    let candidate = version("5.0.0-alpha.10");
+
+    assert_eq!(
+        candidate.cmp_precedence(&current.version),
+        Ordering::Greater
+    );
+    assert_eq!(
+        plan_version(
+            Some(&current),
+            &candidate,
+            Channel::Alpha,
+            PinAction::Preserve,
+        ),
+        Ok(VersionPlan {
+            state: installed("5.0.0-alpha.10", Channel::Alpha, None),
+            changed: true,
+        })
+    );
+}
+
+#[test]
+fn downgrade_is_rejected_even_when_pin_action_is_explicit() {
+    let current = installed("1.2.0", Channel::Stable, None);
+    let candidate = version("1.1.9");
+
+    for pin in [PinAction::PinCandidate, PinAction::Clear] {
+        assert_eq!(
+            plan_version(Some(&current), &candidate, Channel::Stable, pin),
+            Err(VersionError::Downgrade),
+            "pin action {pin:?} must not permit a downgrade",
+        );
+    }
+}
+
+#[test]
+fn preserved_pin_rejects_a_different_candidate() {
+    let current = installed("5.0.0-alpha.2", Channel::Alpha, Some("5.0.0-alpha.2"));
+    let candidate = version("5.0.0-alpha.3");
+
+    assert_eq!(
+        plan_version(
+            Some(&current),
+            &candidate,
+            Channel::Alpha,
+            PinAction::Preserve,
+        ),
+        Err(VersionError::Pinned)
+    );
+}
+
+#[test]
+fn same_version_pin_changes_metadata_but_preserve_is_a_noop() {
+    let candidate = version("1.2.3");
+    let unpinned = installed("1.2.3", Channel::Stable, None);
+    let pinned = installed("1.2.3", Channel::Stable, Some("1.2.3"));
+
+    assert_eq!(
+        plan_version(
+            Some(&unpinned),
+            &candidate,
+            Channel::Stable,
+            PinAction::PinCandidate,
+        ),
+        Ok(VersionPlan {
+            state: pinned.clone(),
+            changed: true,
+        })
+    );
+    assert_eq!(
+        plan_version(
+            Some(&unpinned),
+            &candidate,
+            Channel::Stable,
+            PinAction::Preserve,
+        ),
+        Ok(VersionPlan {
+            state: unpinned.clone(),
+            changed: false,
+        })
+    );
+    assert_eq!(
+        plan_version(Some(&pinned), &candidate, Channel::Stable, PinAction::Clear,),
+        Ok(VersionPlan {
+            state: unpinned,
+            changed: true,
+        })
+    );
+    assert_eq!(
+        plan_version(
+            Some(&pinned),
+            &candidate,
+            Channel::Stable,
+            PinAction::Preserve,
+        ),
+        Ok(VersionPlan {
+            state: pinned,
+            changed: false,
+        })
+    );
+}
+
+#[test]
+fn invalid_current_channel_or_pin_state_fails_before_candidate_policy() {
+    let invalid_channel = installed("5.0.0-alpha.1", Channel::Stable, None);
+    assert_eq!(
+        plan_version(
+            Some(&invalid_channel),
+            &version("5.0.0"),
+            Channel::Stable,
+            PinAction::Clear,
+        ),
+        Err(VersionError::InvalidCurrentState)
+    );
+
+    let invalid_pin = installed("5.0.0", Channel::Stable, Some("5.0.1"));
+    assert_eq!(
+        plan_version(
+            Some(&invalid_pin),
+            &version("5.1.0"),
+            Channel::Stable,
+            PinAction::Clear,
+        ),
+        Err(VersionError::InvalidCurrentState)
+    );
+}
+
+#[test]
+fn build_metadata_only_change_is_rejected_by_precedence() {
+    let current = installed("1.2.3+build.1", Channel::Stable, None);
+    let candidate = version("1.2.3+build.2");
+
+    assert_eq!(
+        candidate.cmp_precedence(&current.version),
+        Ordering::Equal,
+        "build metadata must not affect release precedence",
+    );
+    assert_eq!(
+        plan_version(
+            Some(&current),
+            &candidate,
+            Channel::Stable,
+            PinAction::Preserve,
+        ),
+        Err(VersionError::EqualPrecedenceChange)
+    );
+}
+
+#[test]
+fn explicit_unpinned_alpha_to_stable_forward_transition_is_allowed() {
+    let current = installed("5.0.0-alpha.2", Channel::Alpha, None);
+    let candidate = version("5.0.0");
+
+    assert_eq!(
+        plan_version(
+            Some(&current),
+            &candidate,
+            Channel::Stable,
+            PinAction::Preserve,
+        ),
+        Ok(VersionPlan {
+            state: installed("5.0.0", Channel::Stable, None),
+            changed: true,
+        })
+    );
+}

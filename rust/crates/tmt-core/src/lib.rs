@@ -6,6 +6,7 @@ pub mod exact_text;
 pub mod identity;
 pub mod limits;
 pub mod names;
+pub mod native_install;
 pub mod profile;
 pub mod request;
 pub mod retention;

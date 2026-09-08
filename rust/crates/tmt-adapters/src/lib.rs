@@ -3,9 +3,14 @@
 #[cfg(unix)]
 pub mod bounded_file;
 pub mod config;
+mod content_digest;
+#[cfg(unix)]
+mod file_lock;
 #[cfg(unix)]
 pub mod interrupt;
 mod json_document;
+#[cfg(unix)]
+pub mod native_install;
 #[cfg(unix)]
 pub mod process;
 pub mod reply_receipt;

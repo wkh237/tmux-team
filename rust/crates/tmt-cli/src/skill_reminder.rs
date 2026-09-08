@@ -19,6 +19,7 @@ fn eligible(parsed: &Parsed, interactive: bool) -> bool {
                 | Invocation::Learn { .. }
                 | Invocation::Install { .. }
                 | Invocation::Upgrade
+                | Invocation::NativeInstall { .. }
         )
 }
 
@@ -77,6 +78,13 @@ mod tests {
                 force: false,
             },
             Invocation::Upgrade,
+            Invocation::NativeInstall {
+                archive: "archive.tar.gz".into(),
+                manifest: "manifest.json".into(),
+                prefix: "/explicit-prefix".into(),
+                channel: tmt_core::native_install::Channel::Alpha,
+                pin: tmt_core::native_install::PinAction::Preserve,
+            },
         ] {
             parsed.invocation = invocation;
             assert!(!eligible(&parsed, true));

@@ -1,7 +1,7 @@
 //! One embedded authored source, materialized without a checkout dependency.
 
 use crate::bounded_file;
-use sha2::{Digest, Sha256};
+use crate::content_digest::sha256 as digest;
 use std::{
     fs,
     io::{self, Write},
@@ -10,13 +10,6 @@ use std::{
 use uuid::Uuid;
 
 pub(super) const SKILL: &[u8] = include_bytes!("../../../../../skills/tmux-team/SKILL.md");
-
-fn digest(bytes: &[u8]) -> String {
-    Sha256::digest(bytes)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
 
 fn invalid(path: &Path) -> io::Error {
     io::Error::new(

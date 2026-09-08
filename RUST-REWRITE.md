@@ -526,6 +526,12 @@ static musl. Per-target cargo-about notices, bounded archive inventory/extractio
 system/static linkage checks and isolated executable/skill/SQLite verification
 are separate from the transitional npm package matrix. See DEVELOPMENT's native
 Rust release archive procedure. Actual matching-platform execution remains a
-release gate; the target list is not itself a support claim. Bootstrap, binary
-ownership receipts, atomic updates, public provenance and installed-runtime
-cutover remain #82/#93 work, not capabilities supplied by an archive generator.
+release gate; the target list is not itself a support claim.
+
+Offline installer prerequisite #138 owns prefix-anchored receipts, version/pin
+policy and single-pointer release activation. Its internal entrypoint accepts
+local archives without application-state discovery. See ARCHITECTURE's managed
+native installation boundary for ownership and partial-finalization semantics.
+HTTPS bootstrap, public upgrade/update, skill refresh composition, authenticated
+public provenance and installed-runtime cutover remain #82/#93 work, not
+capabilities supplied by the archive generator or offline installer alone.

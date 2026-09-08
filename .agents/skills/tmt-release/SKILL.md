@@ -29,6 +29,12 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
   Verify the installed application's schema and behavior, not only driver loading
   or manifest equality. Keep broken-artifact failure and cleanup evidence; do not
   seed schema through checkout test helpers or ship test-only sources.
+- For native binary publication changes, also follow DEVELOPMENT's offline
+  installer lifecycle procedure using actual separately versioned archives.
+  Keep ownership anchored in the installation prefix, not application-state
+  selectors; verify old executable preservation, pin policy, partial command-link
+  finalization and unchanged data. The internal preview entrypoint is not a
+  public bootstrap or permission to replace a user/package-manager installation.
 - Promotion requires passing Code quality, Unit tests, and Docker E2E checks.
 - Tags, GitHub Releases, npm publishing, and npm dist-tags are separate operations that require explicit authorization; this skill never assumes permission for them.
 - Update user-facing installation or channel documentation whenever a version change would make it inaccurate.

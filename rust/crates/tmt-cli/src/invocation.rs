@@ -56,6 +56,13 @@ pub enum Invocation {
         force: bool,
     },
     Upgrade,
+    NativeInstall {
+        archive: String,
+        manifest: String,
+        prefix: String,
+        channel: tmt_core::native_install::Channel,
+        pin: tmt_core::native_install::PinAction,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

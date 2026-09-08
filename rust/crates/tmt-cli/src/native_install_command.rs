@@ -1,0 +1,91 @@
+//! Internal offline installer composition; no config discovery or skill mutation.
+
+use crate::{invocation::OutputMode, output::Failure};
+use std::{
+    io::{self, Write},
+    path::Path,
+};
+use tmt_core::native_install::{Channel, PinAction};
+
+pub fn execute(
+    archive: &str,
+    manifest: &str,
+    prefix: &str,
+    channel: Channel,
+    pin: PinAction,
+    mode: OutputMode,
+) -> io::Result<u8> {
+    let target = match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", "aarch64") => "aarch64-apple-darwin",
+        ("macos", "x86_64") => "x86_64-apple-darwin",
+        ("linux", "aarch64") => "aarch64-unknown-linux-musl",
+        ("linux", "x86_64") => "x86_64-unknown-linux-musl",
+        _ => {
+            return Failure::new(
+                "NATIVE_INSTALL_UNSUPPORTED",
+                "No native artifact is supported for this platform.",
+                1,
+            )
+            .publish(mode);
+        }
+    };
+    let interrupt = match tmt_adapters::interrupt::Interrupt::install() {
+        Ok(interrupt) => interrupt,
+        Err(error) => {
+            return Failure::new("NATIVE_INSTALL_FAILED", error.to_string(), 1)
+                .caused_by(error)
+                .publish(mode);
+        }
+    };
+    let request = tmt_adapters::native_install::InstallRequest {
+        archive: Path::new(archive),
+        manifest: Path::new(manifest),
+        prefix: Path::new(prefix),
+        target,
+        channel,
+        pin,
+    };
+    let report = match tmt_adapters::native_install::install(request, || {
+        if interrupt.is_interrupted() {
+            Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "Native installation interrupted before activation.",
+            ))
+        } else {
+            Ok(())
+        }
+    }) {
+        Ok(report) => report,
+        Err(error) => {
+            let exit = if error.kind() == io::ErrorKind::Interrupted {
+                130
+            } else {
+                1
+            };
+            return Failure::new("NATIVE_INSTALL_FAILED", error.to_string(), exit)
+                .caused_by(error)
+                .publish(mode);
+        }
+    };
+    let mut stdout = io::stdout().lock();
+    if mode.json {
+        writeln!(
+            stdout,
+            "{}",
+            serde_json::json!({"executable": report.executable, "version": report.version, "changed": report.changed})
+        )?;
+    } else {
+        writeln!(
+            stdout,
+            "{} tmt {} at {}",
+            if report.changed {
+                "Installed"
+            } else {
+                "Current"
+            },
+            report.version,
+            report.executable.display()
+        )?;
+    }
+    Ok(0)
+}

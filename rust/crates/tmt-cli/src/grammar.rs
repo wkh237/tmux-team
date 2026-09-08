@@ -190,6 +190,16 @@ pub fn grammar() -> Command {
         )
         .subcommand(general("completion", "Generate shell completion").arg(operand("shell", false)))
         .subcommand(general("upgrade", "Upgrade the CLI and refresh skills"))
+        .subcommand(
+            general("__native-install", "Internal offline native installation")
+                .hide(true)
+                .arg(Arg::new("archive").long("archive").required(true))
+                .arg(Arg::new("manifest").long("manifest").required(true))
+                .arg(Arg::new("prefix").long("prefix").required(true))
+                .arg(Arg::new("channel").long("channel").required(true).value_parser(["stable", "alpha"]))
+                .arg(Arg::new("pin").long("pin").action(ArgAction::SetTrue).conflicts_with("unpin"))
+                .arg(Arg::new("unpin").long("unpin").action(ArgAction::SetTrue)),
+        )
         .subcommand(with_options(
             general("learn", "Read agent guidance"),
             &["skill"],
