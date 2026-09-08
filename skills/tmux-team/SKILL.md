@@ -521,6 +521,18 @@ from provider discovery.
 
 ### Native preview installation differences
 
+Native release installers use a versioned `tmt-installer.sh` URL supplied by the
+release; public publication may still be pending. Never invent a working URL or
+use npm `upgrade` as a native migration. The shell bootstrap defaults to
+`~/.local/bin/tmt`, supports `--prefix`, `--pin` and `--no-skill`, and otherwise
+runs the new absolute command's skill installer. It does not migrate/delete data
+or uninstall npm/pnpm. Check both `tmt` and `tmux-team` PATH selection; stop old
+writers before switching and never share upgraded state with TypeScript.
+Old npm skill links can conflict: inspect first, then explicitly use the new
+absolute `tmt install --force` if replacement is intended. A skill failure can
+leave the native binary installed; do not report rollback or silently force.
+Read this skill again through the new executable before using remembered syntax.
+
 The selected Rust executable embeds this exact skill; viewing and installation
 work after moving the binary, without Node or a checkout. Native installs link
 an immutable digest-addressed source under TMT's global directory

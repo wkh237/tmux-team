@@ -493,14 +493,12 @@ upgrade. Do not weaken history validation or maintain a second native legacy
 mode just to preserve a transitional test. Native development uses isolated
 fixtures, never a live user database.
 
-Before release, #82/#93 must stop old writers, create a consistent recoverable
-backup and explain that binary rollback is not schema downgrade. Acceptance
-still requires every supported historical prefix, exact retained records,
-native concurrent lifecycle/attention races, and execution of old v1 receipts
-against migrated in-flight and retained requests. #106 owns receipt transition;
-this schema slice proves preservation, not execution. A restored pre-upgrade
-backup cannot include work written after upgrade; recovery must not promise
-lossless downgrade. Final cutover removes the production TS runtime and
+The user approved a fresh npm/pnpm replacement without data-transfer or
+backup/recovery machinery. Stop old writers before switching; the installer does
+not open, migrate or delete application data. Existing historical-schema,
+retained-record, native concurrency and receipt tests remain regression evidence,
+not a promise of mixed-runtime continuity or lossless downgrade. Binary rollback
+is not schema downgrade. Final cutover removes the production TS runtime and
 redundant transitional adapters; Node-based tests and historical fixtures may stay.
 
 ## Delivery gates
@@ -510,7 +508,7 @@ Next comes [executable selection (#95)](https://github.com/wkh237/tmux-team/issu
 then [native grammar (#96)](https://github.com/wkh237/tmux-team/issues/96) and
 [storage foundations (#97)](https://github.com/wkh237/tmux-team/issues/97), then
 the smallest identity-to-durable-reply vertical slice. Complete the remaining
-contracts and mixed-runtime matrix before cutover and distribution readiness.
+contracts and the approved native acceptance matrix before cutover and distribution readiness.
 Each implementation PR has its own issue/worktree, bounded contract matrix,
 local checks, primary review and one candidate CI push. Split any slice that
 cannot remain reviewable; preparation does not pre-authorize one giant rewrite PR.
@@ -537,6 +535,8 @@ Managed skill refresh prerequisite #141 supplies an internal new-executable
 entrypoint over the existing skill owner, preserving modified and missing
 integrations with partial-effect reporting. #142 wires it to native upgrade/update
 with bounded canonical HTTPS discovery and compare-before-activation fencing.
-HTTPS bootstrap, authenticated
-public provenance and installed-runtime cutover remain #82/#93 work, not
-capabilities supplied by the archive generator or offline installer alone.
+#144 adds a release-generated curl bootstrap over that same offline installer,
+with manifest-derived sizes/digests and fresh npm replacement guidance. Actual
+matching-host archives are tested without Node/Rust on runtime PATH. Public
+immutable publication, remaining target execution and installed-runtime cutover
+remain #82/#93 gates; a local generated installer is not a live download.

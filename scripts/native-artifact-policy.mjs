@@ -15,7 +15,7 @@ function archiveRootName(name) {
   return name.slice(0, -'.tar.gz'.length);
 }
 
-function readBoundedFile(file, limit) {
+export function readBoundedFile(file, limit) {
   const descriptor = fs.openSync(
     file,
     fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK
