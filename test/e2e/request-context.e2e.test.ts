@@ -36,6 +36,49 @@ async function identityId(fixture: E2EFixture, name: string): Promise<string> {
 }
 
 describe.sequential('TMT-55 request context and provenance', () => {
+  it('escapes sender markup without changing stored attribution or exact replies', async () => {
+    await withE2EFixture(async (fixture) => {
+      const peer = await fixture.createMockPane('escaped-sender-peer');
+      const sender = 'A&"<\'>&amp;';
+      expect((await fixture.runJsonCli(['identity', 'create', sender])).code).toBe(0);
+      const senderId = await identityId(fixture, sender);
+      const original = 'Review the sender label.';
+      const completed = json(
+        await fixture.runJsonCli<TalkOutput>(
+          [
+            'talk',
+            peer.pane,
+            original,
+            '--identity',
+            sender.toLowerCase(),
+            '--no-preamble',
+            '--timeout',
+            '8',
+          ],
+          { outsideTmux: true }
+        )
+      );
+      const request = await fixture.waitForEvent(
+        (event) =>
+          event.event === 'request' &&
+          event.requestId === completed.requestId &&
+          event.pid === peer.pid
+      );
+      expect(request.replyFrame).toBe('<tmt-reply from="A&amp;&quot;&lt;&apos;&gt;&amp;amp;">');
+      expect(request.message).toBe(original);
+      expect(completed.status).toBe('completed');
+      expect(completed.response).toBe(`mock-agent response: ${original}`);
+      expect(
+        requestAttempts(fixture).find((row) => row.request_id === completed.requestId)
+      ).toMatchObject({
+        originator_kind: 'explicit',
+        originator_identity_id: senderId,
+        message_text: original,
+        wait_active: 0,
+      });
+    });
+  });
+
   it('retains original bound context while delivery composes preamble and receipt framing', async () => {
     await withE2EFixture(
       async (fixture) => {
@@ -63,6 +106,7 @@ describe.sequential('TMT-55 request context and provenance', () => {
         );
         expect(request.message).toContain('[SYSTEM: Review before answering.]');
         expect(request.message).not.toContain('tmt reply');
+        expect(request.replyFrame).toBe('<tmt-reply from="Caller">');
 
         await fixture.waitFor(() =>
           requestAttempts(fixture).some(
@@ -229,6 +273,10 @@ describe.sequential('TMT-55 request context and provenance', () => {
         '--detach',
       ]);
       const boundExplicitOutput = json(boundExplicit);
+      const boundRequest = await fixture.waitForEvent(
+        (event) => event.event === 'request' && event.requestId === boundExplicitOutput.requestId
+      );
+      expect(boundRequest.replyFrame).toBe('<tmt-reply from="Caller">');
       await fixture.waitForEvent(
         (event) => event.event === 'submitted' && event.requestId === boundExplicitOutput.requestId,
         5_000
@@ -250,13 +298,17 @@ describe.sequential('TMT-55 request context and provenance', () => {
           'Peer',
           'explicit offline caller',
           '--identity',
-          'Caller',
+          'caller',
           '--no-preamble',
           '--detach',
         ],
         { outsideTmux: true }
       );
       const explicitOutput = json(explicit);
+      const explicitRequest = await fixture.waitForEvent(
+        (event) => event.event === 'request' && event.requestId === explicitOutput.requestId
+      );
+      expect(explicitRequest.replyFrame).toBe('<tmt-reply from="Caller">');
       await fixture.waitForEvent(
         (event) => event.event === 'submitted' && event.requestId === explicitOutput.requestId,
         5_000
@@ -308,6 +360,10 @@ describe.sequential('TMT-55 request context and provenance', () => {
         { outsideTmux: true }
       );
       const unknownRecipientOutput = json(unknownRecipient);
+      const unknownRequest = await fixture.waitForEvent(
+        (event) => event.event === 'request' && event.requestId === unknownRecipientOutput.requestId
+      );
+      expect(unknownRequest.replyFrame).toBe('<tmt-reply from="unknown">');
       await fixture.waitForEvent(
         (event) =>
           event.event === 'submitted' && event.requestId === unknownRecipientOutput.requestId,

@@ -34,6 +34,7 @@ export interface MockEvent {
   line?: string;
   requestId?: string;
   receipt?: string;
+  replyFrame?: string;
   body?: string;
   bodyBytes?: number;
   submittedAtMs?: number;

@@ -308,19 +308,20 @@ input.on('line', (line) => {
     return;
   }
 
+  const replyFrame = /^<tmt-reply from="[^"<]*">$/.test(line);
   if (guidancePending) {
-    if (line === '<tmt-reply>') {
+    if (replyFrame) {
       appendEvent({ event: 'failure', stage: 'frame-guidance', mode, pid: process.pid });
       guidancePending = false;
-      frame = { lines: [] };
+      frame = { opening: line, lines: [] };
       return;
     }
     guidancePending = false;
     return;
   }
 
-  if (line === '<tmt-reply>') {
-    frame = { lines: [] };
+  if (replyFrame) {
+    frame = { opening: line, lines: [] };
     return;
   }
   if (frame) {
@@ -337,7 +338,15 @@ input.on('line', (line) => {
       }
       const requestId = command.requestId;
       const receipt = command.receipt;
-      appendEvent({ event: 'request', message, requestId, receipt, mode, pid: process.pid });
+      appendEvent({
+        event: 'request',
+        message,
+        requestId,
+        receipt,
+        replyFrame: current.opening,
+        mode,
+        pid: process.pid,
+      });
       if (mode === 'silent') {
         appendEvent({ event: 'silent', message, requestId, mode, pid: process.pid });
         return;

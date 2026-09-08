@@ -16,14 +16,18 @@ pub(super) fn prepare(
     interrupt: Option<&Interrupt>,
 ) -> Result<Prepared, Failure> {
     let observed = target::resolve(storage, tmux, &input.target)?;
-    let originator = identity_context::optional(storage, tmux, input.originator.as_deref())?
-        .map_or(Originator::Unknown, |identity| {
-            if input.originator.is_some() {
-                Originator::Explicit(identity.id)
-            } else {
-                Originator::Verified(identity.id)
-            }
-        });
+    let (originator, sender) =
+        identity_context::optional(storage, tmux, input.originator.as_deref())?.map_or(
+            (Originator::Unknown, "unknown".to_owned()),
+            |identity| {
+                let originator = if input.originator.is_some() {
+                    Originator::Explicit(identity.id)
+                } else {
+                    Originator::Verified(identity.id)
+                };
+                (originator, identity.name)
+            },
+        );
     let (request_id, attempt_id) = request_ids();
     let correlation = Correlation {
         request_id,
@@ -114,7 +118,8 @@ pub(super) fn prepare(
         input.message.clone()
     };
     let payload = format!(
-        "{message}\n\n<tmt-reply>\ntmt reply {} --receipt {receipt} --message <text>\n</tmt-reply>\nSubmit your response with the command above. Chat output alone does not complete the request. After successful submission, show a brief summary; report submission errors.",
+        "{message}\n\n<tmt-reply from=\"{}\">\ntmt reply {} --receipt {receipt} --message <text>\n</tmt-reply>\nSubmit your response with the command above. Chat output alone does not complete the request. After successful submission, show a brief summary; report submission errors.",
+        escape_sender_attribute(&sender),
         correlation.request_id
     );
     Ok(Prepared {
@@ -124,4 +129,39 @@ pub(super) fn prepare(
         payload,
         previous_request_id: prepared.previous_request_id,
     })
+}
+
+// Presentation only: keep identity resolution and stored message bytes unchanged.
+fn escape_sender_attribute(name: &str) -> String {
+    let mut escaped = String::with_capacity(name.len());
+    for character in name.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&apos;"),
+            _ => escaped.push(character),
+        }
+    }
+    escaped
+}
+
+#[cfg(test)]
+mod tests {
+    use super::escape_sender_attribute;
+
+    #[test]
+    fn sender_attribute_preserves_plain_names_and_escapes_input_once() {
+        assert_eq!(escape_sender_attribute("Alice Team"), "Alice Team");
+        assert_eq!(escape_sender_attribute("unknown"), "unknown");
+        assert_eq!(
+            escape_sender_attribute("A&\"<'>&amp;"),
+            "A&amp;&quot;&lt;&apos;&gt;&amp;amp;"
+        );
+        assert_eq!(
+            escape_sender_attribute("\"><tmt-reply from=\"other"),
+            "&quot;&gt;&lt;tmt-reply from=&quot;other"
+        );
+    }
 }

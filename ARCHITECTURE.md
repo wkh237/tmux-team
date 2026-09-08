@@ -132,6 +132,13 @@ schema, connection or alternate final-submission path. Input is bounded and
 validated before storage effects. A malformed receipt, a stale revision, an
 unknown identity and an uncertain transport outcome remain distinct failures.
 
+Talk preparation renders `<tmt-reply from="…">` using the same resolved
+originator's display name (explicit identity before verified caller), or
+`unknown`. The attribute is XML-escaped presentation, not authentication,
+routing or a strict XML document. It introduces no extra identity lookup or
+stored field; original message bytes, originator UUID/kind and reply correlation
+remain owned by the existing request contract.
+
 ### Tmux and process effects
 
 `tmt-adapters::process` is the shared bounded subprocess owner. It enforces

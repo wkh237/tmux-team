@@ -241,13 +241,13 @@ describe.sequential('TMT-24 safe transport', () => {
           .filter((event) => event.event === 'input' && event.pid === fixture.panePid)
           .map((event) => event.line);
         expect(lines).toContain('！ protected bang');
-        const begin = lines.indexOf('<tmt-reply>');
+        const begin = lines.indexOf('<tmt-reply from="unknown">');
         const end = lines.indexOf('</tmt-reply>');
         expect(begin).toBeGreaterThanOrEqual(0);
         expect(end).toBeGreaterThan(begin);
         const frame = lines.slice(begin, end + 1);
         expect(frame).toHaveLength(3);
-        expect(frame[0]).toBe('<tmt-reply>');
+        expect(frame[0]).toBe('<tmt-reply from="unknown">');
         expect(frame[2]).toBe('</tmt-reply>');
         expect(frame[1]).toMatch(
           /^tmt reply req_[0-9a-f-]+ --receipt [A-Za-z0-9_-]+ --message <text>$/

@@ -100,8 +100,11 @@ have operating-system size limits and cannot contain NUL; use file/stdin for
 large bodies or NUL-containing text. All sources share the same exact-body
 validation and immutable submission rules.
 
-Received instructions group the reply command in `<tmt-reply>` tags, with the
-request ID and receipt supplied once. These tags do not guarantee hidden UI
+Received instructions group the reply command in `<tmt-reply from="alice">` tags,
+with the request ID and receipt supplied once. `from` is the XML-escaped sender
+display name (explicit `--identity`, otherwise the verified caller), or `unknown`
+when unavailable. It is attribution, not authentication or reply routing. This is
+XML-style framing, not a strict XML document. These tags do not guarantee hidden UI
 rendering and are not terminal-output completion markers. Replace the message
 placeholder with your complete response, or use file/stdin with the same
 request ID and receipt.
