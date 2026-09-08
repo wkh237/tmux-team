@@ -1,5 +1,5 @@
 use super::Interrupt;
-use crate::test_support::TestDirectory;
+use crate::test_support::{TestChild, TestDirectory};
 use nix::{
     sys::signal::{Signal, kill},
     unistd::Pid,
@@ -7,8 +7,7 @@ use nix::{
 use std::{
     env, fs,
     os::unix::process::ExitStatusExt,
-    path::Path,
-    process::{Child, Command, ExitStatus, Stdio},
+    process::{Command, Stdio},
     thread,
     time::{Duration, Instant},
 };
@@ -17,15 +16,15 @@ const FIXTURE_TEST: &str = "interrupt::tests::subprocess_fixture";
 const FIXTURE_MODE: &str = "TMT_INTERRUPT_TEST_MODE";
 const FIXTURE_READY: &str = "TMT_INTERRUPT_TEST_READY";
 const FIXTURE_EVENT: &str = "TMT_INTERRUPT_TEST_EVENT";
-const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(2);
 const EXIT_TIMEOUT: Duration = Duration::from_secs(3);
 
 struct Fixture {
+    // Drop the child before the directory removes its readiness/event paths.
+    child: TestChild,
     _directory: TestDirectory,
     ready: std::path::PathBuf,
     event: std::path::PathBuf,
-    child: Child,
 }
 
 impl Fixture {
@@ -47,62 +46,13 @@ impl Fixture {
             _directory: directory,
             ready,
             event,
-            child,
-        }
-    }
-
-    fn wait_for_content(&mut self, path: &Path, expected: &str, timeout: Duration) {
-        let deadline = Instant::now() + timeout;
-        loop {
-            if fs::read_to_string(path).ok().as_deref() == Some(expected) {
-                return;
-            }
-            if let Some(status) = self
-                .child
-                .try_wait()
-                .expect("inspect interrupt fixture status")
-            {
-                panic!(
-                    "interrupt fixture exited before {}: {status}",
-                    path.display()
-                );
-            }
-            assert!(
-                Instant::now() < deadline,
-                "interrupt fixture did not publish {expected:?} to {}",
-                path.display(),
-            );
-            thread::sleep(POLL_INTERVAL);
-        }
-    }
-
-    fn wait_for_exit(&mut self, timeout: Duration) -> ExitStatus {
-        let deadline = Instant::now() + timeout;
-        loop {
-            if let Some(status) = self
-                .child
-                .try_wait()
-                .expect("inspect interrupt fixture status")
-            {
-                return status;
-            }
-            assert!(Instant::now() < deadline, "interrupt fixture did not exit");
-            thread::sleep(POLL_INTERVAL);
-        }
-    }
-}
-
-impl Drop for Fixture {
-    fn drop(&mut self) {
-        if matches!(self.child.try_wait(), Ok(None)) {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
+            child: TestChild::new(child),
         }
     }
 }
 
 fn fixture_pid(fixture: &Fixture) -> Pid {
-    Pid::from_raw(i32::try_from(fixture.child.id()).expect("fixture PID fits in pid_t"))
+    Pid::from_raw(i32::try_from(fixture.child.child.id()).expect("fixture PID fits in pid_t"))
 }
 
 fn event(fixture: &Fixture) -> String {
@@ -118,10 +68,12 @@ fn open_fd_count() -> usize {
 #[test]
 fn sigint_wakes_a_task_owned_wait() {
     let mut fixture = Fixture::start("wake");
-    fixture.wait_for_content(&fixture.ready.clone(), "ready", STARTUP_TIMEOUT);
+    fixture
+        .child
+        .wait_for_content(&fixture.ready.clone(), "ready", STARTUP_TIMEOUT);
     kill(fixture_pid(&fixture), Signal::SIGINT).expect("send SIGINT to fixture child");
 
-    let status = fixture.wait_for_exit(EXIT_TIMEOUT);
+    let status = fixture.child.wait_for_exit(EXIT_TIMEOUT);
     assert!(status.success(), "fixture failed after SIGINT: {status}");
     assert_eq!(event(&fixture), "interrupted");
 }
@@ -129,13 +81,17 @@ fn sigint_wakes_a_task_owned_wait() {
 #[test]
 fn second_sigint_uses_the_emergency_default() {
     let mut fixture = Fixture::start("second");
-    fixture.wait_for_content(&fixture.ready.clone(), "ready", STARTUP_TIMEOUT);
+    fixture
+        .child
+        .wait_for_content(&fixture.ready.clone(), "ready", STARTUP_TIMEOUT);
     kill(fixture_pid(&fixture), Signal::SIGINT).expect("send first SIGINT to fixture child");
-    fixture.wait_for_content(&fixture.event.clone(), "first-interrupted", STARTUP_TIMEOUT);
+    fixture
+        .child
+        .wait_for_content(&fixture.event.clone(), "first-interrupted", STARTUP_TIMEOUT);
     assert_eq!(event(&fixture), "first-interrupted");
 
     kill(fixture_pid(&fixture), Signal::SIGINT).expect("send second SIGINT to fixture child");
-    let status = fixture.wait_for_exit(EXIT_TIMEOUT);
+    let status = fixture.child.wait_for_exit(EXIT_TIMEOUT);
     assert_eq!(
         status.signal(),
         Some(Signal::SIGINT as i32),
@@ -146,9 +102,11 @@ fn second_sigint_uses_the_emergency_default() {
 #[test]
 fn deadline_returns_without_a_signal() {
     let mut fixture = Fixture::start("deadline");
-    fixture.wait_for_content(&fixture.ready.clone(), "ready", STARTUP_TIMEOUT);
+    fixture
+        .child
+        .wait_for_content(&fixture.ready.clone(), "ready", STARTUP_TIMEOUT);
 
-    let status = fixture.wait_for_exit(EXIT_TIMEOUT);
+    let status = fixture.child.wait_for_exit(EXIT_TIMEOUT);
     assert!(status.success(), "deadline fixture failed: {status}");
     assert_eq!(event(&fixture), "deadline-no-signal");
 }
@@ -156,9 +114,11 @@ fn deadline_returns_without_a_signal() {
 #[test]
 fn guard_drop_releases_descriptors_and_allows_reinstallation() {
     let mut fixture = Fixture::start("drop");
-    fixture.wait_for_content(&fixture.ready.clone(), "ready", STARTUP_TIMEOUT);
+    fixture
+        .child
+        .wait_for_content(&fixture.ready.clone(), "ready", STARTUP_TIMEOUT);
 
-    let status = fixture.wait_for_exit(EXIT_TIMEOUT);
+    let status = fixture.child.wait_for_exit(EXIT_TIMEOUT);
     assert!(status.success(), "drop fixture failed: {status}");
     assert_eq!(event(&fixture), "reinstalled");
 }

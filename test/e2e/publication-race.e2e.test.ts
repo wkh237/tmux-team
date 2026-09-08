@@ -185,56 +185,65 @@ describe.sequential('crash-safe identity publication', () => {
       contender: (fixture: E2EFixture, pane: string) => ['--json', 'add', pane, 'Anchor'],
       expectedCode: 'NAME_ALREADY_ACTIVE',
       expectedBindings: 1,
+      expectedIdentities: 1,
     },
     {
       label: 'different name on the same pane',
       contender: (_fixture: E2EFixture, _pane: string) => ['--json', 'name', 'Challenger'],
       expectedCode: 'PANE_ALREADY_BOUND',
       expectedBindings: 1,
+      expectedIdentities: 2,
     },
     {
       label: 'same canonical name on the same pane',
       contender: (_fixture: E2EFixture, _pane: string) => ['--json', 'name', 'ａｎｃｈｏｒ'],
       expectedCode: undefined,
       expectedBindings: 1,
+      expectedIdentities: 1,
     },
     {
       label: 'different name on another pane',
       contender: (fixture: E2EFixture, pane: string) => ['--json', 'add', pane, 'Challenger'],
       expectedCode: undefined,
       expectedBindings: 2,
+      expectedIdentities: 2,
     },
   ])(
     'serializes $label without deleting the winner',
-    async ({ contender, expectedCode, expectedBindings }) => {
+    async ({ contender, expectedCode, expectedBindings, expectedIdentities }) => {
       await withE2EFixture(
         async (fixture) => {
           const peer = await fixture.createMockPane('peer');
-          const binder = fixture.runCliProcess(['--json', 'name', 'Anchor']);
+          const binder = fixture.runCliProcess<{ id: string }>(['--json', 'name', 'Anchor']);
           await fixture.waitForMetadataBarrier('entered');
           expect(writerIsLocked(fixture)).toBe(true);
 
-          const contenderProgress = path.join(fixture.root, 'contender-started');
-          const contenderProcess = fixture.runCliProcess(contender(fixture, peer.pane), {
-            progressFile: contenderProgress,
-          });
+          const contenderProcess = fixture.runCliProcess(contender(fixture, peer.pane));
           await fixture.waitFor(
-            () => fs.existsSync(contenderProgress),
+            () => processTreeHasOpenFile(contenderProcess.pid, databaseFile(fixture)),
             900,
-            'contender to invoke tmux'
+            'independent contender to open SQLite before publication commit'
           );
+          expect(writerIsLocked(fixture)).toBe(true);
 
           fixture.releaseMetadataBarrier();
-          await waitForSuccess(binder);
+          const winner = await waitForSuccess<{ id: string }>(binder);
           const contenderResult = await contenderProcess.result;
           if (expectedCode) {
             expect(contenderResult.code).toBe(5);
             expect(json(contenderResult)).toMatchObject({ error: { code: expectedCode } });
           } else {
             expect(contenderResult.code, contenderResult.stderr || contenderResult.stdout).toBe(0);
+            if (expectedIdentities === 1) {
+              expect(json(contenderResult)).toMatchObject({ id: winner.id });
+            }
           }
 
-          expect(durableCounts(fixture)).toMatchObject({ bindings: expectedBindings });
+          expect(durableCounts(fixture)).toMatchObject({
+            identities: expectedIdentities,
+            bindings: expectedBindings,
+          });
+          expect(durableIdentity(fixture, 'anchor').id).toBe(winner.id);
           await assertPublished(fixture, 'Anchor');
         },
         { metadataBarrier: { phase: 'before' } }

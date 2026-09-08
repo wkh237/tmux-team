@@ -937,6 +937,21 @@ must remain auditable; never regenerate the expected results with the native
 implementation under test. The read-only SQL snapshot oracle still owns full
 structural/data comparisons, while schema 9 behavior has explicit assertions.
 
+Native adapter process fixtures share test-only `TestChild` alongside
+`TestDirectory`. Child status remains owned by `std::process::Child`; no parallel
+reaped flag is maintained. Declare an owned child before its directory so Rust's
+field-drop order stops/reaps it before deleting files. Panic/timeout tests check
+reaping directly, not merely an absent marker after a sleep. Existing interrupt,
+bounded-file and installer fixtures consume this same owner.
+
+The request crash test decorates only `RequestRepository`'s transaction callback:
+it pauses after actual service preparation writes, before the real SQLite commit.
+A task-owned subprocess is killed there; read-only snapshots and a commit-enabled
+control distinguish real rollback from a fixture that never wrote anything. No
+product test command, duplicate SQL mutation layer or nested transaction support
+is added. Ordered final/failure and equal-expiry tests use separately opened
+connections and both serialized orders, distinct from simultaneous writer tests.
+
 Identity, request and response concurrency suites share the bounded process
 harness in `src/test-support/request-workers.ts`. Each scenario owns its handles
 and stops workers in `finally` before deleting fixture files. Worker entrypoints
