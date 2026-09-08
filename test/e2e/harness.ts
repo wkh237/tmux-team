@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { TMUX_COMMAND_INSPECTION } from './tmux-command-inspection.js';
 import {
   resolveCliExecutables,
   type CliExecutables,
@@ -200,23 +201,7 @@ metadata_write=0
 metadata_clear=0
 # Keep explicit-socket native calls visible to the same barriers and fault injection.
 # Inspect the command without changing argv passed to the real tmux binary.
-tmux_command=""
-tmux_command_arg_count=0
-tmux_last_arg=""
-skip_option_value=0
-for arg in "${'$'}@"; do
-  if [ -n "${'$'}tmux_command" ]; then
-    tmux_command_arg_count=${'$'}((tmux_command_arg_count + 1))
-    tmux_last_arg="${'$'}arg"
-    continue
-  fi
-  if [ "${'$'}skip_option_value" = "1" ]; then skip_option_value=0; continue; fi
-  case "${'$'}arg" in
-    -S|-L|-f) skip_option_value=1 ;;
-    -*) ;;
-    *) tmux_command="${'$'}arg" ;;
-  esac
-done
+${TMUX_COMMAND_INSPECTION}
 if [ "${'$'}tmux_command" = "capture-pane" ]; then
   case "${'$'}{TMT_E2E_CAPTURE_FAULT:-}" in
     exit) exit 97 ;;

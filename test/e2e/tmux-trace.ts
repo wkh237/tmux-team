@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import type { E2EFixture } from './harness.js';
+import { TMUX_COMMAND_INSPECTION } from './tmux-command-inspection.js';
 
 export interface TmuxTrace {
   readonly path: string;
@@ -34,7 +35,8 @@ trace_args="${'$'}*"
 case "${'$'}trace_args" in
   *"${'$'}trace_newline"*) trace_args=$(printf '%s' "${'$'}trace_args" | tr '\n' ' ') ;;
 esac
-printf '%s\\t%s\\n' "${'$'}1" "${'$'}trace_args" >> ${shellQuote(tracePath)}
+${TMUX_COMMAND_INSPECTION}
+printf '%s\\t%s\\n' "${'$'}tmux_command" "${'$'}trace_args" >> ${shellQuote(tracePath)}
 exec ${shellQuote(delegatedWrapperPath)} "${'$'}@"
 `,
     { mode: 0o755 }

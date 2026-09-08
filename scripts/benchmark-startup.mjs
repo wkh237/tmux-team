@@ -5,6 +5,7 @@ import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { runPackedCommand } from './packed-command.mjs';
 import { resolveCliExecutables } from '../src/test-support/cli-executable.mjs';
+import { assertBenchmarkHelp } from '../src/test-support/performance-contract.mjs';
 
 // Resource measurement is deliberately macOS-only. Docker scenarios own tmux
 // latency; do not compare these resource samples to Linux timing samples.
@@ -68,13 +69,19 @@ try {
     assert.equal(fs.existsSync(forbidden), false, 'Storage/startup invoked tmux.');
   };
   for (let index = 0; index < 7; index += 1) {
-    measure('help', ['--help'], (stdout) => assert.match(stdout, /TALK OPTIONS/));
+    measure('help', ['--help'], assertBenchmarkHelp);
     env.TMUX_TEAM_HOME = path.join(home, `fresh-${index}`);
+    let createdIdentity;
     measure('fresh-storage-create', ['--json', 'identity', 'create', 'Bench'], (stdout) => {
-      assert.equal(JSON.parse(stdout).created, true);
+      const result = JSON.parse(stdout);
+      assert.equal(result.created, true);
+      assert.equal(result.identity.name, 'Bench');
+      assert.equal(result.identity.canonicalName, 'bench');
+      assert.match(result.identity.id, /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/);
+      createdIdentity = result.identity;
     });
     measure('existing-storage-show', ['--json', 'identity', 'show', 'Bench'], (stdout) => {
-      assert.equal(JSON.parse(stdout).identity.name, 'Bench');
+      assert.deepEqual(JSON.parse(stdout).identity, createdIdentity);
     });
   }
   console.log(

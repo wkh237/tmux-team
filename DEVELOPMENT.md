@@ -29,9 +29,9 @@ pnpm dev -- --help
 
 ## Running Tests
 
-### Native development preview
+### Native runtime development
 
-The `rust/` workspace is not the installed runtime yet. It implements only
+The `rust/` workspace owns the published standalone native alpha. It implements
 help/version/completion, typed grammar, the existing `config` command and
 storage-only `identity create/show/list` under #113, and pane identity
 `name`/`this`/`add`/`whoami`/`unbind`/`rm`/`list` under #109, plus storage-only
@@ -40,7 +40,10 @@ storage-only `identity create/show/list` under #113, and pane identity
 and `init`/`learn`/managed skill installation under #133.
 Native `upgrade`/`update` under #142 compose verified HTTPS acquisition, the
 offline publication owner and new-executable managed-skill refresh. Public
-release availability and installed-runtime cutover remain separate gates.
+release alpha.2 is verified under #147; removing the transitional TypeScript
+reference and its test/packaging dependencies remains #93. The detailed slice
+notes below distinguish unit, adapter and end-to-end evidence; an earlier
+slice's limited coverage is not the current command inventory.
 The #118 request/final service is the shared transactional foundation;
 public reply/result composition is supplied by #122 and talk by #129. Its real SQLite
 tests run in ordinary adapter Cargo tests and therefore in the existing Docker
@@ -251,6 +254,12 @@ For runtime-rewrite work, read [RUST-REWRITE.md](RUST-REWRITE.md) for the propos
 boundaries and parity gates. The optional [performance baseline](PERFORMANCE-BASELINE.md)
 reuses the Docker E2E harness and separately measures macOS startup resources.
 Its wall-clock samples are diagnostic evidence, not an ordinary CI timing gate.
+For paired measurements, build that same Dockerfile with
+`--build-arg TMT_NATIVE_PROFILE=release`. The default remains `dev` for ordinary
+regression runs; only the measured CLI changes profile, while adapter tests and
+the development probe remain debug builds. Select `/opt/tmt-tests/tmt` explicitly
+with `TMT_TEST_CLI`; the mock peer inherits that selection. Never compare the
+default debug executable to the TypeScript reference and call it release evidence.
 
 - Watch mode:
 

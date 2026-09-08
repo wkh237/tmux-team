@@ -1,4 +1,97 @@
-# TypeScript runtime baseline
+# Runtime performance evidence
+
+## Native closeout comparison (#151)
+
+The native alpha is published. Before removing the TypeScript reference, this
+comparison measures both runtimes from source `e3c8bd7e9a2fdaab0ccfe59a03be7967a7719fcb`
+on the same host with unchanged command defaults. All raw observations, source
+trees, build identity and failed-calibration dispositions are retained in
+[paired evidence](benchmarks/native-paired-performance.json). The historical
+baseline below remains unchanged evidence, not the denominator for this comparison.
+
+The native build uses Rust 1.97.0, locked dependencies, release optimization,
+thin LTO and stripped debug information. macOS uses aarch64-apple-darwin; Docker
+uses aarch64-unknown-linux-gnu in the existing pinned Bookworm fixture. The latter
+is not the published static-musl archive. The measured macOS executable is
+7,344,960 bytes. These are same-source optimized builds, not an installed-binary
+update or a claim that different target linkages have identical performance.
+
+### Paired startup resources
+
+Collected on 2026-09-08, Apple M4 Pro/arm64, Darwin 25.6.0 and Node 24.20.0
+for test tooling. Order was TS, native, native, TS, with seven fresh-process
+samples per scenario per run. No other task-owned build/test workload ran during
+collection; host-wide quiescence and dropped OS caches are not claimed.
+
+| Scenario              | TS median ms, runs 1 / 2 | Native median ms, runs 1 / 2 | TS median RSS MB, runs 1 / 2 | Native median RSS MB, runs 1 / 2 |
+| --------------------- | ------------------------ | ---------------------------- | ---------------------------- | -------------------------------- |
+| Help                  | 156.72 / 158.82          | 14.85 / 15.03                | 100.73 / 100.37              | 8.39 / 8.36                      |
+| Fresh storage create  | 162.37 / 165.69          | 18.90 / 19.16                | 102.25 / 102.04              | 11.17 / 11.16                    |
+| Existing storage show | 158.66 / 158.81          | 15.41 / 16.42                | 100.30 / 100.56              | 10.47 / 10.47                    |
+
+All paired medians exceed the previously recorded 30% wall/RSS improvement goal:
+roughly 88–91% less wall time and 89–92% less maximum RSS in these scenarios.
+TS median per-sample user+system CPU is 0.18–0.19 seconds; native medians round
+to 0.00 at the time tool's centisecond precision. This is not zero CPU usage.
+RSS is a process-tree maximum, not summed concurrent memory. Wall time includes
+the measurement wrappers. Show must return the exact identity UUID/content
+created by the preceding process, not merely a matching display name.
+
+### Paired private-tmux latency
+
+For each peer delay, collection order was TS, native, native, TS in separate
+network-isolated containers from the same image.
+The Docker VM exposes 12 CPUs and 8,319,238,144 bytes of memory, without additional
+per-container CPU or memory limits in either runtime's run. Both originator and mock-reply
+CLI descriptors select the same runtime. Each repeated series has seven samples;
+fresh identity creation has one per container. All eight reports passed exact
+reply/result, independent identity-state, no-tmux and fixture-cleanup assertions.
+
+| Scenario                   | TS median ms, runs 1 / 2 | Native median ms, runs 1 / 2 | Traced tmux calls TS / native |
+| -------------------------- | ------------------------ | ---------------------------- | ----------------------------- |
+| Whoami, small              | 167.20 / 156.20          | 10.05 / 7.99                 | 5 / 4                         |
+| Whoami, 201 panes          | 167.39 / 160.90          | 9.66 / 10.77                 | 5 / 4                         |
+| Check, small               | 165.00 / 157.00          | 9.68 / 10.83                 | 6 / 5                         |
+| Check, 201 panes           | 167.76 / 161.17          | 13.11 / 12.17                | 6 / 5                         |
+| Talk, immediate mock final | 707.01 / 707.79          | 538.87 / 543.08              | 13 / 12                       |
+| Result, immediate series   | 151.37 / 143.47          | 2.04 / 2.11                  | 0 / 0                         |
+| Talk, 1,500 ms mock delay  | 2720.55 / 2717.57        | 1544.16 / 1543.94            | 13 / 12                       |
+
+The deterministic small/large scoped subprocess-count gates pass for every
+sample, and there is no repeated native-versus-TS scoped median regression.
+Constant call counts do not imply constant internal tmux traversal time: native
+large-session checks still take several milliseconds more than small ones.
+Counts include fixture session discovery and are not total OS process counts.
+
+Both reports observe the same 500 ms paste/Enter delay and 1-second poll interval;
+the benchmark uses an 8-second timeout and no preamble. Reply arrival relative
+to polling can move completion by an entire interval. The delayed round-trip
+difference is not a direct measurement of pure TMT processing or permission to
+subtract the mock delay and claim service time. No production timing changed.
+
+### Measurement corrections and remaining limits
+
+The old help-heading assertion rejected native output. Both benchmarks now use
+one independent command-presence oracle with missing-command/false-output tests.
+An initial native tmux calibration then failed because the trace labeled the
+global `-S` option as the command. Tracing now shares the fixture's existing
+argv inspection; actual ambient/explicit-socket buffer round trips preserve
+multiline and option-like payload bytes. Neither failed calibration produced
+accepted native timing evidence; all paired Docker runs were recollected.
+
+Reproduce using the existing commands below, adding
+`--build-arg TMT_NATIVE_PROFILE=release` to Docker build and selecting
+`TMT_TEST_CLI='{"executable":"/opt/tmt-tests/tmt","args":[]}'` for native container
+runs. The peer inherits that descriptor. Default Docker regression builds remain
+debug; the profile option only selects the measured CLI, not another harness.
+
+This satisfies paired startup/scoped-latency acceptance, not all of #93.
+Complete Docker request-process CPU/RSS, sustained contention, multiple active
+peers and cross-platform distributions remain unmeasured. No high-volume capacity
+or universal speedup claim follows from these results. Source/test ownership
+cleanup is sequenced in #152 before removal of the reference runtime.
+
+## Historical TypeScript baseline
 
 Owner: [#94](https://github.com/wkh237/tmux-team/issues/94), under the
 [Rust rewrite decision](RUST-REWRITE.md). Production reference:
