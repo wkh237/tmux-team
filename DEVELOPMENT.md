@@ -36,8 +36,9 @@ help/version/completion, typed grammar, the existing `config` command and
 storage-only `identity create/show/list` under #113, and pane identity
 `name`/`this`/`add`/`whoami`/`unbind`/`rm`/`list` under #109, plus storage-only
 `reply`/`result` under #122, diagnostic `check`/`read` under #125, and
-`role`/`preamble` under #127, and durable `talk` under #129.
-Other effectful commands still explicitly fail.
+`role`/`preamble` under #127, durable `talk` under #129, X attention under #131,
+and `init`/`learn`/managed skill installation under #133.
+Native network `upgrade` still explicitly fails.
 The #118 request/final service is the shared transactional foundation;
 public reply/result composition is supplied by #122 and talk by #129. Its real SQLite
 tests run in ordinary adapter Cargo tests and therefore in the existing Docker
@@ -494,7 +495,8 @@ inventory rejects retired provider/plugin assets. Semantic review remains
 necessary: byte equality does not prove correct agent behavior.
 `tmt learn --skill` is the exact viewer; plain `learn` is the short guide.
 
-Provider names and ordering belong to `src/skill-installation.ts`. Installation
+For the installed TypeScript reference, provider names and ordering belong to
+`src/skill-installation.ts`. Installation
 and completion consume that inventory; provider detection and legacy-backup
 policy remain in their existing adapters. Test derivation with an altered
 inventory, not only matching copies of the current provider names.
@@ -509,6 +511,21 @@ loader or live discovery evidence separately from TMT's filesystem tests.
 Use provider-native locations when the supported installed baseline does not
 discover newer shared paths; never add a second content source or silently edit
 provider configuration to make a smoke test pass.
+
+The Rust preview uses `tmt-core::skill_provider::Provider` for the native name/order
+inventory and `tmt-adapters::skill_installation` for provider locations, embedded
+assets, path guards, lock, bounded installation intents, publication and local
+drift inspection. It never calls the TypeScript installer. `test/native/installation.test.ts`
+runs a moved binary with task-owned PATH, exact canonical bytes, isolated state,
+every provider/custom target, concurrent init, conflicts and recoverable backups.
+Adapter tests exercise refresh, source modification, alias overlap, lock release,
+and real partial effects around an injected link-publication failure. Inspect
+backup bytes and registry JSON independently rather than matching log strings.
+Only interactive non-JSON human commands inspect known provider paths for drift;
+machine/setup invocations skip the inspection. No custom registry or executable
+PATH scan belongs on ordinary commands. Run the full native process suite and
+two Docker lifecycle passes when changing publication/cleanup. These tests do
+not establish remote release availability or native binary update acceptance.
 
 ## Packed native-install verification
 

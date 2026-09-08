@@ -717,7 +717,8 @@ is `/tmux-team`, not a separately maintained slash-command contract.
 The educational learn guide points to the canonical viewer and grammar-backed
 help rather than owning another command inventory.
 
-The ordered provider list and its derived type live in `skill-installation.ts`.
+For the installed TypeScript reference, the ordered provider list and its derived
+type live in `skill-installation.ts`.
 Installer acceptance, install-all expansion and completion consume that owner;
 provider environment detection and Codex-specific backup rules remain installer
 policies. Command and option grammar still belongs to the parser.
@@ -743,7 +744,7 @@ Before mutation, source/destination overlap is rejected, including destination
 parents that alias the bundled source through symlinks. Force is not permission
 to move the installed package source or create a recursive self-link.
 
-`src/skill-installation.ts` owns shared package-root, bundled-source, managed-target,
+In that reference runtime, `src/skill-installation.ts` owns shared package-root, bundled-source, managed-target,
 and legacy directory candidate resolution used by install, the viewer and local
 drift inspection. Candidate resolution operates without package-root discovery,
 preserves installer preference order, deduplicates equivalent paths, and excludes
@@ -783,6 +784,46 @@ infrastructure, not another migration runner or application service. Test files
 and test-support workers are excluded from the package; runtime TypeScript and
 the canonical skill remains distributed. Retired command/plugin assets are rejected
 by the package inventory check rather than maintained as compatibility copies.
+
+### Rust preview installation ownership (#133)
+
+The preview embeds the same authored skill bytes at compile time. The core
+`skill_provider::Provider` inventory owns native names/order and feeds grammar,
+completion and adapter selection. `skill_installation::ProviderEnvironment`
+captures provider path inputs once; its target and legacy candidates are shared
+by installation and passive drift inspection. TypeScript remains a temporary
+reference owner until cutover, not a runtime fallback or permanent shared manifest.
+
+The adapter materializes exact bytes at
+`<global-dir>/skill-assets/<sha256>/tmux-team/SKILL.md`. Digest and exact directory
+inventory establish local managed-source evidence, not remote authentication.
+Sources and digest directories cannot be symlink substitutions. A modified current
+bundled source blocks installation even under force. Modified older sources remain
+preserved; their links are unmanaged conflicts eligible only for forced link backup.
+Valid older managed links
+can refresh to a new source without force; unmanaged targets require explicit
+recoverable backup outside active discovery. Legacy backups use that same native
+backup owner, unlike the installed reference's adjacent command-file policy.
+
+A stable OS-locked file serializes cooperating installers without a PID registry
+or database. Resolve target parents before source-overlap checks; publication
+replaces the leaf entry rather than following its symlink. Stage source directories
+and replacement links on their destination filesystem. Installer intents are
+bounded to 4096 paths/1 MiB in versioned `skill-installations.json`, written before
+links so custom targets remain discoverable after partial failure. Recorded paths
+are not overwrite authority: refresh must verify actual managed links again.
+Errors identify completed targets and recoverable backups. There is no atomic
+transaction across providers or power-loss rollback guarantee. Old sources and
+abandoned stages are preserved; never remove them merely by matching a filename.
+
+Only interactive, non-JSON human commands inspect deduplicated known provider
+and legacy paths. Help/version/completion, init, learn, install, upgrade and
+machine invocations skip passive inspection. It performs no network, tmux,
+SQLite, executable lookup or custom-intent scan, and never changes command success.
+The CLI owns this reminder policy and presentation; the adapter owns observation.
+Explicit install and future #82 update own custom-target refresh. `init` separately
+reuses ConfigPaths and exclusive local file creation; it creates no other state.
+Neither this boundary nor tests imply native release publication or network upgrade.
 
 ## Current module map
 

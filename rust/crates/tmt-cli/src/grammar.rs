@@ -184,7 +184,9 @@ pub fn grammar() -> Command {
                 general("install", "Install or refresh agent skills"),
                 &["force", "dir"],
             )
-            .arg(operand("agent", false)),
+            .arg(operand("agent", false).value_parser(
+                tmt_core::skill_provider::Provider::ALL.into_iter().map(|provider| provider.as_str()).chain(["all"]).collect::<Vec<_>>()
+            ).ignore_case(true)),
         )
         .subcommand(general("completion", "Generate shell completion").arg(operand("shell", false)))
         .subcommand(general("upgrade", "Upgrade the CLI and refresh skills"))

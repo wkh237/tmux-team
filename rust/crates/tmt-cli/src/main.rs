@@ -5,13 +5,17 @@ mod config_command;
 mod diagnostics;
 mod exchange_command;
 mod grammar;
+mod guidance_command;
 mod identity_command;
 mod identity_context;
+mod init_command;
+mod install_command;
 mod invocation;
 mod output;
 mod parser;
 mod profile_command;
 mod response_command;
+mod skill_reminder;
 mod talk_command;
 mod target;
 
@@ -37,12 +41,13 @@ fn main() -> ExitCode {
 }
 
 fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
+    skill_reminder::emit(&parsed);
     let mut stdout = io::stdout().lock();
     match parsed.invocation {
         Invocation::Help => {
             writeln!(
                 stdout,
-                "Native development preview: configuration, identity create/show/list, talk/reply/result, pane identity name/this/add/whoami/unbind/rm/list, diagnostic check/read, role/preamble, and x attention are available. Installation commands are not implemented yet. Use isolated test state only.\n"
+                "Native development preview: configuration, identity create/show/list, talk/reply/result, pane identity name/this/add/whoami/unbind/rm/list, diagnostic check/read, role/preamble, x attention, init, learn, and skill installation are available. Native network upgrade is not implemented yet. Use isolated test state only.\n"
             )?;
             grammar::public_grammar(&grammar::grammar(), true).write_long_help(&mut stdout)?;
             writeln!(stdout)?;
@@ -71,6 +76,22 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Config(request) => {
             drop(stdout);
             return config_command::execute(request, parsed.mode);
+        }
+        Invocation::Init => {
+            drop(stdout);
+            return init_command::execute(parsed.mode);
+        }
+        Invocation::Learn { skill } => {
+            drop(stdout);
+            return guidance_command::execute(skill);
+        }
+        Invocation::Install {
+            target,
+            directory,
+            force,
+        } => {
+            drop(stdout);
+            return install_command::execute(target, directory, force, parsed.mode);
         }
         Invocation::Identity(request) => {
             drop(stdout);
@@ -107,7 +128,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
             drop(stdout);
             return binding_command::execute(request, parsed.mode);
         }
-        _ => {
+        Invocation::Upgrade => {
             drop(stdout);
             return failure(
                 parsed.mode,

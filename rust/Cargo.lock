@@ -631,6 +631,7 @@ dependencies = [
  "nix",
  "rusqlite",
  "serde_json",
+ "sha2",
  "signal-hook",
  "subprocess",
  "tmt-core",

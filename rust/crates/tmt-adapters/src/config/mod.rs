@@ -4,7 +4,11 @@
 mod document;
 mod paths;
 
+#[cfg(test)]
+mod initialization_tests;
+
 pub use paths::ConfigPaths;
+pub(crate) use paths::normalize;
 use std::{fmt, path::Path};
 pub use tmt_core::settings::Scope;
 use tmt_core::settings::{LocalClear, ResolvedSettings, Setting};
@@ -39,6 +43,23 @@ impl ConfigError {
             message: format!("Invalid JSON in {}: {cause}", path.display()),
         }
     }
+
+    fn initialization(path: &Path, cause: impl fmt::Display) -> Self {
+        Self {
+            code: "ERROR",
+            message: format!("Could not initialize {}: {cause}", path.display()),
+        }
+    }
+
+    fn already_initialized(path: &Path) -> Self {
+        Self {
+            code: "ERROR",
+            message: format!(
+                "{} already exists. Remove it first if you want to reinitialize.",
+                path.display()
+            ),
+        }
+    }
 }
 
 impl fmt::Display for ConfigError {
@@ -54,6 +75,12 @@ pub struct ConfigFiles {
 }
 
 impl ConfigFiles {
+    /// Create the workspace-local settings file without reading or initializing
+    /// any other configuration or storage state.
+    pub fn initialize_local(&self) -> Result<(), ConfigError> {
+        initialize_local_file(&self.paths.local_config)
+    }
+
     pub fn load(&self) -> Result<ResolvedSettings, ConfigError> {
         let read_layer = |scope| {
             let path = self.path(scope);
@@ -88,4 +115,63 @@ impl ConfigFiles {
             Scope::Local => &self.paths.local_config,
         }
     }
+}
+
+fn initialize_local_file(path: &Path) -> Result<(), ConfigError> {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+
+    let mut file = match OpenOptions::new().write(true).create_new(true).open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            return Err(ConfigError::already_initialized(path));
+        }
+        Err(error) => return Err(ConfigError::initialization(path, error)),
+    };
+
+    if let Err(error) = file.write_all(b"{}\n") {
+        return Err(finish_initialization_failure(path, &file, error));
+    }
+    if let Err(error) = file.sync_all() {
+        return Err(finish_initialization_failure(path, &file, error));
+    }
+    drop(file);
+    Ok(())
+}
+
+fn finish_initialization_failure(
+    path: &Path,
+    file: &std::fs::File,
+    error: std::io::Error,
+) -> ConfigError {
+    match remove_owned_partial_file(path, file) {
+        Ok(()) => ConfigError::initialization(path, error),
+        Err(cleanup) => ConfigError::initialization(
+            path,
+            format!("{error}; could not remove partial file: {cleanup}"),
+        ),
+    }
+}
+
+#[cfg(unix)]
+fn remove_owned_partial_file(path: &Path, file: &std::fs::File) -> std::io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
+
+    let owned = file.metadata()?;
+    let current = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    if current.dev() == owned.dev() && current.ino() == owned.ino() {
+        std::fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn remove_owned_partial_file(_path: &Path, _file: &std::fs::File) -> std::io::Result<()> {
+    // Native installation targets are Unix. On other targets preserve the
+    // path rather than risk deleting a replacement that arrived concurrently.
+    Ok(())
 }

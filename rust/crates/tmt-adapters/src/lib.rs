@@ -12,6 +12,8 @@ pub mod reply_receipt;
 pub mod request_runtime;
 #[cfg(unix)]
 pub mod response_input;
+#[cfg(unix)]
+pub mod skill_installation;
 pub mod storage;
 #[cfg(unix)]
 pub mod tmux;

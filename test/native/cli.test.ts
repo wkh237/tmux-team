@@ -62,9 +62,9 @@ describe('native grammar preview process contract', () => {
       expect(help.stderr).toBe('');
       expect(help.stdout).toContain('Native development preview');
       expect(help.stdout).toContain(
-        'configuration, identity create/show/list, talk/reply/result, pane identity name/this/add/whoami/unbind/rm/list, diagnostic check/read, role/preamble, and x attention are available'
+        'configuration, identity create/show/list, talk/reply/result, pane identity name/this/add/whoami/unbind/rm/list, diagnostic check/read, role/preamble, x attention, init, learn, and skill installation are available'
       );
-      expect(help.stdout).toContain('Installation commands are not implemented yet.');
+      expect(help.stdout).toContain('Native network upgrade is not implemented yet.');
       expect(help.stdout).toContain('Manage identity records without probing tmux');
       expect(help.stdout).toContain('temporary unless saved');
       expect(help.stdout).toContain('rm');
@@ -75,16 +75,15 @@ describe('native grammar preview process contract', () => {
     });
   });
 
-  it('explicitly rejects effects for every recognized command family', async () => {
+  it('does not attempt a network upgrade in the native preview', async () => {
     await withSandbox(async (sandbox) => {
       const before = fileSnapshot(sandbox.root);
-      for (const args of [['init'], ['install', '--dir', sandbox.cwd]]) {
-        const result = await runCli(sandbox, [...args, '--json']);
-        expect(result.status, args.join(' ')).toBe(1);
-        expectError(result, 'NATIVE_NOT_IMPLEMENTED');
-        expect(fileSnapshot(sandbox.root)).toEqual(before);
-        expect(existsSync(sandbox.database)).toBe(false);
-      }
+      const result = await runCli(sandbox, ['upgrade']);
+      expect(result.status).toBe(1);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain('not implemented');
+      expect(fileSnapshot(sandbox.root)).toEqual(before);
+      expect(existsSync(sandbox.database)).toBe(false);
     });
   });
 
