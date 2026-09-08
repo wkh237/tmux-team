@@ -5,12 +5,16 @@ mod binding;
 mod caller;
 mod evidence;
 mod metadata;
+mod transport;
 pub use binding::BindingSession;
+pub use transport::{DeliveryError, DeliveryStage};
 
 #[cfg(test)]
 mod evidence_tests;
 #[cfg(test)]
 mod io_tests;
+#[cfg(test)]
+mod test_support;
 
 pub use caller::CallerEnvironment;
 

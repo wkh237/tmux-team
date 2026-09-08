@@ -8,6 +8,8 @@ are implemented in the development preview, not a shipped Rust runtime.
 receipt encoding and old-v1 decoding through that same service. #122 adds public
 native reply/result with bounded input. Native talk and the full #106
 short-receipt transition remain unimplemented.
+#124 adds the bounded native send/capture adapter and isolated real-tmux
+acceptance; public talk/check routing and composition are still pending.
 Owner: [#93](https://github.com/wkh237/tmux-team/issues/93);
 preparation: [#94](https://github.com/wkh237/tmux-team/issues/94).
 The compatibility reference is TypeScript main `cb53533f3a9f19a1a2ab95af59dda20df419200b`

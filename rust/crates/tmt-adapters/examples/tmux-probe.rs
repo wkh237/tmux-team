@@ -9,24 +9,26 @@ use std::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     },
+    time::Duration,
 };
 
 use tmt_adapters::{
     process::{CommandOutput, CommandRequest, CommandRunner, UnixCommandRunner},
-    tmux::{CallerEnvironment, OperationOptions, Tmux, TmuxError},
+    tmux::{CallerEnvironment, DeliveryError, OperationOptions, Tmux, TmuxError},
 };
 use tmt_core::endpoint::{
     BindingMarker, EndpointProbe, EndpointSnapshot, PaneObservation, ServerEvidence,
     valid_process_id,
 };
 
-const USAGE: &str = "Usage: tmux-probe [--json] caller | snapshot [pane-id ...] | server | probe <socket> <pid> [pane-id ...] | probe-server <socket> <pid> | target <target> | set-marker <pane> <name> <canonical-name> <identity-id> <binding-id> <server-id> <pane-pid> | clear-marker <pane> <binding-id>";
+const USAGE: &str = "Usage: tmux-probe [--json] caller | snapshot [pane-id ...] | server | probe <socket> <pid> [pane-id ...] | probe-server <socket> <pid> | target <target> | set-marker <pane> <name> <canonical-name> <identity-id> <binding-id> <server-id> <pane-pid> | clear-marker <pane> <binding-id> | send <socket> <pane> <message> | capture <socket> <pane> <lines>";
 
 #[derive(Debug)]
 enum ProbeError {
     Environment,
     Usage(&'static str),
     Tmux(TmuxError),
+    Delivery(DeliveryError),
 }
 
 impl ProbeError {
@@ -35,6 +37,8 @@ impl ProbeError {
             Self::Environment => "ENVIRONMENT_ERROR",
             Self::Usage(_) => "USAGE_ERROR",
             Self::Tmux(_) => "TMUX_ERROR",
+            Self::Delivery(error) if error.uncertain() => "DELIVERY_UNCERTAIN",
+            Self::Delivery(_) => "DELIVERY_PREPARATION_FAILED",
         }
     }
 
@@ -43,6 +47,7 @@ impl ProbeError {
             Self::Environment => "TMT_E2E_SOCKET must be set for the isolated probe.".into(),
             Self::Usage(message) => (*message).into(),
             Self::Tmux(error) => error.to_string(),
+            Self::Delivery(error) => error.to_string(),
         }
     }
 }
@@ -50,6 +55,12 @@ impl ProbeError {
 impl From<TmuxError> for ProbeError {
     fn from(error: TmuxError) -> Self {
         Self::Tmux(error)
+    }
+}
+
+impl From<DeliveryError> for ProbeError {
+    fn from(error: DeliveryError) -> Self {
+        Self::Delivery(error)
     }
 }
 
@@ -142,6 +153,16 @@ fn run(args: &[String], tmux: &Tmux<CountingRunner>) -> Result<serde_json::Value
         return Err(ProbeError::Usage(USAGE));
     };
     match mode {
+        "send" if args.len() == 4 => {
+            tmux.send_on(&args[1], &args[2], &args[3], Duration::ZERO)?;
+            Ok(serde_json::json!({"sent": true}))
+        }
+        "capture" if args.len() == 4 => {
+            let lines = args[3]
+                .parse::<u64>()
+                .map_err(|_| ProbeError::Usage("Capture lines must be an unsigned integer."))?;
+            Ok(serde_json::json!({"output": tmux.capture_on(&args[1], &args[2], lines)?}))
+        }
         "caller" if args.len() == 1 => Ok(serde_json::json!({
             "pane": tmux.caller_pane(&CallerEnvironment::current())?,
         })),
