@@ -105,30 +105,32 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
                 )?;
             }
             Report::Shown(identity) => {
-                writeln!(stdout, "NAME\tLIFETIME\tCANONICAL NAME\tID")?;
-                writeln!(
-                    stdout,
-                    "{}\t{}\t{}\t{}",
-                    identity.name,
-                    identity.lifetime.as_str(),
-                    identity.canonical_name,
-                    identity.id
+                crate::output::table::write(
+                    &mut stdout,
+                    ["NAME", "LIFETIME", "CANONICAL NAME", "ID"],
+                    [[
+                        identity.name,
+                        identity.lifetime.as_str().to_owned(),
+                        identity.canonical_name,
+                        identity.id,
+                    ]],
                 )?;
             }
             Report::Listed(identities) if identities.is_empty() => {
                 writeln!(stdout, "No identities found.")?
             }
             Report::Listed(identities) => {
-                writeln!(stdout, "NAME\tLIFETIME\tID")?;
-                for identity in identities {
-                    writeln!(
-                        stdout,
-                        "{}\t{}\t{}",
-                        identity.name,
-                        identity.lifetime.as_str(),
-                        identity.id
-                    )?;
-                }
+                crate::output::table::write(
+                    &mut stdout,
+                    ["NAME", "LIFETIME", "ID"],
+                    identities.into_iter().map(|identity| {
+                        [
+                            identity.name,
+                            identity.lifetime.as_str().to_owned(),
+                            identity.id,
+                        ]
+                    }),
+                )?;
             }
         }
     }

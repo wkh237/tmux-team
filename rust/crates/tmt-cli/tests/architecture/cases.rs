@@ -447,6 +447,20 @@ fn receipt_dependencies_stay_at_their_reviewed_layer() {
     }
 }
 
+#[test]
+fn display_width_dependency_stays_in_cli_presentation() {
+    for (owner, expected) in [("tmt-cli", 0), ("tmt-core", 1), ("tmt-adapters", 1)] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                owner,
+                vec![dependency("unicode-width", "normal", None, None)]
+            ))
+            .len(),
+            expected
+        );
+    }
+}
+
 struct FixtureDirectory {
     path: PathBuf,
 }

@@ -42,6 +42,56 @@ function success<T>(result: CliResult<T>): T {
 }
 
 describe.sequential('native identity CLI lifecycle', () => {
+  it('aligns human list columns for live Unicode identities and long pane paths without changing JSON', async () => {
+    await withE2EFixture(async (fixture) => {
+      // Fullwidth fixture data exposes byte/character-count padding bugs.
+      const wideName = 'Ａｌｉｃｅ';
+      const longName = 'long-reviewer-agent';
+      const workspace = fixture.createWorkspace('long-repository-folder-for-column-alignment');
+      const peer = await fixture.createMockPane('table-peer', workspace);
+      const wide = success(await fixture.runJsonCli<Bound>(['name', wideName]));
+      const long = success(await fixture.runJsonCli<Bound>(['add', peer.pane, longName]));
+      const before = success(await fixture.runJsonCli<Listing>(['ls']));
+      expect(before.identities).toEqual([
+        expect.objectContaining({
+          id: wide.id,
+          name: wideName,
+          cwd: fixture.workspace,
+          pane: fixture.pane,
+        }),
+        expect.objectContaining({ id: long.id, name: longName, cwd: workspace, pane: peer.pane }),
+      ]);
+      const human = await fixture.runCli(['ls']);
+      expect(human.code, human.stderr).toBe(0);
+      expect(human.stderr).toBe('');
+      expect(human.stdout).not.toContain('\t');
+      const lines = human.stdout.trimEnd().split('\n');
+      expect(lines).toHaveLength(3);
+      const header = lines[0]!;
+      const starts = ['LIFETIME', 'STATUS', 'PANE', 'TARGET', 'CWD', 'COMMAND'].map((label) =>
+        header.indexOf(label)
+      );
+      for (const [index, row] of before.identities.entries()) {
+        const line = lines[index + 1]!;
+        expect(line.startsWith(row.name)).toBe(true);
+        // This known five-fullwidth-character name occupies ten columns.
+        // Substitution is an independent fixture oracle, not a second renderer.
+        const columns = line.replace(wideName, '1234567890');
+        const values = [row.lifetime, row.presence, row.pane!, row.target!, row.cwd!, row.command];
+        for (const [column, value] of values.entries()) {
+          expect(columns.slice(starts[column], starts[column]! + value.length)).toBe(value);
+        }
+        expect(line).toBe(line.trimEnd());
+      }
+      expect(success(await fixture.runJsonCli<Listing>(['ls']))).toEqual(before);
+      expect(
+        durableState(fixture)
+          .bindings.map((row) => row.identity_id)
+          .sort()
+      ).toEqual([wide.id, long.id].sort());
+    }, options());
+  });
+
   it('coordinates a concurrent global observer with uncommitted publication and rechecks after lock acquisition', async () => {
     await withE2EFixture(async (fixture) => {
       fixture.enableMetadataBarrier({ phase: 'after' });

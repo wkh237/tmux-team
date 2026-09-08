@@ -29,6 +29,17 @@ describe('native configuration process boundary', () => {
       expect(result.status).toBe(0);
       expect(result.stderr).toBe('');
       expect(result.stdout).toContain('ℹ Current configuration:\n');
+      expect(result.stdout).toContain(
+        'Key                     Value     Source\n' +
+          'preambleMode            disabled  (global)\n' +
+          'preambleEvery           0         (local)\n' +
+          'pasteEnterDelayMs       500       (default)\n' +
+          'defaults.timeout        180       (global)\n' +
+          'defaults.pollInterval   1         (global)\n' +
+          'defaults.captureLines   100       (global)\n' +
+          'exchange.retentionDays  365       (global)\n' +
+          'ui.paneBadge            on        (global)\n'
+      );
       for (const [key, value, source] of [
         ['preambleMode', 'disabled', 'global'],
         ['preambleEvery', '0', 'local'],
@@ -40,7 +51,7 @@ describe('native configuration process boundary', () => {
         ['ui.paneBadge', 'on', 'global'],
       ]) {
         expect(result.stdout).toMatch(
-          new RegExp(`^  ${key.replace('.', '\\.')}\\s+${value}\\s+\\(${source}\\)[ \\t]*$`, 'm')
+          new RegExp(`^${key.replace('.', '\\.')}\\s+${value}\\s+\\(${source}\\)[ \\t]*$`, 'm')
         );
       }
       expect(result.stdout).toContain('ℹ \nPaths:\n');

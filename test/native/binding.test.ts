@@ -180,9 +180,48 @@ describe('native identity binding process contract', () => {
       expect(human.status).toBe(0);
       expect(human.stderr).toBe('');
       expect(human.stdout).toBe(
-        'NAME\tLIFETIME\tSTATUS\tPANE\tTARGET\tCWD\tCOMMAND\n' +
-          'Offline Agent\tsaved\toffline\t-\t-\t-\t\n'
+        'NAME           LIFETIME  STATUS   PANE  TARGET  CWD  COMMAND\n' +
+          'Offline Agent  saved     offline  -     -       -\n'
       );
+    });
+  });
+
+  it('aligns Unicode and variable-length names in the human ls table', async () => {
+    await withSandbox(async (sandbox) => {
+      // Fullwidth and decomposed fixture names must retain their display bytes.
+      const names = ['A', 'ＡＢ', 'Longest identity name', 'e\u0301'];
+      const identities = new Map<string, Identity>();
+      for (const name of names) {
+        identities.set(
+          name,
+          documentIdentity(await runCli(sandbox, ['identity', 'create', name, '--json']))
+        );
+      }
+
+      const listed = await runCli(sandbox, ['ls']);
+      expect(listed.status).toBe(0);
+      expect(listed.stderr).toBe('');
+      expect(listed.stdout).toBe(
+        'NAME                   LIFETIME  STATUS   PANE  TARGET  CWD  COMMAND\n' +
+          `A                      saved     offline  -     -       -\n` +
+          `ＡＢ                   saved     offline  -     -       -\n` +
+          `Longest identity name  saved     offline  -     -       -\n` +
+          `é                      saved     offline  -     -       -\n`
+      );
+      const structured = await runCli(sandbox, ['ls', '--json']);
+      expect(structured.status).toBe(0);
+      expect(structured.stderr).toBe('');
+      expect(parseWholeStdout(structured)).toEqual({
+        identities: names.map((name, index) => ({
+          id: identities.get(name)!.id,
+          name,
+          canonicalName: ['a', 'ab', 'longest identity name', 'é'][index],
+          lifetime: 'saved',
+          presence: 'offline',
+          pane: null,
+          command: '',
+        })),
+      });
     });
   });
 

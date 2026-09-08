@@ -467,8 +467,12 @@ describe('native durable identity process boundary', () => {
       expect(repeatedHuman.stderr).toBe('');
       const humanShow = await runCli(sandbox, ['identity', 'show', 'human']);
       expect(humanShow.status).toBe(0);
-      expect(humanShow.stdout).toContain('NAME\tLIFETIME\tCANONICAL NAME\tID');
-      expect(humanShow.stdout).toContain('Human\tsaved\thuman\t');
+      const shown = documentIdentity(
+        await runCli(sandbox, ['identity', 'show', 'human', '--json'])
+      );
+      expect(humanShow.stdout).toBe(
+        `NAME   LIFETIME  CANONICAL NAME  ID\n` + `Human  saved     human           ${shown.id}\n`
+      );
       expect(humanShow.stderr).toBe('');
       const missingHuman = await runCli(sandbox, ['identity', 'show', 'missing']);
       expect(missingHuman.status).toBe(3);
@@ -476,9 +480,44 @@ describe('native durable identity process boundary', () => {
       expect(missingHuman.stderr).toBe("Identity 'missing' was not found.\n");
       const humanList = await runCli(sandbox, ['identity', 'list']);
       expect(humanList.status).toBe(0);
-      expect(humanList.stdout).toContain('NAME\tLIFETIME\tID');
-      expect(humanList.stdout).toContain('Human\tsaved\t');
+      expect(humanList.stdout).toBe(`NAME   LIFETIME  ID\nHuman  saved     ${shown.id}\n`);
       expect(humanList.stderr).toBe('');
+    });
+  });
+
+  it('aligns Unicode and variable-length names in the human identity table', async () => {
+    await withSandbox(async (sandbox) => {
+      // Fullwidth and decomposed fixture names must retain their display bytes.
+      const names = ['A', 'ＡＢ', 'Longest identity name', 'e\u0301'];
+      const identities = new Map<string, Identity>();
+      for (const name of names) {
+        identities.set(
+          name,
+          documentIdentity(await runCli(sandbox, ['identity', 'create', name, '--json']))
+        );
+      }
+
+      const listed = await runCli(sandbox, ['identity', 'list']);
+      expect(listed.status).toBe(0);
+      expect(listed.stderr).toBe('');
+      expect(listed.stdout).toBe(
+        `NAME                   LIFETIME  ID\n` +
+          `A                      saved     ${identities.get('A')?.id}\n` +
+          `ＡＢ                   saved     ${identities.get('ＡＢ')?.id}\n` +
+          `Longest identity name  saved     ${identities.get('Longest identity name')?.id}\n` +
+          `é                      saved     ${identities.get('e\u0301')?.id}\n`
+      );
+      const structured = await runCli(sandbox, ['identity', 'list', '--json']);
+      expect(structured.status).toBe(0);
+      expect(structured.stderr).toBe('');
+      expect(parseWholeStdout(structured)).toEqual({
+        identities: names.map((name, index) => ({
+          id: identities.get(name)!.id,
+          name,
+          canonicalName: ['a', 'ab', 'longest identity name', 'é'][index],
+          lifetime: 'saved',
+        })),
+      });
     });
   });
 

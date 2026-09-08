@@ -1,5 +1,7 @@
 //! Shared failure presentation and close-before-publication ordering.
 
+pub(crate) mod table;
+
 use crate::invocation::OutputMode;
 use std::{
     error::Error,

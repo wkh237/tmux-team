@@ -58,6 +58,14 @@ The grammar owns option placement and rejection. Handlers do not search raw
 argv, create competing option parsers, or reinterpret payload text as flags.
 JSON and human output use the same typed result and status contracts.
 
+`output::table` is the single plain human-table renderer for binding, identity,
+exchange and configuration reports. Callers own columns and typed projections;
+the renderer owns control-character escaping, Unicode display-width measurement
+and spacing. The CLI-only `unicode-width` dependency does not enter domain or
+adapter policy. Tables preserve complete values without terminal probing,
+truncation or color; narrow terminals may wrap. JSON and exact prompt, final,
+profile and diagnostic bodies bypass table rendering.
+
 ## Domain and state ownership
 
 ### Identity, names and bindings

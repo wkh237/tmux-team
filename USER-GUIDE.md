@@ -52,6 +52,11 @@ tmt list reviewer
 tmt whoami
 ```
 
+Human tables align columns using Unicode display widths and show complete values.
+Long rows may wrap in narrow terminals. Control characters in table metadata are
+shown as escapes, not executed. Use `--json` for scripts and exact metadata;
+human spacing is presentation, not a machine-readable format.
+
 `name` and `whoami` need a live caller pane. `add` accepts `%pane_id`,
 `window.pane`, or `session:window.pane`; the current order is pane target first,
 global name second. `tmt unbind` retires a temporary identity; a saved identity
@@ -183,13 +188,13 @@ tmt config set preambleEvery 3
 tmt config set exchange.retentionDays 90 --global
 ```
 
-| Setting | Default | Scope |
-| --- | --- | --- |
-| `preambleMode` | `always` | Local override or `--global`; `always` / `disabled` |
-| `preambleEvery` | `3` | Local override or `--global`; `0` disables injection |
-| `pasteEnterDelayMs` | `500` | Local override or `--global`; `0` removes the delay |
-| `exchange.retentionDays` | `90` | Global only; new requests, integer days `1..3650` |
-| `ui.paneBadge` | `off` | Global only; `on` / `off` |
+| Setting                  | Default  | Scope                                                |
+| ------------------------ | -------- | ---------------------------------------------------- |
+| `preambleMode`           | `always` | Local override or `--global`; `always` / `disabled`  |
+| `preambleEvery`          | `3`      | Local override or `--global`; `0` disables injection |
+| `pasteEnterDelayMs`      | `500`    | Local override or `--global`; `0` removes the delay  |
+| `exchange.retentionDays` | `90`     | Global only; new requests, integer days `1..3650`    |
+| `ui.paneBadge`           | `off`    | Global only; `on` / `off`                            |
 
 `config show --json` reports resolved values, sources, and actual file paths.
 Global settings normally live in `~/.config/tmux-team/config.json`; local

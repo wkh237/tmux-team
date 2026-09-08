@@ -1,5 +1,5 @@
 use super::*;
-use crate::output::identity_document;
+use crate::output::{identity_document, table};
 use serde_json::{Value, json};
 use std::io::Write;
 use tmt_core::request::{
@@ -111,18 +111,22 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
                 if page.items.is_empty() {
                     writeln!(stdout, "No unacknowledged exchanges.")?;
                 } else {
-                    writeln!(stdout, "REQUEST\tRECIPIENT\tDELIVERY\tFINAL\tREVISION")?;
-                    for item in &page.items {
-                        writeln!(
-                            stdout,
-                            "{}\t{}\t{}\t{}\t{}",
-                            item.request_id,
-                            item.recipient_identity_id.as_deref().unwrap_or("-"),
-                            item.delivery.as_str(),
-                            item.final_state.as_str(),
-                            item.revision
-                        )?;
-                    }
+                    table::write(
+                        &mut stdout,
+                        ["REQUEST", "RECIPIENT", "DELIVERY", "FINAL", "REVISION"],
+                        page.items.iter().map(|item| {
+                            [
+                                item.request_id.clone(),
+                                item.recipient_identity_id
+                                    .as_deref()
+                                    .unwrap_or("-")
+                                    .to_owned(),
+                                item.delivery.as_str().to_owned(),
+                                item.final_state.as_str().to_owned(),
+                                item.revision.to_string(),
+                            ]
+                        }),
+                    )?;
                 }
                 if let Some(after) = page.next_after {
                     writeln!(
@@ -133,19 +137,24 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
             }
             ResultKind::Show(detail) => {
                 let item = &detail.exchange;
-                writeln!(
-                    stdout,
-                    "REQUEST\tDELIVERY\tFINAL\tREVISION\tACKNOWLEDGED\tSETTLED"
-                )?;
-                writeln!(
-                    stdout,
-                    "{}\t{}\t{}\t{}\t{}\t{}",
-                    item.request_id,
-                    item.delivery.as_str(),
-                    item.final_state.as_str(),
-                    item.revision,
-                    item.acknowledged,
-                    item.settled
+                table::write(
+                    &mut stdout,
+                    [
+                        "REQUEST",
+                        "DELIVERY",
+                        "FINAL",
+                        "REVISION",
+                        "ACKNOWLEDGED",
+                        "SETTLED",
+                    ],
+                    [[
+                        item.request_id.clone(),
+                        item.delivery.as_str().to_owned(),
+                        item.final_state.as_str().to_owned(),
+                        item.revision.to_string(),
+                        item.acknowledged.to_string(),
+                        item.settled.to_string(),
+                    ]],
                 )?;
                 writeln!(stdout, "Prompt ({}):", prompt_status(&detail.prompt))?;
                 if let RequestPrompt::Retained(prompt) = &detail.prompt {
