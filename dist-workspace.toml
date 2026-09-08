@@ -1,0 +1,14 @@
+[workspace]
+members = ["cargo:rust"]
+
+[dist]
+cargo-dist-version = "0.32.0"
+# Artifact generation only. Publishing and the native updater have separate gates.
+ci = []
+installers = []
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "aarch64-unknown-linux-musl", "x86_64-unknown-linux-musl"]
+unix-archive = ".tar.gz"
+checksum = "sha256"
+source-tarball = false
+auto-includes = false
+include = ["LICENSE", "NATIVE-INSTALL.md", "rust/target/native-notices/THIRD-PARTY-NOTICES.txt"]

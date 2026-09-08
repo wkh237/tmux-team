@@ -1419,6 +1419,37 @@ a gap is resolved; do not leave a permanent exception or label a proposal as shi
 | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | Memory and an offline recipient inbox remain future capabilities, not installed APIs. | [TMT-15](https://linear.app/tigerpig-dev/issue/TMT-15), [TMT-16](https://linear.app/tigerpig-dev/issue/TMT-16) |
 
+## Native release artifact boundary
+
+Under #135, `dist-workspace.toml` selects cargo-dist's archive-only generator:
+its manifest owns release versions, target triples, archive names and checksums.
+Generated shell installers, axoupdater and publication workflows are disabled.
+The optimized CLI embeds the canonical skill and contains no Node runtime or
+checkout dependency. `rust/about.toml` and `rust/about.hbs` generate resolved
+runtime dependency notices; developer tools are not native runtime dependencies.
+The archive carries the executable, first-party license, third-party notices
+and preview installation guidance only.
+
+`scripts/build-native-artifact.sh` composes pinned developer tools from the Rust
+workspace so the toolchain file applies. `native-cargo.sh` adds the missing
+locked build/metadata policy without duplicating an existing locked/frozen flag.
+It is a packaging adapter, not a second application subprocess owner.
+
+The independent `native-artifact-policy.mjs` consumes the generator manifest,
+checks SHA-256, bounds compressed and expanded input, rejects links and all
+unexpected archive paths, and extracts only into a private owned directory.
+Pinned developer-only `tar` handles the archive format; TMT does not implement
+another tar parser. `verify-native-artifact.mjs` reuses the bounded packed-command
+runner for linkage, version, exact skill installation and cross-process native
+SQLite profile checks with an empty runtime PATH and isolated state. The existing
+npm packed matrix remains a distinct transitional TypeScript gate.
+
+Unsigned checksums detect corruption, not origin compromise. Native binary
+bootstrap, manager receipts, atomic update and authenticated public release
+provenance remain #82 gates. These developer archives do not change installed
+entrypoints or authorize publication. Candidate targets require actual matching
+target execution before they become supported release platforms.
+
 ## Maintenance contract
 
 The implementer updates this map; the primary reviewer is accountable for its

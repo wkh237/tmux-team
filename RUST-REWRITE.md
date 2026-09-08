@@ -518,3 +518,14 @@ Unresolved release decisions owned by #82 include minimum macOS/glibc versions,
 musl artifacts, signing/provenance, atomic upgrade/rollback, PATH/manager ownership,
 skill relocation and clean install without Node. Do not promise native support
 based on a developer's successful macOS build alone.
+
+Native archive prerequisite #135 selects cargo-dist for archive/manifest
+generation only, with generated installers and publishing disabled. The selected
+candidates are macOS arm64/x64 with deployment target 11.0 and Linux arm64/x64
+static musl. Per-target cargo-about notices, bounded archive inventory/extraction,
+system/static linkage checks and isolated executable/skill/SQLite verification
+are separate from the transitional npm package matrix. See DEVELOPMENT's native
+Rust release archive procedure. Actual matching-platform execution remains a
+release gate; the target list is not itself a support claim. Bootstrap, binary
+ownership receipts, atomic updates, public provenance and installed-runtime
+cutover remain #82/#93 work, not capabilities supplied by an archive generator.

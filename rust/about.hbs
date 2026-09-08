@@ -1,0 +1,19 @@
+TMT native runtime third-party notices
+
+Generated from the locked runtime dependency graph using cargo-about.
+Build-only and development-only dependencies are excluded. Dependencies are
+filtered to this archive's target triple, not the packaging host.
+The TMT project's own license is supplied separately in LICENSE.
+
+{{#each licenses}}
+===============================================================================
+{{name}} ({{id}})
+
+Used by:
+{{#each used_by}}
+- {{crate.name}} {{crate.version}}
+{{/each}}
+
+{{{text}}}
+
+{{/each}}

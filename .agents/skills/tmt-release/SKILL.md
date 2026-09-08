@@ -20,6 +20,11 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
 
 ## Promotion and prerelease checks
 
+- For Rust archives, follow DEVELOPMENT's native Rust release archive procedure.
+  Keep cargo-dist's manifest as the artifact metadata owner; independently verify
+  bounded extraction, notices, linkage, skill installation and persisted state.
+  The npm packed matrix does not establish Rust target support. Do not enable a
+  generated installer or publication workflow merely to obtain local archives.
 - Follow DEVELOPMENT's packed native-install verification for artifact changes.
   Verify the installed application's schema and behavior, not only driver loading
   or manifest equality. Keep broken-artifact failure and cleanup evidence; do not

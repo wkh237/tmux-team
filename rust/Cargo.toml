@@ -8,6 +8,7 @@ edition = "2024"
 rust-version = "1.88"
 license = "MIT"
 publish = false
+repository = "https://github.com/wkh237/tmux-team"
 
 [workspace.dependencies]
 tmt-core = { path = "crates/tmt-core" }
@@ -32,3 +33,6 @@ unsafe_code = "forbid"
 [profile.release]
 lto = "thin"
 strip = "debuginfo"
+
+[profile.dist]
+inherits = "release"

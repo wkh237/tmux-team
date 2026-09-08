@@ -4,6 +4,7 @@ node_modules
 coverage
 dist
 rust/target
+target/distrib
 .DS_Store
 *.log
 .env
