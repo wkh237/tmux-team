@@ -2,6 +2,7 @@ mod bindings;
 mod errors;
 mod identities;
 mod migrations;
+mod profiles;
 mod requests;
 
 #[cfg(test)]

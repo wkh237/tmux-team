@@ -1177,6 +1177,29 @@ Native process tests share one calibrated tmux tripwire instead of copying
 host-protection wrappers across command suites. Docker's existing wrapper owns
 capture failure injection after successful target resolution.
 
+#127 adds native role/preamble commands. Core `profile` owns one bounded
+normalization contract and a validated content value; exact exchange text remains
+separate. Its profile reader/writer ports share role/preamble mechanics without
+merging their tables or injection semantics. The existing identity record decoder,
+Storage connection and immediate transaction helper remain the SQL owners.
+Writes revalidate the observed non-retired identity ID within the transaction,
+so a retired/reused name cannot receive a stale profile write. Reads and listing
+hide retired owners; profile operations do not promote lifetime or change cadence.
+
+CLI `identity_context` composes explicit canonical lookup or existing verified
+caller/binding evidence, never pane-target routing for an explicit identity.
+`profile_command` acquires role files before opening storage, resolves identity,
+normalizes content, applies the shared operation and closes before presentation.
+Explicit access does not load settings or probe tmux. Role and preamble retain
+their separate public projections and error codes. Native public identity
+projections include the lifetime field established by #109.
+
+Adapter `bounded_file` is the shared regular-file byte acquisition owner for
+role and reply: nonblocking open, regular-file check, maximum-plus-one read,
+and overflow rejection before decoding. Callers retain their respective UTF-8
+and content policies. Reply stdin flags, deadlines and exact-body validation are
+unchanged; role does not gain stdin. This is not a path-confinement boundary.
+
 #### Native storage and runtime adapters
 
 Native migration 9 adds `lifetime` (default `saved` for existing identities) and
