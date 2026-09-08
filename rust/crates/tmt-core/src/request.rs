@@ -1,6 +1,7 @@
 //! Durable request policy and transaction-scoped ports. No live endpoint lookup,
 //! configuration loading or external effects belong inside this boundary.
 
+pub mod correlation;
 mod service;
 pub use service::RequestService;
 
@@ -128,9 +129,18 @@ pub struct PreparedRequest {
 
 pub struct SubmitResponse {
     pub request_id: String,
-    pub attempt_id: String,
-    pub endpoint: RequestEndpoint,
+    pub proof: ResponseProof,
     pub body: String,
+}
+
+/// Local correlation only, never caller identity or remote authorization.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResponseProof {
+    Recorded {
+        attempt_id: String,
+        endpoint: RequestEndpoint,
+    },
+    Compact([u8; 16]),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -239,6 +249,7 @@ pub enum ResponseRejection {
     RequestNotFound,
     AttemptMismatch,
     RecipientMismatch,
+    ReceiptMismatch,
     StateInvalid,
     Conflict,
     Expired,
@@ -252,6 +263,7 @@ impl ResponseRejection {
             Self::RequestNotFound => "RESPONSE_REQUEST_NOT_FOUND",
             Self::AttemptMismatch => "RESPONSE_ATTEMPT_MISMATCH",
             Self::RecipientMismatch => "RESPONSE_RECIPIENT_MISMATCH",
+            Self::ReceiptMismatch => "RESPONSE_RECEIPT_MISMATCH",
             Self::StateInvalid => "RESPONSE_STATE_INVALID",
             Self::Conflict => "RESPONSE_CONFLICT",
             Self::Expired => "RESPONSE_EXPIRED",

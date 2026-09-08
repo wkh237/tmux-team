@@ -13,11 +13,18 @@ use syn::{
 pub fn dependency_violations(package: &Value) -> Vec<String> {
     let name = package["name"].as_str().expect("Cargo package name");
     let allowed: &[&str] = match name {
-        "tmt-core" => &["uuid", "icu_casemap", "icu_normalizer", "icu_locale_core"],
+        "tmt-core" => &[
+            "uuid",
+            "icu_casemap",
+            "icu_normalizer",
+            "icu_locale_core",
+            "sha2",
+        ],
         "tmt-adapters" => &[
             "tmt-core",
             "rusqlite",
             "serde_json",
+            "base64",
             "uuid",
             "subprocess",
             "nix",

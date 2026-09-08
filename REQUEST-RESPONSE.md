@@ -142,6 +142,49 @@ truthful short user summary only after successful submission. Submission means
 the result was delivered, not that the requested task succeeded. Summary failure
 does not undo or justify repeating an accepted final.
 
+### Native compact receipt preview (#120 under #106)
+
+The native internal codec emits exactly 25 ASCII characters: `v2_` plus
+canonical unpadded base64url of the first 16 SHA-256 digest bytes. The preimage
+starts with ASCII `tmux-team/reply-receipt/v2` and NUL, followed in order by
+request ID, attempt ID, server ID, socket path, server PID, server start time,
+pane ID and pane PID. Each string is exact UTF-8 prefixed with its unsigned
+64-bit big-endian byte length; PIDs are unsigned 64-bit big-endian integers.
+Independent goldens freeze this protocol, including Unicode byte lengths and
+ambiguous concatenation boundaries. Padding, nonzero trailing bits, unsupported
+versions and partial tokens are rejected.
+
+A raw v4 UUID would encode compactly but carries only 122 random bits and does
+not bind the endpoint. The selected digest binds the whole recorded association
+without storing another token. Its 128-bit output space is not a promise of
+128-bit collision resistance, secrecy or authorization. Predictable inputs stay
+predictable; native callers must generate independent random request/attempt IDs.
+This local correlation format is not a remote MCP access credential.
+
+The existing `submit_response` takes one `SubmitResponse` with a recorded or
+compact `ResponseProof`. Within its existing immediate transaction it looks up
+the explicit request ID, prefers a retained final, and validates the proof using
+that record's attempt/endpoint. It never scans by token, looks up a current pane
+or performs a preliminary housekeeping read. Identifier uniqueness still fails
+atomically; there is no token registry, retry loop or collision-resolution table.
+Wrong compact proofs return `RESPONSE_RECEIPT_MISMATCH`; unknown requests retain
+`RESPONSE_REQUEST_NOT_FOUND`. Rejections mutate nothing. Both proof modes use the
+same body, eligibility, immutable-final, retention and attention implementation.
+
+Native v1 decoding is compatibility input only, not another emitter or service.
+It preserves bounded strict UTF-8, the exact old object shape, safe positive PIDs,
+canonical base64url spelling, positional request matching, and JSON whitespace,
+key-order and duplicate-key-last-value behavior. Retained finals remain sufficient
+for retry after attempt removal; expiry and conflicts never renew them. Tests
+execute original TS-generated v1 receipts against migrated frozen schema-8
+fixtures, including in-flight and orphan finals. This proves service handoff,
+not simultaneous TS/schema-8 access to native/schema-9 state.
+
+Installed TypeScript still emits v1. This slice does not enable public native
+talk/reply/result or change installed skill/help/README instructions. Parent #106
+still owns the public adapters, generated instruction measurements, canonical
+installed guidance and full private-tmux/mock-agent acceptance before cutover.
+
 ### TMT-39 live durable completion
 
 `talk <target> <message> [--timeout <time> | --detach] [--json]` waits for the

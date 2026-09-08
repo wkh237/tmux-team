@@ -4,8 +4,9 @@ Status: native grammar (#96), storage lifecycle (#97) with native identity schem
 and bounded tmux evidence (#105), shared identity records (#111), and
 storage-only identity commands (#113), and pane identity lifecycle (#109)
 are implemented in the development preview, not a shipped Rust runtime.
-#118 adds the internal transactional request/final foundation; public native
-talk/reply/result and the #106 short-receipt transition remain unimplemented.
+#118 adds the internal transactional request/final foundation; #120 adds compact
+receipt encoding and old-v1 decoding through that same service. Public native
+talk/reply/result and the full #106 short-receipt transition remain unimplemented.
 Owner: [#93](https://github.com/wkh237/tmux-team/issues/93);
 preparation: [#94](https://github.com/wkh237/tmux-team/issues/94).
 The compatibility reference is TypeScript main `cb53533f3a9f19a1a2ab95af59dda20df419200b`
@@ -226,6 +227,27 @@ Real SQLite tests cover retirement/name reuse and late submission, but this is
 not old receipt execution or public CLI transport acceptance. #106 consumes this
 same owner for compact correlation; it must not add a token-specific final store.
 Native command adapters and transport remain explicit follow-on slices under #93.
+
+#120 adds one typed proof to the existing submission input, not a second final
+API. Compact receipts are derived from the full immutable recorded association
+inside that same transaction. Decode-only v1 uses existing serde_json semantics
+without the editable-document normalization path. See the
+[frozen wire protocol](REQUEST-RESPONSE.md#native-compact-receipt-preview-120-under-106)
+for encoding, collision and trust tradeoffs. No token storage or schema change
+is introduced; installed TS and public native command support are unchanged.
+
+The locked graph adds eight packages: sha2 0.11.0, base64 0.22.1, digest 0.11.3,
+block-buffer 0.12.1, crypto-common 0.2.2, hybrid-array 0.4.14, typenum 1.20.1 and
+cpufeatures 0.3.1. SHA-256 disables defaults; base64 enables alloc only. Existing
+cfg-if/libc are reused; no RNG, async runtime or C crypto library is introduced.
+Maintained codecs avoid authored hash/base64 implementations. Published locked
+manifests offer MIT/Apache-2.0 and declare MSRVs at or below 1.85; actual pinned
+and Rust 1.88 builds remain required. See [SHA-2](https://docs.rs/sha2/0.11.0/sha2/)
+and [base64](https://docs.rs/crate/base64/0.22.1/source/Cargo.toml).
+At RustSec snapshot `8a1eb4f933fb5821add5b4e98601ebd90b8b3538`, the only entries
+for these added names were SHA-2 RUSTSEC-2021-0100 (patched >=0.9.8) and base64
+RUSTSEC-2017-0004 (patched >=0.5.2); selected versions are patched. This dated
+review is not a permanent security guarantee; repeat when dependencies change.
 
 ### Execution and resource ownership
 
