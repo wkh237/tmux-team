@@ -1,7 +1,8 @@
 import Database from 'better-sqlite3';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { calibrateTmuxTripwire } from './tmux-tripwire.js';
 import {
   expectError,
   expectJsonSuccess,
@@ -141,37 +142,6 @@ function dependentSnapshot(
       )
       .get(identityId),
   };
-}
-
-function installTmuxTripwire(sandbox: Sandbox): string {
-  const directory = path.join(sandbox.root, 'task-owned-tripwire');
-  const logPath = path.join(sandbox.root, 'tmux-invocations.log');
-  mkdirSync(directory);
-  const executable = path.join(directory, 'tmux');
-  writeFileSync(
-    executable,
-    '#!/bin/sh\nprintf "%s\\n" "$*" >> "$TMT_IDENTITY_TMUX_LOG"\nexit 97\n'
-  );
-  chmodSync(executable, 0o755);
-  sandbox.env.PATH = `${directory}${path.delimiter}${process.env.PATH ?? ''}`;
-  sandbox.env.TMT_IDENTITY_TMUX_LOG = logPath;
-  return logPath;
-}
-
-async function calibrateTmuxTripwire(sandbox: Sandbox): Promise<string> {
-  const logPath = installTmuxTripwire(sandbox);
-  const tripwire = await runCli(
-    {
-      ...sandbox,
-      cli: { executable: '/usr/bin/env', args: ['tmux'] },
-    },
-    [],
-    { deadlineMs: 2_000 }
-  );
-  expect(tripwire.status).toBe(97);
-  expect(tripwire.stderr).toBe('');
-  expect(readFileSync(logPath, 'utf8')).toBe('\n');
-  return logPath;
 }
 
 describe('native durable identity process boundary', () => {
