@@ -233,7 +233,14 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             identity: text(m, "identity"),
             operation: ExchangeOperation::List {
                 limit: text(m, "limit")
-                    .map(|value| integer(&value, "--limit", 1, 200))
+                    .map(|value| {
+                        integer(
+                            &value,
+                            "--limit",
+                            1,
+                            tmt_core::request::attention::MAX_LIST_LIMIT,
+                        )
+                    })
                     .transpose()?,
                 after: text(m, "after")
                     .map(|value| integer(&value, "--after", 0, MAX_JS_SAFE_INTEGER))

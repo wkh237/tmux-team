@@ -72,7 +72,7 @@ The preview implements help, version, Bash/Zsh completion and the existing
 `config` command plus storage-only `identity create/show/list` (#113) and pane
 identity `name`/`this`/`add`/`whoami`/`unbind`/`rm`/`list` (#109), plus storage-only
 `reply`/`result` (#122), diagnostic `check`/`read` (#125), role/preamble (#127), and
-durable `talk` (#129).
+durable `talk` (#129), and identity-scoped `x list/show/ack/ackall` (#131).
 Other recognized effectful commands return
 `NATIVE_NOT_IMPLEMENTED`, exit 1, before any settings,
 storage, tmux or input acquisition. Text-only commands reject JSON. Native

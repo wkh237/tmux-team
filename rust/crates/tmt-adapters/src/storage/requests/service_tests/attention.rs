@@ -1,0 +1,772 @@
+use super::support::{DAY_MS, Fixture, NOW_MS, endpoint, service};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
+use tmt_core::identity::{Lifetime, create_or_resolve};
+use tmt_core::request::attention::{AttentionRejection, Exchange, FinalState};
+use tmt_core::request::{
+    AttemptStatus, Originator, PrepareRequest, RequestError, RequestPrompt, ResponseProof,
+    Settlement, SubmitResponse,
+};
+
+fn prepare_sent(
+    fixture: &mut Fixture,
+    identity_id: &str,
+    request_id: &str,
+    pane_id: &str,
+    pane_pid: u64,
+    message: &str,
+    retention_days: u64,
+) -> (String, tmt_core::request::RequestEndpoint) {
+    let target = endpoint(pane_id, pane_pid);
+    let prepared = service(fixture)
+        .prepare(
+            PrepareRequest {
+                request_id: request_id.into(),
+                message: message.into(),
+                endpoint: target.clone(),
+                wait: false,
+                expires_at_ms: NOW_MS + 3_600_001,
+                originator: Originator::Explicit(identity_id.into()),
+                recipient_identity_id: None,
+                preamble: None,
+            },
+            format!("attempt-{request_id}"),
+            retention_days,
+        )
+        .expect("prepare attention request");
+    service(fixture)
+        .begin_send(&prepared.attempt_id)
+        .expect("begin attention request");
+    service(fixture)
+        .settle(&prepared.attempt_id, Settlement::Sent)
+        .expect("settle attention request");
+    (prepared.attempt_id, target)
+}
+
+fn submit_final(
+    fixture: &mut Fixture,
+    request_id: &str,
+    attempt_id: &str,
+    target: tmt_core::request::RequestEndpoint,
+    body: &str,
+) -> tmt_core::request::FinalResponse {
+    service(fixture)
+        .submit_response(SubmitResponse {
+            request_id: request_id.into(),
+            proof: ResponseProof::Recorded {
+                attempt_id: attempt_id.into(),
+                endpoint: target,
+            },
+            body: body.into(),
+        })
+        .expect("submit attention final")
+}
+
+fn create_identity(fixture: &mut Fixture, name: &str) -> String {
+    create_or_resolve(&mut fixture.storage, name, Lifetime::Saved)
+        .expect("create attention identity")
+        .identity
+        .id
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct AttentionSql {
+    counter: Option<(i64, i64)>,
+    attempts: Vec<(String, i64, i64)>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct RequestMetadataSql {
+    prompt: Option<String>,
+    prompt_bytes: Option<i64>,
+    prompt_expires_at_ms: Option<i64>,
+    retention_expires_at_ms: i64,
+    response_body: Option<String>,
+    response_body_bytes: Option<i64>,
+    response_submitted_at_ms: Option<i64>,
+    response_expires_at_ms: Option<i64>,
+}
+
+fn attention_sql(fixture: &Fixture, identity_id: &str) -> AttentionSql {
+    let connection =
+        Connection::open_with_flags(&fixture.database, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .expect("open read-only attention oracle");
+    let counter = connection
+        .query_row(
+            "SELECT latest_revision, acknowledged_through
+             FROM request_attention_identities WHERE identity_id = ?",
+            [identity_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .expect("read attention counter");
+    let mut statement = connection
+        .prepare(
+            "SELECT request_id, attention_revision, attention_acknowledged_revision
+             FROM request_attempts WHERE originator_identity_id = ?
+             ORDER BY attention_revision, request_id",
+        )
+        .expect("prepare attention rows");
+    let attempts = statement
+        .query_map([identity_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .expect("query attention rows")
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .expect("decode attention rows");
+    AttentionSql { counter, attempts }
+}
+
+fn request_ids(items: &[Exchange]) -> Vec<&str> {
+    items.iter().map(|item| item.request_id.as_str()).collect()
+}
+
+fn request_metadata_sql(fixture: &Fixture, request_id: &str) -> RequestMetadataSql {
+    let connection =
+        Connection::open_with_flags(&fixture.database, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .expect("open read-only request metadata oracle");
+    connection
+        .query_row(
+            "SELECT a.message_text, a.message_bytes, a.message_expires_at_ms,
+                    a.retention_expires_at_ms, r.body, r.body_bytes,
+                    r.submitted_at_ms, r.response_expires_at_ms
+             FROM request_attempts a
+             LEFT JOIN request_responses r ON r.request_id = a.request_id
+             WHERE a.request_id = ?",
+            [request_id],
+            |row| {
+                Ok(RequestMetadataSql {
+                    prompt: row.get(0)?,
+                    prompt_bytes: row.get(1)?,
+                    prompt_expires_at_ms: row.get(2)?,
+                    retention_expires_at_ms: row.get(3)?,
+                    response_body: row.get(4)?,
+                    response_body_bytes: row.get(5)?,
+                    response_submitted_at_ms: row.get(6)?,
+                    response_expires_at_ms: row.get(7)?,
+                })
+            },
+        )
+        .expect("read request metadata")
+}
+
+#[test]
+fn lists_one_identity_in_revision_order_with_bounded_pagination() {
+    let mut fixture = Fixture::new();
+    let owner = fixture.identity_id.clone();
+    for (request_id, pane_id, pane_pid) in [
+        ("attention-page-1", "%10", 110),
+        ("attention-page-2", "%11", 111),
+        ("attention-page-3", "%12", 112),
+    ] {
+        prepare_sent(
+            &mut fixture,
+            &owner,
+            request_id,
+            pane_id,
+            pane_pid,
+            request_id,
+            7,
+        );
+    }
+
+    let first = service(&mut fixture)
+        .list_exchanges(&owner, Some(2), None)
+        .expect("list first attention page");
+    assert_eq!(
+        request_ids(&first.items),
+        ["attention-page-1", "attention-page-2"]
+    );
+    assert_eq!(first.next_after, Some(2));
+    assert!(first.items.iter().all(|item| {
+        item.delivery == AttemptStatus::Sent
+            && item.final_state == FinalState::NotSubmitted
+            && !item.acknowledged
+            && !item.settled
+    }));
+
+    let second = service(&mut fixture)
+        .list_exchanges(&owner, Some(2), first.next_after)
+        .expect("list second attention page");
+    assert_eq!(request_ids(&second.items), ["attention-page-3"]);
+    assert_eq!(second.next_after, None);
+    let before_invalid = attention_sql(&fixture, &owner);
+    for invalid_limit in [0, 201] {
+        assert!(matches!(
+            service(&mut fixture).list_exchanges(&owner, Some(invalid_limit), None),
+            Err(RequestError::Attention(AttentionRejection::Invalid(_)))
+        ));
+    }
+    assert!(matches!(
+        service(&mut fixture).list_exchanges(&owner, None, Some(9_007_199_254_740_992)),
+        Err(RequestError::Attention(AttentionRejection::Invalid(_)))
+    ));
+    for invalid_revision in [0, 9_007_199_254_740_992] {
+        assert!(matches!(
+            service(&mut fixture).acknowledge_exchange(
+                &owner,
+                "attention-page-1",
+                invalid_revision
+            ),
+            Err(RequestError::Attention(AttentionRejection::Invalid(_)))
+        ));
+    }
+    assert_eq!(attention_sql(&fixture, &owner), before_invalid);
+    assert_eq!(
+        attention_sql(&fixture, &owner),
+        AttentionSql {
+            counter: Some((3, 0)),
+            attempts: vec![
+                ("attention-page-1".into(), 1, 0),
+                ("attention-page-2".into(), 2, 0),
+                ("attention-page-3".into(), 3, 0),
+            ],
+        }
+    );
+}
+
+#[test]
+fn metadata_expiry_hides_show_and_ack_at_deadline_equality() {
+    let mut fixture = Fixture::new();
+    let owner = fixture.identity_id.clone();
+    prepare_sent(
+        &mut fixture,
+        &owner,
+        "attention-expiry",
+        "%19",
+        119,
+        "prompt",
+        7,
+    );
+    let detail = service(&mut fixture)
+        .show_exchange(&owner, "attention-expiry")
+        .unwrap();
+    fixture.set_now(detail.exchange.retention_expires_at_ms);
+    assert!(matches!(
+        service(&mut fixture).show_exchange(&owner, "attention-expiry"),
+        Err(RequestError::Attention(AttentionRejection::NotFound))
+    ));
+    assert!(matches!(
+        service(&mut fixture).acknowledge_exchange(&owner, "attention-expiry", 1),
+        Err(RequestError::Attention(AttentionRejection::NotFound))
+    ));
+    assert!(
+        service(&mut fixture)
+            .list_exchanges(&owner, None, None)
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    assert_eq!(attention_sql(&fixture, &owner).counter, Some((1, 0)));
+}
+
+#[test]
+fn foreign_identity_cannot_list_show_or_ack_another_originator() {
+    let mut fixture = Fixture::new();
+    let owner = fixture.identity_id.clone();
+    let foreign = create_identity(&mut fixture, "Foreign Attention Owner");
+    let (attempt_id, target) = prepare_sent(
+        &mut fixture,
+        &foreign,
+        "attention-foreign",
+        "%20",
+        120,
+        "foreign prompt",
+        7,
+    );
+    let before = attention_sql(&fixture, &foreign);
+
+    let own = service(&mut fixture)
+        .list_exchanges(&owner, None, None)
+        .expect("list own attention");
+    assert!(own.items.is_empty());
+    assert!(matches!(
+        service(&mut fixture).show_exchange(&owner, "attention-foreign"),
+        Err(RequestError::Attention(AttentionRejection::NotFound))
+    ));
+    assert!(matches!(
+        service(&mut fixture).acknowledge_exchange(&owner, "attention-foreign", 1,),
+        Err(RequestError::Attention(AttentionRejection::NotFound))
+    ));
+    let foreign_page = service(&mut fixture)
+        .list_exchanges(&foreign, None, None)
+        .expect("list foreign attention");
+    assert_eq!(request_ids(&foreign_page.items), ["attention-foreign"]);
+    assert_eq!(attention_sql(&fixture, &foreign), before);
+
+    submit_final(
+        &mut fixture,
+        "attention-foreign",
+        &attempt_id,
+        target,
+        "foreign final",
+    );
+    let detail = service(&mut fixture)
+        .show_exchange(&foreign, "attention-foreign")
+        .expect("show foreign detail");
+    assert!(matches!(
+        detail.exchange.final_state,
+        FinalState::Retained { .. }
+    ));
+}
+
+#[test]
+fn acknowledged_pending_request_reappears_when_a_late_final_advances_revision() {
+    let mut fixture = Fixture::new();
+    let owner = fixture.identity_id.clone();
+    let (attempt_id, target) = prepare_sent(
+        &mut fixture,
+        &owner,
+        "attention-late-final",
+        "%30",
+        130,
+        "pending prompt",
+        7,
+    );
+    let pending = service(&mut fixture)
+        .list_exchanges(&owner, None, None)
+        .expect("list pending attention");
+    assert_eq!(pending.items[0].revision, 1);
+    assert!(matches!(
+        pending.items[0].final_state,
+        FinalState::NotSubmitted
+    ));
+    let retention_expires_at_ms = pending.items[0].retention_expires_at_ms;
+    let acknowledged = service(&mut fixture)
+        .acknowledge_exchange(&owner, "attention-late-final", 1)
+        .expect("acknowledge pending request");
+    assert!(acknowledged.changed);
+    let acknowledged_detail = service(&mut fixture)
+        .show_exchange(&owner, "attention-late-final")
+        .expect("show acknowledged pending request");
+    assert!(acknowledged_detail.exchange.acknowledged);
+    assert!(!acknowledged_detail.exchange.settled);
+    assert!(
+        service(&mut fixture)
+            .list_exchanges(&owner, None, None)
+            .expect("list acknowledged pending request")
+            .items
+            .is_empty()
+    );
+
+    submit_final(
+        &mut fixture,
+        "attention-late-final",
+        &attempt_id,
+        target,
+        "late final",
+    );
+    let late = service(&mut fixture)
+        .list_exchanges(&owner, None, None)
+        .expect("list late final");
+    assert_eq!(request_ids(&late.items), ["attention-late-final"]);
+    assert_eq!(late.items[0].revision, 2);
+    assert_eq!(
+        late.items[0].retention_expires_at_ms,
+        retention_expires_at_ms
+    );
+    assert!(!late.items[0].acknowledged);
+    assert!(!late.items[0].settled);
+    assert!(matches!(
+        late.items[0].final_state,
+        FinalState::Retained { .. }
+    ));
+    assert_eq!(
+        attention_sql(&fixture, &owner),
+        AttentionSql {
+            counter: Some((2, 0)),
+            attempts: vec![("attention-late-final".into(), 2, 1)],
+        }
+    );
+}
+
+#[test]
+fn show_preserves_exact_prompt_and_final_body_detail() {
+    let mut fixture = Fixture::new();
+    let owner = fixture.identity_id.clone();
+    let prompt = "\u{feff} prompt\r\n\u{0000} 日本語  ";
+    let body = "\u{feff} final\r\n\u{0000}🙂  ";
+    let (attempt_id, target) = prepare_sent(
+        &mut fixture,
+        &owner,
+        "attention-exact-detail",
+        "%40",
+        140,
+        prompt,
+        7,
+    );
+    let final_response = submit_final(
+        &mut fixture,
+        "attention-exact-detail",
+        &attempt_id,
+        target,
+        body,
+    );
+    let detail = service(&mut fixture)
+        .show_exchange(&owner, "attention-exact-detail")
+        .expect("show exact attention detail");
+    assert!(matches!(
+        detail.prompt,
+        RequestPrompt::Retained(ref stored)
+            if stored.message == prompt && stored.message_bytes == prompt.len() as u64
+    ));
+    assert!(matches!(
+        detail.exchange.final_state,
+        FinalState::Retained {
+            ref content,
+            submitted_at_ms,
+            body_bytes,
+            expires_at_ms,
+        } if content == body
+            && submitted_at_ms == final_response.submitted_at_ms
+            && body_bytes == body.len() as u64
+            && expires_at_ms == final_response.response_expires_at_ms
+    ));
+    let connection =
+        Connection::open_with_flags(&fixture.database, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .expect("open exact detail oracle");
+    let stored: (String, i64, String, i64) = connection
+        .query_row(
+            "SELECT a.message_text, a.message_bytes, r.body, r.body_bytes
+             FROM request_attempts a JOIN request_responses r ON r.request_id = a.request_id
+             WHERE a.request_id = 'attention-exact-detail'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .expect("read exact prompt and final");
+    assert_eq!(
+        stored,
+        (
+            prompt.into(),
+            prompt.len() as i64,
+            body.into(),
+            body.len() as i64
+        )
+    );
+}
+
+#[test]
+fn list_projects_final_metadata_without_decoding_a_corrupt_body() {
+    let mut fixture = Fixture::new();
+    let owner = fixture.identity_id.clone();
+    let (attempt_id, target) = prepare_sent(
+        &mut fixture,
+        &owner,
+        "attention-corrupt-body",
+        "%45",
+        145,
+        "metadata prompt",
+        7,
+    );
+    submit_final(
+        &mut fixture,
+        "attention-corrupt-body",
+        &attempt_id,
+        target,
+        "valid body",
+    );
+    let writer = Connection::open(&fixture.database).expect("open corrupt-body writer");
+    writer
+        .execute(
+            "UPDATE request_responses
+             SET body = CAST(X'FF' AS BLOB), body_bytes = 1
+             WHERE request_id = ?",
+            params!["attention-corrupt-body"],
+        )
+        .expect("corrupt only final body bytes");
+    drop(writer);
+
+    let page = service(&mut fixture)
+        .list_exchanges(&owner, None, None)
+        .expect("list metadata without loading final body");
+    assert_eq!(request_ids(&page.items), ["attention-corrupt-body"]);
+    assert!(matches!(
+        page.items[0].final_state,
+        FinalState::Retained { body_bytes: 1, .. }
+    ));
+    assert!(matches!(
+        service(&mut fixture).show_exchange(&owner, "attention-corrupt-body"),
+        Err(RequestError::Repository(_))
+    ));
+}
+
+#[test]
+fn stale_ack_conflicts_and_repeated_current_ack_is_idempotent() {
+    let mut fixture = Fixture::new();
+    let owner = fixture.identity_id.clone();
+    let (attempt_id, target) = prepare_sent(
+        &mut fixture,
+        &owner,
+        "attention-stale-ack",
+        "%50",
+        150,
+        "stale ack prompt",
+        7,
+    );
+    let first = service(&mut fixture)
+        .acknowledge_exchange(&owner, "attention-stale-ack", 1)
+        .expect("acknowledge first revision");
+    assert!(first.changed);
+    submit_final(
+        &mut fixture,
+        "attention-stale-ack",
+        &attempt_id,
+        target,
+        "stale ack final",
+    );
+    let stale = service(&mut fixture).acknowledge_exchange(&owner, "attention-stale-ack", 1);
+    assert!(matches!(
+        stale,
+        Err(RequestError::Attention(
+            AttentionRejection::RevisionConflict {
+                current: 2,
+                expected: 1
+            }
+        ))
+    ));
+    assert_eq!(
+        attention_sql(&fixture, &owner),
+        AttentionSql {
+            counter: Some((2, 0)),
+            attempts: vec![("attention-stale-ack".into(), 2, 1)],
+        }
+    );
+
+    fixture.set_now(NOW_MS + DAY_MS);
+    let before_current_ack = request_metadata_sql(&fixture, "attention-stale-ack");
+    let current = service(&mut fixture)
+        .acknowledge_exchange(&owner, "attention-stale-ack", 2)
+        .expect("acknowledge current revision");
+    assert!(current.changed);
+    let repeated = service(&mut fixture)
+        .acknowledge_exchange(&owner, "attention-stale-ack", 2)
+        .expect("repeat current acknowledgment");
+    assert!(!repeated.changed);
+    assert_eq!(attention_sql(&fixture, &owner).attempts[0].2, 2);
+    assert_eq!(
+        request_metadata_sql(&fixture, "attention-stale-ack"),
+        before_current_ack
+    );
+    let settled_detail = service(&mut fixture)
+        .show_exchange(&owner, "attention-stale-ack")
+        .expect("show acknowledged final");
+    assert!(settled_detail.exchange.acknowledged);
+    assert!(settled_detail.exchange.settled);
+}
+
+#[test]
+fn ackall_cutoff_leaves_late_final_and_new_request_unacknowledged() {
+    let mut fixture = Fixture::new();
+    let owner = fixture.identity_id.clone();
+    let (first_attempt, first_target) = prepare_sent(
+        &mut fixture,
+        &owner,
+        "attention-ackall-first",
+        "%60",
+        160,
+        "first prompt",
+        7,
+    );
+    let cutoff = service(&mut fixture)
+        .acknowledge_all_exchanges(&owner)
+        .expect("ackall first cutoff");
+    assert_eq!(cutoff, 1);
+    assert!(
+        service(&mut fixture)
+            .list_exchanges(&owner, None, None)
+            .expect("list after first ackall")
+            .items
+            .is_empty()
+    );
+
+    let (_second_attempt, _second_target) = prepare_sent(
+        &mut fixture,
+        &owner,
+        "attention-ackall-second",
+        "%61",
+        161,
+        "second prompt",
+        7,
+    );
+    let second_page = service(&mut fixture)
+        .list_exchanges(&owner, None, None)
+        .expect("list request after cutoff");
+    assert_eq!(request_ids(&second_page.items), ["attention-ackall-second"]);
+    assert_eq!(second_page.items[0].revision, 2);
+
+    submit_final(
+        &mut fixture,
+        "attention-ackall-first",
+        &first_attempt,
+        first_target,
+        "late first final",
+    );
+    let late_page = service(&mut fixture)
+        .list_exchanges(&owner, None, None)
+        .expect("list late first final");
+    assert_eq!(
+        request_ids(&late_page.items),
+        ["attention-ackall-second", "attention-ackall-first"]
+    );
+    assert_eq!(late_page.items[0].revision, 2);
+    assert_eq!(late_page.items[1].revision, 3);
+
+    let second_cutoff = service(&mut fixture)
+        .acknowledge_all_exchanges(&owner)
+        .expect("ackall late cutoff");
+    assert_eq!(second_cutoff, 3);
+    let (_third_attempt, _third_target) = prepare_sent(
+        &mut fixture,
+        &owner,
+        "attention-ackall-third",
+        "%62",
+        162,
+        "third prompt",
+        7,
+    );
+    let new_page = service(&mut fixture)
+        .list_exchanges(&owner, None, None)
+        .expect("list request after second cutoff");
+    assert_eq!(request_ids(&new_page.items), ["attention-ackall-third"]);
+    assert_eq!(new_page.items[0].revision, 4);
+    assert!(!new_page.items[0].acknowledged);
+    assert_eq!(attention_sql(&fixture, &owner).counter, Some((4, 3)));
+}
+
+#[test]
+fn final_state_distinguishes_expired_body_from_unavailable_body_at_retention_boundary() {
+    let mut fixture = Fixture::new();
+    let owner = fixture.identity_id.clone();
+    let (expired_attempt, expired_target) = prepare_sent(
+        &mut fixture,
+        &owner,
+        "attention-expired-final",
+        "%70",
+        170,
+        "expired prompt",
+        1,
+    );
+    fixture.set_now(NOW_MS + 2 * DAY_MS);
+    let expired_response = submit_final(
+        &mut fixture,
+        "attention-expired-final",
+        &expired_attempt,
+        expired_target,
+        "expired final",
+    );
+    fixture.set_now(expired_response.response_expires_at_ms);
+    let expired = service(&mut fixture)
+        .show_exchange(&owner, "attention-expired-final")
+        .expect("show expired final");
+    assert!(matches!(
+        expired.exchange.final_state,
+        FinalState::Expired {
+            submitted_at_ms,
+            expires_at_ms,
+        } if submitted_at_ms == expired_response.submitted_at_ms
+            && expires_at_ms == expired_response.response_expires_at_ms
+    ));
+
+    let mut unavailable_fixture = Fixture::new();
+    let unavailable_owner = unavailable_fixture.identity_id.clone();
+    let (unavailable_attempt, unavailable_target) = prepare_sent(
+        &mut unavailable_fixture,
+        &unavailable_owner,
+        "attention-unavailable-final",
+        "%71",
+        171,
+        "unavailable prompt",
+        7,
+    );
+    submit_final(
+        &mut unavailable_fixture,
+        "attention-unavailable-final",
+        &unavailable_attempt,
+        unavailable_target,
+        "unavailable final",
+    );
+    let writer = Connection::open(&unavailable_fixture.database).expect("open fixture writer");
+    writer
+        .execute(
+            "DELETE FROM request_responses WHERE request_id = ?",
+            params!["attention-unavailable-final"],
+        )
+        .expect("remove only unavailable body");
+    drop(writer);
+    let unavailable = service(&mut unavailable_fixture)
+        .show_exchange(&unavailable_owner, "attention-unavailable-final")
+        .expect("show unavailable final");
+    assert!(matches!(
+        unavailable.exchange.final_state,
+        FinalState::Unavailable {
+            submitted_at_ms,
+            expires_at_ms,
+        } if submitted_at_ms == NOW_MS && expires_at_ms == NOW_MS + 7 * DAY_MS
+    ));
+    let oracle = Connection::open_with_flags(
+        &unavailable_fixture.database,
+        OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .expect("open final-state oracle");
+    let marker: Option<i64> = oracle
+        .query_row(
+            "SELECT response_submitted_at_ms FROM request_attempts WHERE request_id = ?",
+            ["attention-unavailable-final"],
+            |row| row.get(0),
+        )
+        .expect("read unavailable marker");
+    assert_eq!(marker, Some(NOW_MS as i64));
+}
+
+#[test]
+fn ackall_trigger_failure_rolls_back_watermark_and_acknowledgments() {
+    let mut fixture = Fixture::new();
+    let owner = fixture.identity_id.clone();
+    let (_attempt_id, _target) = prepare_sent(
+        &mut fixture,
+        &owner,
+        "attention-rollback",
+        "%80",
+        180,
+        "rollback prompt",
+        1,
+    );
+    let before = attention_sql(&fixture, &owner);
+    let metadata_before = request_metadata_sql(&fixture, "attention-rollback");
+    fixture.set_now(NOW_MS + DAY_MS);
+    let writer = Connection::open(&fixture.database).expect("open rollback writer");
+    writer
+        .execute_batch(
+            "CREATE TRIGGER reject_attention_ackall
+             BEFORE UPDATE OF acknowledged_through ON request_attention_identities
+             BEGIN SELECT RAISE(ABORT, 'injected attention failure'); END;",
+        )
+        .expect("install attention rollback trigger");
+    assert!(matches!(
+        service(&mut fixture).acknowledge_all_exchanges(&owner),
+        Err(RequestError::Repository(_))
+    ));
+    assert_eq!(attention_sql(&fixture, &owner), before);
+    assert_eq!(
+        request_metadata_sql(&fixture, "attention-rollback"),
+        metadata_before
+    );
+    writer
+        .execute_batch("DROP TRIGGER reject_attention_ackall")
+        .expect("remove attention rollback trigger");
+    let acknowledged = service(&mut fixture)
+        .acknowledge_all_exchanges(&owner)
+        .expect("ackall after rollback");
+    assert_eq!(acknowledged, 1);
+    assert_eq!(attention_sql(&fixture, &owner).counter, Some((1, 1)));
+    let metadata_after = request_metadata_sql(&fixture, "attention-rollback");
+    assert_eq!(metadata_after.prompt, None);
+    assert_eq!(metadata_after.prompt_bytes, None);
+    assert_eq!(
+        metadata_after.prompt_expires_at_ms,
+        metadata_before.prompt_expires_at_ms
+    );
+    assert_eq!(
+        metadata_after.retention_expires_at_ms,
+        metadata_before.retention_expires_at_ms
+    );
+}

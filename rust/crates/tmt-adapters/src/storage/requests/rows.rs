@@ -7,6 +7,7 @@ use tmt_core::{
     request::{
         AttemptStatus, FinalResponse, Originator, RawRequestContext, RequestAttempt,
         RequestEndpoint,
+        attention::{AttentionRecord, ResponseMetadata},
     },
 };
 
@@ -143,6 +144,31 @@ pub(super) fn response_row(row: &Row<'_>) -> rusqlite::Result<FinalResponse> {
         body_bytes: u64_at(row, 9)?,
         submitted_at_ms: u64_at(row, 10)?,
         response_expires_at_ms: u64_at(row, 11)?,
+    })
+}
+
+pub(super) fn attention_row(row: &Row<'_>) -> rusqlite::Result<AttentionRecord> {
+    let revision = u64_at(row, 26)?;
+    let acknowledged_revision = u64_at(row, 27)?;
+    let attempt = attempt_row(row)?;
+    let acknowledged_through = u64_at(row, 28)?;
+    let submitted_at_ms = optional_u64_at(row, 29)?;
+    let body_bytes = optional_u64_at(row, 30)?;
+    let expires_at_ms = optional_u64_at(row, 31)?;
+    let response_metadata = match (submitted_at_ms, body_bytes, expires_at_ms) {
+        (None, None, None) => None,
+        (Some(_), Some(body_bytes), Some(expires_at_ms)) => Some(ResponseMetadata {
+            body_bytes,
+            expires_at_ms,
+        }),
+        _ => return Err(invalid_row()),
+    };
+    Ok(AttentionRecord {
+        attempt,
+        revision,
+        acknowledged_revision,
+        acknowledged_through,
+        response_metadata,
     })
 }
 

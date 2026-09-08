@@ -4,6 +4,7 @@
 //! the bounded SQL mutations while the invocation-owned immediate transaction is
 //! held.
 
+mod attention;
 mod rows;
 
 use rusqlite::{Connection, OptionalExtension, params};
@@ -141,6 +142,37 @@ impl RequestRecords for RequestRows<'_> {
             )
             .optional()
             .map_err(|error| classify(error, "Find request response"))
+    }
+
+    fn find_attention(
+        &self,
+        identity_id: &str,
+        request_id: &str,
+    ) -> Result<Option<tmt_core::request::attention::AttentionRecord>, Self::Error> {
+        attention::find_attention(self.0, identity_id, request_id)
+    }
+
+    fn list_attention(
+        &self,
+        identity_id: &str,
+        after: u64,
+        limit: u64,
+        now_ms: u64,
+    ) -> Result<Vec<tmt_core::request::attention::AttentionRecord>, Self::Error> {
+        attention::list_attention(self.0, identity_id, after, limit, now_ms)
+    }
+
+    fn acknowledge_revision(
+        &mut self,
+        identity_id: &str,
+        request_id: &str,
+        revision: u64,
+    ) -> Result<bool, Self::Error> {
+        attention::acknowledge_revision(self.0, identity_id, request_id, revision)
+    }
+
+    fn acknowledge_through(&mut self, identity_id: &str, latest: u64) -> Result<bool, Self::Error> {
+        attention::acknowledge_through(self.0, identity_id, latest)
     }
 
     fn find_active_request(
