@@ -6,6 +6,7 @@ mod identity_command;
 mod invocation;
 mod output;
 mod parser;
+mod response_command;
 
 use std::io::{self, Write};
 use std::process::ExitCode;
@@ -34,7 +35,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Help => {
             writeln!(
                 stdout,
-                "Native development preview: configuration, storage-only identity create/show/list, and pane identity name/this/add/whoami/unbind/rm/list are available. Transport commands are not implemented yet. Use isolated test state only.\n"
+                "Native development preview: configuration, storage-only identity create/show/list and reply/result, and pane identity name/this/add/whoami/unbind/rm/list are available. Transport commands are not implemented yet. Use isolated test state only.\n"
             )?;
             grammar::public_grammar(&grammar::grammar(), true).write_long_help(&mut stdout)?;
             writeln!(stdout)?;
@@ -67,6 +68,10 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Identity(request) => {
             drop(stdout);
             return identity_command::execute(request, parsed.mode);
+        }
+        request @ (Invocation::Reply { .. } | Invocation::Result { .. }) => {
+            drop(stdout);
+            return response_command::execute(request, parsed.mode);
         }
         request @ (Invocation::Bind { .. }
         | Invocation::Whoami

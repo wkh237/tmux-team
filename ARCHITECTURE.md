@@ -1059,7 +1059,8 @@ bounded housekeeping. `RequestRecords` is available only inside the existing
 Storage immediate transaction. The clock is sampled after acquiring that lock;
 the concrete caller supplies attempt IDs and frozen settings before entry.
 There is no service-owned connection, tmux lookup, file input or configuration
-loader. This foundation does not enable public native talk/reply/result yet.
+loader. #122 supplies public native reply/result composition; native talk remains
+unimplemented in this preview.
 
 `core::retention` is the shared settings/runtime owner for day limits and checked
 JavaScript-safe deadlines. Historical migration arithmetic remains frozen.
@@ -1101,8 +1102,36 @@ The reviewed pure SHA-256 dependency is permitted only in core; base64 is
 permitted only in adapters. Existing serde_json handles bounded v1 envelopes,
 not v2 digest serialization. Architecture tests enforce these dependency edges
 with positive and adverse cases. This is local correlation, not remote access
-control. #106 still owns public adapters and installed recipient instructions;
+control. #106 still owns native talk integration and installed recipient instructions;
 #93 retains native message transport integration.
+
+#122 adds `response_command` for public storage-only reply/result. It consumes
+the parser's existing typed invocation and the codec before any input acquisition.
+Inline/file/stdin input completes and validates before ConfigPaths discovery and
+the sole invocation-owned Storage open. Current settings, identity and tmux are
+not consulted. The command injects a UTC millisecond clock sampled by the service
+under its existing transaction. No service policy, SQL or extra connection moves
+into the handler. Reports remain buffered until explicit close; unavailable
+results are primary status-3 failures, so cleanup cannot replace them.
+Shared `output::Failure` carries only optional request-ID/status correlation,
+never bodies, receipts or endpoint evidence. Cleanup failure on success preserves
+the explicit request ID with an effects warning.
+
+`response_input` owns bounded complete acquisition, using the existing core
+exact-text validator. Files use nonblocking open, regular-file verification and
+cap-plus-one reads; explicit symlinks to regular files remain supported. Stdin
+requires EOF under a five-second monotonic deadline and a 1 MiB cap, rejects TTYs,
+and uses safe nix poll/read/fcntl without reader threads or another process runner.
+Inherited open-file flags are restored before returning; normal failure preserves
+its primary cause and any restoration failure. RAII supplies descriptor closure
+and fallback flag restoration, not a substitute for explicit cleanup reporting.
+The CLI owns stdin exclusively during acquisition. Nonblocking flags do not make
+arbitrary kernel/filesystem stalls cancellable; regular-file reads retain the
+existing local-file contract, not a remote-filesystem latency guarantee.
+Darwin's EOPNOTSUPP terminal probe is accepted only after fstat confirms a socket;
+other probe failures stay errors. Public messages remain bounded and exclude paths
+and OS causes. Existing nix adds only fs/poll runtime features; term is test-only
+for an isolated pseudoterminal rejection case, with no new locked packages.
 
 #### Native storage and runtime adapters
 

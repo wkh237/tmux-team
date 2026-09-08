@@ -34,10 +34,11 @@ pnpm dev -- --help
 The `rust/` workspace is not the installed runtime yet. It implements only
 help/version/completion, typed grammar, the existing `config` command and
 storage-only `identity create/show/list` under #113, and pane identity
-`name`/`this`/`add`/`whoami`/`unbind`/`rm`/`list` under #109.
+`name`/`this`/`add`/`whoami`/`unbind`/`rm`/`list` under #109, plus storage-only
+`reply`/`result` under #122.
 Other effectful commands still explicitly fail.
 The #118 request/final service is an internal transactional foundation only;
-it does not make public native talk/reply/result available. Its real SQLite
+its public reply/result composition is supplied by #122, not native talk. Its real SQLite
 tests run in ordinary adapter Cargo tests and therefore in the existing Docker
 adapter-test stage. They must verify committed rows independently of service
 reads, since those reads can perform housekeeping. Inject clocks for deadline
@@ -53,6 +54,16 @@ and a TS-generated v1 literal, with independent SQL for retained timestamps,
 attention and no-mutation checks. Compact/recorded writers race through the
 existing bounded connection harness. These remain internal service tests, not
 public native talk/reply/result acceptance.
+#122 adds `test/native/response.test.ts` over the same bounded process sandbox,
+with independent request SQL fixtures and Node-derived receipt proofs. It checks
+real public reply/result outputs, input preflight before storage creation,
+no-tmux/config isolation, retry after attempt removal and a stopped schema-8
+fixture migrated by public native reply. Do not reopen that fixture with TS.
+Adapter tests include exact-byte files, FIFO rejection, socket/pipe EOF, inherited
+flag restoration and an isolated test-only pseudoterminal. The Darwin socket
+case must reproduce the unsupported terminal probe, not weaken the public stdin
+assertion. Keep the real five-second CLI timeout separately from short injected
+adapter deadlines. This is public storage-only acceptance, not native talk.
 The separate storage adapter upgrades historical schemas 0–8 to native schema 9,
 tested through a development-only probe rather than an installed command.
 Use isolated test databases only: installed TypeScript cannot reopen schema 9.
@@ -130,7 +141,7 @@ TMT_TEST_CLI='{"executable":"/absolute/checkout/rust/target/debug/tmt","args":[]
 ```
 
 The selected config cases exercise the original public CLI contract unchanged.
-Other cases in that file still require native list/reply/result implementations;
+Other cases in that file require separately reviewed native behavior/fixtures;
 their exclusion is not parity evidence. The native suite separately exercises
 configuration validation through `config show`, path discovery, scoped edits,
 no-op clear and file preservation, without starting SQLite or tmux.
