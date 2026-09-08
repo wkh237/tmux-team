@@ -782,6 +782,13 @@ endpoint. It checks repeat/no-op, explicit pin followed by no-network upgrade,
 exact installed skill bytes, old npm command preservation, PATH warning and
 temporary cleanup. It is not live GitHub download or cross-target evidence.
 
+The existing `test/native/artifact.Dockerfile` also carries this verifier. After
+building its task-owned matching-architecture image, run the normal artifact
+entrypoint, then repeat with `--entrypoint node` and
+`scripts/verify-native-bootstrap.mjs --manifest native-manifest.json --archive
+artifacts/<archive-name> --target <target> --skill expected-skill.md`. Keep
+`--rm --init --network none` and remove only the task-owned image afterwards.
+
 `src/native-bootstrap.test.ts` covers the generated shell's negative paths with
 the existing bounded CLI sandbox and a synthetic executable for orchestration.
 Do not count that stub as native publication evidence; pair it with the actual
