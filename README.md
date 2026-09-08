@@ -1,148 +1,112 @@
 # tmux-team
 
-Your coding agents, working together. Connect terminal agents in tmux:
-delegate by name, collect complete replies, and recover outstanding work
-without digging through terminal history. Local CLI, no daemon required.
+Your coding agents, working together. Send work to a tmux pane by name, get
+complete replies, and recover outstanding tasks without digging through terminal
+history. A standalone native CLI—no Node.js, Rust toolchain, or daemon required.
 
-## v5 preview installation
+## Install
 
-Install the tested `5.0.0-alpha.1` preview directly from this pinned revision.
-Requires macOS or Linux, Node.js >=22.12 (Node 24 recommended), and tmux.
+Native `5.0.0-alpha.2` for macOS and Linux, arm64 and x64. tmux is required for
+pane operations.
 
 ```bash
-npm install -g https://github.com/wkh237/tmux-team/archive/99d4a12bde0e0c63dbb8391a5bb8865c3669b2c1.tar.gz
-tmt install
+curl -fsSL --proto '=https' --proto-redir '=https' https://github.com/wkh237/tmux-team/releases/download/v5.0.0-alpha.2/tmt-installer.sh | sh
+export PATH="$HOME/.local/bin:$PATH"
+tmt --version
 ```
 
-No Git checkout, pnpm, or database setup needed. `tmt` is the short alias for
-`tmux-team`. npm `latest` still provides v4, and `@alpha` is an older v3 preview;
-neither installs v5. `tmt upgrade` does not update this preview: reinstall the
-chosen pinned revision instead.
+Installs into `~/.local/bin` and sets up the agent skill non-interactively.
+Keep that directory in your shell's PATH and reload your agent's skills.
+Update later with `tmt upgrade` (`tmt update` works too).
 
-After `tmt install`, load or reload the installed `tmux-team` skill in each
-agent before sending work. Provider-specific install notes are in
-[`skills/README.md`](skills/README.md); the canonical bundled guidance is
-[`skills/tmux-team/SKILL.md`](skills/tmux-team/SKILL.md).
+Already using npm or pnpm? Read [replacement and PATH guidance](NATIVE-INSTALL.md#replacing-npm-or-pnpm)
+first. The installer does not uninstall old packages or transfer/delete data.
+Old TypeScript writers must not use native SQLite state.
 
-Upgrading from an older version? Update the CLI, run `tmt install`, then restart
-the agent or ask it to read `tmt learn --skill`. Installation never prompts;
-conflicts are preserved until you explicitly choose `--force`.
+For custom prefixes, pinning, binary-only installation, or inspecting the
+installer before running it, see [native installation](NATIVE-INSTALL.md).
+Downloads and integrity evidence are in the [alpha release](https://github.com/wkh237/tmux-team/releases/tag/v5.0.0-alpha.2).
 
 ## Quick start
 
-Start a tmux session if you do not already have one:
+Start a tmux session if needed:
 
 ```bash
 tmux new -s tmt
 ```
 
-Once the session opens, name the target pane from its shell before launching
-the agent:
+Name the target pane from its shell, then launch your agent:
 
 ```bash
 tmt name reviewer
 gemini
 ```
 
-From another terminal or tmux pane, send a request by name:
+From another terminal or tmux pane:
 
 ```bash
 tmt talk reviewer "Review the current changes and report concrete risks."
 ```
 
-The receiving agent's loaded skill explains how to use the request ID and
-receipt supplied with the request. The default `talk` waits for that complete
-reply; `--detach` returns a request ID so you can retrieve the result later
-with `tmt result <request-id>`. A terminal marker, idle output, or process exit
-is not a completed reply.
+The receiving agent's skill explains how to submit its complete reply. `talk`
+waits for that stored reply, not terminal markers or idle output. Use
+`--detach` to return immediately and `tmt result <request-id>` to collect it later.
 
-## Durable identity and recovery
+Names are global, not folder-scoped. Pane identities are temporary by default;
+use `tmt name reviewer -s` to save one. `tmt ls` shows lifetime and presence.
+`tmt rm reviewer` removes a temporary identity; saved removal requires `--force`.
+Neither removal nor unbinding kills the pane.
 
-Create a durable originator identity even when it is not currently bound to a
-pane, then attribute requests explicitly:
+## Recover outstanding work
+
+A saved originator identity lets you recover requests after timeout, detach or
+pane loss, including when the caller is outside tmux:
 
 ```bash
 tmt identity create coordinator
 tmt talk reviewer "Run the agreed checks." --identity coordinator --detach --json
-```
-
-If a caller times out, detaches, or loses its pane, recover requests originated
-by that identity from local storage:
-
-```bash
 tmt x --identity coordinator --json
 tmt x show <request-id> --identity coordinator --json
 tmt x ackall --identity coordinator --json
 ```
 
-`x` lists retained attention metadata; `x show` reads the retained context and
-final when available; `ackall` marks the current snapshot handled, while a
-later final appears again. These commands do not cancel work or turn TMT into
-an inbox.
-
-## What tmux-team provides
-
-- Global names that survive working-directory changes and optional durable role
-  profiles for each identity.
-- `talk`, `check`, and `list` by global name or direct tmux pane target.
-- Complete final replies through `reply`/`result`, including late replies after
-  a pane closes.
-- Local SQLite state with no background service and no network transport.
-- One skill for Claude Code, Codex, Gemini, agy, Pi and OpenCode, installed or
-  repaired by `tmt install`.
-
-Useful commands:
-
-```bash
-tmt list
-tmt whoami
-tmt add <pane-target> <global-name>
-tmt check reviewer 100
-tmt result <request-id> --json
-tmt help
-```
-
-## Boundaries worth knowing
-
-TMT leaves your tmux titles and border layout alone. Identity badges are off by
-default; opt in with `tmt config set ui.paneBadge on --global` and add the
-[badge fragment to your own theme](USER-GUIDE.md#optional-pane-badge).
-Use `tmt config show --json` to inspect settings and their file paths.
-
-TMT routes to live panes on the current tmux server. It does not provide an
-offline recipient queue, remote routing, shared memory, authentication, or MCP
-connectivity. Durable identity records and retained request/reply data are
-local to the configured SQLite database.
-
-Messages preserve line breaks, but ASCII `!` is converted to fullwidth `！` to
-protect coding-agent shell shortcuts. If delivery becomes uncertain, inspect
-the pane before retrying; do not resend just because a caller timed out.
-
-For workflows, recovery details, role profiles, preambles, configuration, and
-failure semantics, see the [user guide](USER-GUIDE.md). The durable
-request/response design is documented in
-[`REQUEST-RESPONSE.md`](REQUEST-RESPONSE.md).
+Reads never acknowledge results. `ackall` marks the current snapshot handled;
+a later reply appears again. Acknowledgment neither cancels work nor asserts success.
 
 ## One skill, no plugin
 
-`tmt install` detects supported providers and installs the same canonical skill.
-If none is detected, it installs the shared skill without requiring a provider.
-Claude Code can invoke it as `/tmux-team`; no marketplace or separate `/team`
-command is needed. See the [installation guide](skills/README.md) if you have
-an older command or plugin installed.
+`tmt install` supports Claude Code, Codex, Gemini, agy, Pi and OpenCode. If none
+is detected, it installs the shared skill. Use `tmt install --dir <skills-root>`
+for another discovery folder. No plugin or separate `/team` command is needed;
+Claude Code can invoke the skill as `/tmux-team`.
 
-## Native rewrite development
+For an existing conversation, ask the agent to read `tmt learn --skill` after
+updating. Installation does not reload a running agent. See the
+[provider guide](skills/README.md) and [canonical skill](skills/tmux-team/SKILL.md).
 
-The Rust executable is an isolated development preview, not the installer above.
-It supports collaboration, complete durable replies, X attention, profiles,
-configuration, skill installation and managed `upgrade`/`update`. Bindings are temporary
-unless saved with `-s`; `ls` shows lifetime and active/offline/unknown presence.
-The verified curl installer is generated with each native release; public release
-publication is still pending. It installs without Node, Rust or sudo, then uses
-`tmt upgrade`. See [native installation and npm replacement](NATIVE-INSTALL.md#curl-bootstrap)
-for the release-URL workflow and PATH handling. The approved transition is a fresh
-installation without data transfer or automatic deletion. Do not share upgraded
-SQLite state with the old TypeScript writer.
+## Boundaries worth knowing
+
+TMT routes to live panes on the current tmux server. Identities, profiles and
+retained exchanges live in local SQLite. There is no offline recipient queue,
+remote routing, shared memory, authentication, or MCP connectivity yet.
+
+Your tmux titles and border layout stay untouched. Badges are off by default;
+see [optional pane badges](USER-GUIDE.md#optional-pane-badge). Inspect settings
+with `tmt config show --json`.
+
+ASCII `!` becomes fullwidth `！` in delivered messages to protect coding-agent
+shell shortcuts. If delivery becomes uncertain, inspect before retrying; a
+timeout alone is not permission to resend.
+
+See the [user guide](USER-GUIDE.md) for roles, preambles, configuration and
+failure handling, or `tmt help` for command options.
+
+## Development
+
+`rust/` owns the native runtime. Root npm entrypoints and TypeScript sources
+remain transitional reference/test tooling; installing the source through npm
+does not install the native release above. See [development](DEVELOPMENT.md),
+[architecture](ARCHITECTURE.md) and the [rewrite tracker](https://github.com/wkh237/tmux-team/issues/93).
 
 ## License
 
