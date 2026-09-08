@@ -758,6 +758,40 @@ unpin advancement, a retained executable, no-op and downgrade rejection, exact
 embedded skill and unchanged SQLite bytes during installation. Its temporary
 prefix/application state is always invocation-owned and removed afterward.
 
+## Native curl bootstrap verification
+
+Generate the release-specific script only after final cargo-dist archives and
+their independent runtime verification. All selected archives must be present;
+the manifest, not a hand-maintained version table, owns the generated facts:
+
+```sh
+node scripts/generate-native-bootstrap.mjs \
+  --manifest /absolute/dist-manifest.json --archive-dir /absolute/artifacts \
+  > /absolute/artifacts/tmt-installer.sh
+sh -n /absolute/artifacts/tmt-installer.sh
+node scripts/verify-native-bootstrap.mjs \
+  --manifest /absolute/dist-manifest.json \
+  --archive /absolute/artifacts/tmt-cli-aarch64-apple-darwin.tar.gz \
+  --target aarch64-apple-darwin --skill skills/tmux-team/SKILL.md
+```
+
+The last command requires actual matching-host release artifacts, uses isolated
+HOME/state/PATH, real shell utilities and the new native executable. Only curl
+acquisition is replaced with task-owned fixture copies; production has no test
+endpoint. It checks repeat/no-op, explicit pin followed by no-network upgrade,
+exact installed skill bytes, old npm command preservation, PATH warning and
+temporary cleanup. It is not live GitHub download or cross-target evidence.
+
+`src/native-bootstrap.test.ts` covers the generated shell's negative paths with
+the existing bounded CLI sandbox and a synthetic executable for orchestration.
+Do not count that stub as native publication evidence; pair it with the actual
+artifact verifier. Run `pnpm check`, unit tests and two Docker lifecycle passes
+before the reviewed CI candidate. Keep generated outputs out of source control.
+No new runtime dependency, data migration or public publication is authorized
+by generation. An authorized release must upload the exact verified manifest,
+archives and generated script, establish immutable release/provenance evidence,
+and verify the public download before the README advertises it as available.
+
 ## Testing Strategy
 
 We prefer structured, deterministic assertions in tests. Human-facing formatting is validated sparingly; most tests assert on structured output or file contents.

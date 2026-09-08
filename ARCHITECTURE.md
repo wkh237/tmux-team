@@ -1342,9 +1342,11 @@ not merely a healthy empty database.
 
 This is a forward-only development boundary: installed TypeScript remains on
 schema 8 and rejects schema 9. Do not use the native preview against user state
-or run old and new writers on the same database. Before distribution, #82/#93
-must provide stopped-writer cutover, consistent backup/recovery and preserved
-old-receipt execution. Replacing a binary does not downgrade a database.
+or run old and new writers on the same database. The user-approved npm/pnpm
+transition is a fresh installation without new data-transfer or backup/recovery
+machinery. Installation leaves old data alone; existing schema/receipt tests
+remain safety evidence, not a mixed-runtime promise. Replacing a binary does not
+downgrade a database.
 
 `storage-probe` is a development-only example using that real adapter, not a
 public CLI command or alternate storage implementation. Shared bounded subprocess
@@ -1561,6 +1563,29 @@ preserves valid partial reports and returns failure without claiming binary
 rollback when skill refresh fails. Timeouts, malformed reports and oversized
 output are failures, not successful updates. Shell bootstrap, public publication
 and installed-runtime cutover are separate delivery gates.
+
+### Release-generated curl bootstrap
+
+Under #144, `scripts/native-bootstrap.mjs` consumes the final cargo-dist manifest
+and local archives through the existing independent artifact policy. It emits a
+version-specific POSIX script from `scripts/native-bootstrap.sh`, embedding only
+verified version/channel, target names, sizes and hashes. The uname mapping is
+platform dispatch, not another release catalog. Stock cargo-dist installers
+remain disabled because their persistent publication would duplicate TMT's owner.
+
+The generated release asset uses canonical HTTPS versioned downloads, verified
+sizes/SHA-256 and private temporary staging. It streams only the known executable
+to a fixed file; archive paths are never unpacked into the installation prefix.
+That executable's `__native-install` owns all persistent binary writes. Initial
+receipts stay truthfully local-archive provenance. This trusts the official script
+and HTTPS origin; it is not independent client attestation verification.
+
+The new absolute command optionally runs existing skill installation. Conflicts
+are never silently forced; a failure reports partial completion. Shell PATH
+inspection never invokes an old command, modifies profiles or uninstalls a
+package. npm replacement adds no data-transfer or deletion path. The generator
+and actual-artifact verifier are developer tools, not end-user Node dependencies.
+Public release publication and matching-target evidence remain separate gates.
 
 ## Maintenance contract
 

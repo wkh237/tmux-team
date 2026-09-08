@@ -134,12 +134,15 @@ an older command or plugin installed.
 ## Native rewrite development
 
 The Rust executable is an isolated development preview, not the installer above.
-It supports configuration, `identity create/show/list`, and pane identity
-`name`/`this`/`add`/`whoami`/`unbind`/`rm`/`ls`. Native bindings are temporary
+It supports collaboration, complete durable replies, X attention, profiles,
+configuration, skill installation and managed `upgrade`/`update`. Bindings are temporary
 unless saved with `-s`; `ls` shows lifetime and active/offline/unknown presence.
-Messaging still requires the TypeScript runtime. Do not point
-the native preview at existing user data: its schema upgrade is forward-only.
-See [development and verification](DEVELOPMENT.md#native-development-preview).
+The verified curl installer is generated with each native release; public release
+publication is still pending. It installs without Node, Rust or sudo, then uses
+`tmt upgrade`. See [native installation and npm replacement](NATIVE-INSTALL.md#curl-bootstrap)
+for the release-URL workflow and PATH handling. The approved transition is a fresh
+installation without data transfer or automatic deletion. Do not share upgraded
+SQLite state with the old TypeScript writer.
 
 ## License
 

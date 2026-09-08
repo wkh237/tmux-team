@@ -36,6 +36,13 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
   finalization and unchanged data. The internal preview entrypoint is not a
   public bootstrap or permission to replace a user/package-manager installation.
 - Promotion requires passing Code quality, Unit tests, and Docker E2E checks.
+- For curl bootstrap, follow DEVELOPMENT's native curl bootstrap verification.
+  Generate from final verified cargo-dist artifacts and invoke the existing
+  native publisher; do not enable a competing stock installer. Test an actual
+  matching-host archive without Node/Rust on runtime PATH, and distinguish
+  controlled-download evidence from an authorized public release smoke test.
+  npm/pnpm replacement is a fresh installation without data-transfer machinery,
+  not permission to delete old state or silently uninstall another manager.
 - Tags, GitHub Releases, npm publishing, and npm dist-tags are separate operations that require explicit authorization; this skill never assumes permission for them.
 - Update user-facing installation or channel documentation whenever a version change would make it inaccurate.
 - A future prerelease publish must use a non-`latest` npm dist-tag. Before declaring it available, inspect the registry dist-tags and install the exact published version in a clean temporary environment.
