@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
+import { imports } from '../test/support/source-imports.js';
 
 const sourceRoot = path.dirname(fileURLToPath(import.meta.url));
 
@@ -17,44 +18,6 @@ function declaredTypes(text: string): string[] {
   };
   collect(source);
   return names;
-}
-
-function imports(text: string): string[] {
-  const source = ts.createSourceFile('module.ts', text, ts.ScriptTarget.Latest, true);
-  const values: string[] = [];
-  const collect = (node: ts.Node): void => {
-    if (
-      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
-      node.moduleSpecifier &&
-      ts.isStringLiteral(node.moduleSpecifier)
-    ) {
-      values.push(node.moduleSpecifier.text);
-    } else if (
-      ts.isCallExpression(node) &&
-      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-        (ts.isIdentifier(node.expression) && node.expression.text === 'require')) &&
-      node.arguments.length === 1 &&
-      ts.isStringLiteral(node.arguments[0])
-    ) {
-      values.push(node.arguments[0].text);
-    } else if (
-      ts.isImportTypeNode(node) &&
-      ts.isLiteralTypeNode(node.argument) &&
-      ts.isStringLiteral(node.argument.literal)
-    ) {
-      values.push(node.argument.literal.text);
-    } else if (
-      ts.isImportEqualsDeclaration(node) &&
-      ts.isExternalModuleReference(node.moduleReference) &&
-      node.moduleReference.expression &&
-      ts.isStringLiteral(node.moduleReference.expression)
-    ) {
-      values.push(node.moduleReference.expression.text);
-    }
-    ts.forEachChild(node, collect);
-  };
-  collect(source);
-  return values;
 }
 
 function violations(file: string, text: string): string[] {
@@ -96,57 +59,7 @@ function productionFiles(directory: string): string[] {
   });
 }
 
-function retainedTestFiles(directory: string): string[] {
-  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    const file = path.join(directory, entry.name);
-    if (entry.isDirectory()) return retainedTestFiles(file);
-    return /\.(?:ts|mjs)$/.test(entry.name) ? [file] : [];
-  });
-}
-
-function legacyTestImports(file: string, text: string): string[] {
-  return imports(text).filter((specifier) => {
-    if (!specifier.startsWith('.') && !path.isAbsolute(specifier)) return false;
-    const target = path.resolve(path.dirname(file), specifier);
-    const relative = path.relative(sourceRoot, target);
-    return relative === '' || (!relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
-  });
-}
-
 describe('maintained application dependency boundaries', () => {
-  it('rejects legacy runtime imports from retained native test infrastructure', () => {
-    const file = path.join(sourceRoot, '../test/native/example.ts');
-    for (const form of [
-      "import { open } from '../../src/storage/sqlite-adapter.js';",
-      "export * from '../../src/config.js';",
-      "const legacy = import('../../src/context.js');",
-      "const legacy = require('../../src/context.js');",
-      "type Legacy = import('../../src/context.js').Context;",
-    ])
-      expect(legacyTestImports(file, form)).toHaveLength(1);
-    expect(legacyTestImports(file, "import { runCli } from '../support/cli-process.js';")).toEqual(
-      []
-    );
-    expect(legacyTestImports(file, "import Database from 'better-sqlite3';")).toEqual([]);
-    expect(legacyTestImports(file, "// import legacy from '../../src/context.js';")).toEqual([]);
-  });
-
-  it('keeps all retained test modules independent of the TypeScript product', () => {
-    const directories = ['native', 'e2e', 'support'].map((name) =>
-      path.join(sourceRoot, '../test', name)
-    );
-    const files = directories.flatMap(retainedTestFiles);
-    expect(files.some((file) => file.endsWith('/storage-fixture.ts'))).toBe(true);
-    expect(files.some((file) => file.endsWith('/cli-process.ts'))).toBe(true);
-    expect(
-      files.flatMap((file) =>
-        legacyTestImports(file, fs.readFileSync(file, 'utf8')).map(
-          (specifier) => `${file} -> ${specifier}`
-        )
-      )
-    ).toEqual([]);
-  });
-
   it('recognizes duplicate request declarations without treating imports or comments as owners', () => {
     expect(declaredTypes('export interface ConfigRequest {}')).toEqual(['ConfigRequest']);
     expect(declaredTypes('type PreambleRequest = { kind: "preamble" };')).toEqual([

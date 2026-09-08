@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { createSandbox, runCli } from '../test/support/cli-process.js';
+import { createSandbox, runCli } from '../support/cli-process.js';
 
 describe('Docker wrapper executable forwarding', () => {
   it.each(['unset', 'selected', 'failed container'])(
@@ -11,7 +11,7 @@ describe('Docker wrapper executable forwarding', () => {
       const sandbox = createSandbox({
         TMT_TEST_CLI: JSON.stringify({
           executable: process.execPath,
-          args: [fileURLToPath(new URL('../scripts/run-e2e.mjs', import.meta.url))],
+          args: [fileURLToPath(new URL('../../scripts/run-e2e.mjs', import.meta.url))],
         }),
       });
       try {

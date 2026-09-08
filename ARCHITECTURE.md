@@ -927,7 +927,14 @@ contracts and TypeScript-only workers/pack probes.
 
 Retained native, Docker and process test infrastructure lives under `test/`, not
 the transitional TypeScript product tree. The AST boundary check in
-`src/architecture.test.ts` rejects imports from these retained modules into `src/`.
+`test/tooling/architecture.test.ts` rejects imports from these retained modules
+(including tooling tests themselves) into `src/`. It shares the test-only literal
+AST import extractor in `test/support/source-imports.ts` with the transitional
+product guard in `src/architecture.test.ts`; neither duplicates the parser.
+`test/tooling/` also owns developer script, artifact policy, bootstrap and
+executable-selector tests. These run in the existing unit suite and retained
+test type/lint/format checks. The temporary TypeScript selector default and npm
+artifact policy remain explicit transitional contracts, not native behavior.
 The only TypeScript database initializer is
 `src/test-support/legacy-storage-fixture.ts`, for TypeScript-only contract tests.
 Historical migration tests instead copy immutable databases from

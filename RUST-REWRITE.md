@@ -467,7 +467,9 @@ Native-talk E2E covers human completion/detach/timeout and overlap warning versu
 force/JSON suppression; skill-reminder E2E uses a real private terminal and
 fixture-owned provider home. Unit-only drift eligibility or returned-error
 rollback would not establish those process guarantees.
-Developer artifact/selector guards also remain until relocated during source retirement.
+Developer artifact/selector guards now live in `test/tooling/`, outside the
+transitional product tree (#159). Their assertions, including temporary npm and
+TypeScript-selector contracts, still run; relocation is not source retirement.
 Node wrapper/npm-upgrade implementation details are not native runtime features;
 their retirement must be explicit rather than silently counted as covered.
 Native startup performs local skill inspection only, not npm release discovery;
