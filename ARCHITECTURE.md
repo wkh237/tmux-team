@@ -19,6 +19,16 @@ explicitly identify native owners. Native lifetime rules (temporary by default,
 explicit save, retirement) supersede durable-only identity assumptions there.
 Source cleanup and measured performance acceptance remain tracked in #93.
 
+Paired performance acceptance (#151) retains the TypeScript reference until
+measurements are captured. Both startup and private-tmux benchmarks reuse the
+test-only executable selector and a shared independent help-command oracle in
+`src/test-support/performance-contract.mjs`; they do not import runtime grammar.
+The E2E Dockerfile can select an optimized CLI with `TMT_NATIVE_PROFILE=release`
+without changing the default regression profile or creating another harness.
+Timing never replaces exact output, independent state, mock-submission and
+cleanup assertions. Resource precision and unmeasured workload limits belong
+in PERFORMANCE-BASELINE, not a claimed universal speedup.
+
 Release preparation is orchestration, not a second artifact or install owner.
 `dist-workspace.toml` selects artifacts; cargo-dist merges per-host manifests
 from `target/distrib/*-dist-manifest.json` into the authoritative final manifest.

@@ -2,12 +2,14 @@ FROM rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e7
 WORKDIR /native/rust
 COPY rust/ ./
 COPY skills/ ../skills/
+ARG TMT_NATIVE_PROFILE=dev
 RUN cargo build --locked --example tmux-probe \
-  && cargo build --locked -p tmt-cli \
+  && case "$TMT_NATIVE_PROFILE" in dev) native_output=debug ;; release) native_output=release ;; *) exit 2 ;; esac \
+  && cargo build --locked --profile "$TMT_NATIVE_PROFILE" -p tmt-cli \
   && cargo test --locked --no-run -p tmt-adapters \
   && mkdir /native-artifacts \
   && cp target/debug/examples/tmux-probe /native-artifacts/tmux-probe \
-  && cp target/debug/tmt /native-artifacts/tmt \
+  && cp "target/$native_output/tmt" /native-artifacts/tmt \
   && find target/debug/deps -maxdepth 1 -type f -name 'tmt_adapters-*' -executable \
     -exec cp {} /native-artifacts/adapter-tests \;
 

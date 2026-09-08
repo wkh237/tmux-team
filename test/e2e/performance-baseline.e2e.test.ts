@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import type { CliExecutables } from '../../src/test-support/cli-executable.mjs';
+import { assertBenchmarkHelp } from '../../src/test-support/performance-contract.mjs';
 import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
 import { durableState } from './identity-state-oracle.js';
@@ -291,7 +292,7 @@ baselineSuite('TMT performance baseline', () => {
               (result) => {
                 expect(result.code).toBe(0);
                 expect(result.stderr).toBe('');
-                expect(result.stdout).toContain('TALK OPTIONS');
+                assertBenchmarkHelp(result.stdout);
               }
             );
 
