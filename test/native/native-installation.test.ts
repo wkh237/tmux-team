@@ -215,7 +215,9 @@ describe('native installation process contract', () => {
         expect(second).toEqual({ ...first, changed: false });
         expect(third).toEqual({ ...first, changed: false });
         expect(readlinkSync(currentPointer(prefix))).toBe(pointer);
-        expect(readFileSync(path.join(prefix, 'lib', 'tmux-team', pointer, 'tmt'))).toEqual(before);
+        expect(
+          readFileSync(path.join(prefix, 'lib', 'tmux-team', pointer, 'tmt')).equals(before)
+        ).toBe(true);
         expect(releaseIds(prefix)).toHaveLength(1);
         expect(existsSync(firstHome)).toBe(false);
         expect(existsSync(secondHome)).toBe(false);
@@ -248,8 +250,10 @@ describe('native installation process contract', () => {
           pinned_version: fixture.version,
         });
         expect(
-          readFileSync(path.join(prefix, 'lib', 'tmux-team', 'releases', originalId, 'tmt'))
-        ).toEqual(originalBytes);
+          readFileSync(path.join(prefix, 'lib', 'tmux-team', 'releases', originalId, 'tmt')).equals(
+            originalBytes
+          )
+        ).toBe(true);
 
         const unpinned = await install(sandbox, fixture, prefix, ['--unpin']);
         const unpinnedId = currentReleaseId(prefix);
@@ -262,8 +266,10 @@ describe('native installation process contract', () => {
         });
         expect(releaseIds(prefix)).toEqual([originalId, pinnedId, unpinnedId].sort());
         expect(
-          readFileSync(path.join(prefix, 'lib', 'tmux-team', 'releases', originalId, 'tmt'))
-        ).toEqual(originalBytes);
+          readFileSync(path.join(prefix, 'lib', 'tmux-team', 'releases', originalId, 'tmt')).equals(
+            originalBytes
+          )
+        ).toBe(true);
         expect(existsSync(sandbox.database)).toBe(false);
       });
     }
@@ -316,9 +322,11 @@ describe('native installation process contract', () => {
           'Installed target or equal-version artifact integrity does not match.'
         );
         expect(readlinkSync(currentPointer(prefix))).toBe(pointer);
-        expect(readFileSync(path.join(prefix, 'lib', 'tmux-team', pointer, 'tmt'))).toEqual(
-          originalExecutable
-        );
+        expect(
+          readFileSync(path.join(prefix, 'lib', 'tmux-team', pointer, 'tmt')).equals(
+            originalExecutable
+          )
+        ).toBe(true);
         expect(readFileSync(receiptPath(prefix))).toEqual(forgedReceiptBytes);
         expect(receipt(prefix).file_sha256).toEqual(originalReceipt.file_sha256);
         expect(existsSync(sandbox.database)).toBe(false);
@@ -375,9 +383,11 @@ describe('native installation process contract', () => {
         expect(tampered.status).toBe(1);
         expectError(tampered, 'NATIVE_INSTALL_FAILED');
         expect(readlinkSync(currentPointer(ownedPrefix))).toBe(pointer);
-        expect(readFileSync(path.join(ownedPrefix, 'lib', 'tmux-team', pointer, 'tmt'))).toEqual(
-          executable
-        );
+        expect(
+          readFileSync(path.join(ownedPrefix, 'lib', 'tmux-team', pointer, 'tmt')).equals(
+            executable
+          )
+        ).toBe(true);
         expect(existsSync(sandbox.database)).toBe(false);
       });
     }

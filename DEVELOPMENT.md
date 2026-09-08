@@ -662,7 +662,12 @@ Native adapter tests cover bounded archive acquisition and publication failures;
 native process contracts use the existing executable selector and sandbox. Test
 current/receipt tampering, manager collisions, pin changes, interrupted staging,
 lock contention, missing command-link repair and retained previous releases.
-Assert surviving bytes and cleanup, not merely a failed exit. Synthetic filesystem
+Assert surviving bytes and cleanup, not merely a failed exit. Tests comparing
+large executable buffers must use exact `Buffer.equals`
+checks rather than structural object matchers: enumerating every byte can exhaust
+the test runner's heap on debug binaries. Verify the comparator detects a changed
+byte; do not replace byte equality with a size-only assertion or raise CI memory
+limits to hide assertion overhead. Synthetic filesystem
 fixtures are not proof of runnable release artifacts: retain separate actual
 cargo-dist archive execution and target/linkage/notice evidence. Run the shared
 skill-installation regressions when changing shared file locks or content digests.
