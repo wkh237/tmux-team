@@ -7,7 +7,7 @@ import {
   parseWholeStdout,
   runCli,
   withSandbox,
-} from './test-support/cli-process.js';
+} from '../test/support/cli-process.js';
 import type { PublicIdentity } from './domain/identity.js';
 
 function forbidTmux(sandbox: Parameters<typeof runCli>[0]): string {

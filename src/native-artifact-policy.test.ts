@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createGzip } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import * as tar from 'tar';
-import { runCli, withSandbox, type Sandbox } from './test-support/cli-process.js';
+import { runCli, withSandbox, type Sandbox } from '../test/support/cli-process.js';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { selectNativeArtifact, withNativeArtifact } = (await import(

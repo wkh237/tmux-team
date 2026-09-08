@@ -11,12 +11,7 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import {
-  expectError,
-  parseWholeStdout,
-  runCli,
-  withSandbox,
-} from '../../src/test-support/cli-process.js';
+import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
 import { calibrateTmuxTripwire } from './tmux-tripwire.js';
 
 if (!process.env.TMT_TEST_CLI) throw new Error('Select the native build with TMT_TEST_CLI.');

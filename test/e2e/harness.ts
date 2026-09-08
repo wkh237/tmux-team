@@ -4,10 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TMUX_COMMAND_INSPECTION } from './tmux-command-inspection.js';
-import {
-  resolveCliExecutables,
-  type CliExecutables,
-} from '../../src/test-support/cli-executable.mjs';
+import { resolveCliExecutables, type CliExecutables } from '../support/cli-executable.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const mockAgentPath = path.join(repoRoot, 'test', 'e2e', 'mock-agent.mjs');

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
-import type { CliExecutables } from '../../src/test-support/cli-executable.mjs';
-import { assertBenchmarkHelp } from '../../src/test-support/performance-contract.mjs';
+import type { CliExecutables } from '../support/cli-executable.mjs';
+import { assertBenchmarkHelp } from '../support/performance-contract.mjs';
 import { performance } from 'node:perf_hooks';
 import { describe, expect, it } from 'vitest';
 import { durableState } from './identity-state-oracle.js';

@@ -15,12 +15,12 @@ import {
   expectError,
   expectJsonSuccess,
   fileSnapshot,
-  initializeDatabase,
   parseWholeStdout,
   runCli,
   withSandbox,
-} from './test-support/cli-process.js';
-import type { Sandbox } from './test-support/cli-process.js';
+} from '../test/support/cli-process.js';
+import { initializeDatabase } from './test-support/legacy-storage-fixture.js';
+import type { Sandbox } from '../test/support/cli-process.js';
 
 function readMigrationHistory(sandbox: Sandbox): Array<{ version: number; name: string }> {
   const database = new Database(sandbox.database, { readonly: true });

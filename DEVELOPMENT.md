@@ -1,5 +1,13 @@
 # Development
 
+Retained native and Docker test helpers are owned by `test/support/`; they must not
+import the transitional TypeScript product. Historical SQLite migration tests use
+the immutable fixtures and provenance in `test/fixtures/storage-history/README.md`.
+Their integrity tests compare both database bytes and independent SQL snapshots.
+Do not rebuild expected results with the implementation being tested. TypeScript-only
+database initialization remains in `src/test-support/legacy-storage-fixture.ts`
+until its callers are retired; it is not a native fixture API.
+
 Repository policy and ownership live in [AGENTS.md](AGENTS.md). The maintained
 module map and architecture change triggers live in
 [ARCHITECTURE.md](ARCHITECTURE.md). Code and test style lives in

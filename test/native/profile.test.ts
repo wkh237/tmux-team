@@ -9,7 +9,7 @@ import {
   runCli,
   withSandbox,
   type Sandbox,
-} from '../../src/test-support/cli-process.js';
+} from '../support/cli-process.js';
 import { calibrateTmuxTripwire } from './tmux-tripwire.js';
 
 async function json(sandbox: Sandbox, args: string[]): Promise<unknown> {

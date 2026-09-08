@@ -2,16 +2,16 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { initializeHistoricalDatabase } from './storage-fixture.js';
 import { installTmuxTripwire } from './tmux-tripwire.js';
 import {
   expectError,
   expectJsonSuccess,
-  initializeDatabase,
   parseWholeStdout,
   runCli,
   type Sandbox,
   withSandbox,
-} from '../../src/test-support/cli-process.js';
+} from '../support/cli-process.js';
 import {
   MAX_RESPONSE_BYTES,
   responseSnapshot,
@@ -295,7 +295,7 @@ describe('native reply/result process contract', () => {
 
   it('opens a stopped schema8 database through the native public reply path', async () =>
     withSandbox(async (sandbox) => {
-      initializeDatabase(sandbox);
+      initializeHistoricalDatabase(sandbox.database);
       expect(schemaVersion(sandbox.database)).toBe(8);
       const seeded = seedResponse(sandbox.database, 'native-schema8-reply');
       const body = 'schema8 migration exact body';

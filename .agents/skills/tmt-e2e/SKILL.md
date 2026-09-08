@@ -38,9 +38,15 @@ Read the relevant files before changing behavior:
 - [`scripts/run-e2e.mjs`](../../../scripts/run-e2e.mjs): Docker build/run wrapper and exit-code handling.
 - [`DEVELOPMENT.md#selecting-the-cli-under-test`](../../../DEVELOPMENT.md#selecting-the-cli-under-test):
   shared executable/peer descriptors and container-path requirements. Reuse
-  `src/test-support/cli-executable.mjs`; never add a hard-coded Node launcher or
+  `test/support/cli-executable.mjs`; never add a hard-coded Node launcher or
   silent TS fallback. Prove selection reaches nested replies and real descendants
   with causal results. TS-importing worker/pack tests are not native parity.
+- Keep retained native/E2E helpers under `test/support/`, independent of the old
+  TypeScript product. Historical SQLite migration inputs and reference results
+  live in `test/fixtures/storage-history/`; preserve their provenance, integrity
+  checks and independent SQL assertions. Never use the native implementation to
+  regenerate its own expected migration results. Keep stopped-schema public reply
+  coverage on schema 8 rather than substituting an already-current database.
 - [`PERFORMANCE-BASELINE.md`](../../../PERFORMANCE-BASELINE.md) for optional runtime
   measurements. Use the same isolated fixture and causal assertions; keep timing
   samples out of ordinary CI thresholds and distinguish measured from unavailable

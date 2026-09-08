@@ -2,12 +2,7 @@ import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
-import {
-  expectError,
-  fileSnapshot,
-  runCli,
-  withSandbox,
-} from '../../src/test-support/cli-process.js';
+import { expectError, fileSnapshot, runCli, withSandbox } from '../support/cli-process.js';
 
 // This suite is deliberately native-specific. Requiring the shared
 // descriptor prevents an omitted build from silently exercising TypeScript.
