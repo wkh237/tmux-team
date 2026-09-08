@@ -15,9 +15,14 @@ directory. Active presence also requires matching live tmux binding metadata.
 The instructions below describe the installed TypeScript runtime. The separate
 Rust executable is a development preview: use isolated test state only, never an
 existing user database (schema 9 is forward-only and TypeScript cannot reopen it).
-Its help explicitly identifies the native preview. It implements configuration
-and identity commands, not messaging, role/preamble, X, skill installation or
-upgrade; do not fall back to TypeScript on the same upgraded database.
+Its help explicitly identifies the native preview. It implements configuration,
+identity, talk/reply/result, check/read, role/preamble, X, initialization and
+skill viewing/installation. Native network upgrade is still a separate delivery
+gate; do not fall back to TypeScript on the same upgraded database. Native talk
+supplies a compact `v2_` receipt; use it unchanged. Native reply also accepts
+retained legacy receipts, but TypeScript cannot consume native receipts or
+schema 9. The common communication contracts below apply to both runtimes;
+the native-only lifetime and installation differences are called out explicitly.
 
 For an explicitly selected native preview, `name`, retained alias `this`, and
 `add <pane-target> <name>` default to temporary identities; `-s`/`--save` saves
@@ -510,3 +515,25 @@ Automatic drift reminders inspect known default paths, not custom folders.
 They do not reload an active agent, update provider-managed plugins, or track
 alpha release channels. Package upgrades and skill installation are separate
 from provider discovery.
+
+### Native preview installation differences
+
+The selected Rust executable embeds this exact skill; viewing and installation
+work after moving the binary, without Node or a checkout. Native installs link
+an immutable digest-addressed source under TMT's global directory
+(`skill-assets/<sha256>/tmux-team`). Re-run the intended `install` command after
+replacing a preview binary to refresh valid managed links. An edited current
+bundled source blocks installation even with force; inspect it before repair.
+Links to modified older sources are unmanaged conflicts: force can back up the
+link, never overwrite its source content. Old source
+directories remain available for recovery, not automatic cache deletion.
+
+`--force` backs up unmanaged target entries outside skill discovery in the
+sibling `.tmt-skill-backups` directory. If a later step fails, inspect the error's
+completed-target and recoverable-backup paths; installation across providers is
+not all-or-nothing. Custom target intents are recorded in `skill-installations.json`
+for future managed refresh, never as permission to overwrite their content.
+Native passive reminders cover known defaults only during interactive human
+commands; JSON and piped automation do not perform that scan. Neither installation
+nor a reminder reloads an active conversation. Native network `upgrade` remains
+unavailable until the separate distribution gate is complete.

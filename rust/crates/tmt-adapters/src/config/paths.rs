@@ -69,7 +69,7 @@ impl ConfigPaths {
 
 /// Lexical normalization matches path.join without requiring the destination
 /// (or a discarded parent component) to exist. Do not canonicalize symlinks.
-fn normalize(path: &Path) -> PathBuf {
+pub(crate) fn normalize(path: &Path) -> PathBuf {
     let mut result = PathBuf::new();
     for component in path.components() {
         match component {
