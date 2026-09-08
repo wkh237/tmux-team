@@ -6,6 +6,68 @@ fn version(value: &str) -> Version {
     Version::parse(value).expect("test version must be valid")
 }
 
+#[test]
+fn upgrade_intent_is_resolved_before_discovery() {
+    let current = installed("5.0.0-alpha.2", Channel::Alpha, Some("5.0.0-alpha.2"));
+    assert_eq!(
+        select_upgrade(&current, None, None, false),
+        Ok(UpgradeSelection::Pinned)
+    );
+    assert_eq!(
+        select_upgrade(&current, Some(Channel::Stable), None, false),
+        Err(VersionError::Pinned)
+    );
+    assert_eq!(
+        select_upgrade(&current, None, Some("5.0.0-alpha.3"), true),
+        Err(VersionError::InvalidSelection)
+    );
+    assert_eq!(
+        select_upgrade(&current, None, Some("5.0.0-alpha.1"), false),
+        Err(VersionError::Downgrade)
+    );
+    assert_eq!(
+        select_upgrade(&current, None, Some("invalid"), false),
+        Err(VersionError::InvalidSelection)
+    );
+    assert_eq!(
+        select_upgrade(&current, None, Some("5.0.0-alpha.3"), false),
+        Ok(UpgradeSelection::Fetch {
+            channel: Channel::Alpha,
+            exact: Some(version("5.0.0-alpha.3")),
+            pin: PinAction::PinCandidate
+        })
+    );
+    assert_eq!(
+        select_upgrade(&current, None, None, true),
+        Ok(UpgradeSelection::Fetch {
+            channel: Channel::Alpha,
+            exact: None,
+            pin: PinAction::Clear
+        })
+    );
+}
+
+#[test]
+fn latest_selection_is_channel_scoped_semantic_and_unambiguous() {
+    let versions = ["5.0.0-alpha.2", "5.0.0-alpha.10", "5.0.0", "6.0.0-beta.1"].map(version);
+    assert_eq!(
+        latest_in_channel(&versions, Channel::Alpha).unwrap(),
+        Some(&versions[1])
+    );
+    assert_eq!(
+        latest_in_channel(&versions, Channel::Stable).unwrap(),
+        Some(&versions[2])
+    );
+    assert_eq!(latest_in_channel(&[], Channel::Stable).unwrap(), None);
+    assert_eq!(
+        latest_in_channel(
+            &[version("5.0.0+one"), version("5.0.0+two")],
+            Channel::Stable
+        ),
+        Err(VersionError::EqualPrecedenceChange)
+    );
+}
+
 fn installed(value: &str, channel: Channel, pinned: Option<&str>) -> InstalledVersion {
     InstalledVersion {
         version: version(value),

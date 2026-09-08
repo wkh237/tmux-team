@@ -69,6 +69,7 @@ pub struct VersionPlan {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VersionError {
+    InvalidSelection,
     InvalidCurrentState,
     WrongChannel,
     Pinned,
@@ -79,6 +80,7 @@ pub enum VersionError {
 impl fmt::Display for VersionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
+            Self::InvalidSelection => "Select a valid exact version or unpin, not both.",
             Self::InvalidCurrentState => "Installed version, channel and pin disagree.",
             Self::WrongChannel => "The selected version does not belong to the selected channel.",
             Self::Pinned => "The installation is pinned; explicitly select a version or unpin it.",
@@ -90,6 +92,78 @@ impl fmt::Display for VersionError {
     }
 }
 impl Error for VersionError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpgradeSelection {
+    Pinned,
+    Fetch {
+        channel: Channel,
+        exact: Option<Version>,
+        pin: PinAction,
+    },
+}
+
+/// Resolve explicit user intent before any release discovery or network effect.
+pub fn select_upgrade(
+    current: &InstalledVersion,
+    channel: Option<Channel>,
+    exact: Option<&str>,
+    unpin: bool,
+) -> Result<UpgradeSelection, VersionError> {
+    current.validate()?;
+    if unpin && exact.is_some() {
+        return Err(VersionError::InvalidSelection);
+    }
+    let channel = channel.unwrap_or(current.channel);
+    if current.pinned_version.is_some() && exact.is_none() && !unpin {
+        if channel != current.channel {
+            return Err(VersionError::Pinned);
+        }
+        return Ok(UpgradeSelection::Pinned);
+    }
+    let exact = exact
+        .map(|version| {
+            version
+                .parse::<Version>()
+                .map_err(|_| VersionError::InvalidSelection)
+        })
+        .transpose()?;
+    let pin = if exact.is_some() {
+        PinAction::PinCandidate
+    } else if unpin {
+        PinAction::Clear
+    } else {
+        PinAction::Preserve
+    };
+    if let Some(version) = &exact {
+        plan_version(Some(current), version, channel, pin)?;
+    }
+    Ok(UpgradeSelection::Fetch {
+        channel,
+        exact,
+        pin,
+    })
+}
+
+pub fn latest_in_channel(
+    versions: &[Version],
+    channel: Channel,
+) -> Result<Option<&Version>, VersionError> {
+    let selected = versions
+        .iter()
+        .filter(|version| channel.accepts(version))
+        .max_by(|a, b| a.cmp_precedence(b));
+    if let Some(selected) = selected
+        && versions.iter().any(|candidate| {
+            channel.accepts(candidate)
+                && candidate != selected
+                && candidate.cmp_precedence(selected) == Ordering::Equal
+        })
+    {
+        return Err(VersionError::EqualPrecedenceChange);
+    }
+    Ok(selected)
+}
 
 /// Filesystem ownership and equal-version artifact integrity are separate
 /// adapter checks. A version no-op never authorizes ignoring those checks.

@@ -17,8 +17,9 @@ Rust executable is a development preview: use isolated test state only, never an
 existing user database (schema 9 is forward-only and TypeScript cannot reopen it).
 Its help explicitly identifies the native preview. It implements configuration,
 identity, talk/reply/result, check/read, role/preamble, X, initialization and
-skill viewing/installation. Native network upgrade is still a separate delivery
-gate; do not fall back to TypeScript on the same upgraded database. Native talk
+skill viewing/installation and managed native upgrade/update. Public native
+release availability and runtime cutover remain separate delivery gates; do not
+fall back to TypeScript on the same upgraded database. Native talk
 supplies a compact `v2_` receipt; use it unchanged. Native reply also accepts
 retained legacy receipts, but TypeScript cannot consume native receipts or
 schema 9. The common communication contracts below apply to both runtimes;
@@ -80,8 +81,9 @@ Timeout and interruption end only the observer, never recipient work. A
 retrying. Missing visible output is not permission to resend.
 
 `help`, `version`, `completion` and `learn` are text-only and reject
-`--json` with `JSON_UNSUPPORTED`; run them without that flag. `upgrade`
-also rejects JSON mode because it streams installer output.
+`--json` with `JSON_UNSUPPORTED`; run them without that flag. TypeScript `upgrade`
+also rejects JSON mode because it streams installer output. Native managed
+`upgrade`/`update` supports one structured JSON result, including partial failures.
 
 ## Durable replies and results
 
@@ -384,7 +386,8 @@ identities. Use `name`, `this`, or `add` explicitly to bind such a pane. Invalid
 metadata is not active presence; do not delete durable data or old files to
 repair it. Direct pane targeting remains separate from identity discovery.
 
-V5 does not support `update`, `remove`/`rm`, or `migrate`. Use explicit binding
+The installed TypeScript runtime does not support `update`, `remove`/`rm`, or
+`migrate`; native-only update/removal behavior is described separately. Use explicit binding
 commands above; `unbind` only detaches the current pane and retains its durable
 identity/profile. Do not delete old user files as a migration workaround.
 
@@ -410,7 +413,7 @@ using `--force`, which creates recoverable skill backups outside the discovery r
 An old Claude `commands/team.md`
 is preserved with a warning by default; explicit forced Claude installation can
 back it up after the native skill is installed. Plugin settings are never modified.
-Managed links follow package updates. `tmt upgrade` tracks npm `latest`, not
+Managed links follow package updates. TypeScript `tmt upgrade` tracks npm `latest`, not
 commit-pinned previews; follow the selected release's installation instructions.
 After upgrading the CLI, run `tmt install` and reload or restart the agent.
 For an existing conversation, run `tmt learn --skill` and read its complete output
@@ -535,5 +538,23 @@ not all-or-nothing. Custom target intents are recorded in `skill-installations.j
 for future managed refresh, never as permission to overwrite their content.
 Native passive reminders cover known defaults only during interactive human
 commands; JSON and piped automation do not perform that scan. Neither installation
-nor a reminder reloads an active conversation. Native network `upgrade` remains
-unavailable until the separate distribution gate is complete.
+nor a reminder reloads an active conversation.
+
+For a managed native installation, `tmt upgrade` (alias `tmt update`) retains the
+receipt's channel. `--channel stable|alpha` selects a channel, `--to <version>`
+pins an exact version, and `--unpin` resumes channel updates; do not combine
+`--to` and `--unpin`. Downgrades are rejected. An ordinary pinned invocation is
+a no-network no-op. Package-manager or unmanaged binaries refuse native updates;
+use their original manager, not an overwrite workaround. No public native
+download is implied until its separate release gate is complete.
+
+Successful native updates use the new executable to refresh only recorded
+managed skills. Missing integrations stay missing and modified content is
+preserved. With `--json`, inspect `changed`, `version`, `pinnedVersion`, `skills`
+and any `error`; a nonzero result can mean the binary is already active while
+skill refresh or finalization failed. Resolve the reported conflict and repeat
+the original update selection (including `--to <version>` when pinned); an
+ordinary pinned invocation will not retry skill work. Do not downgrade or
+delete user content. Check `pathWarning` before assuming the
+shell selects the updated binary. Reload/restart the agent, or read the complete
+`tmt learn --skill` output in an existing conversation.

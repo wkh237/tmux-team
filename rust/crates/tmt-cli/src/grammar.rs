@@ -189,7 +189,11 @@ pub fn grammar() -> Command {
             ).ignore_case(true)),
         )
         .subcommand(general("completion", "Generate shell completion").arg(operand("shell", false)))
-        .subcommand(general("upgrade", "Upgrade the CLI and refresh skills"))
+        .subcommand(general("upgrade", "Upgrade the native CLI and refresh managed skills")
+            .visible_alias("update")
+            .arg(Arg::new("channel").long("channel").value_parser(tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str())))
+            .arg(Arg::new("to").long("to").conflicts_with("unpin"))
+            .arg(Arg::new("unpin").long("unpin").action(ArgAction::SetTrue)))
         .subcommand(general("__native-refresh-skills", "Internal managed skill refresh").hide(true))
         .subcommand(
             general("__native-install", "Internal offline native installation")
@@ -197,7 +201,7 @@ pub fn grammar() -> Command {
                 .arg(Arg::new("archive").long("archive").required(true))
                 .arg(Arg::new("manifest").long("manifest").required(true))
                 .arg(Arg::new("prefix").long("prefix").required(true))
-                .arg(Arg::new("channel").long("channel").required(true).value_parser(["stable", "alpha"]))
+                .arg(Arg::new("channel").long("channel").required(true).value_parser(tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str())))
                 .arg(Arg::new("pin").long("pin").action(ArgAction::SetTrue).conflicts_with("unpin"))
                 .arg(Arg::new("unpin").long("unpin").action(ArgAction::SetTrue)),
         )

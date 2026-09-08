@@ -55,7 +55,11 @@ pub enum Invocation {
         directory: Option<String>,
         force: bool,
     },
-    Upgrade,
+    Upgrade {
+        channel: Option<tmt_core::native_install::Channel>,
+        exact: Option<String>,
+        unpin: bool,
+    },
     NativeRefreshSkills,
     NativeInstall {
         archive: String,

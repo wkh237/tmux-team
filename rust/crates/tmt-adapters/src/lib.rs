@@ -13,6 +13,8 @@ mod json_document;
 pub mod native_install;
 #[cfg(unix)]
 pub mod process;
+#[cfg(unix)]
+mod release_http;
 pub mod reply_receipt;
 pub mod request_runtime;
 #[cfg(unix)]

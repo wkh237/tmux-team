@@ -18,6 +18,13 @@ pub(super) struct Receipt {
     pub archive_sha256: String,
     pub target: String,
     pub file_hashes: BTreeMap<String, String>,
+    pub provenance: Option<GitHubProvenance>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct GitHubProvenance {
+    pub release_id: u64,
+    pub manifest_sha256: String,
 }
 
 impl Receipt {
@@ -29,6 +36,7 @@ impl Receipt {
             archive_sha256: artifact.sha256.clone(),
             target: artifact.target.clone(),
             file_hashes: artifact.file_hashes(),
+            provenance: None,
         }
     }
 
@@ -42,7 +50,10 @@ impl Receipt {
             "pinned_version": self.state.pinned_version.as_ref().map(ToString::to_string),
             "archive": self.archive_name, "archive_sha256": self.archive_sha256,
             "target": self.target, "file_sha256": self.file_hashes,
-            "source": "local-archive"
+            "source": self.provenance.as_ref().map_or_else(|| json!("local-archive"), |source| json!({
+                "kind": "github-release", "repository": super::OFFICIAL_REPOSITORY,
+                "release_id": source.release_id, "manifest_sha256": source.manifest_sha256,
+            }))
         }))
         .map_err(io::Error::other)
     }
@@ -73,17 +84,13 @@ impl Receipt {
         if value["schema_version"] != 1
             || text("release_id")? != id.to_string()
             || Some(text("prefix")?) != prefix.to_str()
-            || text("source")? != "local-archive"
         {
             return Err(invalid(
                 "Native receipt ownership does not match its installation.",
             ));
         }
         if value.get("pinned_version").is_none()
-            || text("archive_sha256")?.len() != 64
-            || !text("archive_sha256")?
-                .bytes()
-                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            || !crate::content_digest::is_sha256(text("archive_sha256")?)
         {
             return Err(invalid("Native receipt digest or pin metadata is invalid."));
         }
@@ -104,6 +111,30 @@ impl Receipt {
             },
         };
         state.validate().map_err(io::Error::other)?;
+        let provenance = if value["source"] == "local-archive" {
+            None
+        } else {
+            let source = &value["source"];
+            if source.as_object().is_none_or(|fields| fields.len() != 4)
+                || source["kind"] != "github-release"
+                || source["repository"] != super::OFFICIAL_REPOSITORY
+            {
+                return Err(invalid("Invalid native release provenance."));
+            }
+            let release_id = source["release_id"]
+                .as_u64()
+                .filter(|id| *id > 0)
+                .ok_or_else(|| invalid("Invalid native release provenance."))?;
+            let manifest_sha256 = source["manifest_sha256"]
+                .as_str()
+                .filter(|hash| crate::content_digest::is_sha256(hash))
+                .ok_or_else(|| invalid("Invalid native release provenance."))?
+                .into();
+            Some(GitHubProvenance {
+                release_id,
+                manifest_sha256,
+            })
+        };
         let hashes = value["file_sha256"]
             .as_object()
             .ok_or_else(|| invalid("Missing installed file digests."))?;
@@ -142,6 +173,7 @@ impl Receipt {
             archive_sha256: text("archive_sha256")?.into(),
             target: text("target")?.into(),
             file_hashes,
+            provenance,
         })
     }
 }

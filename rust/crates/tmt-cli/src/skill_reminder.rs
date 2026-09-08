@@ -18,7 +18,7 @@ fn eligible(parsed: &Parsed, interactive: bool) -> bool {
                 | Invocation::Init
                 | Invocation::Learn { .. }
                 | Invocation::Install { .. }
-                | Invocation::Upgrade
+                | Invocation::Upgrade { .. }
                 | Invocation::NativeInstall { .. }
                 | Invocation::NativeRefreshSkills
         )
@@ -78,7 +78,11 @@ mod tests {
                 directory: None,
                 force: false,
             },
-            Invocation::Upgrade,
+            Invocation::Upgrade {
+                channel: None,
+                exact: None,
+                unpin: false,
+            },
             Invocation::NativeRefreshSkills,
             Invocation::NativeInstall {
                 archive: "archive.tar.gz".into(),

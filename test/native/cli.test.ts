@@ -64,7 +64,7 @@ describe('native grammar preview process contract', () => {
       expect(help.stdout).toContain(
         'configuration, identity create/show/list, talk/reply/result, pane identity name/this/add/whoami/unbind/rm/list, diagnostic check/read, role/preamble, x attention, init, learn, and skill installation are available'
       );
-      expect(help.stdout).toContain('Native network upgrade is not implemented yet.');
+      expect(help.stdout).toContain('Managed native upgrade/update is supported');
       expect(help.stdout).toContain('Manage identity records without probing tmux');
       expect(help.stdout).toContain('temporary unless saved');
       expect(help.stdout).toContain('rm');
@@ -75,13 +75,17 @@ describe('native grammar preview process contract', () => {
     });
   });
 
-  it('does not attempt a network upgrade in the native preview', async () => {
+  it('rejects unmanaged upgrades before effects and supports structured alias failures', async () => {
     await withSandbox(async (sandbox) => {
       const before = fileSnapshot(sandbox.root);
       const result = await runCli(sandbox, ['upgrade']);
       expect(result.status).toBe(1);
       expect(result.stdout).toBe('');
-      expect(result.stderr).toContain('not implemented');
+      expect(result.stderr).toContain('not a managed native installation');
+      const alias = await runCli(sandbox, ['update', '--json']);
+      expect(alias.status).toBe(1);
+      expectError(alias, 'NATIVE_UPGRADE_FAILED');
+      expect(alias.stderr).toBe('');
       expect(fileSnapshot(sandbox.root)).toEqual(before);
       expect(existsSync(sandbox.database)).toBe(false);
     });

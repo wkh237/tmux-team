@@ -1,0 +1,405 @@
+use super::*;
+use crate::native_install::{
+    receipt::Receipt,
+    test_support::{artifact, publish, published_layout, state},
+};
+
+fn release_download() -> impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>> {
+    let (release, manifest, archive, _) =
+        release::valid_fixture("1.2.4", "aarch64-apple-darwin", 42);
+    move |url, _, limit, deadline| {
+        assert!(deadline > Instant::now());
+        let bytes = if url.ends_with("/assets/421") {
+            manifest.clone()
+        } else if url.ends_with("/assets/422") {
+            archive.clone()
+        } else if url.ends_with("/tags/v1.2.4") {
+            serde_json::to_vec(&release).unwrap()
+        } else {
+            assert!(url.ends_with("?per_page=100&page=1"));
+            serde_json::to_vec(&vec![release.clone()]).unwrap()
+        };
+        assert!(bytes.len() <= limit);
+        Ok(bytes)
+    }
+}
+
+fn assert_no_downloads(root: &Path) {
+    assert!(!fs::read_dir(root).unwrap().any(|entry| {
+        entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".download-")
+    }));
+}
+
+#[test]
+fn skill_refresh_holds_the_existing_install_lock_and_refuses_stale_releases() {
+    let (_directory, layout, old) = published_layout();
+    let executable = layout
+        .root
+        .join("releases")
+        .join(old.id.to_string())
+        .join("tmt");
+    let mut ran = false;
+    crate::native_install::with_active_release(&executable, || {
+        ran = true;
+        assert!(crate::file_lock::exclusive(&layout.root.join("install.lock")).is_err());
+    })
+    .unwrap();
+    assert!(ran);
+    drop(crate::file_lock::exclusive(&layout.root.join("install.lock")).unwrap());
+    let next = artifact("1.2.4", b"next executable");
+    publish(&layout, &next, &Receipt::new(&next, state("1.2.4", None)));
+    let error = crate::native_install::with_active_release(&executable, || {
+        panic!("stale skill must not be published")
+    })
+    .unwrap_err();
+    assert!(error.to_string().contains("not the active managed release"));
+}
+
+#[test]
+fn finalization_failure_reports_the_active_release_and_retry_repairs_links() {
+    let (_directory, layout, old) = published_layout();
+    let executable = layout
+        .root
+        .join("releases")
+        .join(old.id.to_string())
+        .join("tmt");
+    let mut checkpoints = 0;
+    // Four orchestration checkpoints precede the existing publisher's sequence.
+    let last_checkpoint = crate::native_install::test_support::checkpoint_count() + 4;
+    let error = upgrade_with(
+        UpgradeRequest {
+            executable: &executable,
+            channel: None,
+            exact: None,
+            unpin: false,
+        },
+        || {
+            checkpoints += 1;
+            if checkpoints == last_checkpoint {
+                for name in ["tmt", "tmux-team"] {
+                    fs::remove_file(layout.prefix.join("bin").join(name))?;
+                }
+                fs::remove_dir(layout.prefix.join("bin"))?;
+            }
+            Ok(())
+        },
+        release_download(),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("Release activated"));
+    let activated = error.activated.unwrap();
+    assert!(activated.installation.changed);
+    assert_eq!(activated.installation.version, "1.2.4");
+    assert_eq!(
+        fs::read(&activated.installation.active_executable).unwrap(),
+        b"native executable\n"
+    );
+    assert_eq!(fs::read(&executable).unwrap(), b"synthetic tmt payload\n");
+    assert_no_downloads(&layout.root);
+    fs::create_dir(layout.prefix.join("bin")).unwrap();
+    let retry = upgrade_with(
+        UpgradeRequest {
+            executable: &activated.installation.active_executable,
+            channel: None,
+            exact: None,
+            unpin: false,
+        },
+        || Ok(()),
+        release_download(),
+    )
+    .unwrap();
+    assert!(!retry.installation.changed);
+    assert_eq!(
+        fs::read(&retry.installation.executable).unwrap(),
+        b"native executable\n"
+    );
+    assert_no_downloads(&layout.root);
+}
+
+#[test]
+fn forged_remote_provenance_is_not_accepted_as_owned_receipt_metadata() {
+    let (_directory, layout, old) = published_layout();
+    let release = layout.root.join("releases").join(old.id.to_string());
+    let receipt_path = release.join("receipt.json");
+    let original: serde_json::Value =
+        serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
+    for source in [
+        serde_json::json!({"kind":"github-release", "repository":"attacker/other", "release_id":42, "manifest_sha256":"a".repeat(64)}),
+        serde_json::json!({"kind":"github-release", "repository":"wkh237/tmux-team", "release_id":0, "manifest_sha256":"a".repeat(64)}),
+        serde_json::json!({"kind":"github-release", "repository":"wkh237/tmux-team", "release_id":42, "manifest_sha256":"invalid"}),
+    ] {
+        let mut forged = original.clone();
+        forged["source"] = source;
+        fs::write(&receipt_path, serde_json::to_vec(&forged).unwrap()).unwrap();
+        let error = inspect(&release.join("tmt")).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Invalid native release provenance")
+        );
+        assert_eq!(
+            fs::read(release.join("tmt")).unwrap(),
+            b"synthetic tmt payload\n"
+        );
+    }
+}
+
+#[test]
+fn verified_update_pins_noops_and_unpins_through_one_publisher() {
+    let (_directory, layout, old) = published_layout();
+    let old_executable = layout
+        .root
+        .join("releases")
+        .join(old.id.to_string())
+        .join("tmt");
+    let old_bytes = fs::read(&old_executable).unwrap();
+    let report = upgrade_with(
+        UpgradeRequest {
+            executable: &old_executable,
+            channel: None,
+            exact: Some("1.2.4"),
+            unpin: false,
+        },
+        || Ok(()),
+        release_download(),
+    )
+    .unwrap();
+    assert!(report.installation.changed);
+    assert!(!report.skipped_pinned);
+    assert_eq!(
+        report.state.pinned_version.as_ref().unwrap().to_string(),
+        "1.2.4"
+    );
+    assert_eq!(
+        fs::read(&report.installation.active_executable).unwrap(),
+        b"native executable\n"
+    );
+    assert_eq!(fs::read(&old_executable).unwrap(), old_bytes);
+    let receipt = layout.current().unwrap().unwrap();
+    assert_eq!(receipt.provenance.as_ref().unwrap().release_id, 42);
+    assert_eq!(
+        receipt.provenance.as_ref().unwrap().manifest_sha256.len(),
+        64
+    );
+    let active = report.installation.active_executable;
+    let current = fs::read_link(layout.root.join("current")).unwrap();
+    let noop = upgrade_with(
+        UpgradeRequest {
+            executable: &active,
+            channel: None,
+            exact: Some("1.2.4"),
+            unpin: false,
+        },
+        || Ok(()),
+        release_download(),
+    )
+    .unwrap();
+    assert!(!noop.installation.changed);
+    assert_eq!(fs::read_link(layout.root.join("current")).unwrap(), current);
+    let unpinned = upgrade_with(
+        UpgradeRequest {
+            executable: &active,
+            channel: None,
+            exact: None,
+            unpin: true,
+        },
+        || Ok(()),
+        release_download(),
+    )
+    .unwrap();
+    assert!(unpinned.installation.changed);
+    assert!(unpinned.state.pinned_version.is_none());
+    assert_ne!(fs::read_link(layout.root.join("current")).unwrap(), current);
+    assert_eq!(
+        fs::read(&unpinned.installation.active_executable).unwrap(),
+        fs::read(&active).unwrap()
+    );
+    assert_no_downloads(&layout.root);
+}
+
+#[test]
+fn a_pin_changed_during_download_cannot_be_overridden() {
+    let (_directory, layout, old) = published_layout();
+    let executable = layout
+        .root
+        .join("releases")
+        .join(old.id.to_string())
+        .join("tmt");
+    let mut fetch = release_download();
+    let mut switched = false;
+    let mut pinned_id = None;
+    let error = upgrade_with(
+        UpgradeRequest {
+            executable: &executable,
+            channel: None,
+            exact: None,
+            unpin: false,
+        },
+        || Ok(()),
+        |url, accept, limit, deadline| {
+            if !switched {
+                let candidate = artifact("1.2.3", b"synthetic tmt payload\n");
+                let receipt = Receipt::new(&candidate, state("1.2.3", Some("1.2.3")));
+                pinned_id = Some(receipt.id);
+                publish(&layout, &candidate, &receipt);
+                switched = true;
+            }
+            fetch(url, accept, limit, deadline)
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("pin changed while downloading"));
+    assert!(error.activated.is_none());
+    let current = layout.current().unwrap().unwrap();
+    assert_eq!(Some(current.id), pinned_id);
+    assert_eq!(current.state.pinned_version.unwrap().to_string(), "1.2.3");
+    assert_no_downloads(&layout.root);
+}
+
+#[test]
+fn cancellation_after_download_removes_only_owned_staging_and_preserves_old_release() {
+    for stop_at in [2, 3, 5] {
+        let (_directory, layout, old) = published_layout();
+        let executable = layout
+            .root
+            .join("releases")
+            .join(old.id.to_string())
+            .join("tmt");
+        let mut calls = 0;
+        let error = upgrade_with(
+            UpgradeRequest {
+                executable: &executable,
+                channel: None,
+                exact: None,
+                unpin: false,
+            },
+            || {
+                calls += 1;
+                if calls == stop_at {
+                    Err(io::Error::new(
+                        io::ErrorKind::Interrupted,
+                        "fixture interrupted",
+                    ))
+                } else {
+                    Ok(())
+                }
+            },
+            release_download(),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+        assert!(error.activated.is_none());
+        assert_eq!(layout.current().unwrap().unwrap().id, old.id);
+        assert_eq!(fs::read(&executable).unwrap(), b"synthetic tmt payload\n");
+        assert_no_downloads(&layout.root);
+        assert_eq!(
+            fs::read_dir(layout.root.join("releases")).unwrap().count(),
+            1
+        );
+    }
+}
+
+#[test]
+fn pinned_installation_is_verified_without_network_or_staging() {
+    let (_directory, layout, _) = published_layout();
+    let artifact = artifact("1.2.3", b"pinned executable");
+    let receipt = Receipt::new(&artifact, state("1.2.3", Some("1.2.3")));
+    publish(&layout, &artifact, &receipt);
+    let original = fs::read_link(layout.root.join("current")).unwrap();
+    let executable = layout.root.join(&original).join("tmt");
+    let report = upgrade_with(
+        UpgradeRequest {
+            executable: &executable,
+            channel: None,
+            exact: None,
+            unpin: false,
+        },
+        || Ok(()),
+        |_, _, _, _| panic!("pinned update must not access the network"),
+    )
+    .unwrap();
+    assert!(report.skipped_pinned);
+    assert!(!report.installation.changed);
+    assert_eq!(report.state.pinned_version.unwrap().to_string(), "1.2.3");
+    assert_eq!(
+        fs::read_link(layout.root.join("current")).unwrap(),
+        original
+    );
+    assert!(!fs::read_dir(&layout.root).unwrap().any(|entry| {
+        entry
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .starts_with(".download-")
+    }));
+}
+
+#[test]
+fn stale_executable_and_unowned_paths_fail_before_network() {
+    let (directory, layout, old) = published_layout();
+    let stale = layout
+        .root
+        .join("releases")
+        .join(old.id.to_string())
+        .join("tmt");
+    let next = artifact("1.2.4", b"new executable");
+    publish(&layout, &next, &Receipt::new(&next, state("1.2.4", None)));
+    let unmanaged = directory.path.join("unmanaged");
+    fs::write(&unmanaged, b"unmanaged executable").unwrap();
+    for executable in [&stale, &unmanaged] {
+        let error = upgrade_with(
+            UpgradeRequest {
+                executable,
+                channel: None,
+                exact: None,
+                unpin: false,
+            },
+            || Ok(()),
+            |_, _, _, _| panic!("unowned update must not access the network"),
+        )
+        .unwrap_err();
+        assert!(error.activated.is_none());
+        assert!(error.to_string().contains("package manager"));
+    }
+    assert_eq!(fs::read(&unmanaged).unwrap(), b"unmanaged executable");
+    assert_eq!(fs::read(&stale).unwrap(), b"synthetic tmt payload\n");
+}
+
+#[test]
+fn missing_release_preserves_active_files_without_staging() {
+    let (_directory, layout, _) = published_layout();
+    let original = fs::read_link(layout.root.join("current")).unwrap();
+    let executable = layout.root.join(&original).join("tmt");
+    let before = fs::read(&executable).unwrap();
+    let mut calls = 0;
+    let error = upgrade_with(
+        UpgradeRequest {
+            executable: &executable,
+            channel: None,
+            exact: None,
+            unpin: false,
+        },
+        || Ok(()),
+        |url, _, _, _| {
+            calls += 1;
+            assert_eq!(
+                url,
+                "https://api.github.com/repos/wkh237/tmux-team/releases?per_page=100&page=1"
+            );
+            Ok(b"[]".to_vec())
+        },
+    )
+    .unwrap_err();
+    assert_eq!(calls, 1);
+    assert_eq!(error.kind(), io::ErrorKind::NotFound);
+    assert!(error.activated.is_none());
+    assert_eq!(
+        fs::read_link(layout.root.join("current")).unwrap(),
+        original
+    );
+    assert_eq!(fs::read(&executable).unwrap(), before);
+}

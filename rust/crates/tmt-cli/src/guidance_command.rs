@@ -43,7 +43,7 @@ pub fn execute(skill: bool) -> io::Result<u8> {
         )?;
         writeln!(
             output,
-            "Read tmt learn --skill for complete current safety and usage guidance.\nUse tmt help for options. Native network upgrade is not available yet."
+            "Read tmt learn --skill for complete current safety and usage guidance.\nUse tmt help for options. Managed native installations use tmt upgrade; package-manager installations use their original manager."
         )?;
     }
     Ok(0)

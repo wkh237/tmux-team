@@ -64,7 +64,6 @@ pub fn parse(argv: &[OsString]) -> Result<Parsed, ParseError> {
                 | Invocation::Version
                 | Invocation::Completion(_)
                 | Invocation::Learn { .. }
-                | Invocation::Upgrade
         )
     {
         return Err(ParseError {
@@ -144,7 +143,12 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["init"] => Invocation::Init,
         ["whoami"] => Invocation::Whoami,
         ["unbind"] => Invocation::Unbind,
-        ["upgrade"] => Invocation::Upgrade,
+        ["upgrade"] => Invocation::Upgrade {
+            channel: text(m, "channel")
+                .and_then(|value| tmt_core::native_install::Channel::parse(&value)),
+            exact: text(m, "to"),
+            unpin: flag(m, "unpin"),
+        },
         ["__native-refresh-skills"] => Invocation::NativeRefreshSkills,
         ["__native-install"] => Invocation::NativeInstall {
             archive: required(m, "archive"),

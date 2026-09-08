@@ -47,6 +47,9 @@ pub enum CommandFailure {
 pub struct CommandError {
     pub kind: CommandFailure,
     pub cleanup_error: Option<io::Error>,
+    /// Bounded output only for a fully observed nonzero exit. Never formatted
+    /// implicitly; callers must validate a protocol before exposing it.
+    pub output: Option<CommandOutput>,
     cause: Option<io::Error>,
 }
 
@@ -55,6 +58,7 @@ impl CommandError {
         Self {
             kind,
             cleanup_error: None,
+            output: None,
             cause: None,
         }
     }
@@ -166,10 +170,15 @@ fn communicate(
         .map_err(|cause| CommandError::io(CommandFailure::Io, cause))?
         .ok_or_else(|| CommandError::new(CommandFailure::Timeout))?;
     if !status.success() {
-        return Err(CommandError::new(CommandFailure::Exit {
+        let mut error = CommandError::new(CommandFailure::Exit {
             code: status.code(),
             signal: status.signal(),
-        }));
+        });
+        error.output = Some(CommandOutput {
+            stdout: stdout.bytes,
+            stderr: stderr.bytes,
+        });
+        return Err(error);
     }
     Ok(CommandOutput {
         stdout: stdout.bytes,
