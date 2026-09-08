@@ -14,6 +14,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
     let name = package["name"].as_str().expect("Cargo package name");
     let allowed: &[&str] = match name {
         "tmt-core" => &[
+            "semver",
             "uuid",
             "icu_casemap",
             "icu_normalizer",
@@ -21,6 +22,9 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "sha2",
         ],
         "tmt-adapters" => &[
+            "semver",
+            "tar",
+            "flate2",
             "tmt-core",
             "rusqlite",
             "serde_json",

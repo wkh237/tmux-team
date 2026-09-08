@@ -10,6 +10,50 @@ fn args(values: &[&str]) -> Vec<OsString> {
 }
 
 #[test]
+fn internal_native_install_requires_explicit_inputs_and_typed_pin_policy() {
+    use tmt_core::native_install::{Channel, PinAction};
+    let input = [
+        "__native-install",
+        "--archive",
+        "archive.tar.gz",
+        "--manifest",
+        "manifest.json",
+        "--prefix",
+        "/prefix with spaces",
+        "--channel",
+        "alpha",
+        "--json",
+    ];
+    let parsed = parsed(&input);
+    assert!(parsed.mode.json);
+    assert_eq!(
+        parsed.invocation,
+        Invocation::NativeInstall {
+            archive: "archive.tar.gz".into(),
+            manifest: "manifest.json".into(),
+            prefix: "/prefix with spaces".into(),
+            channel: Channel::Alpha,
+            pin: PinAction::Preserve,
+        }
+    );
+    for pin in ["--pin", "--unpin"] {
+        let mut args = input.to_vec();
+        args.push(pin);
+        let result = super::parse(&self::args(&args)).unwrap();
+        assert!(
+            matches!(result.invocation, Invocation::NativeInstall { pin: actual, .. }
+            if actual == if pin == "--pin" { PinAction::PinCandidate } else { PinAction::Clear })
+        );
+    }
+    let mut conflict = input.to_vec();
+    conflict.extend(["--pin", "--unpin"]);
+    assert_eq!(parse_error(&conflict).code, "USAGE_ERROR");
+    assert_eq!(parse_error(&["__native-install"]).code, "USAGE_ERROR");
+    let help = crate::grammar::public_grammar(&crate::grammar::grammar(), true);
+    assert!(help.find_subcommand("__native-install").is_none());
+}
+
+#[test]
 fn negative_config_values_reach_setting_validation_without_accepting_unknown_flags() {
     let invocation = parsed(&["config", "set", "preambleEvery", "-1", "--json"]);
     assert_eq!(

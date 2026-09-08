@@ -637,6 +637,55 @@ unexpected paths, duplicates, bounds and cleanup; never accept any arbitrary
 process error as proof of the intended check. Inspect exact manifest and archive
 bytes from the final source before running the reviewed CI candidate.
 
+## Offline native installer preview
+
+The internal entrypoint consumes a local cargo-dist archive and manifest. It is
+not advertised by help/completion and does not change `tmt install` skill syntax.
+Use a task-owned prefix and matching host archive, never an existing user install:
+
+```sh
+native_prefix=$(mktemp -d)
+rust/target/debug/tmt __native-install \
+  --archive target/distrib/tmt-cli-aarch64-apple-darwin.tar.gz \
+  --manifest "$native_manifest" --prefix "$native_prefix" --channel alpha --json
+"$native_prefix/bin/tmt" --version
+```
+
+`--pin` pins the selected candidate, `--unpin` clears an existing pin, and omission
+preserves its state. Neither authorizes a downgrade. Repeated exact artifacts are
+no-ops after ownership validation; metadata-only changes activate a new receipt
+with the same payload. Receipts record local-archive provenance, not authenticated
+public release provenance. Keep application state isolated separately when running
+identity/profile commands; installing the executable must not open a database.
+
+Native adapter tests cover bounded archive acquisition and publication failures;
+native process contracts use the existing executable selector and sandbox. Test
+current/receipt tampering, manager collisions, pin changes, interrupted staging,
+lock contention, missing command-link repair and retained previous releases.
+Assert surviving bytes and cleanup, not merely a failed exit. Synthetic filesystem
+fixtures are not proof of runnable release artifacts: retain separate actual
+cargo-dist archive execution and target/linkage/notice evidence. Run the shared
+skill-installation regressions when changing shared file locks or content digests.
+
+For actual old-to-new acceptance, build two separately versioned cargo-dist
+archives in task-owned source copies. Do not alter the repository release version
+or publish fixtures merely to test updates. The newer archive must contain the
+offline installer; the older artifact must run its real reported version. Verify
+each archive's notices/linkage with the artifact verifier above, then run:
+
+```sh
+node scripts/verify-native-installation.mjs \
+  --previous-archive "$previous_archive" --previous-manifest "$previous_manifest" \
+  --archive "$next_archive" --manifest "$next_manifest" \
+  --target aarch64-apple-darwin --skill skills/tmux-team/SKILL.md
+```
+
+This reuses the bounded packed-command runner and independent archive verifier.
+It checks exact old/new versions with no runtime PATH, pinned rejection, explicit
+unpin advancement, a retained executable, no-op and downgrade rejection, exact
+embedded skill and unchanged SQLite bytes during installation. Its temporary
+prefix/application state is always invocation-owned and removed afterward.
+
 ## Testing Strategy
 
 We prefer structured, deterministic assertions in tests. Human-facing formatting is validated sparingly; most tests assert on structured output or file contents.

@@ -11,6 +11,7 @@ mod identity_context;
 mod init_command;
 mod install_command;
 mod invocation;
+mod native_install_command;
 mod output;
 mod parser;
 mod profile_command;
@@ -134,6 +135,23 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
                 parsed.mode,
                 "NATIVE_NOT_IMPLEMENTED",
                 "This command is not implemented by the native development preview. No effects were performed; use the installed TypeScript CLI until native cutover.",
+            );
+        }
+        Invocation::NativeInstall {
+            archive,
+            manifest,
+            prefix,
+            channel,
+            pin,
+        } => {
+            drop(stdout);
+            return native_install_command::execute(
+                &archive,
+                &manifest,
+                &prefix,
+                channel,
+                pin,
+                parsed.mode,
             );
         }
     }

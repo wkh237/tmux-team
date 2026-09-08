@@ -370,6 +370,7 @@ fn dependency_policy_handles_normal_build_target_renamed_and_dev_entries() {
             vec![
                 dependency("uuid", "normal", None, None),
                 dependency("sha2", "normal", None, None),
+                dependency("semver", "normal", None, None),
                 dependency("serde_json", "dev", None, None)
             ],
         )),

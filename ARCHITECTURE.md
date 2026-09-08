@@ -1445,10 +1445,58 @@ SQLite profile checks with an empty runtime PATH and isolated state. The existin
 npm packed matrix remains a distinct transitional TypeScript gate.
 
 Unsigned checksums detect corruption, not origin compromise. Native binary
-bootstrap, manager receipts, atomic update and authenticated public release
+bootstrap, public network update and authenticated public release
 provenance remain #82 gates. These developer archives do not change installed
 entrypoints or authorize publication. Candidate targets require actual matching
 target execution before they become supported release platforms.
+
+## Managed native installation boundary
+
+Under #138, the hidden `__native-install` entrypoint composes the offline
+`tmt-adapters::native_install` owner. It does not discover application settings,
+open SQLite, inspect tmux or install skills. The public `install` command still
+installs agent guidance. Public network upgrade remains unavailable in preview.
+
+`tmt-core::native_install` owns channel and forward-only version/pin policy using
+semver precedence. Stable accepts stable versions; alpha accepts the alpha
+prerelease family. Preserved pins block a different candidate, explicit pin or
+unpin does not authorize downgrades, and build metadata alone cannot replace an
+equal-precedence version. Adapters independently reject changed archive evidence
+at the same version, even when version policy would otherwise return a no-op.
+
+The artifact adapter consumes cargo-dist metadata and verifies bounded no-follow
+regular inputs, SHA-256 and exactly four runtime files. Maintained tar/flate2
+libraries decode a bounded in-memory snapshot; archive paths never become
+filesystem extraction targets. The native runtime and independent JavaScript
+packaging verifier are separate implementation/verification boundaries, not
+two runtime installation services.
+
+Ownership belongs to the canonical explicit installation prefix, never
+`TMUX_TEAM_HOME` or XDG application state. Immutable
+`lib/tmux-team/releases/<UUID>` directories contain payloads and a versioned
+receipt with prefix, release ID, version/channel/pin, target, archive digest and
+individual file digests. `current` is a relative `releases/<UUID>` link;
+`bin/tmt` and `bin/tmux-team` use `../lib/tmux-team/current/tmt`. Receipt content
+alone is not replacement authority: validate the layout, exact release inventory,
+regular files, permissions, digests and command links. Refuse unknown manager or
+manual command entries rather than adding force-overwrite behavior.
+
+The native owner holds a stable nonblocking regular-file lock, stages and syncs
+the release and receipt, revalidates expected current ownership, then atomically
+replaces only `current`. First-install command links are separately finalized;
+post-activation failures explicitly report partial completion, retaining the
+complete active release for retry. Previous releases and unknown abandoned
+entries are not pruned. Binary recovery does not downgrade SQLite schemas.
+The CLI reuses the interrupt guard; adapter checkpoints permit cancellation and
+failure injection before activation. Hard termination can leave an unactivated
+release, but never requires deleting the previous executable.
+
+`bounded_file` shares acquisition with an explicit no-follow variant; `file_lock`
+shares only stable advisory-lock mechanics and `content_digest` shares SHA-256
+encoding. Skill-specific assets, registry, backup and path policy remain in
+`skill_installation`; the binary installer does not reuse that registry as proof
+of binary ownership. HTTPS acquisition must call this same native owner rather
+than introducing a second shell publication mechanism.
 
 ## Maintenance contract
 

@@ -145,6 +145,20 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["whoami"] => Invocation::Whoami,
         ["unbind"] => Invocation::Unbind,
         ["upgrade"] => Invocation::Upgrade,
+        ["__native-install"] => Invocation::NativeInstall {
+            archive: required(m, "archive"),
+            manifest: required(m, "manifest"),
+            prefix: required(m, "prefix"),
+            channel: tmt_core::native_install::Channel::parse(&required(m, "channel"))
+                .expect("channel was validated by grammar"),
+            pin: if flag(m, "pin") {
+                tmt_core::native_install::PinAction::PinCandidate
+            } else if flag(m, "unpin") {
+                tmt_core::native_install::PinAction::Clear
+            } else {
+                tmt_core::native_install::PinAction::Preserve
+            },
+        },
         ["list"] => Invocation::List {
             target: text(m, "target"),
         },

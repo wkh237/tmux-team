@@ -33,10 +33,19 @@ impl Error for FileReadError {
 }
 
 pub fn read(path: &Path, maximum: usize) -> Result<Vec<u8>, FileReadError> {
+    read_with_flags(path, maximum, OFlag::O_NONBLOCK)
+}
+
+/// Read a regular file without following a symlink at the selected path.
+pub fn read_no_follow(path: &Path, maximum: usize) -> Result<Vec<u8>, FileReadError> {
+    read_with_flags(path, maximum, OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK)
+}
+
+fn read_with_flags(path: &Path, maximum: usize, flags: OFlag) -> Result<Vec<u8>, FileReadError> {
     let bound = maximum.checked_add(1).ok_or(FileReadError::TooLarge)?;
     let file = OpenOptions::new()
         .read(true)
-        .custom_flags(OFlag::O_NONBLOCK.bits())
+        .custom_flags(flags.bits())
         .open(path)
         .map_err(FileReadError::Io)?;
     if !file.metadata().map_err(FileReadError::Io)?.is_file() {
@@ -54,3 +63,6 @@ pub fn read(path: &Path, maximum: usize) -> Result<Vec<u8>, FileReadError> {
     }
     Ok(bytes)
 }
+
+#[cfg(test)]
+mod tests;

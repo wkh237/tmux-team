@@ -21,7 +21,7 @@ RUN npm install --global pnpm@10.33.0
 WORKDIR /verification
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile --ignore-scripts
-COPY scripts/native-artifact-policy.mjs scripts/verify-native-artifact.mjs scripts/packed-command.mjs scripts/
+COPY scripts/native-artifact-policy.mjs scripts/verify-native-artifact.mjs scripts/verify-native-installation.mjs scripts/packed-command.mjs scripts/
 COPY skills/tmux-team/SKILL.md expected-skill.md
 COPY --from=build /workspace/native-manifest.json ./
 COPY --from=build /workspace/rust/target/native-notices/THIRD-PARTY-NOTICES.txt expected-notices.txt

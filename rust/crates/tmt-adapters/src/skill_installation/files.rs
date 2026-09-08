@@ -1,7 +1,7 @@
 //! Installer-local file publication and path guards. No command execution.
 
 use crate::config::normalize;
-use nix::fcntl::{Flock, FlockArg, OFlag};
+use nix::fcntl::Flock;
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Write},
@@ -12,22 +12,11 @@ use uuid::Uuid;
 
 pub(super) fn lock(global: &Path) -> io::Result<Flock<File>> {
     fs::create_dir_all(global)?;
-    // Keep this entry stable: unlinking it would split concurrent lock domains.
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .mode(0o600)
-        .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK).bits())
-        .open(global.join("skill-install.lock"))?;
-    if !file.metadata()?.is_file() {
-        return Err(io::Error::other(
-            "Skill installation lock is not a regular file.",
-        ));
-    }
-    Flock::lock(file, FlockArg::LockExclusiveNonblock).map_err(|(_, error)| {
-        io::Error::new(io::Error::from_raw_os_error(error as i32).kind(), format!("Cannot acquire the skill installation lock; another installer may be running: {error}"))
+    crate::file_lock::exclusive(&global.join("skill-install.lock")).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!("Cannot acquire the skill installation lock: {error}"),
+        )
     })
 }
 
