@@ -91,32 +91,38 @@ impl Failure {
         self
     }
 
+    /// Feature reports may attach their own bounded partial-effect projection;
+    /// this remains the sole shared error-envelope formatter.
+    pub fn document(&self) -> serde_json::Value {
+        let mut document =
+            serde_json::json!({"error": {"code": self.code, "message": self.message}});
+        if let Some(suggestion) = &self.suggestion {
+            document["error"]["suggestion"] = suggestion.clone().into();
+        }
+        if let Some(request) = &self.request {
+            let (request_id, status) = request.as_ref();
+            document["requestId"] = request_id.clone().into();
+            if let Some(status) = status {
+                document["status"] = (*status).into();
+            }
+        }
+        if let Some(target) = &self.target {
+            document["target"] = target.target.clone().into();
+            document["pane"] = target.pane.clone().into();
+            if let Some((name, canonical_name)) = &target.identity {
+                document["identity"] =
+                    serde_json::json!({"name": name, "canonicalName": canonical_name});
+            }
+        }
+        if let Some(stage) = self.stage {
+            document["error"]["stage"] = stage.into();
+        }
+        document
+    }
+
     pub fn publish(&self, mode: OutputMode) -> io::Result<u8> {
         if mode.json {
-            let mut document =
-                serde_json::json!({"error": {"code": self.code, "message": self.message}});
-            if let Some(suggestion) = &self.suggestion {
-                document["error"]["suggestion"] = suggestion.clone().into();
-            }
-            if let Some(request) = &self.request {
-                let (request_id, status) = request.as_ref();
-                document["requestId"] = request_id.clone().into();
-                if let Some(status) = status {
-                    document["status"] = (*status).into();
-                }
-            }
-            if let Some(target) = &self.target {
-                document["target"] = target.target.clone().into();
-                document["pane"] = target.pane.clone().into();
-                if let Some((name, canonical_name)) = &target.identity {
-                    document["identity"] =
-                        serde_json::json!({"name": name, "canonicalName": canonical_name});
-                }
-            }
-            if let Some(stage) = self.stage {
-                document["error"]["stage"] = stage.into();
-            }
-            writeln!(io::stdout().lock(), "{document}")?;
+            writeln!(io::stdout().lock(), "{}", self.document())?;
         } else {
             writeln!(io::stderr().lock(), "{}", self.message)?;
             if let Some(suggestion) = &self.suggestion {

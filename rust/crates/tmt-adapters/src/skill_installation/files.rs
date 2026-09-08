@@ -20,6 +20,28 @@ pub(super) fn lock(global: &Path) -> io::Result<Flock<File>> {
     })
 }
 
+pub(super) fn with_lock<T>(
+    global: &Path,
+    operation: impl FnOnce() -> io::Result<T>,
+) -> io::Result<T> {
+    let lock = lock(global)?;
+    let pending = operation();
+    let released = lock.unlock().map_err(|(guard, error)| {
+        drop(guard);
+        io::Error::other(format!(
+            "Could not release skill installation lock: {error}"
+        ))
+    });
+    match (pending, released) {
+        (Err(primary), Err(cleanup)) => Err(io::Error::other(format!("{primary}; {cleanup}"))),
+        (Err(error), _) | (_, Err(error)) => Err(error),
+        (Ok(value), Ok(file)) => {
+            drop(file);
+            Ok(value)
+        }
+    }
+}
+
 /// Resolve existing ancestors while retaining a nonexistent suffix. Lexical
 /// normalization alone cannot detect source overlap through symlink aliases.
 pub(super) fn resolved(path: &Path) -> io::Result<PathBuf> {

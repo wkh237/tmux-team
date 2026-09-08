@@ -56,6 +56,7 @@ pub enum Invocation {
         force: bool,
     },
     Upgrade,
+    NativeRefreshSkills,
     NativeInstall {
         archive: String,
         manifest: String,

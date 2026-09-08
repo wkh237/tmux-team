@@ -16,6 +16,7 @@ mod output;
 mod parser;
 mod profile_command;
 mod response_command;
+mod skill_refresh_command;
 mod skill_reminder;
 mod talk_command;
 mod target;
@@ -136,6 +137,10 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
                 "NATIVE_NOT_IMPLEMENTED",
                 "This command is not implemented by the native development preview. No effects were performed; use the installed TypeScript CLI until native cutover.",
             );
+        }
+        Invocation::NativeRefreshSkills => {
+            drop(stdout);
+            return skill_refresh_command::execute(parsed.mode);
         }
         Invocation::NativeInstall {
             archive,

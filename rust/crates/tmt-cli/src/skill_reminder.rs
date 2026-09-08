@@ -20,6 +20,7 @@ fn eligible(parsed: &Parsed, interactive: bool) -> bool {
                 | Invocation::Install { .. }
                 | Invocation::Upgrade
                 | Invocation::NativeInstall { .. }
+                | Invocation::NativeRefreshSkills
         )
 }
 
@@ -78,6 +79,7 @@ mod tests {
                 force: false,
             },
             Invocation::Upgrade,
+            Invocation::NativeRefreshSkills,
             Invocation::NativeInstall {
                 archive: "archive.tar.gz".into(),
                 manifest: "manifest.json".into(),

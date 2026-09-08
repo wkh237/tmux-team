@@ -825,6 +825,22 @@ Explicit install and future #82 update own custom-target refresh. `init` separat
 reuses ConfigPaths and exclusive local file creation; it creates no other state.
 Neither this boundary nor tests imply native release publication or network upgrade.
 
+Under #141, `skill_installation::refresh` reads only bounded recorded intents,
+then re-reads under the existing installer lock. Missing/empty intent is a
+no-effects no-op. It reuses source ownership, path guards and link publication;
+missing targets stay deleted and modified/unmanaged targets are preserved as
+conflicts. Independent targets can complete despite conflicts; operational
+failure preserves the completed report. No force backups, legacy migration,
+provider detection or second registry is involved. Install and refresh share
+one explicit lock-release/error-composition helper.
+
+The hidden `__native-refresh-skills` command is a new-executable composition
+boundary for the future updater: only the activated executable has the new
+embedded skill. It uses existing path discovery without reading configuration
+contents, opening SQLite or probing tmux. Its one JSON document retains
+refreshed/skipped/conflicted paths on failure; the shared output owner formats
+the error envelope. This is not yet public network-update integration.
+
 ## Current module map
 
 | Location                                                                                                                                                                   | Responsibility and integration points                                                                                                                                   |

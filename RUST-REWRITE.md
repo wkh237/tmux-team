@@ -532,6 +532,9 @@ Offline installer prerequisite #138 owns prefix-anchored receipts, version/pin
 policy and single-pointer release activation. Its internal entrypoint accepts
 local archives without application-state discovery. See ARCHITECTURE's managed
 native installation boundary for ownership and partial-finalization semantics.
-HTTPS bootstrap, public upgrade/update, skill refresh composition, authenticated
+Managed skill refresh prerequisite #141 supplies an internal new-executable
+entrypoint over the existing skill owner, preserving modified and missing
+integrations with partial-effect reporting. It is not wired to public updates yet.
+HTTPS bootstrap, public upgrade/update composition, authenticated
 public provenance and installed-runtime cutover remain #82/#93 work, not
 capabilities supplied by the archive generator or offline installer alone.

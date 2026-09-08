@@ -527,6 +527,15 @@ PATH scan belongs on ordinary commands. Run the full native process suite and
 two Docker lifecycle passes when changing publication/cleanup. These tests do
 not establish remote release availability or native binary update acceptance.
 
+The internal `__native-refresh-skills --json` entrypoint (#141) must be invoked
+from the new executable during future update composition. Adapter tests use
+distinct old digest-owned bytes, not identical source copies, and verify exact
+new bytes, preserved conflicts, missing-target skips, lock contention and
+partial publication/retry. Native process tests check the one-document partial
+report and no config-content/SQLite/tmux effects. Refresh must not detect new
+providers, recreate deleted targets or treat recorded intent as overwrite
+permission. Run the shared install regressions and both Docker lifecycle passes.
+
 ## Packed native-install verification
 
 The packed native-install check verifies release artifacts. It installs the actual
