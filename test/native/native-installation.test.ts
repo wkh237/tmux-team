@@ -24,6 +24,9 @@ import {
 if (!process.env.TMT_TEST_CLI) throw new Error('Select the native build with TMT_TEST_CLI.');
 
 const REQUIRED_FILES = ['tmt', 'LICENSE', 'NATIVE-INSTALL.md', 'THIRD-PARTY-NOTICES.txt'];
+// Debug payload hashing/decompression and fsync are installation work, not the
+// ordinary command-startup budget. Keep a separate finite process deadline.
+const INSTALL_PROCESS_BUDGET_MS = 15_000;
 
 type InstallResult = {
   readonly executable: string;
@@ -114,19 +117,23 @@ async function install(
             args: [`TMUX_TEAM_HOME=${tmuxTeamHome}`, sandbox.cli.executable, ...sandbox.cli.args],
           },
         };
-  const result = await runCli(selected, [
-    '__native-install',
-    '--archive',
-    fixture.archive,
-    '--manifest',
-    fixture.manifest,
-    '--prefix',
-    prefix,
-    '--channel',
-    'alpha',
-    ...flags,
-    '--json',
-  ]);
+  const result = await runCli(
+    selected,
+    [
+      '__native-install',
+      '--archive',
+      fixture.archive,
+      '--manifest',
+      fixture.manifest,
+      '--prefix',
+      prefix,
+      '--channel',
+      'alpha',
+      ...flags,
+      '--json',
+    ],
+    { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+  );
   expect(result.status).toBe(0);
   expect(result.stderr).toBe('');
   return parseWholeStdout(result) as unknown as InstallResult;
@@ -303,18 +310,22 @@ describe('native installation process contract', () => {
         writeFileSync(receiptPath(prefix), forgedReceiptBytes);
 
         // This candidate is intentionally never executed; it only tests equal-version file integrity.
-        const result = await runCli(sandbox, [
-          '__native-install',
-          '--archive',
-          candidate.archive,
-          '--manifest',
-          candidate.manifest,
-          '--prefix',
-          prefix,
-          '--channel',
-          'alpha',
-          '--json',
-        ]);
+        const result = await runCli(
+          sandbox,
+          [
+            '__native-install',
+            '--archive',
+            candidate.archive,
+            '--manifest',
+            candidate.manifest,
+            '--prefix',
+            prefix,
+            '--channel',
+            'alpha',
+            '--json',
+          ],
+          { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+        );
         expect(result.status).toBe(1);
         expectError(
           result,
@@ -346,18 +357,22 @@ describe('native installation process contract', () => {
         const collision = path.join(prefix, 'bin', 'tmt');
         const collisionBytes = Buffer.from('user-owned command\n');
         writeFileSync(collision, collisionBytes);
-        const collisionResult = await runCli(sandbox, [
-          '__native-install',
-          '--archive',
-          fixture.archive,
-          '--manifest',
-          fixture.manifest,
-          '--prefix',
-          prefix,
-          '--channel',
-          'alpha',
-          '--json',
-        ]);
+        const collisionResult = await runCli(
+          sandbox,
+          [
+            '__native-install',
+            '--archive',
+            fixture.archive,
+            '--manifest',
+            fixture.manifest,
+            '--prefix',
+            prefix,
+            '--channel',
+            'alpha',
+            '--json',
+          ],
+          { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+        );
         expect(collisionResult.status).toBe(1);
         expectError(collisionResult, 'NATIVE_INSTALL_FAILED');
         expect(readFileSync(collision)).toEqual(collisionBytes);
@@ -368,18 +383,22 @@ describe('native installation process contract', () => {
         const pointer = readlinkSync(currentPointer(ownedPrefix));
         const executable = readFileSync(path.join(ownedPrefix, 'lib', 'tmux-team', pointer, 'tmt'));
         writeFileSync(receiptPath(ownedPrefix), '{ malformed receipt');
-        const tampered = await runCli(sandbox, [
-          '__native-install',
-          '--archive',
-          fixture.archive,
-          '--manifest',
-          fixture.manifest,
-          '--prefix',
-          ownedPrefix,
-          '--channel',
-          'alpha',
-          '--json',
-        ]);
+        const tampered = await runCli(
+          sandbox,
+          [
+            '__native-install',
+            '--archive',
+            fixture.archive,
+            '--manifest',
+            fixture.manifest,
+            '--prefix',
+            ownedPrefix,
+            '--channel',
+            'alpha',
+            '--json',
+          ],
+          { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+        );
         expect(tampered.status).toBe(1);
         expectError(tampered, 'NATIVE_INSTALL_FAILED');
         expect(readlinkSync(currentPointer(ownedPrefix))).toBe(pointer);

@@ -667,7 +667,13 @@ large executable buffers must use exact `Buffer.equals`
 checks rather than structural object matchers: enumerating every byte can exhaust
 the test runner's heap on debug binaries. Verify the comparator detects a changed
 byte; do not replace byte equality with a size-only assertion or raise CI memory
-limits to hide assertion overhead. Synthetic filesystem
+limits to hide assertion overhead. Installation cases also use an explicit
+15-second subprocess budget for debug
+archive hashing/decompression and durable publication, distinct from the ordinary
+CLI's five-second test budget and each scenario's 60-second cap. Keep ordinary
+command and production timeout policies unchanged; validate installation budgets
+under constrained local resources rather than treating CI as a timing probe.
+Synthetic filesystem
 fixtures are not proof of runnable release artifacts: retain separate actual
 cargo-dist archive execution and target/linkage/notice evidence. Run the shared
 skill-installation regressions when changing shared file locks or content digests.
