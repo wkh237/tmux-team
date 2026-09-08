@@ -123,6 +123,6 @@ cleanup() {
 
 # Parse the complete final compound command before invoking main. A download
 # truncated after the word 'main' must not run with missing caller arguments.
-case complete in
-  complete) main "$@" ;;
-esac
+{
+  main "$@"
+}
