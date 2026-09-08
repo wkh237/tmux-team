@@ -103,9 +103,9 @@ failure handling, or `tmt help` for command options.
 
 ## Development
 
-`rust/` owns the native runtime. Root npm entrypoints and TypeScript sources
-remain transitional reference/test tooling; installing the source through npm
-does not install the native release above. See [development](DEVELOPMENT.md),
+`rust/` is the only runtime. Node and pnpm are developer test tools, not an
+installation path: use the native installer above, not an npm/GitHub source URI.
+See [development](DEVELOPMENT.md),
 [architecture](ARCHITECTURE.md) and the [rewrite tracker](https://github.com/wkh237/tmux-team/issues/93).
 
 ## License

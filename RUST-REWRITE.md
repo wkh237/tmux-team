@@ -3,10 +3,12 @@
 Status: native `v5.0.0-alpha.2` is published with verified installation and
 self-update assets (#149). Rust owns the advertised runtime. Paired performance
 acceptance (#151) and retained test-harness separation (#152) are delivered.
-#153 moves the maintained Docker scenarios to native by default and records
-the source-retirement evidence below. Transitional TypeScript source, npm
-entrypoints and their artifact gates still require explicit retirement; they
-are not the native installer. Earlier slice descriptions retain implementation
+#153 made the maintained Docker scenarios native by default; #156 closed the
+remaining crash/race/terminal evidence and #159 relocated retained tooling.
+#160 removes the TypeScript product and npm entrypoints, replacing obsolete
+npm gates with six native runtime environments. Node remains developer tooling.
+The published alpha2 assets are immutable and are not rebuilt by source cleanup.
+Earlier slice descriptions retain implementation
 provenance, not a claim that the shipped native features remain previews.
 Owner: [#93](https://github.com/wkh237/tmux-team/issues/93);
 preparation: [#94](https://github.com/wkh237/tmux-team/issues/94).
@@ -61,7 +63,7 @@ is by responsibility, not a mechanical copy of every TypeScript file.
 The `rust/` workspace contains `tmt-core` (numeric and settings policy),
 `tmt-cli` (grammar, typed invocation translation and output), and `tmt-adapters`
 (SQLite lifecycle under #97 with schema 9 under #108, configuration files under #103 and Unix
-tmux evidence under #105). The npm entry points still execute TypeScript. No command silently
+tmux evidence under #105). There is no npm product entrypoint. No command silently
 delegates from native to Node.
 
 The native runtime implements help, version, Bash/Zsh completion and the existing
@@ -186,7 +188,8 @@ effects warning; primary errors survive. #109 composes binding, removal and
 presence through one core evidence evaluator and shared SQLite/tmux adapters.
 Creation/promotion and verified publication remain separate commits; unknown
 evidence cannot retire a name. Global reads batch recorded servers under a
-shared observation budget. Installed npm still uses TypeScript/schema 8.
+shared observation budget. Historical npm installs use TypeScript/schema 8 and
+must not write native state; current source no longer distributes that runtime.
 
 Name normalization uses pinned `icu_normalizer`, `icu_casemap` and
 `icu_locale_core` 2.3.0, with defaults disabled and compiled data only for the
@@ -379,26 +382,26 @@ retired-command assumptions. The current native evidence is recorded below.
 
 Examples below are essential fields, not complete JSON schemas. Dynamic UUIDs,
 timestamps and pane IDs are correlated, not hard-coded. Unmentioned existing
-options remain supported: [parser](src/cli/parser.ts) and typed
-[requests](src/cli/requests.ts) own the full grammar.
+options remain supported: [parser](https://github.com/wkh237/tmux-team/blob/bc2cac912f54f3c8a9752159063387de82f95a86/src/cli/parser.ts) and typed
+[requests](https://github.com/wkh237/tmux-team/blob/bc2cac912f54f3c8a9752159063387de82f95a86/src/cli/requests.ts) own the full grammar.
 
-| Input / scenario                                                     | Observable contract to preserve                                                                                                                                                                                                                                   | Existing evidence                                                                                                                                                                                                            |
-| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name Alice`, `this Alice`, `add %14 Alice`                          | Bound name/pane result; `this` remains an alias. `10.3` is resolved to stable server/pane evidence. Create unknown identity without a role. Occupied-pane failure may retain newly committed offline identity, never undo another binding.                        | [identity lifecycle](test/e2e/identity-lifecycle.e2e.test.ts), [retention](test/e2e/identity-retention.e2e.test.ts), [publication race](test/e2e/publication-race.e2e.test.ts)                                               |
-| `whoami`, `unbind`                                                   | Verified caller, bound/unbound distinction; missing caller gives `PANE_NOT_FOUND`/3 before storage. Unbind removes endpoint, not identity/profile, without unrelated config dependency.                                                                           | [caller context](test/e2e/caller-context.e2e.test.ts), [identity lifecycle](test/e2e/identity-lifecycle.e2e.test.ts)                                                                                                         |
-| Stripped, malformed or conflicting environment                       | Bounded real ancestry can recover missing evidence; ambient active session is not a caller. Malformed supplied evidence fails closed. No warning-only pretend binding.                                                                                            | [real descendant fixture](test/e2e/real-tmux-caller.ts), [caller context](test/e2e/caller-context.e2e.test.ts)                                                                                                               |
-| `list`, `list Alice`, `check Alice --lines 20`                       | Active verified presence versus diagnostic capture. Pane-first selector rules; grouped/linked rows all validated before deduplication; attached-row presentation preference. Targeted operations do not reconcile unrelated bindings.                             | [grouped sessions](test/e2e/grouped-session.e2e.test.ts), [large sessions](test/e2e/large-session.e2e.test.ts), [multiple servers](test/e2e/multi-server.e2e.test.ts), [capture limits](test/e2e/capture-limits.e2e.test.ts) |
-| `identity create/show/list`, explicit `role --identity Alice`        | Durable identity works offline, canonical collision reuses UUID; explicit data access never probes tmux or loads unrelated malformed config. Identity is attribution, not authentication or a recipient inbox.                                                    | [durable identity](test/e2e/durable-identity.e2e.test.ts), [roles](test/e2e/role-lifecycle.e2e.test.ts)                                                                                                                      |
-| Preamble CRUD and talk cadence                                       | One durable identity-owned source, bounded content, shared identity selection; cadence reservation and failure behavior preserved.                                                                                                                                | [preambles](test/e2e/preamble-lifecycle.e2e.test.ts), [request state](test/e2e/request-state.e2e.test.ts)                                                                                                                    |
-| `talk Alice "work" --identity Owner --json`                          | Originator distinct from recipient; retained original prompt distinct from protected transport. Explicit final completes request, not terminal output or summary. Recipient instruction retains reply guidance and summary-after-success rule.                    | [durable talk](test/e2e/durable-talk.e2e.test.ts), [request context](test/e2e/request-context.e2e.test.ts), [message builder](src/tmux-message.test.ts)                                                                      |
-| Talk timeout, interruption, detach, transport faults                 | Default 180s; timeout begins before send after preparation/delay, includes transport, exits 4 without cancelling work. Detach returns correlation. No resend after uncertain paste/Enter; safe fallback only before paste. `!` must not trigger agent shell mode. | [durable talk](test/e2e/durable-talk.e2e.test.ts), [transport safety](test/e2e/transport-safety.e2e.test.ts)                                                                                                                 |
-| `reply <id> --receipt <token> --message "done"`, file/stdin variants | Exactly one input; exact UTF-8 through 1 MiB including file/stdin NUL, bounded EOF deadline. Identical retained retry keeps original time; mismatch/conflicting final exits 5. Receipt is local correlation, not authorization.                                   | [response integrity](test/e2e/response-integrity.e2e.test.ts), [reply lifecycle](test/e2e/reply-child-lifecycle.e2e.test.ts), [receipt codec](src/reply-receipt.test.ts)                                                     |
-| `result <id> --json` outside tmux                                    | Completed exact body or unavailable/`RESPONSE_NOT_AVAILABLE`/3. Unknown, pending and expired are not falsely distinguished. Reads do not acknowledge or renew retention.                                                                                          | [response integrity](test/e2e/response-integrity.e2e.test.ts), [exchange retention](test/e2e/exchange-retention.e2e.test.ts)                                                                                                 |
-| `x list/show/ack/ackall --identity Owner`                            | Originator-scoped attention; reads are not ack. Per-revision ack and transactional ackall watermark; late final reopens attention. Settled is final plus ack, not work success.                                                                                   | [exchange attention](test/e2e/exchange-attention.e2e.test.ts), [attention migration](src/storage/request-attention-migration.test.ts)                                                                                        |
-| `config set exchange.retentionDays 90 --global`                      | New requests freeze retention; historical requests retain seven days. Expiry is logical with bounded opportunistic cleanup, not autonomous SQLite TTL. Unknown config remains raw; known invalid values fail even when overridden.                                | [config policy](src/config.test.ts), [exchange retention](test/e2e/exchange-retention.e2e.test.ts)                                                                                                                           |
-| `config set ui.paneBadge on --global`, then bind                     | Default off; setting alone does not scan or mutate panes. Binding validates config first, then best-effort cosmetic update after durable success. Never overwrite user titles/window border format/style.                                                         | [pane badges](test/e2e/pane-badge.e2e.test.ts)                                                                                                                                                                               |
-| `learn --skill`, `install`, `install --dir <root>`                   | Exact canonical skill bytes; existing provider paths, non-interactive mode, custom-root isolation, source-overlap rejection, recoverable force backups and drift checks. No provider app install or reload.                                                       | [install](src/commands/install.test.ts), [packed verification](scripts/verify-packed-native-install.mjs)                                                                                                                     |
-| Bad options, text-only command with JSON, cleanup error              | Parser fails before resources. One buffered JSON document after disposal, stable codes/status and stderr policy; literal payload flags do not change mode. Retired `wait`, `update`, `rm` etc stay rejected until a separately approved contract changes them.    | [options](test/e2e/command-options.e2e.test.ts), [CLI errors](test/e2e/cli-errors.e2e.test.ts), [retired commands](test/e2e/retired-commands.e2e.test.ts), [runner](src/cli-runner.test.ts)                                  |
+| Input / scenario                                                     | Observable contract to preserve                                                                                                                                                                                                                                   | Existing evidence                                                                                                                                                                                                                                                             |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name Alice`, `this Alice`, `add %14 Alice`                          | Bound name/pane result; `this` remains an alias. `10.3` is resolved to stable server/pane evidence. Create unknown identity without a role. Occupied-pane failure may retain newly committed offline identity, never undo another binding.                        | [identity lifecycle](test/e2e/identity-lifecycle.e2e.test.ts), [retention](test/e2e/identity-retention.e2e.test.ts), [publication race](test/e2e/publication-race.e2e.test.ts)                                                                                                |
+| `whoami`, `unbind`                                                   | Verified caller, bound/unbound distinction; missing caller gives `PANE_NOT_FOUND`/3 before storage. Unbind removes endpoint, not identity/profile, without unrelated config dependency.                                                                           | [caller context](test/e2e/caller-context.e2e.test.ts), [identity lifecycle](test/e2e/identity-lifecycle.e2e.test.ts)                                                                                                                                                          |
+| Stripped, malformed or conflicting environment                       | Bounded real ancestry can recover missing evidence; ambient active session is not a caller. Malformed supplied evidence fails closed. No warning-only pretend binding.                                                                                            | [real descendant fixture](test/e2e/real-tmux-caller.ts), [caller context](test/e2e/caller-context.e2e.test.ts)                                                                                                                                                                |
+| `list`, `list Alice`, `check Alice --lines 20`                       | Active verified presence versus diagnostic capture. Pane-first selector rules; grouped/linked rows all validated before deduplication; attached-row presentation preference. Targeted operations do not reconcile unrelated bindings.                             | [grouped sessions](test/e2e/grouped-session.e2e.test.ts), [large sessions](test/e2e/large-session.e2e.test.ts), [multiple servers](test/e2e/multi-server.e2e.test.ts), [capture limits](test/e2e/capture-limits.e2e.test.ts)                                                  |
+| `identity create/show/list`, explicit `role --identity Alice`        | Durable identity works offline, canonical collision reuses UUID; explicit data access never probes tmux or loads unrelated malformed config. Identity is attribution, not authentication or a recipient inbox.                                                    | [durable identity](test/e2e/durable-identity.e2e.test.ts), [roles](test/e2e/role-lifecycle.e2e.test.ts)                                                                                                                                                                       |
+| Preamble CRUD and talk cadence                                       | One durable identity-owned source, bounded content, shared identity selection; cadence reservation and failure behavior preserved.                                                                                                                                | [preambles](test/e2e/preamble-lifecycle.e2e.test.ts), [request state](test/e2e/request-state.e2e.test.ts)                                                                                                                                                                     |
+| `talk Alice "work" --identity Owner --json`                          | Originator distinct from recipient; retained original prompt distinct from protected transport. Explicit final completes request, not terminal output or summary. Recipient instruction retains reply guidance and summary-after-success rule.                    | [durable talk](test/e2e/durable-talk.e2e.test.ts), [request context](test/e2e/request-context.e2e.test.ts), [message builder](https://github.com/wkh237/tmux-team/blob/bc2cac912f54f3c8a9752159063387de82f95a86/src/tmux-message.test.ts)                                     |
+| Talk timeout, interruption, detach, transport faults                 | Default 180s; timeout begins before send after preparation/delay, includes transport, exits 4 without cancelling work. Detach returns correlation. No resend after uncertain paste/Enter; safe fallback only before paste. `!` must not trigger agent shell mode. | [durable talk](test/e2e/durable-talk.e2e.test.ts), [transport safety](test/e2e/transport-safety.e2e.test.ts)                                                                                                                                                                  |
+| `reply <id> --receipt <token> --message "done"`, file/stdin variants | Exactly one input; exact UTF-8 through 1 MiB including file/stdin NUL, bounded EOF deadline. Identical retained retry keeps original time; mismatch/conflicting final exits 5. Receipt is local correlation, not authorization.                                   | [response integrity](test/e2e/response-integrity.e2e.test.ts), [reply lifecycle](test/e2e/reply-child-lifecycle.e2e.test.ts), [receipt codec](https://github.com/wkh237/tmux-team/blob/bc2cac912f54f3c8a9752159063387de82f95a86/src/reply-receipt.test.ts)                    |
+| `result <id> --json` outside tmux                                    | Completed exact body or unavailable/`RESPONSE_NOT_AVAILABLE`/3. Unknown, pending and expired are not falsely distinguished. Reads do not acknowledge or renew retention.                                                                                          | [response integrity](test/e2e/response-integrity.e2e.test.ts), [exchange retention](test/e2e/exchange-retention.e2e.test.ts)                                                                                                                                                  |
+| `x list/show/ack/ackall --identity Owner`                            | Originator-scoped attention; reads are not ack. Per-revision ack and transactional ackall watermark; late final reopens attention. Settled is final plus ack, not work success.                                                                                   | [exchange attention](test/e2e/exchange-attention.e2e.test.ts), [attention migration](https://github.com/wkh237/tmux-team/blob/bc2cac912f54f3c8a9752159063387de82f95a86/src/storage/request-attention-migration.test.ts)                                                       |
+| `config set exchange.retentionDays 90 --global`                      | New requests freeze retention; historical requests retain seven days. Expiry is logical with bounded opportunistic cleanup, not autonomous SQLite TTL. Unknown config remains raw; known invalid values fail even when overridden.                                | [config policy](https://github.com/wkh237/tmux-team/blob/bc2cac912f54f3c8a9752159063387de82f95a86/src/config.test.ts), [exchange retention](test/e2e/exchange-retention.e2e.test.ts)                                                                                          |
+| `config set ui.paneBadge on --global`, then bind                     | Default off; setting alone does not scan or mutate panes. Binding validates config first, then best-effort cosmetic update after durable success. Never overwrite user titles/window border format/style.                                                         | [pane badges](test/e2e/pane-badge.e2e.test.ts)                                                                                                                                                                                                                                |
+| `learn --skill`, `install`, `install --dir <root>`                   | Exact canonical skill bytes; existing provider paths, non-interactive mode, custom-root isolation, source-overlap rejection, recoverable force backups and drift checks. No provider app install or reload.                                                       | [install](https://github.com/wkh237/tmux-team/blob/bc2cac912f54f3c8a9752159063387de82f95a86/src/commands/install.test.ts), [packed verification](https://github.com/wkh237/tmux-team/blob/bc2cac912f54f3c8a9752159063387de82f95a86/scripts/verify-packed-native-install.mjs)  |
+| Bad options, text-only command with JSON, cleanup error              | Parser fails before resources. One buffered JSON document after disposal, stable codes/status and stderr policy; literal payload flags do not change mode. Retired `wait`, `update`, `rm` etc stay rejected until a separately approved contract changes them.    | [options](test/e2e/command-options.e2e.test.ts), [CLI errors](test/e2e/cli-errors.e2e.test.ts), [retired commands](test/e2e/retired-commands.e2e.test.ts), [runner](https://github.com/wkh237/tmux-team/blob/bc2cac912f54f3c8a9752159063387de82f95a86/src/cli-runner.test.ts) |
 
 ### Portability risks not established by current green tests
 
@@ -424,9 +427,10 @@ No existing test proves Rust parity or mixed-runtime operation. Explicitly add:
 Current closeout: #149 published native `v5.0.0-alpha.2` with immutable public
 installation assets; #151/PR #154 validated paired startup performance. #152 moves
 retained harness owners to `test/support/` and freezes historical SQLite fixtures
-outside `src/`. #153 owns missing shared native scenarios and the explicit default
-switch. Production TypeScript removal and replacement of transitional npm artifact
-gates still follow that evidence. Earlier delivery-gate notes below describe their
+outside `src/`. #153 delivered shared native scenarios and the explicit default
+switch; #156 supplied final crash/race/output evidence. #159 separated retained
+tooling and #160 retires the product source/npm gates using that evidence.
+Earlier delivery-gate notes below describe their
 original sequencing, not a claim that the published native installer is unfinished.
 
 ### Native default acceptance (#153)
@@ -447,7 +451,7 @@ Human formatting differences do not relax exact final bytes or identity provenan
 | X human and machine output            | `test/native/exchange.test.ts` and shared attention E2E: acknowledgment is distinct from final completion, late finals reopen attention, human output preserves exact response bytes, and ackall advances only the observed revision.                                                                                                                 |
 | Migration/test infrastructure         | `test/native/storage.test.ts` and `storage-fixture.test.ts`: frozen historical prefixes and independent schema/data oracles, rollback, history rejection and contention. Test-only helpers stay outside `src/`; no current native migration generates its own expected results.                                                                       |
 
-This matrix is not permission to delete every TS unit test. The worker audit
+Source retirement relies on this assertion-level mapping, not test counts. The worker audit
 maps cadence reservation to
 `concurrent_prepare_connections_serialize_cadence_and_preserve_both_attempts`,
 final writers to `identical_and_conflicting_final_writers_keep_one_body_marker_and_revision`,
@@ -468,8 +472,8 @@ force/JSON suppression; skill-reminder E2E uses a real private terminal and
 fixture-owned provider home. Unit-only drift eligibility or returned-error
 rollback would not establish those process guarantees.
 Developer artifact/selector guards now live in `test/tooling/`, outside the
-transitional product tree (#159). Their assertions, including temporary npm and
-TypeScript-selector contracts, still run; relocation is not source retirement.
+retired product tree (#159). #160 retains their native/tooling assertions and
+explicitly removes the obsolete npm package inventory and TypeScript default.
 Node wrapper/npm-upgrade implementation details are not native runtime features;
 their retirement must be explicit rather than silently counted as covered.
 Native startup performs local skill inspection only, not npm release discovery;
@@ -481,21 +485,21 @@ executable descriptor (absolute binary plus argv prefix), validated before fixtu
 allocation and used by CLI contracts, E2E, mock replies, real descendants and the
 resource probe. Missing/non-executable selection fails without TS fallback.
 Docker defaults to its built native CLI under #153, including inherited mock
-replies. Host TS unit tests retain their reference default until source retirement.
+replies. Host tooling defaults to the repository-built native executable, with
+an actionable missing-build error and no installed-host or TypeScript fallback.
 An explicit peer descriptor is a test seam, not mixed-schema compatibility.
 See [selector usage](DEVELOPMENT.md#selecting-the-cli-under-test).
 The seam itself proves neither native behavior nor mixed-runtime compatibility.
 
-Keep SQL oracles independent and read-only. Existing TS unit tests importing
-services/worker modules remain TS regression tests while corresponding Rust
-units/concurrency tests are built; do not count them as native evidence. The
-packed storage probe imports TS runtime modules and therefore needs an artifact
-inventory/public-CLI/independent-SQL replacement before native cutover. Retain
-the incompatible-history, concurrency and cleanup assertions it currently proves.
+Keep SQL oracles independent and read-only. TypeScript implementation tests,
+workers and the packed storage probe are retired, not counted as native evidence.
+Frozen historical inputs plus Rust units, native process contracts and shared
+Docker scenarios retain incompatible-history, concurrency and cleanup guarantees.
 Native grammar contracts remain in the CLI owner. #115 adds architecture guards
 to ordinary Cargo integration tests: offline dependency edges, production module
 discovery, core purity, parsing/effect separation and owner-derived declaration
-names. The TypeScript guards remain until runtime cutover. This is not semantic
+names. The retained tooling import guard rejects references to the retired
+product; product-specific TypeScript guards retired with that product. This is not semantic
 duplicate detection or full macro/name resolution; see ARCHITECTURE for limits.
 
 The guard uses the already locked `syn` 2.0.119 as a CLI dev dependency with
@@ -515,7 +519,7 @@ subprocess bounds remain deterministic gates. See [baseline protocol](PERFORMANC
 ## Data, receipt and coexistence fixture plan
 
 Preserve the exact ordered migration 1–8 version/name history in
-[migrations.ts](src/storage/migrations.ts), SQL invariants and data transforms.
+[migrations.ts](https://github.com/wkh237/tmux-team/blob/bc2cac912f54f3c8a9752159063387de82f95a86/src/storage/migrations.ts), SQL invariants and data transforms.
 Do not introduce a new migration framework with a different history table.
 Use offline task-owned copies generated by the baseline TS runtime, with known
 UUIDs, profiles, preambles, binding evidence, cadence, retained prompts/finals,
@@ -568,9 +572,10 @@ Each implementation PR has its own issue/worktree, bounded contract matrix,
 local checks, primary review and one candidate CI push. Split any slice that
 cannot remain reviewable; preparation does not pre-authorize one giant rewrite PR.
 
-Unresolved release decisions owned by #82 include minimum macOS/glibc versions,
+The original release decisions owned by #82 included minimum macOS/glibc versions,
 musl artifacts, signing/provenance, atomic upgrade/rollback, PATH/manager ownership,
-skill relocation and clean install without Node. Do not promise native support
+skill relocation and clean install without Node; #135 through #149 delivered
+the selected native release path. Do not promise additional native support
 based on a developer's successful macOS build alone.
 
 Native archive prerequisite #135 selects cargo-dist for archive/manifest
@@ -578,7 +583,7 @@ generation only, with generated installers and publishing disabled. The selected
 candidates are macOS arm64/x64 with deployment target 11.0 and Linux arm64/x64
 static musl. Per-target cargo-about notices, bounded archive inventory/extraction,
 system/static linkage checks and isolated executable/skill/SQLite verification
-are separate from the transitional npm package matrix. See DEVELOPMENT's native
+are separate from raw PR runtime smoke checks. See DEVELOPMENT's native
 Rust release archive procedure. Actual matching-platform execution remains a
 release gate; the target list is not itself a support claim.
 
@@ -594,5 +599,5 @@ with bounded canonical HTTPS discovery and compare-before-activation fencing.
 with manifest-derived sizes/digests and fresh npm replacement guidance. Actual
 matching-host archives are tested without Node/Rust on runtime PATH. #149
 completed immutable alpha2 publication, all supported target execution and live
-download verification. Source/npm-gate retirement remains under #93; a local
+download verification. Source/npm-gate retirement is delivered by #160 under #93; a local
 generated installer alone is still not live-download evidence for a future release.

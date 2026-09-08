@@ -7,11 +7,11 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
 
 ## Style and readability
 
-- Write repository content in English. Let the repository Prettier configuration
-  and [tsconfig.json](tsconfig.json) define formatting and strict TypeScript
-  settings; run checks rather than restyling unrelated files.
-- Use kebab-case files, `cmd`-prefixed handlers, colocated `<module>.test.ts`
-  unit tests and `.e2e.test.ts` integration scenarios.
+- Write repository content in English. Use rustfmt for Rust and the repository
+  Prettier/strict TypeScript configuration for developer tooling; run checks
+  rather than restyling unrelated files.
+- Rust uses snake_case modules and owner-local tests. Node tooling uses
+  kebab-case files, `<module>.test.ts` tests and `.e2e.test.ts` integration scenarios.
 - Use ESM with explicit `.js` extensions for local TypeScript modules and
   `import type` for type-only dependencies. Prefer `node:` for new built-in
   imports without opportunistic whole-repo rewrites.
@@ -29,21 +29,21 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
 
 ## Commands, effects and contracts
 
-- Commands are effectful adapters, not pure domain functions. Use injected
-  `Context` services, `ctx.ui` and `ctx.exit(ExitCodes.*)` for new handlers.
-  Pure domain code must not depend on Context, console, filesystem or process exit.
-  Existing direct-output/legacy paths are debt, not examples to copy.
+- Commands are effectful adapters, not pure domain functions. Compose core
+  ports with concrete adapters in `tmt-cli`; use its shared `Failure` and output
+  lifecycle rather than writing or exiting from domain logic. Pure core code
+  must not depend on console, filesystem or process exit.
 - Extend the typed parser and dispatcher together. Do not slice argv again in a
   handler, guess an omitted identity, or add a parallel name/pane resolver.
 - Specify and test JSON shape, stdout/stderr, exit codes, human output, defaults
   and units for changed commands. Prefer one structured result/error in JSON mode
   without progress text mixed into it. Uniformity is a target with known gaps;
   preserve public behavior unless the issue explicitly changes it.
-- Use [src/exits.ts](src/exits.ts) and parser definitions as authoritative
-  code/grammar registries. Do not copy stale numeric tables or claim unsupported
+- Use the native grammar/invocation and explicit command error mappings as
+  authoritative registries. Do not copy stale numeric tables or claim unsupported
   duration suffixes. Convert CLI time values and internal milliseconds explicitly.
-- Resolve paths through the existing config boundary; use `ctx.paths` in
-  handlers. Do not invent another global directory or reconstruct XDG rules.
+- Resolve paths through the existing native config adapter boundary. Do not
+  invent another global directory or reconstruct XDG rules in handlers.
 - Keep expected domain errors distinguishable from unexpected failures. Preserve
   causes for diagnosis. Catch only to translate, recover, clean up or implement
   documented best-effort effects; never silently discard a failed mutation.

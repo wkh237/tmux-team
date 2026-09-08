@@ -9,8 +9,6 @@ import {
   withSandbox,
 } from '../support/cli-process.js';
 
-if (!process.env.TMT_TEST_CLI) throw new Error('Select the native build with TMT_TEST_CLI.');
-
 describe('native configuration process boundary', () => {
   it('renders resolved configuration values with their sources in human mode', async () => {
     await withSandbox(async (sandbox) => {

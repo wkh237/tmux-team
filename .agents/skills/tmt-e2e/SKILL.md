@@ -15,8 +15,9 @@ Use this skill for the repository's Docker E2E test foundation. Keep E2E tests s
 - Reuse the existing E2E harness and its cleanup hooks. Every scenario must leave its temporary tmux server, socket, panes, and files cleaned up, including on assertion failure.
 - For lifecycle or cleanup changes, run the Docker suite twice to catch leaked state and non-idempotent teardown.
 - Docker selects its built Rust CLI by default; mock replies inherit that selection.
-  Verify the default path as well as fail-closed invalid selectors. Host TS unit
-  tests remain transitional evidence, not proof of native behavior.
+  Verify the default path as well as fail-closed invalid selectors. Host test
+  selection defaults to the repository-built native executable and must never
+  discover an installed host CLI or fall back to a retired runtime.
 
 ## Test quality gate
 
@@ -51,7 +52,8 @@ Read the relevant files before changing behavior:
   shared executable/peer descriptors and container-path requirements. Reuse
   `test/support/cli-executable.mjs`; never add a hard-coded Node launcher or
   silent TS fallback. Prove selection reaches nested replies and real descendants
-  with causal results. TS-importing worker/pack tests are not native parity.
+  with causal results. Historical TypeScript worker/pack tests are retired;
+  their retained native guarantees are mapped in RUST-REWRITE.md.
 - Keep retained native/E2E helpers under `test/support/`, independent of the old
   TypeScript product. Historical SQLite migration inputs and reference results
   live in `test/fixtures/storage-history/`; preserve their provenance, integrity

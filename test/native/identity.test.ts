@@ -12,8 +12,6 @@ import {
   withSandbox,
 } from '../support/cli-process.js';
 
-if (!process.env.TMT_TEST_CLI) throw new Error('Select the native build with TMT_TEST_CLI.');
-
 type Identity = {
   readonly id: string;
   readonly name: string;

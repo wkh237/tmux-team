@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { resolveCliExecutables } from '../support/cli-executable.mjs';
 import { createCliProbe } from '../support/cli-probe.js';
@@ -61,15 +62,32 @@ afterEach(() => {
 });
 
 describe('CLI executable descriptors', () => {
-  it('transitional: uses the TypeScript executable by default for both invocation roles', () => {
+  it('uses the repository native executable by default for both invocation roles', () => {
     const executables = resolveCliExecutables({});
+    const expected = fileURLToPath(new URL('../../rust/target/debug/tmt', import.meta.url));
 
     expect(path.isAbsolute(executables.cli.executable)).toBe(true);
+    expect(executables.cli.executable).toBe(expected);
     expect(fs.statSync(executables.cli.executable).isFile()).toBe(true);
-    expect(executables.cli.executable).toBe(process.execPath);
-    expect(executables.cli.args).toHaveLength(1);
-    expect(fs.statSync(executables.cli.args[0]).isFile()).toBe(true);
+    expect(executables.cli.args).toEqual([]);
     expect(executables.peer).toBe(executables.cli);
+  });
+
+  it('fails clearly when the repository native executable is unavailable', () => {
+    const expected = fileURLToPath(new URL('../../rust/target/debug/tmt', import.meta.url));
+    const stat = vi.spyOn(fs, 'statSync').mockImplementation(() => {
+      throw new Error('native executable intentionally unavailable');
+    });
+    try {
+      expect(() => resolveCliExecutables({})).toThrow(
+        `TMT_TEST_CLI executable is unavailable or not executable: ${expected}`
+      );
+      expect(() => resolveCliExecutables({})).toThrow(
+        'cargo build --manifest-path rust/Cargo.toml --locked'
+      );
+    } finally {
+      stat.mockRestore();
+    }
   });
 
   it.each([
@@ -179,7 +197,7 @@ describe('CLI executable descriptors', () => {
   });
 
   it.each(['default', 'explicit'])(
-    'runs the %s TypeScript executable through the real contract helper',
+    'runs the %s native executable through the real contract helper',
     async (selection) => {
       const sandbox = sandboxWithEnv(
         selection === 'default'

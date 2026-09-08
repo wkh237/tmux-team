@@ -14,8 +14,6 @@ import { describe, expect, it } from 'vitest';
 import { expectError, parseWholeStdout, runCli, withSandbox } from '../support/cli-process.js';
 import { calibrateTmuxTripwire } from './tmux-tripwire.js';
 
-if (!process.env.TMT_TEST_CLI) throw new Error('Select the native build with TMT_TEST_CLI.');
-
 describe('native managed skill refresh', () => {
   it('keeps a never-installed home unchanged and hides internal grammar', async () => {
     await withSandbox(async (sandbox) => {
