@@ -258,10 +258,14 @@ TMT cannot reconstruct an overwritten theme.
 
 ### Installation troubleshooting
 
-If npm reports a permissions error, use a user-owned Node installation or
-version manager and avoid adding `sudo` blindly. If `tmt` is not found after
-installation, check the npm global prefix and that its `bin` directory is on
-`PATH`. If an integration path conflicts with unmanaged files, inspect the
+If native `tmt` is not found after installation, put `~/.local/bin` (or your
+selected prefix's `bin`) first in PATH, then open a new shell or run `hash -r`.
+Check `command -v tmt`, `command -v tmux-team` and the new absolute `tmt --help`;
+an older npm command may still shadow the native installation. Use a user-owned
+prefix instead of adding `sudo` blindly. See [npm/pnpm replacement](NATIVE-INSTALL.md#replacing-npm-or-pnpm)
+before switching package managers or touching their files.
+
+If an integration path conflicts with unmanaged files, inspect the
 target first; `tmt install <provider> --force` creates a recoverable backup
 outside the skills root and reports its path.
 After changing skills or provider setup, reload or restart the agent session.
