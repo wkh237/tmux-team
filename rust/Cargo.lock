@@ -1224,7 +1224,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-adapters"
-version = "5.0.0-alpha.1"
+version = "5.0.0-alpha.2"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -1245,7 +1245,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-cli"
-version = "5.0.0-alpha.1"
+version = "5.0.0-alpha.2"
 dependencies = [
  "clap",
  "clap_complete",
@@ -1257,7 +1257,7 @@ dependencies = [
 
 [[package]]
 name = "tmt-core"
-version = "5.0.0-alpha.1"
+version = "5.0.0-alpha.2"
 dependencies = [
  "icu_casemap",
  "icu_locale_core",

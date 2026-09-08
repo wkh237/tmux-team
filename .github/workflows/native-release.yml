@@ -1,0 +1,169 @@
+name: Native release artifacts
+
+# Explicit preparation only. Publishing a reviewed bundle is a separate,
+# authorized operation; ordinary pull requests do not run this costly matrix.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build (${{ matrix.target }})
+    if: github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix: &native-targets
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-15
+          - target: x86_64-apple-darwin
+            runner: macos-15-intel
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install native build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y musl-tools
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.97.0 --profile minimal --target '${{ matrix.target }}'
+      - name: Cache packaging tools
+        id: tools
+        uses: actions/cache@v4
+        with:
+          path: ~/.tmt-packaging
+          key: native-tools-${{ runner.os }}-${{ runner.arch }}-rust1.97-dist0.32.0-about0.9.2
+      - name: Build pinned packaging tools
+        if: steps.tools.outputs.cache-hit != 'true'
+        run: |
+          cargo +1.97.0 install cargo-dist --version 0.32.0 --locked --root "$HOME/.tmt-packaging"
+          cargo +1.97.0 install cargo-about --version 0.9.2 --features cli --locked --root "$HOME/.tmt-packaging"
+      - name: Build release archive and target manifest
+        env:
+          TARGET: ${{ matrix.target }}
+          MACOSX_DEPLOYMENT_TARGET: '11.0'
+        run: |
+          export PATH="$HOME/.tmt-packaging/bin:$PATH"
+          cargo +1.97.0 fetch --manifest-path rust/Cargo.toml --locked
+          scripts/build-native-artifact.sh "$TARGET" > "$RUNNER_TEMP/$TARGET-dist-manifest.json"
+          cp "$RUNNER_TEMP/$TARGET-dist-manifest.json" target/distrib/
+          cp rust/target/native-notices/THIRD-PARTY-NOTICES.txt "target/distrib/$TARGET-notices.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.target }}
+          path: |
+            target/distrib/*.tar.gz
+            target/distrib/*.sha256
+            target/distrib/*-dist-manifest.json
+            target/distrib/*-notices.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  assemble:
+    name: Assemble authoritative release manifest
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Install pinned Rust
+        run: rustup toolchain install 1.97.0 --profile minimal
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/.tmt-packaging
+          key: native-tools-${{ runner.os }}-${{ runner.arch }}-rust1.97-dist0.32.0-about0.9.2
+          fail-on-cache-miss: true
+      - name: Install verification dependencies
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.33.0 --activate
+          pnpm install --frozen-lockfile --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: native-*
+          merge-multiple: true
+          path: target/distrib
+      - name: Merge with cargo-dist and verify bootstrap inputs
+        run: |
+          export PATH="$HOME/.tmt-packaging/bin:$PATH"
+          export RUSTUP_TOOLCHAIN=1.97.0
+          TMT_NATIVE_REAL_CARGO=$(command -v cargo)
+          export TMT_NATIVE_REAL_CARGO
+          export CARGO="$GITHUB_WORKSPACE/scripts/native-cargo.sh"
+          dist plan --output-format=json --no-local-paths > "$RUNNER_TEMP/plan.json"
+          dist build --artifacts global --output-format=json --no-local-paths > "$RUNNER_TEMP/dist-manifest.json"
+          cp "$RUNNER_TEMP/dist-manifest.json" target/distrib/dist-manifest.json
+          node scripts/generate-native-bootstrap.mjs --manifest target/distrib/dist-manifest.json --archive-dir target/distrib --plan "$RUNNER_TEMP/plan.json" > target/distrib/tmt-installer.sh
+          sh -n target/distrib/tmt-installer.sh
+          shellcheck --shell sh target/distrib/tmt-installer.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-release-bundle
+          path: |
+            target/distrib/*.tar.gz
+            target/distrib/*.sha256
+            target/distrib/sha256.sum
+            target/distrib/dist-manifest.json
+            target/distrib/tmt-installer.sh
+            target/distrib/*-notices.txt
+          if-no-files-found: error
+          retention-days: 7
+
+  verify:
+    name: Verify final bundle (${{ matrix.target }})
+    needs: assemble
+    strategy:
+      fail-fast: false
+      matrix: *native-targets
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Install verification dependencies
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.33.0 --activate
+          pnpm install --frozen-lockfile --ignore-scripts
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-release-bundle
+          path: target/distrib
+      - name: Execute final archive and bootstrap on matching native host
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          node scripts/verify-native-artifact.mjs \
+            --manifest target/distrib/dist-manifest.json \
+            --archive "target/distrib/tmt-cli-$TARGET.tar.gz" --target "$TARGET" \
+            --skill skills/tmux-team/SKILL.md --license LICENSE \
+            --notices "target/distrib/$TARGET-notices.txt"
+          node scripts/verify-native-bootstrap.mjs \
+            --manifest target/distrib/dist-manifest.json \
+            --archive "target/distrib/tmt-cli-$TARGET.tar.gz" --target "$TARGET" \
+            --skill skills/tmux-team/SKILL.md
+          node scripts/generate-native-bootstrap.mjs --manifest target/distrib/dist-manifest.json --archive-dir target/distrib > "$RUNNER_TEMP/installer.sh"
+          cmp "$RUNNER_TEMP/installer.sh" target/distrib/tmt-installer.sh

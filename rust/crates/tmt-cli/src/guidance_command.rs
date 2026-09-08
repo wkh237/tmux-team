@@ -14,7 +14,7 @@ pub fn execute(skill: bool) -> io::Result<u8> {
         )?;
         writeln!(
             output,
-            "Native development preview: use isolated state until native cutover.\n"
+            "Native alpha: standalone runtime, no Node.js or daemon required.\n"
         )?;
         writeln!(
             output,

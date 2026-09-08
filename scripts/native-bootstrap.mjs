@@ -18,13 +18,28 @@ const hosts = {
 };
 
 /** Release tooling only: verify local artifacts before generating executable code. */
-export async function generateNativeBootstrap(manifestFile, archiveDirectory) {
+export async function generateNativeBootstrap(manifestFile, archiveDirectory, planFile) {
   const bytes = readBoundedFile(manifestFile, 4 * 1024 * 1024);
   const manifest = JSON.parse(bytes);
   const entries = Object.entries(manifest.artifacts ?? {}).filter(
     ([, artifact]) => artifact.kind === 'executable-zip'
   );
   assert(entries.length > 0 && entries.length <= 4, 'Require one to four native artifacts');
+  // Release preparation must cover cargo-dist's complete configured plan. Local
+  // single-target verification deliberately omits this optional release gate.
+  if (planFile !== undefined) {
+    const plan = JSON.parse(readBoundedFile(planFile, 4 * 1024 * 1024));
+    const planned = Object.entries(plan.artifacts ?? {}).filter(
+      ([, artifact]) => artifact.kind === 'executable-zip'
+    );
+    const inventory = (artifacts) =>
+      artifacts.map(([name, artifact]) => [name, artifact.target_triples]).sort();
+    assert.deepEqual(
+      inventory(entries),
+      inventory(planned),
+      'Release must contain every planned native artifact'
+    );
+  }
   const seen = new Set();
   const cases = [];
   let version;

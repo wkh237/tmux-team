@@ -17,6 +17,12 @@ if (typeof packageVersion !== 'string') {
 }
 
 describe('version', () => {
+  it('keeps native workspace and package versions synchronized', () => {
+    const workspace = fs.readFileSync(path.join(repoRoot, 'rust/Cargo.toml'), 'utf8');
+    const packageSection = workspace.split('[workspace.package]')[1]?.split('\n[')[0];
+    expect(packageSection?.match(/^version = "([^"]+)"$/m)?.[1]).toBe(packageVersion);
+  });
+
   beforeEach(() => {
     vi.restoreAllMocks();
   });

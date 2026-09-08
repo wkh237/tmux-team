@@ -1,8 +1,16 @@
 # Agent skill installation
 
-Install the CLI using the [README instructions](../README.md#v5-preview-installation),
-then run `tmt install`. No plugin, marketplace, or separate slash-command package
-is required. All providers use the same bundled [skill](tmux-team/SKILL.md).
+Install the native alpha using the [README instructions](../README.md), then run
+`tmt install`. Use the installer asset from a published release; the README
+supplies the verified version URL when one is available. No plugin, marketplace
+or separate slash-command package is required. All providers use the same bundled
+[skill](tmux-team/SKILL.md).
+
+The native runtime needs no Node.js, Rust toolchain or source checkout; tmux is
+still required for pane operations. Native bindings are temporary by default:
+use `-s`/`--save` to keep one, and `tmt rm <name>` to retire a temporary identity
+(`--force` is required for a saved identity). Native schema 9 is forward-only;
+do not use the legacy TypeScript runtime on a native database.
 
 ## Install
 
@@ -35,11 +43,16 @@ OpenCode's configuration directory is used for detection, including
 `OPENCODE_CONFIG_DIR` or `XDG_CONFIG_HOME`, but its installed skill remains in the shared home location.
 Use `--dir` for a different skill discovery root; TMT does not edit provider settings.
 
-The containing directory is a managed link to the installed package. Repeating
-installation is a no-op when the link is correct. Package updates at the same
-location update the linked instructions; rerun installation after relocation.
-`tmt upgrade` follows npm `latest`, not the unpublished v5 preview; follow the
-README's preview instructions to select a new revision.
+The containing directory is a managed link to the installed native skill
+package. Repeating installation is a no-op when the link is correct. Native
+`tmt upgrade`/`tmt update` refreshes recorded managed skills through the newly
+activated executable; use `--channel stable|alpha`, `--to <version>`, or
+`--unpin` as needed. A skill refresh can fail after binary activation and is
+reported as partial completion; resolve the conflict and repeat the same
+selection.
+
+The legacy TypeScript `tmt upgrade` follows npm `latest` and cannot update a
+native installation. Use the original manager for package-manager installations.
 
 Load the skill in your agent before collaborating. Claude Code's native skill
 can be invoked as `/tmux-team`; the CLI remains `tmt`. Installing files does not
@@ -77,10 +90,14 @@ arbitrary custom folders.
 
 ## Existing installations
 
-Update the CLI using your chosen release's installation command, run
-`tmt install`, then reload or restart the agent. For an existing conversation,
+Update the native CLI using a published release's installer asset, run
+`tmt install` if needed, then reload or restart the agent. For an existing conversation,
 ask the agent to run `tmt learn --skill`, read the complete output, and use it
 instead of remembered instructions from an older version.
+
+Replacing npm, pnpm, Homebrew or manual installations does not migrate or delete
+their application data or files. Stop old writers before switching and verify
+`command -v tmt`, `command -v tmux-team`, and the new absolute `tmt --help`.
 
 Existing unmanaged targets are preserved by default. Inspect a conflict before
 using `tmt install <provider> --force`; replacement creates a recoverable backup.

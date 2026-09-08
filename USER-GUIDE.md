@@ -1,24 +1,36 @@
 # tmux-team user guide
 
-This guide covers the common v5 preview workflows. Start with the
-[README](README.md) for the tested preview installation, then use
+This guide covers the common v5 native alpha workflows. Start with the
+[README](README.md) for the current installation status and verified release
+URL, then use
 [`skills/README.md`](skills/README.md) for provider-specific installation and
 [`skills/tmux-team/SKILL.md`](skills/tmux-team/SKILL.md) for canonical agent
 guidance.
 
 ## Install and load the skill
 
-Use the pinned preview commands in the [README installation section](README.md#v5-preview-installation),
-then let TMT detect the supported agents with `tmt install`.
+Use the native installer asset from a published release as described by the
+README, then let the native executable detect supported agents with `tmt install`.
+The installer defaults to `$HOME/.local/bin/tmt` and runs skill installation
+unless `--no-skill` is supplied. Reload the agent after installation.
 
-The preview requires macOS or Linux, tmux, and Node.js `>=22.12`; Node 24 LTS
-is preferred. This archive path needs neither Git nor pnpm. Do not use
-`tmt upgrade` with this preview: it follows npm `latest` rather than the v5
-archive. Re-run the pinned install when you need to refresh this revision.
+The native runtime requires macOS or Linux and tmux for pane operations, but no
+Node.js, Rust toolchain or source checkout. Native `tmt upgrade` (also
+available as `tmt update`) follows its retained stable/alpha channel; use
+`--to <version>` to pin or `--unpin` to resume channel updates. Package-manager
+installations are a separate legacy TypeScript runtime and must use their
+original manager.
 
 After installation, load or reload the `tmux-team` skill in every agent that
 will send or receive TMT work. Installation places the provider integration;
 it does not reload an already running agent session.
+
+Native `name` and `add` bindings are temporary by default. Add `-s`/`--save`
+to preserve an identity, and use `tmt rm <name>` to retire a temporary identity
+(`--force` is required for a saved identity). Switching from npm or pnpm is a
+fresh installation: stop old writers first; no configuration, database or
+historical exchange is migrated or deleted. Native schema 9 is forward-only,
+so never use the old TypeScript writer on a native database.
 
 ## Name panes and inspect presence
 
@@ -41,8 +53,8 @@ tmt whoami
 
 `name` and `whoami` need a live caller pane. `add` accepts `%pane_id`,
 `window.pane`, or `session:window.pane`; the current order is pane target first,
-global name second. `tmt unbind` removes only the current pane's binding and
-keeps the durable identity record.
+global name second. `tmt unbind` retires a temporary identity; a saved identity
+and its profile remain offline. Neither operation kills the pane.
 
 Global names are independent of the working directory. A durable identity can
 exist without an active pane:

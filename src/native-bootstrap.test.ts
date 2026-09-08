@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -18,7 +19,11 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const { generateNativeBootstrap } = (await import(
   pathToFileURL(path.join(repositoryRoot, 'scripts', 'native-bootstrap.mjs')).href
 )) as unknown as {
-  generateNativeBootstrap: (manifestFile: string, archiveDirectory: string) => Promise<string>;
+  generateNativeBootstrap: (
+    manifestFile: string,
+    archiveDirectory: string,
+    planFile?: string
+  ) => Promise<string>;
 };
 
 const REQUIRED_FILES = ['tmt', 'LICENSE', 'NATIVE-INSTALL.md', 'THIRD-PARTY-NOTICES.txt'];
@@ -211,6 +216,62 @@ function expectCleanStage(stage: string): void {
 }
 
 describe('native curl bootstrap', () => {
+  it('checks every archive in a multi-platform release before host selection', async () => {
+    await withSandbox(async (sandbox) => {
+      const targets = [
+        'aarch64-apple-darwin',
+        'x86_64-apple-darwin',
+        'aarch64-unknown-linux-musl',
+        'x86_64-unknown-linux-musl',
+      ];
+      const directory = mkdtempSync(path.join(sandbox.root, 'release-bundle-'));
+      const combined = {
+        artifacts: {} as Record<string, unknown>,
+        releases: [
+          { app_name: 'tmt-cli', app_version: '5.0.0-alpha.1', artifacts: [] as string[] },
+        ],
+      };
+      let host: Fixture | undefined;
+      let foreignArchive = '';
+      for (const target of targets) {
+        const fixture = await createFixture(sandbox, { target });
+        const metadata = JSON.parse(readFileSync(fixture.manifest, 'utf8')) as typeof combined;
+        Object.assign(combined.artifacts, metadata.artifacts);
+        combined.releases[0].artifacts.push(path.basename(fixture.archive));
+        const archive = path.join(directory, path.basename(fixture.archive));
+        copyFileSync(fixture.archive, archive);
+        if (target === nativeTarget()) host = { ...fixture, archive };
+        else foreignArchive = archive;
+      }
+      const manifest = path.join(directory, 'dist-manifest.json');
+      writeFileSync(manifest, JSON.stringify(combined));
+      const plan = path.join(directory, 'plan.json');
+      writeFileSync(plan, JSON.stringify(combined));
+      const script = await generateNativeBootstrap(manifest, directory, plan);
+      expect(host).toBeDefined();
+      const run = await runBootstrap(sandbox, script, { ...host!, manifest }, ['--no-skill']);
+      expect(run.result.status).toBe(0);
+      expect(readFileSync(run.curlLog, 'utf8')).toContain(path.basename(host!.archive));
+      expectCleanStage(run.stage);
+
+      const incomplete = structuredClone(combined);
+      delete incomplete.artifacts[path.basename(foreignArchive)];
+      writeFileSync(manifest, JSON.stringify(incomplete));
+      await expect(generateNativeBootstrap(manifest, directory, plan)).rejects.toThrow(
+        'Release must contain every planned native artifact'
+      );
+      writeFileSync(manifest, JSON.stringify(combined));
+
+      // Even an archive for a different CPU/OS is part of the release trust input.
+      const corrupt = readFileSync(foreignArchive);
+      corrupt[0] ^= 1;
+      writeFileSync(foreignArchive, corrupt);
+      await expect(generateNativeBootstrap(manifest, directory)).rejects.toThrow(
+        'Native archive checksum mismatch'
+      );
+    });
+  });
+
   it('generates a release-specific script from verified cargo-dist artifacts', async () => {
     await withSandbox(async (sandbox) => {
       const fixture = await createFixture(sandbox);

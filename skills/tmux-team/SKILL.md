@@ -12,20 +12,18 @@ directory. Active presence also requires matching live tmux binding metadata.
 
 ## Runtime boundary
 
-The instructions below describe the installed TypeScript runtime. The separate
-Rust executable is a development preview: use isolated test state only, never an
-existing user database (schema 9 is forward-only and TypeScript cannot reopen it).
-Its help explicitly identifies the native preview. It implements configuration,
-identity, talk/reply/result, check/read, role/preamble, X, initialization and
-skill viewing/installation and managed native upgrade/update. Public native
-release availability and runtime cutover remain separate delivery gates; do not
-fall back to TypeScript on the same upgraded database. Native talk
-supplies a compact `v2_` receipt; use it unchanged. Native reply also accepts
-retained legacy receipts, but TypeScript cannot consume native receipts or
-schema 9. The common communication contracts below apply to both runtimes;
-the native-only lifetime and installation differences are called out explicitly.
+These instructions target the standalone Rust native alpha. Older npm/pnpm
+installations use TypeScript and do not implement native identity lifetimes,
+removal or self-update. Check `tmt --help` when the installation is uncertain;
+do not fall back to TypeScript on native state. Native schema 9 is forward-only
+and TypeScript cannot reopen it. Switching installations does not migrate or
+delete old data. Stop old writers before switching.
 
-For an explicitly selected native preview, `name`, retained alias `this`, and
+Native talk supplies a compact `v2_` receipt; use it unchanged. Native reply
+also accepts retained legacy receipts, but TypeScript cannot consume native
+receipts or schema 9. Do not mix runtimes for an active exchange.
+
+`name`, retained alias `this`, and
 `add <pane-target> <name>` default to temporary identities; `-s`/`--save` saves
 the same UUID without downgrading existing saved identities. Names remain
 globally unique, not folder-scoped. `identity create` creates or promotes saved
@@ -38,9 +36,8 @@ saved removal needs `--force`. Removal never kills a pane and removes only its
 role/preamble, retaining exchanges and historical ownership. Reusing a retired
 name gets a fresh UUID. A failed publication can leave a never-bound temporary
 identity offline for retry; do not mistake missing binding for pane death.
-These native-only lifetime/removal rules do not apply to the installed runtime
-described below. Check the selected executable's help instead of inferring
-capabilities from the shared alpha version number.
+Check the selected executable's help instead of inferring capabilities from
+a remembered version number.
 
 ## Delivery safety
 
@@ -81,8 +78,7 @@ Timeout and interruption end only the observer, never recipient work. A
 retrying. Missing visible output is not permission to resend.
 
 `help`, `version`, `completion` and `learn` are text-only and reject
-`--json` with `JSON_UNSUPPORTED`; run them without that flag. TypeScript `upgrade`
-also rejects JSON mode because it streams installer output. Native managed
+`--json` with `JSON_UNSUPPORTED`; run them without that flag. Native managed
 `upgrade`/`update` supports one structured JSON result, including partial failures.
 
 ## Durable replies and results
@@ -211,8 +207,8 @@ UUID, original display name, profiles and any pane binding. It never logs in,
 binds a pane or takes over another caller's identity. Multiple local callers
 may explicitly select the same identity; this is not authentication.
 
-Create returns `{identity:{id,name,canonicalName},created}`; show returns
-`{identity:{id,name,canonicalName}}`; list returns `{identities:[...]}` in
+Create returns `{identity:{id,name,canonicalName,lifetime},created}`; show returns
+`{identity:{id,name,canonicalName,lifetime}}`; list returns `{identities:[...]}` in
 canonical-name order, including unbound identities. It does not report presence.
 Use ordinary `tmt list` for verified active destinations. A new identity alone
 cannot receive talk: bind a live pane with `add`, `name` or `this` first.
@@ -220,7 +216,7 @@ cannot receive talk: bind a live pane with `add`, `name` or `this` first.
 Names are required for create/show; omission never selects the current pane.
 Invalid names return `INVALID_NAME` (exit 1); valid missing show names return
 `NAME_NOT_FOUND` (exit 3). Creation does not alter anonymous talk or request-ID
-result access. There is no identity rename/delete or listener command.
+result access. Use `rm <name>` for removal; no identity rename or listener command exists.
 
 ## Exchange attention
 
@@ -348,11 +344,12 @@ Use `list` for full active discovery; it is not a prerequisite for `talk` or `ch
 
 ```bash
 tmt list
-tmt name <global-name>               # bind the current pane globally
+tmt name <global-name>               # bind temporarily; add -s to save
 tmt this <global-name>               # exact supported alias for `name`
 tmt add <pane-target> <global-name>  # bind an explicit pane by stable `%pane_id`
 tmt whoami                            # show the current pane identity
 tmt unbind                            # remove the current pane identity
+tmt rm <global-name>                  # retire; saved identities require --force
 tmt talk <target> "message"          # target a global name or pane
 tmt check <target> [lines]
 tmt list [target]                     # list identities or one pane
@@ -386,10 +383,9 @@ identities. Use `name`, `this`, or `add` explicitly to bind such a pane. Invalid
 metadata is not active presence; do not delete durable data or old files to
 repair it. Direct pane targeting remains separate from identity discovery.
 
-The installed TypeScript runtime does not support `update`, `remove`/`rm`, or
-`migrate`; native-only update/removal behavior is described separately. Use explicit binding
-commands above; `unbind` only detaches the current pane and retains its durable
-identity/profile. Do not delete old user files as a migration workaround.
+`update` aliases `upgrade`; `remove` aliases `rm`. `unbind` retires a temporary
+identity but retains a saved identity/profile offline. There is no `migrate`
+command. Do not delete old user files as a migration workaround.
 
 `talk` sends text to another pane and can cause external input there. Only use
 it when the user has requested that communication or the surrounding task
@@ -413,9 +409,8 @@ using `--force`, which creates recoverable skill backups outside the discovery r
 An old Claude `commands/team.md`
 is preserved with a warning by default; explicit forced Claude installation can
 back it up after the native skill is installed. Plugin settings are never modified.
-Managed links follow package updates. TypeScript `tmt upgrade` tracks npm `latest`, not
-commit-pinned previews; follow the selected release's installation instructions.
-After upgrading the CLI, run `tmt install` and reload or restart the agent.
+Native `tmt upgrade` refreshes recorded managed skills. For a manual binary
+replacement, run `tmt install` again. Reload or restart the agent afterwards.
 For an existing conversation, run `tmt learn --skill` and read its complete output
 before using remembered commands. Pi can load `/skill:tmux-team`; OpenCode uses
 its `skill` tool. Installation does not bypass provider permissions or guarantee
@@ -486,7 +481,7 @@ or retrieval.
 
 Options apply only to commands that use them. `--timeout`, `--delay`,
 `--detach`, and `--no-preamble` belong to talk/send; `--lines` belongs to
-check/read; `--force` belongs to talk/send and install. Unrelated options
+check/read; `--force` belongs to talk/send, install and rm/remove. Unrelated options
 and the unsupported `--config` path override fail with `USAGE_ERROR` before
 execution. Use `tmt help` for the command-specific option inventory.
 
@@ -519,10 +514,10 @@ They do not reload an active agent, update provider-managed plugins, or track
 alpha release channels. Package upgrades and skill installation are separate
 from provider discovery.
 
-### Native preview installation differences
+### Native installation and updates
 
 Native release installers use a versioned `tmt-installer.sh` URL supplied by the
-release; public publication may still be pending. Never invent a working URL or
+release. Use the repository README or an actual published release; never invent a URL or
 use npm `upgrade` as a native migration. The shell bootstrap defaults to
 `~/.local/bin/tmt`, supports `--prefix`, `--pin` and `--no-skill`, and otherwise
 runs the new absolute command's skill installer. It does not migrate/delete data
@@ -537,7 +532,7 @@ The selected Rust executable embeds this exact skill; viewing and installation
 work after moving the binary, without Node or a checkout. Native installs link
 an immutable digest-addressed source under TMT's global directory
 (`skill-assets/<sha256>/tmux-team`). Re-run the intended `install` command after
-replacing a preview binary to refresh valid managed links. An edited current
+replacing a manual binary to refresh valid managed links. An edited current
 bundled source blocks installation even with force; inspect it before repair.
 Links to modified older sources are unmanaged conflicts: force can back up the
 link, never overwrite its source content. Old source
@@ -557,8 +552,7 @@ receipt's channel. `--channel stable|alpha` selects a channel, `--to <version>`
 pins an exact version, and `--unpin` resumes channel updates; do not combine
 `--to` and `--unpin`. Downgrades are rejected. An ordinary pinned invocation is
 a no-network no-op. Package-manager or unmanaged binaries refuse native updates;
-use their original manager, not an overwrite workaround. No public native
-download is implied until its separate release gate is complete.
+use their original manager, not an overwrite workaround.
 
 Successful native updates use the new executable to refresh only recorded
 managed skills. Missing integrations stay missing and modified content is

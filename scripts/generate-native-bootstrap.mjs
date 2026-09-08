@@ -4,10 +4,16 @@ import { parseArgs } from 'node:util';
 import { generateNativeBootstrap } from './native-bootstrap.mjs';
 
 const { values } = parseArgs({
-  options: { manifest: { type: 'string' }, 'archive-dir': { type: 'string' } },
+  options: {
+    manifest: { type: 'string' },
+    'archive-dir': { type: 'string' },
+    plan: { type: 'string' },
+  },
 });
 assert(
   values.manifest && values['archive-dir'],
-  'Usage: --manifest <file> --archive-dir <directory>'
+  'Usage: --manifest <file> --archive-dir <directory> [--plan <cargo-dist plan>]'
 );
-process.stdout.write(await generateNativeBootstrap(values.manifest, values['archive-dir']));
+process.stdout.write(
+  await generateNativeBootstrap(values.manifest, values['archive-dir'], values.plan)
+);

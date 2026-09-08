@@ -9,11 +9,11 @@ import {
   withSandbox,
 } from '../../src/test-support/cli-process.js';
 
-// This suite is deliberately native-preview-specific. Requiring the shared
+// This suite is deliberately native-specific. Requiring the shared
 // descriptor prevents an omitted build from silently exercising TypeScript.
 if (!process.env.TMT_TEST_CLI) throw new Error('Select the native build with TMT_TEST_CLI.');
 
-describe('native grammar preview process contract', () => {
+describe('native grammar process contract', () => {
   it('generates valid shells without offering rejected or unrelated options', async () => {
     await withSandbox(async (sandbox) => {
       for (const shell of ['bash', 'zsh']) {
@@ -55,16 +55,25 @@ describe('native grammar preview process contract', () => {
       const before = fileSnapshot(sandbox.root);
       const version = await runCli(sandbox, ['--version']);
       expect(version.status).toBe(0);
-      expect(version.stdout).toBe('5.0.0-alpha.1\n');
+      expect(version.stdout).toBe('5.0.0-alpha.2\n');
       expect(version.stderr).toBe('');
       const help = await runCli(sandbox, ['help']);
       expect(help.status).toBe(0);
       expect(help.stderr).toBe('');
-      expect(help.stdout).toContain('Native development preview');
-      expect(help.stdout).toContain(
-        'configuration, identity create/show/list, talk/reply/result, pane identity name/this/add/whoami/unbind/rm/list, diagnostic check/read, role/preamble, x attention, init, learn, and skill installation are available'
-      );
-      expect(help.stdout).toContain('Managed native upgrade/update is supported');
+      expect(help.stdout).toContain('TMT native alpha');
+      expect(help.stdout).toContain('managed installations use tmt upgrade');
+      for (const command of [
+        'talk',
+        'reply',
+        'result',
+        'check',
+        'role',
+        'preamble',
+        'x',
+        'install',
+      ]) {
+        expect(help.stdout).toMatch(new RegExp(`^  ${command}\\s`, 'm'));
+      }
       expect(help.stdout).toContain('Manage identity records without probing tmux');
       expect(help.stdout).toContain('temporary unless saved');
       expect(help.stdout).toContain('rm');
@@ -129,7 +138,7 @@ describe('native grammar preview process contract', () => {
       copyFileSync(sandbox.cli.executable, executable);
       const result = await runCli({ ...sandbox, cli: { executable, args: [] } }, ['--version']);
       expect(result.status).toBe(0);
-      expect(result.stdout).toBe('5.0.0-alpha.1\n');
+      expect(result.stdout).toBe('5.0.0-alpha.2\n');
       expect(result.stderr).toBe('');
       expect(existsSync(sandbox.database)).toBe(false);
     });

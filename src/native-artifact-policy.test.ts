@@ -120,7 +120,7 @@ async function createArchiveFixture(
         assets: REQUIRED_FILES.map((file) => ({ path: file })),
       },
     },
-    releases: [{ app_version: VERSION, artifacts: [name] }],
+    releases: [{ app_name: 'tmt-cli', app_version: VERSION, artifacts: [name] }],
   };
   fs.writeFileSync(manifestFile, `${JSON.stringify(manifest)}\n`);
   return {
@@ -238,6 +238,13 @@ describe('native artifact policy', () => {
       expect(() =>
         selectNativeArtifact(releaseFixture.manifestFile, releaseFixture.archiveFile, TARGET)
       ).toThrow('Archive must belong to exactly one release');
+
+      const wrongOwner = structuredClone(releaseFixture.manifest);
+      (wrongOwner.releases as Array<Record<string, unknown>>)[0].app_name = 'unrelated-app';
+      fs.writeFileSync(releaseFixture.manifestFile, JSON.stringify(wrongOwner));
+      expect(() =>
+        selectNativeArtifact(releaseFixture.manifestFile, releaseFixture.archiveFile, TARGET)
+      ).toThrow('Archive must belong to the TMT release');
     });
   });
 

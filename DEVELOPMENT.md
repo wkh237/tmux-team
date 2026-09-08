@@ -600,6 +600,45 @@ matrix.
 
 ## Native Rust release archives
 
+### Explicit multi-platform release preparation
+
+`Native release artifacts` (`.github/workflows/native-release.yml`) is manually
+dispatched, not part of every PR. Dispatch on the authorized release's reviewed,
+required-checks-green main commit and record the run ID and exact SHA in its
+issue. It builds on native macOS arm64/x64 and Linux arm64/x64 hosts using the
+existing pinned tools and `build-native-artifact.sh`. A shared matrix keeps
+build and final verification hosts aligned; dispatches outside main are skipped.
+Cached packaging tools are keyed
+by OS, architecture and exact tool versions; they are developer tools only.
+
+cargo-dist itself merges the downloaded `*-dist-manifest.json` inputs through
+`dist build --artifacts global --output-format=json --no-local-paths`. Do not
+hand-merge artifact JSON or enable another installer. Generate a complete
+`dist plan` on the same source and pass it as bootstrap `--plan`: the generator
+requires exact planned archive names/targets, preventing a missing matrix target
+from silently shrinking the release. Bootstrap generation verifies TMT ownership
+and archive inventory/digests before generating code; the final matrix
+then executes both existing verifiers against this final manifest and compares
+the regenerated script bytes. All jobs must pass before publication, even if
+the assembled artifact can already be downloaded. CI artifacts expire in seven
+days. Notices alongside the bundle are verification inputs; each archive also
+contains its own target-filtered notices.
+
+Publication remains a separately authorized operation, not a workflow side
+effect. Verify the run's exact commit and all required PR checks; enable GitHub
+release immutability before creating a draft prerelease. Attach the four tar.gz
+archives, final `dist-manifest.json` and `tmt-installer.sh`, verify their uploaded
+SHA-256 digests and only then publish the draft. Verify `immutable: true`, tag
+commit and GitHub release attestation (`gh release verify` and
+`gh release verify-asset`). Never replace an immutable release's assets or move
+its tag. A repair needs a new reviewed version.
+
+Before promoting README installation instructions, run the actual public script
+with an isolated HOME, application root and prefix, verify version, exact skill,
+PATH selection and `tmt upgrade --json` against live immutable metadata. Do not
+mutate a host installation. Record this separately from controlled-curl fixture
+evidence. npm publication is not part of native GitHub release publication.
+
 This is separate from the transitional npm packed matrix above. #135 adds
 archive generation and isolated runtime verification, not a public installer.
 The target inventory and artifact metadata live in `dist-workspace.toml` and
