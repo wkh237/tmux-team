@@ -587,6 +587,56 @@ arm64 capacity is unavailable for a pull request, the release gate must run
 the same command on a native arm64 runner; emulation does not satisfy this
 matrix.
 
+## Native Rust release archives
+
+This is separate from the transitional npm packed matrix above. #135 adds
+archive generation and isolated runtime verification, not a public installer.
+The target inventory and artifact metadata live in `dist-workspace.toml` and
+the generated cargo-dist manifest, not another TMT release catalog.
+
+Install the pinned developer tools into a chosen tool directory (not needed by
+end users): cargo-dist 0.32.0 with `cargo install --locked`, and cargo-about
+0.9.2 with `cargo install --locked --features cli`. Put their binaries on PATH.
+Fetch the locked workspace dependencies before the offline notice step.
+Build targets sequentially in one checkout, or use separate worktrees: the
+generator's distribution directory and generated notice input are per-checkout.
+
+```sh
+# Choose a target from dist-workspace.toml that matches the verification host.
+native_manifest=$(mktemp)
+MACOSX_DEPLOYMENT_TARGET=11.0 scripts/build-native-artifact.sh aarch64-apple-darwin > "$native_manifest"
+node scripts/verify-native-artifact.mjs \
+  --manifest "$native_manifest" \
+  --archive target/distrib/tmt-cli-aarch64-apple-darwin.tar.gz \
+  --target aarch64-apple-darwin --skill skills/tmux-team/SKILL.md \
+  --notices rust/target/native-notices/THIRD-PARTY-NOTICES.txt --license LICENSE
+```
+
+Review the generated `rust/target/native-notices/THIRD-PARTY-NOTICES.txt` against
+the locked, archive-target-filtered runtime graph, including Unicode copyrights;
+the verifier compares the archived notices and license with these selected
+inputs and rejects placeholder attribution. A successful generator
+is not legal certification. Keep the complete notice text with redistributed
+binaries. The verifier bounds inputs (64 MiB compressed, 128 MiB expanded),
+requires exactly the four runtime files, and removes its private staging after
+success or failure. It runs the extracted executable with no Node/Rust/tmux on
+PATH and verifies native SQLite persistence through public commands. macOS
+requires system `otool`; Linux requires `readelf` for static-musl linkage checks.
+
+`test/native/artifact.Dockerfile` provides a local matching-architecture Linux
+musl build and verifier. Set `TARGET_TRIPLE` from the selected generator target,
+give the image a task-owned name, then run it with `--rm --init --network none`
+and `--archive artifacts/<manifest archive name> --target <target>`. Remove that
+owned image after verification. Emulated execution and cross-compilation alone
+do not satisfy native target acceptance. This optional image is not the tmux
+E2E harness or a publication workflow.
+
+Negative archive tests use real tar fixtures and causal guard assertions.
+Exercise checksum corruption, truncation, missing executable/notices, links,
+unexpected paths, duplicates, bounds and cleanup; never accept any arbitrary
+process error as proof of the intended check. Inspect exact manifest and archive
+bytes from the final source before running the reviewed CI candidate.
+
 ## Testing Strategy
 
 We prefer structured, deterministic assertions in tests. Human-facing formatting is validated sparingly; most tests assert on structured output or file contents.

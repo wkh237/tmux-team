@@ -8,3 +8,4 @@ dist/
 .tmux-team-id
 coverage/
 rust/target/
+target/distrib/
