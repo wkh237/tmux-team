@@ -329,6 +329,11 @@ impl<R: CommandRunner> Tmux<R> {
                 Ok(EndpointProbe::Live(snapshot))
             }
             Err(error) if error.cleanup_failed() => Err(error),
+            // A fresh server at a reused socket has no TMT server marker yet.
+            // Malformed output alone is not death, but ESRCH for the recorded
+            // process is independent, conclusive evidence. Never initialize the
+            // foreign server merely to reconcile the old binding.
+            Err(_) => Ok(probe_death(recorded_pid)),
             _ => Ok(EndpointProbe::Unknown),
         }
     }

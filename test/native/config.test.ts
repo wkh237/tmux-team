@@ -12,6 +12,47 @@ import {
 if (!process.env.TMT_TEST_CLI) throw new Error('Select the native build with TMT_TEST_CLI.');
 
 describe('native configuration process boundary', () => {
+  it('renders resolved configuration values with their sources in human mode', async () => {
+    await withSandbox(async (sandbox) => {
+      fs.mkdirSync(sandbox.globalDir, { recursive: true });
+      fs.writeFileSync(
+        sandbox.globalConfig,
+        JSON.stringify({
+          preambleMode: 'disabled',
+          defaults: { preambleEvery: 7 },
+          exchange: { retentionDays: 365 },
+          ui: { paneBadge: 'on' },
+        })
+      );
+      fs.writeFileSync(sandbox.localConfig, JSON.stringify({ $config: { preambleEvery: 0 } }));
+      const before = fileSnapshot(sandbox.root);
+
+      const result = await runCli(sandbox, ['config', 'show']);
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(result.stdout).toContain('ℹ Current configuration:\n');
+      for (const [key, value, source] of [
+        ['preambleMode', 'disabled', 'global'],
+        ['preambleEvery', '0', 'local'],
+        ['pasteEnterDelayMs', '500', 'default'],
+        ['defaults.timeout', '180', 'global'],
+        ['defaults.pollInterval', '1', 'global'],
+        ['defaults.captureLines', '100', 'global'],
+        ['exchange.retentionDays', '365', 'global'],
+        ['ui.paneBadge', 'on', 'global'],
+      ]) {
+        expect(result.stdout).toMatch(
+          new RegExp(`^  ${key.replace('.', '\\.')}\\s+${value}\\s+\\(${source}\\)[ \\t]*$`, 'm')
+        );
+      }
+      expect(result.stdout).toContain('ℹ \nPaths:\n');
+      expect(result.stdout).toContain(`ℹ   Global: ${sandbox.globalConfig}\n`);
+      expect(result.stdout).toContain(`ℹ   Local:  ${fs.realpathSync(sandbox.localConfig)}\n`);
+      expect(fileSnapshot(sandbox.root)).toEqual(before);
+      expect(fs.existsSync(sandbox.database)).toBe(false);
+    });
+  });
+
   it('retains JavaScript numeric semantics and insertion order in opaque fields', async () => {
     await withSandbox(async (sandbox) => {
       fs.mkdirSync(sandbox.globalDir, { recursive: true });
@@ -42,6 +83,137 @@ describe('native configuration process boundary', () => {
       expect(expectError(invalid, 'CONFIG_ERROR').error).toMatchObject({
         message: expect.stringContaining('(defaults.timeout)'),
       });
+    });
+  });
+
+  it('projects exact built-in defaults when config sections are omitted', async () => {
+    await withSandbox(async (sandbox) => {
+      fs.mkdirSync(sandbox.globalDir, { recursive: true });
+      const globalBytes = JSON.stringify({ futureGlobal: { keep: true } });
+      const localBytes = JSON.stringify({ keep: true });
+      fs.writeFileSync(sandbox.globalConfig, globalBytes);
+      fs.writeFileSync(sandbox.localConfig, localBytes);
+      const before = fileSnapshot(sandbox.root);
+
+      const result = await runCli(sandbox, ['config', 'show', '--json']);
+      expect(result.status).toBe(0);
+      const document = parseWholeStdout(result) as {
+        resolved: Record<string, unknown>;
+        sources: Record<string, unknown>;
+      };
+      expect(document.resolved).toEqual({
+        preambleMode: 'always',
+        preambleEvery: 3,
+        pasteEnterDelayMs: 500,
+        defaults: {
+          timeout: 180,
+          pollInterval: 1,
+          captureLines: 100,
+          preambleEvery: 3,
+          pasteEnterDelayMs: 500,
+        },
+        exchange: { retentionDays: 90 },
+        ui: { paneBadge: 'off' },
+      });
+      expect(document.sources).toEqual({
+        preambleMode: 'default',
+        preambleEvery: 'default',
+        pasteEnterDelayMs: 'default',
+        exchange: { retentionDays: 'default' },
+        ui: { paneBadge: 'default' },
+      });
+      expect(fileSnapshot(sandbox.root)).toEqual(before);
+      expect(fs.readFileSync(sandbox.globalConfig, 'utf8')).toBe(globalBytes);
+      expect(fs.readFileSync(sandbox.localConfig, 'utf8')).toBe(localBytes);
+      expect(fs.existsSync(sandbox.database)).toBe(false);
+    });
+  });
+
+  it('accepts a safe preamble frequency above the timer delay bound', async () => {
+    await withSandbox(async (sandbox) => {
+      fs.mkdirSync(sandbox.globalDir, { recursive: true });
+      const globalBytes = JSON.stringify({ defaults: { preambleEvery: 2_147_483_648 } });
+      fs.writeFileSync(sandbox.globalConfig, globalBytes);
+
+      const result = await runCli(sandbox, ['config', 'show', '--json']);
+      expect(result.status).toBe(0);
+      const document = parseWholeStdout(result) as {
+        resolved: { preambleEvery: number; defaults: { preambleEvery: number } };
+        sources: { preambleEvery: string };
+      };
+      expect(document.resolved).toMatchObject({
+        preambleEvery: 2_147_483_648,
+        defaults: { preambleEvery: 2_147_483_648 },
+      });
+      expect(document.sources).toMatchObject({ preambleEvery: 'global' });
+      expect(fs.readFileSync(sandbox.globalConfig, 'utf8')).toBe(globalBytes);
+      expect(fs.existsSync(sandbox.database)).toBe(false);
+    });
+  });
+
+  it('projects zero values with local precedence while omitting opaque keys', async () => {
+    await withSandbox(async (sandbox) => {
+      fs.mkdirSync(sandbox.globalDir, { recursive: true });
+      const globalValue = {
+        preambleMode: 'disabled',
+        mode: 'retired-global-mode',
+        futureGlobal: { keep: true },
+        defaults: {
+          timeout: 86_400,
+          pollInterval: 0.25,
+          captureLines: 0,
+          preambleEvery: 7,
+          pasteEnterDelayMs: 1.5,
+          maxCaptureLines: 999,
+          futureDefault: 'opaque',
+        },
+      };
+      const localValue = {
+        keep: { value: true },
+        $config: {
+          mode: 'retired-local-mode',
+          preambleMode: 'always',
+          preambleEvery: 0,
+          futureLocal: ['opaque'],
+        },
+      };
+      const globalBytes = JSON.stringify(globalValue);
+      const localBytes = JSON.stringify(localValue);
+      fs.writeFileSync(sandbox.globalConfig, globalBytes);
+      fs.writeFileSync(sandbox.localConfig, localBytes);
+      const before = fileSnapshot(sandbox.root);
+
+      const result = await runCli(sandbox, ['config', 'show', '--json']);
+      expect(result.status).toBe(0);
+      const document = parseWholeStdout(result) as {
+        resolved: Record<string, unknown>;
+        sources: Record<string, unknown>;
+      };
+      expect(document.resolved).toEqual({
+        preambleMode: 'always',
+        preambleEvery: 0,
+        pasteEnterDelayMs: 1.5,
+        defaults: {
+          timeout: 86_400,
+          pollInterval: 0.25,
+          captureLines: 0,
+          preambleEvery: 0,
+          pasteEnterDelayMs: 1.5,
+        },
+        exchange: { retentionDays: 90 },
+        ui: { paneBadge: 'off' },
+      });
+      expect(document.sources).toEqual({
+        preambleMode: 'local',
+        preambleEvery: 'local',
+        pasteEnterDelayMs: 'global',
+        exchange: { retentionDays: 'default' },
+        ui: { paneBadge: 'default' },
+      });
+      expect(fileSnapshot(sandbox.root)).toEqual(before);
+      expect(fs.readFileSync(sandbox.globalConfig, 'utf8')).toBe(globalBytes);
+      expect(fs.readFileSync(sandbox.localConfig, 'utf8')).toBe(localBytes);
+      expect(fs.existsSync(sandbox.database)).toBe(false);
     });
   });
 
@@ -169,6 +341,156 @@ describe('native configuration process boundary', () => {
       expect(fileSnapshot(sandbox.root)).toEqual(before);
     });
   });
+
+  it('rejects invalid global and local setter values without rewriting files', async () => {
+    await withSandbox(async (sandbox) => {
+      fs.mkdirSync(sandbox.globalDir, { recursive: true });
+      fs.writeFileSync(
+        sandbox.globalConfig,
+        JSON.stringify({ defaults: { preambleEvery: 3, pasteEnterDelayMs: 500 } })
+      );
+      fs.writeFileSync(
+        sandbox.localConfig,
+        JSON.stringify({ $config: { preambleEvery: 3, pasteEnterDelayMs: 500 } })
+      );
+      const before = fileSnapshot(sandbox.root);
+      const invalidCases: Array<{
+        key: string;
+        value: string;
+        global?: boolean;
+      }> = [
+        { key: 'preambleEvery', value: '1.5' },
+        { key: 'preambleEvery', value: '12junk' },
+        { key: 'preambleEvery', value: ' 12' },
+        { key: 'preambleEvery', value: '+12' },
+        { key: 'preambleEvery', value: '9007199254740992' },
+        { key: 'preambleEvery', value: '-1' },
+        { key: 'pasteEnterDelayMs', value: '1.5' },
+        { key: 'pasteEnterDelayMs', value: '12junk' },
+        { key: 'pasteEnterDelayMs', value: '12\n' },
+        { key: 'pasteEnterDelayMs', value: ' 12' },
+        { key: 'pasteEnterDelayMs', value: '+12' },
+        { key: 'pasteEnterDelayMs', value: '2147483648' },
+        { key: 'pasteEnterDelayMs', value: '-1' },
+        { key: 'preambleEvery', value: '1.5', global: true },
+        { key: 'preambleEvery', value: '9007199254740992', global: true },
+        { key: 'pasteEnterDelayMs', value: '2147483648', global: true },
+        { key: 'exchange.retentionDays', value: '0', global: true },
+        { key: 'exchange.retentionDays', value: '3651', global: true },
+        { key: 'futureKey', value: '1' },
+        { key: 'futureKey', value: '1', global: true },
+      ];
+
+      for (const invalid of invalidCases) {
+        const args = ['config', 'set', invalid.key, invalid.value];
+        if (invalid.global) args.push('--global');
+        args.push('--json');
+        const result = await runCli(sandbox, args);
+        expect(result.status, `${invalid.key}=${invalid.value}`).toBe(1);
+        expectError(result, 'ERROR');
+        expect(fileSnapshot(sandbox.root), `${invalid.key}=${invalid.value}`).toEqual(before);
+      }
+      expect(fs.existsSync(sandbox.database)).toBe(false);
+    });
+  }, 30_000);
+
+  it('repairs only targeted settings while preserving opaque siblings and zero values', async () => {
+    await withSandbox(async (sandbox) => {
+      fs.mkdirSync(sandbox.globalDir, { recursive: true });
+      fs.writeFileSync(
+        sandbox.globalConfig,
+        JSON.stringify({ defaults: { timeout: 240, futureDefault: { keep: true } } })
+      );
+      fs.writeFileSync(
+        sandbox.localConfig,
+        JSON.stringify({
+          keep: 'opaque',
+          $config: { preambleEvery: 'invalid', pasteEnterDelayMs: 500 },
+        })
+      );
+
+      const repaired = await runCli(sandbox, ['config', 'set', 'preambleEvery', '4', '--json']);
+      expect(repaired.status).toBe(0);
+      expect(parseWholeStdout(repaired)).toEqual({ ok: true });
+      expect(JSON.parse(fs.readFileSync(sandbox.localConfig, 'utf8'))).toEqual({
+        keep: 'opaque',
+        $config: { preambleEvery: 4, pasteEnterDelayMs: 500 },
+      });
+
+      const globalSet = await runCli(sandbox, [
+        'config',
+        'set',
+        'preambleEvery',
+        '0',
+        '--global',
+        '--json',
+      ]);
+      expect(globalSet.status).toBe(0);
+      expect(parseWholeStdout(globalSet)).toEqual({ ok: true });
+      expect(JSON.parse(fs.readFileSync(sandbox.globalConfig, 'utf8'))).toEqual({
+        defaults: {
+          timeout: 240,
+          preambleEvery: 0,
+          futureDefault: { keep: true },
+        },
+      });
+
+      const zeroPaste = await runCli(sandbox, [
+        'config',
+        'set',
+        'pasteEnterDelayMs',
+        '0',
+        '--json',
+      ]);
+      expect(zeroPaste.status).toBe(0);
+      expect(parseWholeStdout(zeroPaste)).toEqual({ ok: true });
+      expect(JSON.parse(fs.readFileSync(sandbox.localConfig, 'utf8'))).toEqual({
+        keep: 'opaque',
+        $config: { preambleEvery: 4, pasteEnterDelayMs: 0 },
+      });
+      fs.writeFileSync(
+        sandbox.localConfig,
+        JSON.stringify({
+          keep: 'opaque',
+          $config: { preambleEvery: 'invalid', pasteEnterDelayMs: 0 },
+        })
+      );
+      const cleared = await runCli(sandbox, ['config', 'clear', 'preambleEvery', '--json']);
+      expect(cleared.status).toBe(0);
+      expect(parseWholeStdout(cleared)).toEqual({ ok: true });
+      expect(JSON.parse(fs.readFileSync(sandbox.localConfig, 'utf8'))).toEqual({
+        keep: 'opaque',
+        $config: { pasteEnterDelayMs: 0 },
+      });
+
+      const shown = await runCli(sandbox, ['config', 'show', '--json']);
+      expect(shown.status).toBe(0);
+      const document = parseWholeStdout(shown) as {
+        resolved: Record<string, unknown>;
+        sources: Record<string, unknown>;
+      };
+      expect(document.resolved).toMatchObject({
+        preambleEvery: 0,
+        pasteEnterDelayMs: 0,
+        defaults: { timeout: 240, preambleEvery: 0, pasteEnterDelayMs: 0 },
+      });
+      expect(document.sources).toMatchObject({
+        preambleEvery: 'global',
+        pasteEnterDelayMs: 'local',
+      });
+
+      const invalidRemainder = JSON.stringify({
+        keep: 'opaque',
+        $config: { preambleEvery: 'invalid', pasteEnterDelayMs: 'invalid' },
+      });
+      fs.writeFileSync(sandbox.localConfig, invalidRemainder);
+      const rejected = await runCli(sandbox, ['config', 'clear', 'preambleEvery', '--json']);
+      expect(rejected.status).toBe(1);
+      expectError(rejected, 'CONFIG_ERROR');
+      expect(fs.readFileSync(sandbox.localConfig, 'utf8')).toBe(invalidRemainder);
+      expect(fs.existsSync(sandbox.database)).toBe(false);
+    });
+  }, 30_000);
 
   it('distinguishes absent-container clear, clear-all and obsolete-key repair', async () => {
     await withSandbox(async (sandbox) => {

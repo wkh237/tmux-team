@@ -245,7 +245,7 @@ describe.sequential('crash-safe identity publication', () => {
 
   it('rolls back a killed post-metadata publication while retaining profile state for rebind', async () => {
     await withE2EFixture(async (fixture) => {
-      expect((await fixture.runJsonCli(['name', 'Preserved'])).code).toBe(0);
+      expect((await fixture.runJsonCli(['name', 'Preserved', '-s'])).code).toBe(0);
       const profile = await fixture.runJsonCli(['role', 'set', 'Keep this profile']);
       expect(profile.code).toBe(0);
       expect((await fixture.runJsonCli(['unbind'])).code).toBe(0);
@@ -270,9 +270,17 @@ describe.sequential('crash-safe identity publication', () => {
       expect(json(whoami)).toEqual({ bound: false, pane: fixture.pane });
       const listAfterKill = await fixture.runJsonCli<IdentityList>(['list']);
       expect(listAfterKill.code).toBe(0);
-      expect(json(listAfterKill).identities).not.toEqual(
-        expect.arrayContaining([expect.objectContaining({ name: 'Preserved' })])
-      );
+      expect(json(listAfterKill).identities).toEqual([
+        {
+          id: identityBefore.id,
+          name: 'Preserved',
+          canonicalName: 'preserved',
+          lifetime: 'saved',
+          presence: 'offline',
+          pane: null,
+          command: '',
+        },
+      ]);
       expect(durableCounts(fixture)).toMatchObject({ identities: 1, bindings: 0, profiles: 1 });
       expect(durableIdentity(fixture, 'preserved')).toEqual(identityBefore);
       expect(durableProfile(fixture, identityBefore.id)).toEqual(profileBefore);

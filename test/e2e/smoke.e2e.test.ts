@@ -18,11 +18,11 @@ describe.sequential('Docker/Vitest tmux foundation smoke scenarios', () => {
 
       const help = await fixture.runCli(['--help']);
       expect(help.code).toBe(0);
-      expect(help.stdout.toLowerCase()).toContain('tmux-team');
+      expect(help.stdout).toContain('TMT native alpha');
 
       const invalid = await fixture.runCli(['definitely-not-a-command']);
       expect(invalid.code).not.toBe(0);
-      expect(invalid.stderr.toLowerCase()).toContain('unknown command');
+      expect(invalid.stderr.toLowerCase()).toContain('unrecognized subcommand');
     });
   });
 

@@ -205,13 +205,18 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 },
             }
         }
-        ["check"] => Invocation::Check {
-            target: required(m, "target"),
-            lines: text(m, "capture-lines")
-                .or_else(|| text(m, "lines"))
+        ["check"] => {
+            let positional = text(m, "capture-lines")
                 .map(|value| integer(&value, "lines", 0, MAX_CAPTURE_LINES))
-                .transpose()?,
-        },
+                .transpose()?;
+            let flagged = text(m, "lines")
+                .map(|value| integer(&value, "lines", 0, MAX_CAPTURE_LINES))
+                .transpose()?;
+            Invocation::Check {
+                target: required(m, "target"),
+                lines: positional.or(flagged),
+            }
+        }
         ["config"] | ["config", "show"] => Invocation::Config(ConfigRequest::Show),
         ["config", "set"] => Invocation::Config(ConfigRequest::Set {
             key: required(m, "key"),

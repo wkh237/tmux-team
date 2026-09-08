@@ -1,20 +1,13 @@
-# Rust rewrite preparation
+# Rust rewrite and closeout
 
-Status: native grammar (#96), storage lifecycle (#97) with native identity schema 9 (#108), configuration (#103)
-and bounded tmux evidence (#105), shared identity records (#111), and
-storage-only identity commands (#113), and pane identity lifecycle (#109)
-are implemented in the development preview, not a shipped Rust runtime.
-#118 adds the internal transactional request/final foundation; #120 adds compact
-receipt encoding and old-v1 decoding through that same service. #122 adds public
-native reply/result with bounded input. #129 adds native talk; the full #106
-installed short-receipt instruction transition remains pending.
-#124 adds the bounded native send/capture adapter and isolated real-tmux
-acceptance. #125 adds shared current-server target resolution and public
-diagnostic check/read. #127 adds native role/preamble and shared bounded profile
-text/file acquisition. #129 adds public talk composition and bounded observation.
-#131 adds identity-scoped X attention; #133 adds exclusive local initialization,
-embedded guidance and managed provider/custom skill installation. Native network
-installation/self-update and runtime cutover remain separate delivery gates.
+Status: native `v5.0.0-alpha.2` is published with verified installation and
+self-update assets (#149). Rust owns the advertised runtime. Paired performance
+acceptance (#151) and retained test-harness separation (#152) are delivered.
+#153 moves the maintained Docker scenarios to native by default and records
+the source-retirement evidence below. Transitional TypeScript source, npm
+entrypoints and their artifact gates still require explicit retirement; they
+are not the native installer. Earlier slice descriptions retain implementation
+provenance, not a claim that the shipped native features remain previews.
 Owner: [#93](https://github.com/wkh237/tmux-team/issues/93);
 preparation: [#94](https://github.com/wkh237/tmux-team/issues/94).
 The compatibility reference is TypeScript main `cb53533f3a9f19a1a2ab95af59dda20df419200b`
@@ -38,7 +31,7 @@ start a daemon, implement MCP, publish artifacts, or restore v4 compatibility.
 Keep `this`, exact durable replies, `!` shell-mode protection, and default-off,
 non-invasive pane badges. Native installation and self-update belong to
 [#82](https://github.com/wkh237/tmux-team/issues/82), including its explicitly
-proposed `update` alias; that future alias is not current v5 behavior.
+approved `update` alias, implemented in the published native runtime.
 
 ## Decision: one reusable policy core, explicit adapters
 
@@ -63,7 +56,7 @@ coordination without a new boundary. A single package would be simpler initially
 but leaves IO-to-domain import restrictions solely to review. The proposed split
 is by responsibility, not a mechanical copy of every TypeScript file.
 
-### Implemented native preview
+### Implemented native runtime
 
 The `rust/` workspace contains `tmt-core` (numeric and settings policy),
 `tmt-cli` (grammar, typed invocation translation and output), and `tmt-adapters`
@@ -71,7 +64,7 @@ The `rust/` workspace contains `tmt-core` (numeric and settings policy),
 tmux evidence under #105). The npm entry points still execute TypeScript. No command silently
 delegates from native to Node.
 
-The preview implements help, version, Bash/Zsh completion and the existing
+The native runtime implements help, version, Bash/Zsh completion and the existing
 `config` command plus storage-only `identity create/show/list` (#113) and pane
 identity `name`/`this`/`add`/`whoami`/`unbind`/`rm`/`list` (#109), plus storage-only
 `reply`/`result` (#122), diagnostic `check`/`read` (#125), role/preamble (#127), and
@@ -79,7 +72,7 @@ durable `talk` (#129), identity-scoped `x list/show/ack/ackall` (#131), and
 `init`/`learn`/`install` (#133), and managed native `upgrade`/`update` (#142).
 Updates validate the executing installation before network and reuse the offline
 publisher; unmanaged package-manager executables are rejected without writes.
-Public release availability remains a separate gate. Text-only commands reject JSON. Native
+Public release availability was verified under #149. Text-only commands reject JSON. Native
 `name`/`this`/`add` create temporary bindings unless `-s`/`--save` promotes or
 creates a saved identity. `rm`/`remove` require explicit force for saved rows.
 
@@ -91,7 +84,7 @@ saved identities continue to reserve their names. Visibility does not silently
 expand current-server routing or justify unbounded per-identity tmux queries.
 The exact JSON and failure precedence are recorded in #109, with real SQLite
 service tests and public CLI/private-tmux lifecycle tests. These are native
-preview changes, not installed TypeScript behavior or a second identity registry.
+runtime changes, not transitional TypeScript behavior or a second identity registry.
 
 #103 makes settings an invocation-owned shared boundary rather than a rule set
 inside each CLI handler. Core owns typed defaults, scalar bounds, setting scope
@@ -237,7 +230,8 @@ final without attempt metadata. No current identity lookup authorizes a reply.
 Real SQLite tests cover retirement/name reuse and late submission, but this is
 not old receipt execution or public CLI transport acceptance. #106 consumes this
 same owner for compact correlation; it must not add a token-specific final store.
-Native command adapters and transport remain explicit follow-on slices under #93.
+At the #118 boundary, command adapters and transport were follow-on slices;
+#122/#124/#125/#129 have since delivered them. Source retirement remains under #93.
 
 #120 adds one typed proof to the existing submission input, not a second final
 API. Compact receipts are derived from the full immutable recorded association
@@ -376,7 +370,12 @@ Bundled rusqlite 0.40.2 is documented as compiling its own SQLite; platform
 artifact verification still has to establish the actual features and linkage.
 [Published rusqlite documentation](https://docs.rs/crate/rusqlite/0.40.2).
 
-## Compatibility matrix
+## Historical TypeScript compatibility baseline
+
+This is the rewrite's original reference contract, not current native command
+documentation. The approved temporary/save/remove/global-list amendments above
+and published native update/receipt behavior supersede its durable-only and
+retired-command assumptions. The current native evidence is recorded below.
 
 Examples below are essential fields, not complete JSON schemas. Dynamic UUIDs,
 timestamps and pane IDs are correlated, not hard-coded. Unmentioned existing
@@ -430,13 +429,54 @@ switch. Production TypeScript removal and replacement of transitional npm artifa
 gates still follow that evidence. Earlier delivery-gate notes below describe their
 original sequencing, not a claim that the published native installer is unfinished.
 
+### Native default acceptance (#153)
+
+The shared Docker suite now exercises the built native CLI and its inherited
+reply peer. It keeps the existing harness, private tmux servers, independent SQL,
+mock event logs and cleanup assertions; it is not a copied second scenario suite.
+Human formatting differences do not relax exact final bytes or identity provenance.
+
+| Boundary                              | Native evidence and accepted input/output difference                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pane identity lifecycle               | `identity-lifecycle`, `caller-context`, `grouped-session`, `multi-server`, `publication-race` E2E: plain `name`/`add` is temporary; `-s` preserves identity across unbind/death. JSON includes UUID/lifetime and unbind retirement. Global `list` includes saved offline and verified foreign rows; `talk`/`check` routing stays current-server-only. |
+| Caller preflight                      | `test/native/identity-context.test.ts`: role and X without an explicit identity or recoverable caller fail `IDENTITY_REQUIRED` before database creation/migration. Both commands reuse one selector owner; explicit offline access does not probe tmux.                                                                                               |
+| Capture bounds and endpoint death     | `capture-limits` and `multi-server` E2E plus parser/adapter tests: validate both supplied line operands before applying precedence. A malformed fresh-server marker is not death by itself; only conclusive recorded-PID death releases the old endpoint. Live/unknown PID evidence stays fail-closed.                                                |
+| Request transport and exact finals    | Shared `request-context`, `exchange-retention`, `response-integrity`, `durable-talk`, `transport-safety` and native-talk E2E retain original prompts, UUID attribution, late finals, virtualized terminal output, summary ordering, no replay and waiter cleanup. Completion comes from SQLite, not terminal boundaries.                              |
+| Receipt authorization and expiry      | `test/native/response.test.ts` independently encodes all request/attempt/six endpoint mismatches for v1 and v2, compares unchanged SQL, verifies a valid control and prevents expired retained-body resurrection. V2 is a fixed 25-character local proof, not a remote credential.                                                                    |
+| CLI/settings/profile process boundary | `test/native/cli.test.ts`, `config.test.ts`, `profile.test.ts`: ignored/invalid option placement and text-only JSON rejection before effects; exact default/zero/precedence projections, targeted repair and preserved opaque keys; large multibyte role output and future-history rejection.                                                         |
+| X human and machine output            | `test/native/exchange.test.ts` and shared attention E2E: acknowledgment is distinct from final completion, late finals reopen attention, human output preserves exact response bytes, and ackall advances only the observed revision.                                                                                                                 |
+| Migration/test infrastructure         | `test/native/storage.test.ts` and `storage-fixture.test.ts`: frozen historical prefixes and independent schema/data oracles, rollback, history rejection and contention. Test-only helpers stay outside `src/`; no current native migration generates its own expected results.                                                                       |
+
+This matrix is not permission to delete every TS unit test. The worker audit
+maps cadence reservation to
+`concurrent_prepare_connections_serialize_cadence_and_preserve_both_attempts`,
+final writers to `identical_and_conflicting_final_writers_keep_one_body_marker_and_revision`,
+and cleanup/late submission to `cleanup_and_late_submission_serialize_without_refund_or_lost_final`
+in the existing Rust request service concurrency suite. Attention races and
+rollback reuse that suite plus the service's `attention.rs` tests; waiter release
+uses `waiter_release_is_idempotent_isolated_and_does_not_cancel_delivery`.
+
+[#156](https://github.com/wkh237/tmux-team/issues/156) blocks deletion of the
+remaining unmatched protections: concurrent binding, process-death transaction
+rollback, final/failure and equal-expiry races, human talk output, and interactive
+passive reminder output. Existing drift/eligibility unit tests are not a terminal
+process assertion; a returned-error rollback is not a SIGKILL assertion. These
+are explicit follow-on acceptance gates, not claims of complete rewrite parity.
+Developer artifact/selector guards also remain until relocated during source retirement.
+Node wrapper/npm-upgrade implementation details are not native runtime features;
+their retirement must be explicit rather than silently counted as covered.
+Native startup performs local skill inspection only, not npm release discovery;
+managed upgrades remain explicit commands.
+
 Keep Vitest, Docker, private tmux sockets and deterministic mock agents.
 [#95](https://github.com/wkh237/tmux-team/issues/95) adds the shared test-only
 executable descriptor (absolute binary plus argv prefix), validated before fixture
 allocation and used by CLI contracts, E2E, mock replies, real descendants and the
 resource probe. Missing/non-executable selection fails without TS fallback.
-Default remains TS until explicit cutover; an explicit peer descriptor supports
-future mixed-runtime cases. See [selector usage](DEVELOPMENT.md#selecting-the-cli-under-test).
+Docker defaults to its built native CLI under #153, including inherited mock
+replies. Host TS unit tests retain their reference default until source retirement.
+An explicit peer descriptor is a test seam, not mixed-schema compatibility.
+See [selector usage](DEVELOPMENT.md#selecting-the-cli-under-test).
 The seam itself proves neither native behavior nor mixed-runtime compatibility.
 
 Keep SQL oracles independent and read-only. Existing TS unit tests importing
@@ -545,6 +585,7 @@ integrations with partial-effect reporting. #142 wires it to native upgrade/upda
 with bounded canonical HTTPS discovery and compare-before-activation fencing.
 #144 adds a release-generated curl bootstrap over that same offline installer,
 with manifest-derived sizes/digests and fresh npm replacement guidance. Actual
-matching-host archives are tested without Node/Rust on runtime PATH. Public
-immutable publication, remaining target execution and installed-runtime cutover
-remain #82/#93 gates; a local generated installer is not a live download.
+matching-host archives are tested without Node/Rust on runtime PATH. #149
+completed immutable alpha2 publication, all supported target execution and live
+download verification. Source/npm-gate retirement remains under #93; a local
+generated installer alone is still not live-download evidence for a future release.

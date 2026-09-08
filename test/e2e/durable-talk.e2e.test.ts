@@ -347,7 +347,7 @@ describe.sequential('TMT-39 durable talk contract', () => {
         const failure = await fixture.waitForEvent(
           (event) => event.event === 'failure' && event.stage === 'reply'
         );
-        expect(failure.error).toMatchObject({ code: 'RESPONSE_RECEIPT_MISMATCH' });
+        expect(failure.error).toMatchObject({ code: 'RESPONSE_REQUEST_NOT_FOUND' });
         const result = await process.result;
         expect(result.code).toBe(4);
         expect(fixture.events().some((event) => event.event === 'summary')).toBe(false);

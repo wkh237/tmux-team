@@ -2,6 +2,14 @@ import crypto from 'node:crypto';
 import Database from 'better-sqlite3';
 
 export const MAX_RESPONSE_BYTES = 1_048_576;
+export interface ResponseEndpoint {
+  serverId: string;
+  socketPath: string;
+  serverPid: number;
+  serverStartTime: string;
+  paneId: string;
+  panePid: number;
+}
 export const RESPONSE_SERVER = {
   serverId: 'native-response-server',
   socketPath: '/tmp/native-response.sock',
@@ -38,7 +46,7 @@ function appendString(parts: Buffer[], value: string): void {
 export function compactReceipt(
   requestId: string,
   attemptId: string,
-  endpoint: typeof RESPONSE_SERVER = RESPONSE_SERVER
+  endpoint: ResponseEndpoint = RESPONSE_SERVER
 ): string {
   const parts = [Buffer.from('tmux-team/reply-receipt/v2\0', 'utf8')];
   appendString(parts, requestId);
@@ -60,7 +68,7 @@ export function compactReceipt(
 export function v1Receipt(
   requestId: string,
   attemptId: string,
-  endpoint: typeof RESPONSE_SERVER = RESPONSE_SERVER
+  endpoint: ResponseEndpoint = RESPONSE_SERVER
 ): string {
   return Buffer.from(
     JSON.stringify({

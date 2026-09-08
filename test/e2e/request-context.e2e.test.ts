@@ -40,7 +40,7 @@ describe.sequential('TMT-55 request context and provenance', () => {
     await withE2EFixture(
       async (fixture) => {
         const peer = await fixture.createMockPane('peer');
-        expect((await fixture.runJsonCli(['name', 'Caller'])).code).toBe(0);
+        expect((await fixture.runJsonCli(['name', 'Caller', '-s'])).code).toBe(0);
         expect((await fixture.runJsonCli(['add', peer.pane, 'Peer'])).code).toBe(0);
         const callerId = await identityId(fixture, 'Caller');
         const peerId = await identityId(fixture, 'Peer');
@@ -169,7 +169,7 @@ describe.sequential('TMT-55 request context and provenance', () => {
 
         const previousRows = requestAttempts(fixture);
         expect((await fixture.runJsonCli(['unbind'])).code).toBe(0);
-        expect((await fixture.runJsonCli(['name', 'Caller'])).code).toBe(0);
+        expect((await fixture.runJsonCli(['name', 'Caller', '-s'])).code).toBe(0);
         expect(await identityId(fixture, 'Caller')).toBe(callerId);
         const rebound = await fixture.runJsonCli<TalkOutput>([
           'talk',
@@ -212,7 +212,7 @@ describe.sequential('TMT-55 request context and provenance', () => {
     await withE2EFixture(async (fixture) => {
       const peer = await fixture.createMockPane('peer');
       const anonymous = await fixture.createMockPane('anonymous');
-      expect((await fixture.runJsonCli(['name', 'Caller'])).code).toBe(0);
+      expect((await fixture.runJsonCli(['name', 'Caller', '-s'])).code).toBe(0);
       expect((await fixture.runJsonCli(['add', peer.pane, 'Peer'])).code).toBe(0);
       const callerId = await identityId(fixture, 'Caller');
       const peerId = await identityId(fixture, 'Peer');

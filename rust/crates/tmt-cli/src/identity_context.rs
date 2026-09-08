@@ -22,14 +22,26 @@ pub fn missing(name: &str) -> Failure {
     )
 }
 
-pub fn resolve(storage: &mut Storage, explicit: Option<&str>) -> Result<Identity, Failure> {
-    optional(storage, &Tmux::default(), explicit)?.ok_or_else(|| {
-        Failure::new(
-            "IDENTITY_REQUIRED",
-            "An identity is required; use --identity or run from a verified bound pane.",
-            1,
-        )
-    })
+pub enum Selector {
+    Explicit(String),
+    Pane(String),
+}
+
+fn required_failure() -> Failure {
+    Failure::new(
+        "IDENTITY_REQUIRED",
+        "An identity is required; use --identity or run from a verified bound pane.",
+        1,
+    )
+}
+
+/// Reject an unavailable implicit caller before opening or migrating storage.
+pub fn required(explicit: Option<&str>) -> Result<Selector, Failure> {
+    select(&Tmux::default(), explicit)?.ok_or_else(required_failure)
+}
+
+pub fn resolve(storage: &mut Storage, selector: Selector) -> Result<Identity, Failure> {
+    selected(storage, &Tmux::default(), selector)?.ok_or_else(required_failure)
 }
 
 pub fn optional(
@@ -37,25 +49,39 @@ pub fn optional(
     tmux: &Tmux,
     explicit: Option<&str>,
 ) -> Result<Option<Identity>, Failure> {
+    match select(tmux, explicit)? {
+        Some(selector) => selected(storage, tmux, selector),
+        None => Ok(None),
+    }
+}
+
+fn select(tmux: &Tmux, explicit: Option<&str>) -> Result<Option<Selector>, Failure> {
     if let Some(name) = explicit {
-        return storage
-            .find_identity(&normalize_name(name))
+        return Ok(Some(Selector::Explicit(name.to_owned())));
+    }
+    tmux.caller_pane(&CallerEnvironment::current())
+        .map(|pane| pane.map(Selector::Pane))
+        .map_err(endpoint_failure)
+}
+
+fn selected(
+    storage: &mut Storage,
+    tmux: &Tmux,
+    selector: Selector,
+) -> Result<Option<Identity>, Failure> {
+    match selector {
+        Selector::Explicit(name) => storage
+            .find_identity(&normalize_name(&name))
             .map_err(|error| {
                 Failure::new("IDENTITY_ERROR", "Could not read identity storage.", 1)
                     .caused_by(error)
             })?
-            .ok_or_else(|| missing(name))
-            .map(Some);
-    }
-    let pane = tmux
-        .caller_pane(&CallerEnvironment::current())
-        .map_err(endpoint_failure)?;
-    if let Some(pane) = pane {
-        let observed = binding::pane_presence(storage, &mut BindingSession::new(tmux), &pane)
-            .map_err(binding_failure)?;
-        if let Some(identity) = observed.identity {
-            return Ok(Some(identity));
+            .ok_or_else(|| missing(&name))
+            .map(Some),
+        Selector::Pane(pane) => {
+            let observed = binding::pane_presence(storage, &mut BindingSession::new(tmux), &pane)
+                .map_err(binding_failure)?;
+            Ok(observed.identity)
         }
     }
-    Ok(None)
 }

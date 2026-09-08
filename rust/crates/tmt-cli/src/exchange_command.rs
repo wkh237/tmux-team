@@ -54,17 +54,17 @@ fn request_failure(error: RequestError<StorageError>) -> Failure {
 }
 
 fn run(identity: Option<String>, operation: ExchangeOperation) -> Result<Report, Failure> {
+    let selector = identity_context::required(identity.as_deref())?;
     let paths = ConfigPaths::discover().map_err(unavailable)?;
     let mut storage = Storage::open(paths.database).map_err(unavailable)?;
     let pending = (|| {
-        let identity =
-            identity_context::resolve(&mut storage, identity.as_deref()).map_err(|error| {
-                if error.code == "IDENTITY_ERROR" {
-                    unavailable(error)
-                } else {
-                    error
-                }
-            })?;
+        let identity = identity_context::resolve(&mut storage, selector).map_err(|error| {
+            if error.code == "IDENTITY_ERROR" {
+                unavailable(error)
+            } else {
+                error
+            }
+        })?;
         let mut service = RequestService::new(&mut storage, wall_time_ms);
         let result = match operation {
             ExchangeOperation::List { limit, after } => service

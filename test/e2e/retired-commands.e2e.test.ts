@@ -5,33 +5,38 @@ import { describe, expect, it } from 'vitest';
 import { withE2EFixture, type E2EFixture } from './harness.js';
 
 const RETIRED_COMMANDS = [
-  ['update', 'SharedIdentity', '--pane', '%999', '--remark', 'must not update'],
-  ['remove', 'SharedIdentity'],
-  ['rm', 'SharedIdentity'],
   ['migrate'],
   ['migrate', '--dry-run'],
   ['migrate', '--cleanup'],
   ['migrate', '--dry-run', '--cleanup'],
 ] as const;
 
+const LEGACY_UPDATE_ARGUMENTS = [
+  ['update', 'SharedIdentity', '--pane', '%999', '--remark', 'must not update'],
+] as const;
+
 const HELP_NEIGHBORS = [
-  'talk',
-  'check',
+  'help',
+  'init',
   'list',
   'add',
   'name',
-  'this',
+  'rm',
+  'talk',
+  'check',
   'whoami',
   'unbind',
-  'install',
-  'upgrade',
-  'init',
-  'completion',
   'config',
   'preamble',
+  'x',
+  'identity',
   'role',
+  'reply',
+  'result',
+  'install',
+  'completion',
+  'upgrade',
   'learn',
-  'help',
 ] as const;
 
 interface DurableSnapshot {
@@ -66,14 +71,34 @@ function durableSnapshot(fixture: E2EFixture): DurableSnapshot {
 function expectUnknownCommandHuman(result: { code: number; stdout: string; stderr: string }): void {
   expect(result.code).toBe(1);
   expect(result.stdout).toBe('');
-  expect(result.stderr).toMatch(/unknown command/i);
+  expect(result.stderr).toMatch(/(?:unknown command|unrecognized subcommand)/i);
 }
 
 function expectUnknownCommandJson(result: { code: number; stdout: string; stderr: string }): void {
   expect(result.code).toBe(1);
   expect(result.stderr).toBe('');
   expect(JSON.parse(result.stdout)).toEqual({
-    error: { code: 'USAGE_ERROR', message: expect.stringMatching(/unknown command/i) },
+    error: {
+      code: 'USAGE_ERROR',
+      message: expect.stringMatching(/(?:unknown command|unrecognized subcommand)/i),
+    },
+  });
+}
+
+function expectLegacyArgumentHuman(result: { code: number; stdout: string; stderr: string }): void {
+  expect(result.code).toBe(1);
+  expect(result.stdout).toBe('');
+  expect(result.stderr).toMatch(/(?:unexpected argument|unknown option)/i);
+}
+
+function expectLegacyArgumentJson(result: { code: number; stdout: string; stderr: string }): void {
+  expect(result.code).toBe(1);
+  expect(result.stderr).toBe('');
+  expect(JSON.parse(result.stdout)).toEqual({
+    error: {
+      code: 'USAGE_ERROR',
+      message: expect.stringMatching(/(?:unexpected argument|unknown option)/i),
+    },
   });
 }
 
@@ -82,26 +107,47 @@ function expectRetiredNamesAndFlagsAbsent(output: string, shell?: 'bash' | 'zsh'
     expect(output).not.toContain(flag);
   }
   if (!shell) {
-    expect(output).not.toMatch(/^\s+(?:update|remove|rm|migrate)\b/m);
+    expect(output).not.toMatch(/^\s+migrate\b/m);
     return;
   }
   if (shell === 'zsh') {
-    expect(output).not.toMatch(/'(?:update|remove|rm|migrate):/);
-    expect(output).not.toMatch(/(?:update|remove|rm|migrate)\)/);
+    expect(output).not.toMatch(/'migrate:/);
+    expect(output).not.toMatch(/migrate\)/);
     return;
   }
-  expect(output).not.toMatch(/commands="[^"]*\b(?:update|remove|rm|migrate)\b/);
-  expect(output).not.toMatch(/(?:update|remove|rm|migrate)\|/);
+  expect(output).not.toMatch(/^\s+opts="[^"]*\bmigrate\b/m);
+  expect(output).not.toMatch(/migrate\|/);
+}
+
+const HELP_ALIASES = [
+  ['list', 'ls'],
+  ['name', 'this'],
+  ['rm', 'remove'],
+  ['talk', 'send'],
+  ['check', 'read'],
+  ['upgrade', 'update'],
+] as const;
+
+function expectHelpAliasesPresent(output: string): void {
+  for (const [command, alias] of HELP_ALIASES) {
+    expect(output).toMatch(new RegExp(`^\\s+${command}\\b[^\\n]*\\[alias: ${alias}\\]`, 'm'));
+  }
 }
 
 function expectNeighborsPresent(output: string, shell?: 'bash' | 'zsh'): void {
-  for (const neighbor of HELP_NEIGHBORS) {
+  const names = [...HELP_NEIGHBORS, ...(shell ? HELP_ALIASES.map(([, alias]) => alias) : [])];
+  const bashCommands =
+    shell === 'bash'
+      ? output.match(/^\s+tmt\)\n\s+opts="([^"\n]+)"/m)?.[1].split(/\s+/)
+      : undefined;
+  if (shell === 'bash') expect(bashCommands).toBeDefined();
+  for (const neighbor of names) {
     if (!shell) {
       expect(output).toMatch(new RegExp(`^\\s+${neighbor}\\b`, 'm'));
     } else if (shell === 'zsh') {
       expect(output).toContain(`'${neighbor}:`);
     } else {
-      expect(output).toMatch(new RegExp(`commands="[^\\"]*\\b${neighbor}\\b`));
+      expect(bashCommands).toContain(neighbor);
     }
   }
 }
@@ -114,6 +160,10 @@ describe.sequential('retired legacy registry commands', () => {
       for (const args of RETIRED_COMMANDS) {
         const human = await fixture.runCli([...args], { withoutTmux: true });
         expectUnknownCommandHuman(human);
+      }
+      for (const args of LEGACY_UPDATE_ARGUMENTS) {
+        const human = await fixture.runCli([...args], { withoutTmux: true });
+        expectLegacyArgumentHuman(human);
       }
 
       expect(fs.existsSync(databasePath(fixture))).toBe(false);
@@ -166,6 +216,12 @@ describe.sequential('retired legacy registry commands', () => {
         const json = await fixture.runJsonCli([...args]);
         expectUnknownCommandJson(json);
       }
+      for (const args of LEGACY_UPDATE_ARGUMENTS) {
+        const human = await fixture.runCli([...args]);
+        expectLegacyArgumentHuman(human);
+        const json = await fixture.runJsonCli([...args]);
+        expectLegacyArgumentJson(json);
+      }
 
       expect(fs.readFileSync(legacyPath, 'utf8')).toBe(legacyBytes);
       expect(fixture.paneMetadata(fixture.pane)).toBe(metadataBefore.get(fixture.pane));
@@ -214,6 +270,7 @@ describe.sequential('retired legacy registry commands', () => {
       const help = await fixture.runCli(['help'], { withoutTmux: true });
       expect(help.code).toBe(0);
       expectNeighborsPresent(help.stdout);
+      expectHelpAliasesPresent(help.stdout);
       expectRetiredNamesAndFlagsAbsent(help.stdout);
 
       for (const shell of ['bash', 'zsh']) {

@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import Database from 'better-sqlite3';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { initializeHistoricalDatabase } from './storage-fixture.js';
@@ -14,15 +15,143 @@ import {
 } from '../support/cli-process.js';
 import {
   MAX_RESPONSE_BYTES,
+  RESPONSE_SERVER,
+  compactReceipt,
   responseSnapshot,
   removeAttempt,
   seedResponse,
   schemaVersion,
   v1Receipt,
   type SeededResponse,
+  type ResponseEndpoint,
 } from './response-fixture.js';
 
 if (!process.env.TMT_TEST_CLI) throw new Error('Select the native build with TMT_TEST_CLI.');
+
+describe('native response authorization and retention boundaries', () => {
+  it.each(['v1', 'v2'] as const)(
+    'rejects every %s request/attempt/endpoint mismatch without mutation',
+    async (version) => {
+      await withSandbox(async (sandbox) => {
+        await initializeSchema(sandbox);
+        const seeded = seedResponse(sandbox.database, 'all-fences');
+        const before = responseSnapshot(sandbox.database, seeded.requestId);
+        const encode = version === 'v1' ? v1Receipt : compactReceipt;
+        const cases: Array<{
+          field: string;
+          request?: string;
+          attempt?: string;
+          endpoint?: Partial<ResponseEndpoint>;
+          v1Error: string;
+        }> = [
+          { field: 'request', request: 'other-request', v1Error: 'RESPONSE_RECEIPT_MISMATCH' },
+          { field: 'attempt', attempt: 'other-attempt', v1Error: 'RESPONSE_ATTEMPT_MISMATCH' },
+          ...Object.entries({
+            serverId: 'other-server',
+            socketPath: '/tmp/other.sock',
+            serverPid: 1235,
+            serverStartTime: 'other-start',
+            paneId: '%2',
+            panePid: 5679,
+          }).map(([field, value]) => ({
+            field,
+            endpoint: { [field]: value },
+            v1Error: 'RESPONSE_RECIPIENT_MISMATCH',
+          })),
+        ];
+        for (const candidate of cases) {
+          const receipt = encode(
+            candidate.request ?? seeded.requestId,
+            candidate.attempt ?? seeded.attemptId,
+            { ...RESPONSE_SERVER, ...candidate.endpoint }
+          );
+          const result = await runCli(sandbox, [
+            'reply',
+            seeded.requestId,
+            '--receipt',
+            receipt,
+            '--message',
+            'must not commit',
+            '--json',
+          ]);
+          expect(result.status, candidate.field).toBe(1);
+          expectError(result, version === 'v1' ? candidate.v1Error : 'RESPONSE_RECEIPT_MISMATCH');
+          expect(responseSnapshot(sandbox.database, seeded.requestId), candidate.field).toEqual(
+            before
+          );
+        }
+        const accepted = await runCli(sandbox, [
+          'reply',
+          seeded.requestId,
+          '--receipt',
+          encode(seeded.requestId, seeded.attemptId),
+          '--message',
+          'authorized',
+          '--json',
+        ]);
+        expect(accepted.status).toBe(0);
+        expect(responseSnapshot(sandbox.database, seeded.requestId).response).toMatchObject({
+          body: 'authorized',
+          body_bytes: 10,
+        });
+      });
+    }
+  );
+
+  it('prunes an expired retained body while keeping the acceptance marker against resurrection', async () => {
+    await withSandbox(async (sandbox) => {
+      await initializeSchema(sandbox);
+      const prepared = Date.now() - 2 * 86_400_000;
+      const seeded = seedResponse(sandbox.database, 'expired-retained-body', { nowMs: prepared });
+      const submitted = await runCli(sandbox, [
+        'reply',
+        seeded.requestId,
+        '--receipt',
+        seeded.compactReceipt,
+        '--message',
+        'retained but expired',
+        '--json',
+      ]);
+      expect(submitted.status).toBe(0);
+      const writer = new Database(sandbox.database);
+      try {
+        writer.transaction(() => {
+          writer
+            .prepare(
+              'UPDATE request_attempts SET retention_days = 1, response_submitted_at_ms = ?, message_expires_at_ms = ? WHERE request_id = ?'
+            )
+            .run(prepared + 1, prepared + 86_400_000, seeded.requestId);
+          writer
+            .prepare(
+              'UPDATE request_responses SET submitted_at_ms = ?, response_expires_at_ms = ? WHERE request_id = ?'
+            )
+            .run(prepared + 1, prepared + 86_400_001, seeded.requestId);
+        })();
+      } finally {
+        writer.close();
+      }
+      const before = responseSnapshot(sandbox.database, seeded.requestId);
+      const result = await runCli(sandbox, ['result', seeded.requestId, '--json']);
+      expect(result.status).toBe(3);
+      expectError(result, 'RESPONSE_NOT_AVAILABLE');
+      expect(result.stdout).not.toContain('retained but expired');
+      const after = responseSnapshot(sandbox.database, seeded.requestId);
+      expect(after).toEqual({
+        ...before,
+        attempt: { ...before.attempt, message_text: null, message_bytes: null },
+        response: undefined,
+      });
+      const retry = await runCli(
+        sandbox,
+        ['reply', seeded.requestId, '--receipt', seeded.compactReceipt, '--stdin', '--json'],
+        { stdin: Buffer.from('retained but expired') }
+      );
+      expect(retry.status).toBe(1);
+      expectError(retry, 'RESPONSE_EXPIRED');
+      expect(responseSnapshot(sandbox.database, seeded.requestId)).toEqual(after);
+    });
+  });
+});
 
 async function initializeSchema(sandbox: Sandbox): Promise<void> {
   expectJsonSuccess(await runCli(sandbox, ['identity', 'list', '--json']), { identities: [] });

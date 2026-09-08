@@ -31,8 +31,9 @@ function malformedConfig(fixture: E2EFixture): { global: string; local: string }
 }
 
 async function calibrateOfflineTmuxGuard(fixture: E2EFixture): Promise<void> {
-  const calibration = await fixture.runJsonCli(['list'], { withoutTmux: true });
-  expect(calibration.code).toBe(1);
+  const calibration = await fixture.runJsonCli(['check', fixture.pane], { withoutTmux: true });
+  expect(calibration.code).toBe(3);
+  expect(calibration.json).toMatchObject({ error: { code: 'PANE_NOT_FOUND' } });
   expect(fs.existsSync(fixture.forbiddenTmuxLogPath)).toBe(true);
   fs.rmSync(fixture.forbiddenTmuxLogPath, { force: true });
 }
@@ -143,6 +144,8 @@ describe.sequential('Exchange attention through the real Docker/tmux fixture', (
           fs.writeFileSync(path.join(fixture.workspace, 'tmux-team.json'), '{}');
           expect(success(await fixture.runJsonCli(['name', name]))).toEqual({
             bound: true,
+            id: created.identity.id,
+            lifetime: 'saved',
             name: 'Alice',
             pane,
           });

@@ -1,3 +1,4 @@
+import { durableIdentity } from './identity-state-oracle.js';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
@@ -79,10 +80,23 @@ describe.sequential('strict caller context', () => {
         fixture.tmux(['select-pane', '-t', peer.pane]);
         await releaseRealTmuxCli(fixture, real);
 
-        const result = readRealTmuxCli<{ bound: boolean; name: string; pane: string }>(real);
+        const identity = durableIdentity(fixture, 'RealCaller');
+        const result = readRealTmuxCli<{
+          bound: boolean;
+          id: string;
+          name: string;
+          pane: string;
+          lifetime: 'temporary' | 'saved';
+        }>(real);
         expect(result).toEqual({
           code: 0,
-          stdout: { bound: true, name: 'RealCaller', pane: real.pane },
+          stdout: {
+            bound: true,
+            id: identity.id,
+            name: 'RealCaller',
+            pane: real.pane,
+            lifetime: 'temporary',
+          },
           stderr: '',
         });
         const binding = durableState(fixture).bindings.find(
@@ -114,10 +128,23 @@ describe.sequential('strict caller context', () => {
       fixture.tmux(['select-pane', '-t', peer.pane]);
       await releaseRealTmuxCli(fixture, real);
 
-      const result = readRealTmuxCli<{ bound: boolean; name: string; pane: string }>(real);
+      const identity = durableIdentity(fixture, 'AliasCaller');
+      const result = readRealTmuxCli<{
+        bound: boolean;
+        id: string;
+        name: string;
+        pane: string;
+        lifetime: 'temporary' | 'saved';
+      }>(real);
       expect(result).toEqual({
         code: 0,
-        stdout: { bound: true, name: 'AliasCaller', pane: real.pane },
+        stdout: {
+          bound: true,
+          id: identity.id,
+          name: 'AliasCaller',
+          pane: real.pane,
+          lifetime: 'temporary',
+        },
         stderr: '',
       });
       expect(fixture.paneMetadata(peer.pane)).toBe('');
@@ -143,7 +170,7 @@ describe.sequential('strict caller context', () => {
       const result = readRealTmuxCli<string>(real);
       expect(result.code).toBe(0);
       expect(result.stderr).toBe('');
-      expect(result.stdout).toContain("Bound identity 'HumanCaller'");
+      expect(result.stdout).toContain("Bound temporary identity 'HumanCaller'");
       expect(result.stdout).not.toContain('Not running inside tmux. Some features may not work.');
     });
   }, 20_000);
@@ -152,9 +179,22 @@ describe.sequential('strict caller context', () => {
     await withE2EFixture(async (fixture) => {
       await seedIdentity(fixture, 'Current', 'initial caller profile');
 
-      const whoami = await fixture.runJsonCli<{ bound: boolean; name: string }>(['whoami']);
+      const current = durableIdentity(fixture, 'Current');
+      const whoami = await fixture.runJsonCli<{
+        bound: boolean;
+        id: string;
+        name: string;
+        pane: string;
+        lifetime: 'temporary' | 'saved';
+      }>(['whoami']);
       expect(whoami.code).toBe(0);
-      expect(json(whoami)).toMatchObject({ bound: true, name: 'Current', pane: fixture.pane });
+      expect(json(whoami)).toEqual({
+        bound: true,
+        id: current.id,
+        name: 'Current',
+        pane: fixture.pane,
+        lifetime: 'temporary',
+      });
 
       const shown = await fixture.runJsonCli<{
         identity: { name: string };
@@ -182,11 +222,22 @@ describe.sequential('strict caller context', () => {
       const peer = await fixture.createMockPane('peer');
       const peerBound = await fixture.runJsonCli(['add', peer.pane, 'Peer']);
       expect(peerBound.code).toBe(0);
-      const peerWhoami = await fixture.runJsonCli<{ bound: boolean; name: string }>(['whoami'], {
-        pane: peer.pane,
-      });
+      const peerIdentity = durableIdentity(fixture, 'Peer');
+      const peerWhoami = await fixture.runJsonCli<{
+        bound: boolean;
+        id: string;
+        name: string;
+        pane: string;
+        lifetime: 'temporary' | 'saved';
+      }>(['whoami'], { pane: peer.pane });
       expect(peerWhoami.code).toBe(0);
-      expect(json(peerWhoami)).toMatchObject({ bound: true, name: 'Peer', pane: peer.pane });
+      expect(json(peerWhoami)).toEqual({
+        bound: true,
+        id: peerIdentity.id,
+        name: 'Peer',
+        pane: peer.pane,
+        lifetime: 'temporary',
+      });
       const peerRole = await fixture.runJsonCli<{ identity: { name: string } }>(['role', 'show'], {
         pane: peer.pane,
       });
@@ -310,7 +361,14 @@ describe.sequential('strict caller context', () => {
         outsideTmux: true,
       });
       expect(added.code).toBe(0);
-      expect(added.json).toMatchObject({ bound: true, name: 'Peer', pane: peer.pane });
+      const peerIdentity = durableIdentity(fixture, 'Peer');
+      expect(added.json).toEqual({
+        bound: true,
+        id: peerIdentity.id,
+        name: 'Peer',
+        pane: peer.pane,
+        lifetime: 'temporary',
+      });
 
       const message = 'explicit outside caller';
       const talk = await fixture.runJsonCli<{ response: string }>(
