@@ -11,6 +11,7 @@ mod output;
 mod parser;
 mod profile_command;
 mod response_command;
+mod talk_command;
 mod target;
 
 use std::io::{self, Write};
@@ -40,7 +41,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Help => {
             writeln!(
                 stdout,
-                "Native development preview: configuration, identity create/show/list, reply/result, pane identity name/this/add/whoami/unbind/rm/list, diagnostic check/read, and role/preamble are available. Talk is not implemented yet. Use isolated test state only.\n"
+                "Native development preview: configuration, identity create/show/list, talk/reply/result, pane identity name/this/add/whoami/unbind/rm/list, diagnostic check/read, and role/preamble are available. Installation and attention commands are not implemented yet. Use isolated test state only.\n"
             )?;
             grammar::public_grammar(&grammar::grammar(), true).write_long_help(&mut stdout)?;
             writeln!(stdout)?;
@@ -73,6 +74,10 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Identity(request) => {
             drop(stdout);
             return identity_command::execute(request, parsed.mode);
+        }
+        request @ Invocation::Talk { .. } => {
+            drop(stdout);
+            return talk_command::execute(request, parsed.mode);
         }
         request @ (Invocation::Role { .. } | Invocation::Preamble(_)) => {
             drop(stdout);

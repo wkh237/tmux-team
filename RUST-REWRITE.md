@@ -6,12 +6,12 @@ storage-only identity commands (#113), and pane identity lifecycle (#109)
 are implemented in the development preview, not a shipped Rust runtime.
 #118 adds the internal transactional request/final foundation; #120 adds compact
 receipt encoding and old-v1 decoding through that same service. #122 adds public
-native reply/result with bounded input. Native talk and the full #106
-short-receipt transition remain unimplemented.
+native reply/result with bounded input. #129 adds native talk; the full #106
+installed short-receipt instruction transition remains pending.
 #124 adds the bounded native send/capture adapter and isolated real-tmux
 acceptance. #125 adds shared current-server target resolution and public
 diagnostic check/read. #127 adds native role/preamble and shared bounded profile
-text/file acquisition. Public talk composition and observation remain pending.
+text/file acquisition. #129 adds public talk composition and bounded observation.
 Owner: [#93](https://github.com/wkh237/tmux-team/issues/93);
 preparation: [#94](https://github.com/wkh237/tmux-team/issues/94).
 The compatibility reference is TypeScript main `cb53533f3a9f19a1a2ab95af59dda20df419200b`
@@ -71,7 +71,8 @@ delegates from native to Node.
 The preview implements help, version, Bash/Zsh completion and the existing
 `config` command plus storage-only `identity create/show/list` (#113) and pane
 identity `name`/`this`/`add`/`whoami`/`unbind`/`rm`/`list` (#109), plus storage-only
-`reply`/`result` (#122), diagnostic `check`/`read` (#125), and role/preamble (#127).
+`reply`/`result` (#122), diagnostic `check`/`read` (#125), role/preamble (#127), and
+durable `talk` (#129).
 Other recognized effectful commands return
 `NATIVE_NOT_IMPLEMENTED`, exit 1, before any settings,
 storage, tmux or input acquisition. Text-only commands reject JSON. Native

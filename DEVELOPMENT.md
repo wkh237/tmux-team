@@ -36,10 +36,10 @@ help/version/completion, typed grammar, the existing `config` command and
 storage-only `identity create/show/list` under #113, and pane identity
 `name`/`this`/`add`/`whoami`/`unbind`/`rm`/`list` under #109, plus storage-only
 `reply`/`result` under #122, diagnostic `check`/`read` under #125, and
-`role`/`preamble` under #127.
+`role`/`preamble` under #127, and durable `talk` under #129.
 Other effectful commands still explicitly fail.
-The #118 request/final service is an internal transactional foundation only;
-its public reply/result composition is supplied by #122, not native talk. Its real SQLite
+The #118 request/final service is the shared transactional foundation;
+public reply/result composition is supplied by #122 and talk by #129. Its real SQLite
 tests run in ordinary adapter Cargo tests and therefore in the existing Docker
 adapter-test stage. They must verify committed rows independently of service
 reads, since those reads can perform housekeeping. Inject clocks for deadline
@@ -69,7 +69,7 @@ adapter deadlines. This is public storage-only acceptance, not native talk.
 and the existing development-only tmux probe. These scenarios assert causal mock
 input and exact no-replay traces for explicit-socket native operations, preserve
 unrelated buffers, and compare diagnostic capture independently. They do not
-make public native talk/check available. Scripted adapter tests reuse the tmux
+establish public native talk/check acceptance alone. Scripted adapter tests reuse the tmux
 test runner to verify caps, stage errors and cleanup precedence without host tmux.
 #125 adds `test/native/check.test.ts` for configuration-before-effects and
 lookup-only misses, plus `test/e2e/native-check.e2e.test.ts` for real public
@@ -84,6 +84,14 @@ text, transactional stale-owner rejection and unchanged identity/cadence state.
 independence and bounded role files. `test/e2e/native-profile.e2e.test.ts` covers
 verified implicit selection, explicit override, saved rebind and temporary
 retirement. Reply regression tests continue to exercise the shared file reader.
+#129 adds `test/native/talk.test.ts` preflight checks and public native
+`test/e2e/native-talk.e2e.test.ts` scenarios. Keep native selection in nested
+mock replies and use independent SQL for original prompts, provenance, cadence,
+and waiter release. Deterministic observer tests prove deadline equality,
+crossing reads and interruption without sleeps. Signal adapter tests use only
+task-owned subprocesses; never send signals to the runner or host agents.
+Timeout/interruption evidence must include a later retained final, and uncertain
+transport evidence must prove no replay, not merely a nonzero exit.
 The separate storage adapter upgrades historical schemas 0–8 to native schema 9,
 tested through a development-only probe rather than an installed command.
 Use isolated test databases only: installed TypeScript cannot reopen schema 9.

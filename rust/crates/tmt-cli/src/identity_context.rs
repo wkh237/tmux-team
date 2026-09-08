@@ -23,6 +23,20 @@ pub fn missing(name: &str) -> Failure {
 }
 
 pub fn resolve(storage: &mut Storage, explicit: Option<&str>) -> Result<Identity, Failure> {
+    optional(storage, &Tmux::default(), explicit)?.ok_or_else(|| {
+        Failure::new(
+            "IDENTITY_REQUIRED",
+            "An identity is required; use --identity or run from a verified bound pane.",
+            1,
+        )
+    })
+}
+
+pub fn optional(
+    storage: &mut Storage,
+    tmux: &Tmux,
+    explicit: Option<&str>,
+) -> Result<Option<Identity>, Failure> {
     if let Some(name) = explicit {
         return storage
             .find_identity(&normalize_name(name))
@@ -30,22 +44,18 @@ pub fn resolve(storage: &mut Storage, explicit: Option<&str>) -> Result<Identity
                 Failure::new("IDENTITY_ERROR", "Could not read identity storage.", 1)
                     .caused_by(error)
             })?
-            .ok_or_else(|| missing(name));
+            .ok_or_else(|| missing(name))
+            .map(Some);
     }
-    let tmux = Tmux::default();
     let pane = tmux
         .caller_pane(&CallerEnvironment::current())
         .map_err(endpoint_failure)?;
     if let Some(pane) = pane {
-        let observed = binding::pane_presence(storage, &mut BindingSession::new(&tmux), &pane)
+        let observed = binding::pane_presence(storage, &mut BindingSession::new(tmux), &pane)
             .map_err(binding_failure)?;
         if let Some(identity) = observed.identity {
-            return Ok(identity);
+            return Ok(Some(identity));
         }
     }
-    Err(Failure::new(
-        "IDENTITY_REQUIRED",
-        "An identity is required; use --identity or run from a verified bound pane.",
-        1,
-    ))
+    Ok(None)
 }

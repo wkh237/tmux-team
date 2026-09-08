@@ -28,6 +28,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "uuid",
             "subprocess",
             "nix",
+            "signal-hook",
         ],
         "tmt-cli" => &[
             "tmt-core",
