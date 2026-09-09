@@ -63,6 +63,11 @@ on empty discovery. Office uses Oxfmt; existing root tooling/docs use Prettier.
 Run `pnpm --filter @tmt/office format` for app formatting, not the root formatter.
 The distinct Vitest versions are lockfile-owned, not a claim that native tests
 were migrated to the newer app runner.
+Office wire-schema conformance is a root tooling test:
+`pnpm exec vitest run test/tooling/office-contracts.test.ts`. See
+[`contracts/office`](contracts/office/README.md) for its single source of truth,
+versioning and limits. Design vectors are not executable authorization or crash
+recovery evidence; downstream suites must prove those behaviors separately.
 Root tooling runs at most two suite workers to avoid simultaneous subprocess
 startup overwhelming the existing per-test budgets; assertion/time limits are
 unchanged. Native process and tmux configurations keep their own execution rules.
