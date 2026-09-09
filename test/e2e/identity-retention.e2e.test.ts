@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
-import { withE2EFixture, type CliResult, type E2EFixture } from './harness.js';
+import { expectJsonResult } from './cli-assertions.js';
+import { withE2EFixture, type E2EFixture } from './harness.js';
 
 interface IdentityRow {
   id: string;
@@ -21,13 +22,6 @@ function identities(fixture: E2EFixture): IdentityRow[] {
   }
 }
 
-function success<T>(result: CliResult<T>): T {
-  expect(result.code, result.stderr || result.stdout).toBe(0);
-  expect(result.stderr).toBe('');
-  expect(result.json).toBeDefined();
-  return result.json as T;
-}
-
 function bindingOwners(fixture: E2EFixture): string[] {
   const database = new Database(path.join(fixture.globalDir, 'tmux-team.db'), { readonly: true });
   try {
@@ -43,7 +37,7 @@ function bindingOwners(fixture: E2EFixture): string[] {
 describe.sequential('committed identity retention', () => {
   it('retains a failed binding as offline data and reuses its UUID on a later verified binding', async () => {
     await withE2EFixture(async (fixture) => {
-      success(await fixture.runJsonCli(['name', 'Occupied']));
+      expectJsonResult(await fixture.runJsonCli(['name', 'Occupied']));
       const initial = identities(fixture);
       const originalMetadata = fixture.paneMetadata();
       const originalTitle = fixture.paneTitle();
@@ -73,7 +67,7 @@ describe.sequential('committed identity retention', () => {
       expect(fixture.paneMetadata()).toBe(originalMetadata);
       expect(fixture.paneTitle()).toBe(originalTitle);
 
-      const list = success(
+      const list = expectJsonResult(
         await fixture.runJsonCli<{ identities: Array<{ name: string; presence: string }> }>([
           'list',
         ])
@@ -90,7 +84,7 @@ describe.sequential('committed identity retention', () => {
 
       const roleText = 'Data-only role; never inject this text.';
       const preamble = 'Retained identity context';
-      const role = success(
+      const role = expectJsonResult(
         await fixture.runJsonCli<{
           identity: { id: string };
           role: { content: string };
@@ -99,7 +93,7 @@ describe.sequential('committed identity retention', () => {
       expect(role.identity.id).toBe(retained.id);
       expect(role.role.content).toBe(roleText);
       expect(
-        success(
+        expectJsonResult(
           await fixture.runJsonCli(['preamble', 'set', 'Retained', preamble], {
             withoutTmux: true,
           })
@@ -113,10 +107,10 @@ describe.sequential('committed identity retention', () => {
       expect(fixture.paneMetadata()).toBe(originalMetadata);
       expect(fixture.paneTitle()).toBe(originalTitle);
       const peer = await fixture.createMockPane('retained-peer');
-      success(await fixture.runJsonCli(['add', peer.pane, 'retained']));
+      expectJsonResult(await fixture.runJsonCli(['add', peer.pane, 'retained']));
       expect(identities(fixture)).toEqual(rows);
       expect(bindingOwners(fixture)).toEqual(rows.map((row) => row.id).sort());
-      const reboundRole = success(
+      const reboundRole = expectJsonResult(
         await fixture.runJsonCli<{
           identity: { id: string };
           role: { content: string };
@@ -126,7 +120,7 @@ describe.sequential('committed identity retention', () => {
       expect(fs.existsSync(fixture.forbiddenTmuxLogPath)).toBe(false);
 
       const message = 'retained identity can now receive';
-      const output = success(
+      const output = expectJsonResult(
         await fixture.runJsonCli<{ status: string; requestId: string }>([
           'talk',
           'Retained',
