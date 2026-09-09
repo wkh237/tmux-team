@@ -1,7 +1,44 @@
-// Bootstrap only: no product membership or invitation policy is implemented.
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function human() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && request.auth.token.email_verified == true;
+    }
+
+    function approved() {
+      return human()
+        && exists(/databases/$(database)/documents/testers/$(request.auth.uid))
+        && get(/databases/$(database)/documents/testers/$(request.auth.uid)).data.keys().hasOnly(['enabled'])
+        && get(/databases/$(database)/documents/testers/$(request.auth.uid)).data.enabled == true;
+    }
+
+    match /testers/{uid} {
+      // Waiting users can inspect their own admission, never enumerate or grant it.
+      allow get: if human() && request.auth.uid == uid;
+      allow list, write: if false;
+    }
+
+    match /worlds/{worldId} {
+      // Missing-document reads permit online create transactions. Existing world
+      // metadata remains owner-only; the UI does not distinguish denied/missing.
+      allow get: if approved() && (resource == null || resource.data.ownerUid == request.auth.uid);
+      allow create: if approved()
+        && worldId.matches('^[a-zA-Z0-9]{20}$')
+        && request.resource.data.keys().hasAll(['version', 'name', 'ownerUid', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['version', 'name', 'ownerUid', 'createdAt'])
+        && request.resource.data.version == 1
+        && request.resource.data.name is string
+        && request.resource.data.name.matches('.{1,80}')
+        && request.resource.data.name.matches('.*[^\\s\\p{Z}\\x{feff}].*')
+        && !request.resource.data.name.matches('.*[\\x00-\\x1f\\x7f].*')
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.createdAt == request.time;
+      allow list, update, delete: if false;
+    }
+
+    // Blocks, messages, memberships and every unspecified path remain closed.
     match /{document=**} {
       allow read, write: if false;
     }

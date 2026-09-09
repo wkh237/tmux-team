@@ -1,7 +1,7 @@
 # Office v1 design
 
 Status: design baseline for #174, not implemented service behavior. The delivered
-SPA remains the disconnected shell described in [architecture](architecture.md).
+SPA implementation is described in [architecture](architecture.md).
 This document owns policy and user-visible semantics; the
 [wire schema](../../contracts/office/v1.schema.json) owns message shapes.
 
@@ -46,6 +46,23 @@ require a later authentication slice. A self-deployed operator supplies their
 own auth configuration; no project IDs or credentials ship in source.
 
 ## Authorization, not proximity
+
+### Private-world pilot refinement (#189)
+
+World creation and reads use the authenticated Firestore client directly, not
+an HTTP/Admin world service. `worlds/{worldId}` owns immutable world metadata
+and `ownerUid`; there is no redundant owner membership record. Rules require
+verified Google authentication, current operator-managed `testers/{uid}` admission
+and resource ownership. Client writes to tester grants are always denied.
+Operators edit `{ enabled: true }` in Firebase Console; missing/disabled/malformed
+grants deny world access. Authentication itself is not blocked by this gate.
+
+See [private world document v1](../../contracts/office/private-world.md) for
+the exact create/read and retry contract. Future blocks and messages live in
+world subcollections, not unbounded arrays on the root. Those paths currently
+deny all client access. Invitations and device/work operations below remain
+future design; they do not justify a generic backend for ordinary world storage.
+The initial owner-only world does not implement visitor memberships or presence.
 
 | Action             | Minimum authorization                                                                        | Explicitly does not grant                                                      |
 | ------------------ | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |

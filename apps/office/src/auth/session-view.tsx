@@ -3,6 +3,7 @@ import type { ReactElement } from 'react';
 import type { OfficeSession } from './session.js';
 
 export const OfficeSessionContext = createContext<OfficeSession | undefined>(undefined);
+export const OfficeModeContext = createContext('emulator');
 
 export function SessionPanel(): ReactElement | null {
   const session = useContext(OfficeSessionContext);
@@ -10,13 +11,17 @@ export function SessionPanel(): ReactElement | null {
 }
 
 function ConnectedSession({ session }: { session: OfficeSession }): ReactElement {
+  const mode = useContext(OfficeModeContext);
   const { ready, user, pending, error } = useSyncExternalStore(
     session.subscribe,
     session.getSnapshot
   );
   return (
-    <section className="session-panel" aria-label="Local session">
-      <p>Auth Emulator only · Sign-in does not grant world access.</p>
+    <section className="session-panel" aria-label="Office session">
+      <p>
+        {mode === 'emulator' ? 'Auth Emulator only' : 'Private cloud pilot'} · Sign-in does not
+        grant world access.
+      </p>
       {!ready ? (
         <p role="status">Preparing local sign-in…</p>
       ) : user ? (
@@ -31,7 +36,7 @@ function ConnectedSession({ session }: { session: OfficeSession }): ReactElement
         </>
       ) : (
         <button type="button" disabled={pending} onClick={() => void session.signIn()}>
-          Sign in with Google (emulator)
+          {mode === 'emulator' ? 'Sign in with Google (emulator)' : 'Sign in with Google'}
         </button>
       )}
       {pending && <p role="status">Waiting for the session action…</p>}

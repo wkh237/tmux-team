@@ -34,7 +34,7 @@ function actionError(error: unknown): string {
     case 'auth/popup-blocked':
       return 'Allow popups for this page, then try again.';
     case 'auth/network-request-failed':
-      return 'Cannot reach the local Auth Emulator. Check that it is running, then try again.';
+      return 'Cannot reach the sign-in service. Check your connection and try again.';
     default:
       return 'The session action failed. Please try again.';
   }
