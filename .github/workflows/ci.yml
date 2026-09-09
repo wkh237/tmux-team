@@ -38,23 +38,15 @@ jobs:
     needs: changes
     if: needs.changes.outputs.office == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.23.2
-      - name: Activate pinned pnpm
-        run: corepack enable && corepack prepare pnpm@10.33.0 --activate
-      - name: Install Office dependencies
-        run: pnpm office:install
-      - name: Check, test and build the SPA
-        run: |
-          pnpm office:check
-          pnpm office:test
-          pnpm office:build
+      - name: Build isolated browser and emulator verification
+        run: docker build --target browser-tests -f services/office/Dockerfile -t tmt-office-browser:ci .
+      - name: Verify emulator sessions with restricted browser destinations
+        run: docker run --rm --init --shm-size=256m tmt-office-browser:ci
 
   code-quality:
     name: Code quality

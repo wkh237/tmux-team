@@ -8,19 +8,22 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
+    "test:browser": "playwright test",
     "type:check": "tsc --noEmit",
-    "lint": "oxlint --deny-warnings --react-plugin src vite.config.ts",
+    "lint": "oxlint --deny-warnings --react-plugin src e2e vite.config.ts playwright.config.ts",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
     "check": "pnpm type:check && pnpm lint && pnpm format:check"
   },
   "dependencies": {
     "@tanstack/react-router": "1.170.33",
+    "firebase": "12.18.0",
     "jotai": "3.0.0",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "@testing-library/react": "16.3.3",
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^25.0.3",

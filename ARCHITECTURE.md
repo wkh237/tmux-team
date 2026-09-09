@@ -42,6 +42,15 @@ excluded from Git and Docker; the image has no host credential/data mounts.
 `scripts/verify-office-emulators.mjs` proves emulator transport and fixture
 cleanup separately from native tmux E2E and future Office authorization tests.
 
+Office's explicit emulator-only login has one app-owned Firebase/session boundary
+under `apps/office/src/auth`, with memory-only persistence and no world authority.
+React subscribes to the observer-backed session rather than copying identity into
+Jotai. The opt-in `browser-tests` stage of the same emulator Dockerfile proves
+real browser session behavior with local auth and an explicit public Google
+script allowlist, not fully offline OAuth; its default stage remains
+the lightweight emulator environment. See Office architecture for lifecycle and
+failure ownership. No cloud membership service or connector is implemented.
+
 `scripts/ci-scope.mjs` owns conservative affected-area selection and final gate
 validation. Office-only source/docs avoid native matrices; native source/skill
 changes avoid Office. Shared or unknown paths (including lockfiles, security,

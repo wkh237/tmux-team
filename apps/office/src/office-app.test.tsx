@@ -29,7 +29,7 @@ describe('Office foundation', () => {
     await user.click(within(screen.getByRole('navigation')).getByRole('link', { name: 'Setup' }));
     await screen.findByRole('heading', { name: 'Start small. Stay in control.' });
     expect(router.state.location.pathname).toBe('/setup');
-    expect(screen.getByText(/This shell does not sign in/)).toBeDefined();
+    expect(screen.getByText(/This shell does not create a world/)).toBeDefined();
     await user.click(within(screen.getByRole('navigation')).getByRole('link', { name: 'Office' }));
     await screen.findByRole('heading', { name: 'No world connected' });
     expect(router.state.location.pathname).toBe('/');
@@ -52,13 +52,13 @@ describe('Office foundation', () => {
     const first = renderOffice();
     await screen.findByRole('heading', { name: 'No world connected' });
     await user.click(screen.getByRole('button', { name: 'Preview details' }));
-    expect(screen.getByText(/This shell does not sign in/)).toBeDefined();
+    expect(screen.getByText(/This shell does not create a world/)).toBeDefined();
     first.unmount();
     renderOffice();
     await screen.findByRole('heading', { name: 'No world connected' });
     expect(
       screen.getByRole('button', { name: 'Preview details' }).getAttribute('aria-expanded')
     ).toBe('false');
-    expect(screen.queryByText(/This shell does not sign in/)).toBeNull();
+    expect(screen.queryByText(/This shell does not create a world/)).toBeNull();
   });
 });

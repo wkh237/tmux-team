@@ -13,7 +13,10 @@ export function SetupPage(): ReactElement {
       <ol className="setup-steps">
         <li>
           <h2>A private world</h2>
-          <p>Sign-in and invitations will control who can visit. Not connected in this preview.</p>
+          <p>
+            Invitations will control who can visit. Local emulator sign-in alone grants no world
+            access.
+          </p>
         </li>
         <li>
           <h2>Your local team</h2>

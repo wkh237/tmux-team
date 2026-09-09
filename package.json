@@ -19,7 +19,7 @@
     "check:tooling": "pnpm type:check && pnpm lint && pnpm format:check && pnpm docs:format:check",
     "check": "pnpm check:tooling && pnpm office:check",
     "office:dev": "pnpm --filter @tmt/office --fail-if-no-match dev",
-    "office:install": "cd apps/office && pnpm install --ignore-workspace --lockfile-dir ../.. --frozen-lockfile",
+    "office:install": "cd apps/office && pnpm install --ignore-workspace --lockfile-dir \"$PWD/../..\" --frozen-lockfile",
     "office:build": "pnpm --filter @tmt/office --fail-if-no-match build",
     "office:test": "pnpm --filter @tmt/office --fail-if-no-match test",
     "office:check": "pnpm --filter @tmt/office --fail-if-no-match check"
