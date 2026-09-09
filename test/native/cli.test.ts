@@ -19,6 +19,8 @@ describe('native grammar process contract', () => {
         expect(completion.stdout).not.toContain('--wait');
         expect(completion.stdout).not.toContain('--team');
         expect(completion.stdout).not.toContain('--config');
+        expect(completion.stdout).not.toContain('--verbose');
+        expect(completion.stdout).not.toContain('--debug');
         execFileSync(shell, ['-n', '-c', completion.stdout], {
           env: sandbox.env,
           cwd: sandbox.cwd,
@@ -75,6 +77,8 @@ describe('native grammar process contract', () => {
       expect(help.stdout).toContain('remove role/preamble');
       expect(help.stdout).toContain('keep pane/exchanges');
       expect(help.stdout).not.toContain('--wait');
+      expect(help.stdout).not.toContain('--verbose');
+      expect(help.stdout).not.toContain('--debug');
       expect(fileSnapshot(sandbox.root)).toEqual(before);
     });
   });
@@ -121,6 +125,45 @@ describe('native grammar process contract', () => {
         expect(existsSync(sandbox.database)).toBe(false);
         expect(readFileSync(tripwire, 'utf8')).toBe(tmuxBaseline);
       }
+    });
+  });
+
+  it('rejects former no-op output flags before effects without confusing version or literal values', async () => {
+    await withSandbox(async (sandbox) => {
+      const tripwire = await calibrateTmuxTripwire(sandbox);
+      const before = fileSnapshot(sandbox.root);
+      const tmuxBaseline = readFileSync(tripwire, 'utf8');
+      for (const flag of ['--verbose', '-v', '--debug']) {
+        for (const args of [
+          [flag, 'ls'],
+          ['ls', flag],
+          ['help', flag],
+          ['--version', flag],
+          ['identity', 'create', 'Agent', flag],
+          ['send', 'peer', 'message', '--detach', flag],
+        ]) {
+          for (const argv of [args, ['--json', ...args], [...args, '--json']]) {
+            const result = await runCli(sandbox, argv);
+            expect(result.status).toBe(1);
+            if (argv.includes('--json')) {
+              expectError(result, 'USAGE_ERROR');
+              expect(result.stdout).toContain(flag);
+              expect(result.stderr).toBe('');
+            } else {
+              expect(result.stdout).toBe('');
+              expect(result.stderr).toContain(flag);
+            }
+            expect(fileSnapshot(sandbox.root)).toEqual(before);
+            expect(readFileSync(tripwire, 'utf8')).toBe(tmuxBaseline);
+          }
+        }
+      }
+      const literal = await runCli(sandbox, ['identity', 'create', '--json', '--', '--debug']);
+      expect(literal.status).toBe(0);
+      expect(JSON.parse(literal.stdout).identity.name).toBe('--debug');
+      const version = await runCli(sandbox, ['--version']);
+      expect(version.status).toBe(0);
+      expect(version.stdout).toBe('5.0.0-alpha.2\n');
     });
   });
 

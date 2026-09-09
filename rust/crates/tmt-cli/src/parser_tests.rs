@@ -297,22 +297,11 @@ fn literal_option_words_remain_data_when_the_grammar_requires_values() {
 #[test]
 fn root_and_command_local_options_work_before_and_after_the_command() {
     assert_eq!(
-        parsed(&["--json", "--debug", "talk", "peer", "hello", "--detach"]).mode,
-        OutputMode {
-            json: true,
-            verbose: false,
-            debug: true,
-        }
+        parsed(&["--json", "talk", "peer", "hello", "--detach"]).mode,
+        OutputMode { json: true }
     );
     assert_eq!(
-        parsed(&[
-            "talk",
-            "peer",
-            "hello",
-            "--json",
-            "--debug",
-            "--no-preamble"
-        ]),
+        parsed(&["talk", "peer", "hello", "--json", "--no-preamble"]),
         Parsed {
             invocation: Invocation::Talk {
                 target: "peer".into(),
@@ -326,11 +315,7 @@ fn root_and_command_local_options_work_before_and_after_the_command() {
                     no_preamble: true,
                 },
             },
-            mode: OutputMode {
-                json: true,
-                verbose: false,
-                debug: true,
-            },
+            mode: OutputMode { json: true },
         }
     );
     assert_eq!(
@@ -344,6 +329,35 @@ fn root_and_command_local_options_work_before_and_after_the_command() {
                 detach: false,
                 delay_seconds: None,
                 timeout_seconds: Some(2.0),
+                no_preamble: false,
+            },
+        }
+    );
+}
+
+#[test]
+fn removed_output_flags_are_rejected_but_remain_literal_payload_data() {
+    for option in ["--verbose", "-v", "--debug"] {
+        for argv in [
+            vec![option, "list", "--json"],
+            vec!["--json", "list", option],
+            vec!["identity", "create", "Agent", option, "--json"],
+            vec!["--json", "--version", option],
+        ] {
+            assert_usage_error(&argv, option, OutputMode { json: true });
+        }
+    }
+    assert_eq!(
+        parsed(&["talk", "peer", "--", "--verbose --debug -v"]).invocation,
+        Invocation::Talk {
+            target: "peer".into(),
+            message: "--verbose --debug -v".into(),
+            originator: None,
+            options: TalkOptions {
+                force: false,
+                detach: false,
+                delay_seconds: None,
+                timeout_seconds: None,
                 no_preamble: false,
             },
         }
@@ -386,15 +400,7 @@ fn missing_arguments_keep_json_mode_before_or_after_the_command() {
         &["--json", "talk", "peer"][..],
         &["talk", "peer", "--json"][..],
     ] {
-        assert_usage_error(
-            argv,
-            "required",
-            OutputMode {
-                json: true,
-                verbose: false,
-                debug: false,
-            },
-        );
+        assert_usage_error(argv, "required", OutputMode { json: true });
     }
 }
 
@@ -447,14 +453,7 @@ fn retired_wait_and_team_paths_have_distinct_errors() {
 
     let scoped = parse_error(&["--json", "--team", "legacy", "list"]);
     assert_eq!(scoped.code, "UNSUPPORTED_TEAM");
-    assert_eq!(
-        scoped.mode,
-        OutputMode {
-            json: true,
-            verbose: false,
-            debug: false,
-        }
-    );
+    assert_eq!(scoped.mode, OutputMode { json: true });
 }
 
 #[test]
