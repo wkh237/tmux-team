@@ -19,6 +19,10 @@ do not fall back to TypeScript on native state. Native schema 9 is forward-only
 and TypeScript cannot reopen it. Switching installations does not migrate or
 delete old data. Stop old writers before switching.
 
+The native CLI needs no Node/npm/pnpm or Rust toolchain. tmux is needed for
+live pane operations, not local storage-only work. A sender may run outside
+tmux; there is no non-tmux recipient transport yet.
+
 Native talk supplies a compact `v2_` receipt; use it unchanged. Native reply
 also accepts retained legacy receipts, but TypeScript cannot consume native
 receipts or schema 9. Do not mix runtimes for an active exchange.
@@ -372,10 +376,12 @@ name `all` is an ordinary identity; it is not a special destination. The
 current `add` order is `tmt add <pane-target> <global-name>`; the older
 name-first order is rejected with a usage error.
 
-Names are unique across servers sharing the same local TMT database, but
-`list`, `talk`, and `check` discover and address only the current tmux server.
-A `%pane_id` is stable within a server, not unique across servers. Routine
-reads preserve bindings on other sockets. Binding a foreign live name fails
+Names are unique across servers sharing the same local TMT database.
+Global `list` can observe recorded bindings on other servers; `talk` and
+`check` route only to the current tmux server. Listing is not routing permission.
+A `%pane_id` is stable within a server, not unique across servers. Uncertain
+observations preserve bindings; conclusive pane/server death follows the
+temporary/saved lifetime rules, including on other sockets. Binding a foreign live name fails
 with `NAME_ALREADY_ACTIVE` (exit 5); an unverifiable foreign endpoint fails
 with `RECONCILIATION_FAILED` (exit 1). Do not delete the binding to bypass an
 uncertain check. Rebinding a proven stale endpoint retains its identity and
@@ -530,6 +536,11 @@ Old npm skill links can conflict: inspect first, then explicitly use the new
 absolute `tmt install --force` if replacement is intended. A skill failure can
 leave the native binary installed; do not report rollback or silently force.
 Read this skill again through the new executable before using remembered syntax.
+
+The installer does not edit shell profiles or change the parent shell's PATH.
+If `tmt` is missing, use the installed absolute path and complete one-time shell
+PATH setup; do not repeatedly append exports on every upgrade. If another
+installation is selected, inspect its owner before changing or removing it.
 
 The selected Rust executable embeds this exact skill; viewing and installation
 work after moving the binary, without Node or a checkout. Native installs link

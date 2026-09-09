@@ -6,30 +6,32 @@ history. A standalone native CLI—no Node.js, Rust toolchain, or daemon require
 
 ## Install
 
-Native `5.0.0-alpha.2` for macOS and Linux, arm64 and x64. tmux is required for
-pane operations.
+Native alpha for macOS and Linux, arm64 and x64. No Node, npm, pnpm or Rust
+toolchain needed.
 
-```bash
-curl -fsSL --proto '=https' --proto-redir '=https' https://github.com/wkh237/tmux-team/releases/download/v5.0.0-alpha.2/tmt-installer.sh | sh
-export PATH="$HOME/.local/bin:$PATH"
-tmt --version
+[Download the installer](https://github.com/wkh237/tmux-team/releases/download/v5.0.0-alpha.2/tmt-installer.sh),
+then run it from the download folder:
+
+```sh
+sh tmt-installer.sh
 ```
 
 Installs into `~/.local/bin` and sets up the agent skill non-interactively.
-Keep that directory in your shell's PATH and reload your agent's skills.
-Update later with `tmt upgrade` (`tmt update` works too).
+If `tmt` is not found, complete the [one-time PATH setup](NATIVE-INSTALL.md#one-time-path-setup).
+Reload your agent's skills. Update later with `tmt upgrade`—no reinstall or
+repeated PATH setup.
 
-Already using npm or pnpm? Read [replacement and PATH guidance](NATIVE-INSTALL.md#replacing-npm-or-pnpm)
-first. The installer does not uninstall old packages or transfer/delete data.
-Old TypeScript writers must not use native SQLite state.
+Prefer curl, a custom location, or replacing an older installation? See
+[installation options](NATIVE-INSTALL.md). The installer never uninstalls old
+packages or deletes application data.
 
-For custom prefixes, pinning, binary-only installation, or inspecting the
-installer before running it, see [native installation](NATIVE-INSTALL.md).
-Downloads and integrity evidence are in the [alpha release](https://github.com/wkh237/tmux-team/releases/tag/v5.0.0-alpha.2).
+tmux is needed for live pane operations: binding, messaging and inspection.
+Explicit local identity/profile access and stored results work without it. There is no
+non-tmux receiving agent transport yet.
 
 ## Quick start
 
-Start a tmux session if needed:
+For the receiving agent, start a tmux session if needed:
 
 ```bash
 tmux new -s tmt
@@ -42,7 +44,8 @@ tmt name reviewer
 gemini
 ```
 
-From another terminal or tmux pane:
+From another terminal or tmux pane on the same machine (the sender need not be
+inside tmux):
 
 ```bash
 tmt talk reviewer "Review the current changes and report concrete risks."
@@ -103,10 +106,8 @@ failure handling, or `tmt help` for command options.
 
 ## Development
 
-`rust/` is the only runtime. Node and pnpm are developer test tools, not an
-installation path: use the native installer above, not an npm/GitHub source URI.
-See [development](DEVELOPMENT.md),
-[architecture](ARCHITECTURE.md) and the [rewrite tracker](https://github.com/wkh237/tmux-team/issues/93).
+Contributor-only requirements and checks are in [development](DEVELOPMENT.md).
+See [architecture](ARCHITECTURE.md) for runtime and test ownership.
 
 ## License
 

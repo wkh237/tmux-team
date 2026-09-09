@@ -9,6 +9,13 @@ Use this guide for reproducible commands and evidence.
 
 ## Setup
 
+This section is for contributors, not end users. Rust/Cargo builds the product.
+Node and pinned pnpm run Vitest/native-process/Docker orchestration, formatting,
+type checks and release verification. `better-sqlite3` is an independent test
+oracle; `tar` builds test archives. These are retained developer dependencies,
+not reasons to install TMT through npm. npm is not a separate required workflow;
+use the pinned pnpm lockfile rather than introducing another package manager.
+
 Requirements are Node.js 22.12 or newer, the pinned pnpm toolchain, and the
 Rust toolchain declared by `rust/rust-toolchain.toml`. The workspace MSRV is
 Rust 1.88; CI also runs the current pinned release toolchain.
@@ -131,6 +138,11 @@ For ordinary developer checks, run:
 pnpm check
 pnpm test:run
 ```
+
+`pnpm check` is the common quality entrypoint for all retained tooling, including
+E2E. For focused work use `pnpm type:check`, `pnpm lint` or
+`pnpm format:check`; the old duplicate `e2e:*` quality aliases are removed.
+`pnpm test:e2e` remains the actual Docker scenario runner.
 
 The first command checks TypeScript types and lint/format for retained tooling
 and docs; the second runs tooling behavior and source-boundary tests. Neither

@@ -1,8 +1,11 @@
 # TMT native alpha installation
 
 This archive contains the standalone Rust native alpha runtime. It needs no
-Node.js, Rust toolchain or source checkout to run. tmux is still required for
-pane operations. Use the installer asset from a published release; the README
+Node.js, npm, pnpm, Rust toolchain or source checkout to run. tmux and socket
+access are required for binding, sending and capturing live panes, not for
+storage-only identity/profile/reply/result/X operations with explicit selection
+where required. A sender can run outside tmux; recipients still need live panes.
+Use the installer asset from a published release; the README
 supplies the verified version URL when one is available.
 
 Native schema 9 is forward-only: the TypeScript runtime cannot reopen it.
@@ -60,13 +63,17 @@ for tested host OS versions; a deployment target is not testing on every OS.
 
 ## Curl bootstrap
 
-Use the exact `tmt-installer.sh` asset URL from a published release. The README
-supplies the verified version URL when one is available. Set that URL as
-`TMT_INSTALLER_URL` after checking the release asset before running:
+Download the published native `5.0.0-alpha.2` installer:
 
 ```sh
-curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
-  --output tmt-installer.sh "$TMT_INSTALLER_URL" &&
+curl -fsSL --proto '=https' --proto-redir '=https' \
+  -o tmt-installer.sh \
+  https://github.com/wkh237/tmux-team/releases/download/v5.0.0-alpha.2/tmt-installer.sh
+```
+
+Only after a successful download, inspect it if desired and run:
+
+```sh
 sh tmt-installer.sh
 ```
 
@@ -89,6 +96,32 @@ and archive sizes/digests before executing the temporary binary, then delegates
 permanent writes to the native installer. It does not edit shell profiles or
 touch SQLite. Initial receipts record local-archive verification, not independent
 attestation provenance. HTTPS and hashes do not protect a compromised origin.
+
+## One-time PATH setup
+
+If `command -v tmt` already selects `~/.local/bin/tmt`, no setup is needed.
+Otherwise, for Bash or Zsh, add this block **once** to the startup file you
+actually use (`~/.bashrc` or `~/.zshrc` for interactive shells):
+
+```sh
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
+```
+
+Open a new terminal, then check `command -v tmt` and `tmt --version`.
+The block avoids adding the directory again when a shell inherits it. Do not
+append it on every installation/update or blindly edit both startup files.
+Other shells use their own persistent PATH configuration. For a custom prefix,
+substitute its absolute `bin` directory.
+
+Running `export` in a terminal changes only that shell; `curl ... | sh` cannot
+change its parent's PATH. The installer therefore reports path problems and
+does not modify shell profiles. You can immediately run `~/.local/bin/tmt`
+directly without changing PATH. If PATH already contains that directory but
+another installation wins, follow the replacement guidance below rather than
+repeatedly adding directories.
 
 ## Replacing npm or pnpm
 
