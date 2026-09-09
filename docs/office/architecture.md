@@ -4,7 +4,10 @@ Tracking: [#175](https://github.com/wkh237/tmux-team/issues/175), under
 [#173](https://github.com/wkh237/tmux-team/issues/173).
 The owner approved workspace-first delivery. The full protocol and trust design
 in [#174](https://github.com/wkh237/tmux-team/issues/174) remains open; this
-document establishes only the boundaries needed to organize the repository.
+document describes the implemented workspace. The
+[v1 design](design.md), [planned commands](commands.md) and
+[wire contracts](../../contracts/office/README.md) now record the design baseline;
+they do not make the shell a connected Office.
 
 ## Current implementation
 
@@ -13,16 +16,16 @@ route, setup explanation, unknown-route recovery and provider-local presentation
 state. It does not authenticate, contact Firebase, load local identities, install
 an extension, open a listener or dispatch work. The native CLI remains unchanged.
 
-| Owner                         | Responsibility                                        | Forbidden dependency                                                    |
-| ----------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------- |
-| `apps/office`                 | Browser routes, accessible views, UI state, app tests | Local SQLite, filesystem/process APIs, Rust source or test helpers      |
-| `services/office` (reserved)  | Future Firebase rules, indexes and emulator tests     | Unrestricted local execution or implicit agent authority                |
-| `contracts/office` (reserved) | Future versioned wire schema and conformance fixtures | Browser rendering, Firebase effects or duplicate domain policy          |
-| `rust/`                       | Existing local CLI, domain and concrete adapters      | Office assets, Node or a Firebase account required by ordinary commands |
-| `docs/office`                 | Decisions, scenarios and operational guidance         | Describing planned behavior as shipped                                  |
+| Owner                        | Responsibility                                              | Forbidden dependency                                                    |
+| ---------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `apps/office`                | Browser routes, accessible views, UI state, app tests       | Local SQLite, filesystem/process APIs, Rust source or test helpers      |
+| `services/office` (reserved) | Future Firebase rules, indexes and emulator tests           | Unrestricted local execution or implicit agent authority                |
+| `contracts/office`           | Versioned design schema and structural conformance fixtures | Browser rendering, Firebase effects or duplicate domain policy          |
+| `rust/`                      | Existing local CLI, domain and concrete adapters            | Office assets, Node or a Firebase account required by ordinary commands |
+| `docs/office`                | Decisions, scenarios and operational guidance               | Describing planned behavior as shipped                                  |
 
-There is no connector crate, deployable service, shared package or wire schema
-yet. Create each only with its first concrete consumer and reviewed contract.
+There is no connector crate, deployable service or shared runtime package yet.
+Create each only with its first concrete consumer and reviewed contract.
 Do not relocate established Rust, test, script or canonical skill paths simply
 to make the tree symmetric.
 
@@ -59,8 +62,9 @@ durable work state are distinct observations. Proximity or user-supplied content
 never grants tool access. Shared requests correlate with existing local exchanges;
 they do not mirror the SQLite database or become an alternate task engine.
 
-Before implementing these features, #174 must define version negotiation,
-ownership/correlation, deduplication, expiry/revocation and failure scenarios.
+Before implementing these features, review the #174 design for version
+negotiation, ownership/correlation, deduplication, expiry/revocation and failure
+scenarios. Refine each downstream issue before adding its runtime consumer.
 Firestore deployment means an owner's Firebase project, not self-hosted Firestore
 or automatic federation. No cloud provisioning, billing or deployment occurs here.
 

@@ -24,10 +24,15 @@ of native schema and application state.
 The pnpm workspace has one lockfile and one app package, `@tmt/office`. Existing
 Rust, test, release script and canonical skill paths remain stable. Read
 [Office architecture](docs/office/architecture.md) for current SPA ownership,
-the chosen React/Vite/TanStack/Jotai stack and explicitly deferred contracts.
+the chosen React/Vite/TanStack/Jotai stack and the
+[Office design](docs/office/design.md) for planned trust/lifecycle semantics.
 Office must not import local SQLite/process adapters or native test helpers.
-Cloud services and wire contracts have reserved documented owners, not runnable
-implementations. Ordinary CLI operations remain independent of Office.
+Cloud services remain reserved, not runnable implementations. `contracts/office`
+owns the versioned work-handoff schema and fixtures; derived representations must
+prove conformance there. Structural tests do not prove remote authorization or
+delivery. Future connector dispatch reuses native request/storage ownership,
+not CLI-output scraping or a competing exchange engine. Ordinary CLI operations
+remain independent of Office.
 
 `scripts/ci-scope.mjs` owns conservative affected-area selection and final gate
 validation. Office-only source/docs avoid native matrices; native source/skill
