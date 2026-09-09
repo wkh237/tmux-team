@@ -1,7 +1,8 @@
 # Architecture
 
-This repository ships one product runtime: the Rust workspace in `rust/`. The
-repository's Node package is private developer tooling. It may host Vitest,
+The shipped CLI runtime is the Rust workspace in `rust/`. An optional Office
+SPA foundation lives in `apps/office`; it is not a CLI fallback or a shipped
+connector. The root Node package is private developer tooling. It may host Vitest,
 fixture and release-verification helpers, but it is not a second CLI runtime,
 an npm product, or a source-install fallback. A native source checkout selects
 `rust/target/debug/tmt` (or an explicitly supplied native executable); a missing
@@ -17,6 +18,25 @@ identity memory or a separate inbox service.
 Any retained `better-sqlite3` use belongs to private developer tooling as an
 independent oracle. It is not a Rust runtime dependency or an alternate owner
 of native schema and application state.
+
+## Office workspace boundary
+
+The pnpm workspace has one lockfile and one app package, `@tmt/office`. Existing
+Rust, test, release script and canonical skill paths remain stable. Read
+[Office architecture](docs/office/architecture.md) for current SPA ownership,
+the chosen React/Vite/TanStack/Jotai stack and explicitly deferred contracts.
+Office must not import local SQLite/process adapters or native test helpers.
+Cloud services and wire contracts have reserved documented owners, not runnable
+implementations. Ordinary CLI operations remain independent of Office.
+
+`scripts/ci-scope.mjs` owns conservative affected-area selection and final gate
+validation. Office-only source/docs avoid native matrices; native source/skill
+changes avoid Office. Shared or unknown paths (including lockfiles, security,
+contracts, workflows and test tooling) fan out. Empty diffs fail closed to both.
+Diffs include deletions and both sides of renames. Existing required check names
+remain; `Code quality` gates selected Office verification and `Native package
+matrix` gates all selected native jobs. Selected skipped, cancelled or failed
+jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
 
 ## Runtime layers
 

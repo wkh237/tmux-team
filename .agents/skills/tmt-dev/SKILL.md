@@ -21,7 +21,8 @@ Read the repository guidance before planning work:
 
 1. Start from a tracked issue whose outcome, scope, acceptance criteria,
    dependencies, and project relationship are clear. Create its dedicated branch
-   and worktree before implementation; follow AGENTS for state and commit attribution.
+   before implementation; use an additional worktree only when AGENTS calls for
+   isolation or concurrent work. Follow AGENTS for state and commit attribution.
 2. Before editing, inspect relevant existing patterns locally or delegate a
    read-only audit when it is worth the coordination and review effort. Keep
    inspection proportional to the change; record material findings and their
@@ -55,8 +56,11 @@ Read the repository guidance before planning work:
 
 ## Architecture maintenance
 
-Rust is the sole product runtime; Node modules under scripts and test directories
-are developer tooling. Keep native process, Docker and tooling checks distinct,
+Rust is the sole CLI runtime; the optional Office SPA is a separate browser
+application. Read [Office architecture](../../../docs/office/architecture.md)
+when touching the app, workspace or planned cloud/connector boundaries. Node
+modules under scripts and test directories are developer tooling. Keep Office,
+native process, Docker and tooling checks distinct,
 and never substitute obsolete TypeScript coverage percentages for native
 verification. A raw-binary platform smoke does not replace the release archive,
 bootstrap or upgrade gates. Keep their shared runtime proof in one owner.
