@@ -11,8 +11,6 @@ pub fn grammar() -> Command {
         .args_override_self(true);
     for id in [
         "json",
-        "verbose",
-        "debug",
         "force",
         "config",
         "delay",
@@ -225,7 +223,7 @@ fn storage(name: &'static str, about: &'static str) -> Command {
 }
 
 fn general(name: &'static str, about: &'static str) -> Command {
-    with_options(storage(name, about), &["verbose", "debug", "wait", "team"])
+    with_options(storage(name, about), &["wait", "team"])
 }
 
 fn with_options(mut command: Command, ids: &[&'static str]) -> Command {
@@ -240,10 +238,7 @@ fn operand(id: &'static str, required: bool) -> Arg {
 }
 
 pub fn root_allowed(id: &str) -> bool {
-    matches!(
-        id,
-        "json" | "verbose" | "debug" | "help" | "version" | "team"
-    )
+    matches!(id, "json" | "help" | "version" | "team")
 }
 
 /// Completion generators include hidden and inherited arguments. Project only
@@ -290,8 +285,6 @@ fn option(id: &'static str) -> Arg {
     };
     match id {
         "json" => flag("Output one JSON document"),
-        "verbose" => flag("Show detailed output").short('v'),
-        "debug" => flag("Show diagnostics"),
         "force" => flag("Confirm saved-identity removal or skip advisory warnings").short('f'),
         "save" => flag("Preserve this identity after its pane is gone").short('s'),
         "help" => flag("Show help").short('h').hide(true),

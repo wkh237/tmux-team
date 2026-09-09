@@ -82,10 +82,7 @@ fn find_option<'a>(commands: &[&'a Command], predicate: impl Fn(&Arg) -> bool) -
 }
 
 fn record(mode: &mut OutputMode, option: &Arg) {
-    match option.get_id().as_str() {
-        "json" => mode.json = true,
-        "verbose" => mode.verbose = true,
-        "debug" => mode.debug = true,
-        _ => {}
+    if option.get_id() == "json" {
+        mode.json = true;
     }
 }

@@ -494,8 +494,8 @@ such as reply `--receipt`, talk/send `--identity`, or install `--dir` after
 their command. Use `--`
 before a positional message beginning with a hyphen, or equals syntax for
 an option value, such as `--message='--json is literal text'`. Literal text
-does not enable diagnostic flags. Reply/result accept only their documented
-options; `--verbose` and `--debug` are not supported there.
+does not enable output flags. The former no-op `--verbose`/`-v` and `--debug`
+options are unsupported on every command; remove them from invocations.
 
 ## View and install the bundled skill
 

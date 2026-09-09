@@ -105,8 +105,6 @@ fn mode(matches: &ArgMatches) -> OutputMode {
     }
     OutputMode {
         json: flag(leaf, "json"),
-        verbose: flag(leaf, "verbose"),
-        debug: flag(leaf, "debug"),
     }
 }
 

@@ -137,8 +137,6 @@ pub enum ExchangeOperation {
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct OutputMode {
     pub json: bool,
-    pub verbose: bool,
-    pub debug: bool,
 }
 
 #[derive(Debug, PartialEq)]

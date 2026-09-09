@@ -57,6 +57,9 @@ The maintained public surface is:
 The grammar owns option placement and rejection. Handlers do not search raw
 argv, create competing option parsers, or reinterpret payload text as flags.
 JSON and human output use the same typed result and status contracts.
+`OutputMode` contains only the supported JSON selection. Former no-op
+`--verbose`/`-v` and `--debug` flags are absent from the grammar and fail with
+`USAGE_ERROR` before effects; literal message/option-value text is unchanged.
 
 `output::table` is the single plain human-table renderer for binding, identity,
 exchange and configuration reports. Callers own columns and typed projections;
