@@ -27,12 +27,20 @@ Rust, test, release script and canonical skill paths remain stable. Read
 the chosen React/Vite/TanStack/Jotai stack and the
 [Office design](docs/office/design.md) for planned trust/lifecycle semantics.
 Office must not import local SQLite/process adapters or native test helpers.
-Cloud services remain reserved, not runnable implementations. `contracts/office`
+Cloud product services remain unimplemented; the emulator bootstrap below is
+local verification infrastructure. `contracts/office`
 owns the versioned work-handoff schema and fixtures; derived representations must
 prove conformance there. Structural tests do not prove remote authorization or
 delivery. Future connector dispatch reuses native request/storage ownership,
 not CLI-output scraping or a competing exchange engine. Ordinary CLI operations
 remain independent of Office.
+
+`services/office` now contains the isolated Firebase emulator bootstrap (#184),
+not a deployed service. Its shared demo-project configuration and deny-all rules
+have no product membership semantics. Owner-local project aliases/secrets are
+excluded from Git and Docker; the image has no host credential/data mounts.
+`scripts/verify-office-emulators.mjs` proves emulator transport and fixture
+cleanup separately from native tmux E2E and future Office authorization tests.
 
 `scripts/ci-scope.mjs` owns conservative affected-area selection and final gate
 validation. Office-only source/docs avoid native matrices; native source/skill

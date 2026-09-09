@@ -16,13 +16,13 @@ route, setup explanation, unknown-route recovery and provider-local presentation
 state. It does not authenticate, contact Firebase, load local identities, install
 an extension, open a listener or dispatch work. The native CLI remains unchanged.
 
-| Owner                        | Responsibility                                              | Forbidden dependency                                                    |
-| ---------------------------- | ----------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `apps/office`                | Browser routes, accessible views, UI state, app tests       | Local SQLite, filesystem/process APIs, Rust source or test helpers      |
-| `services/office` (reserved) | Future Firebase rules, indexes and emulator tests           | Unrestricted local execution or implicit agent authority                |
-| `contracts/office`           | Versioned design schema and structural conformance fixtures | Browser rendering, Firebase effects or duplicate domain policy          |
-| `rust/`                      | Existing local CLI, domain and concrete adapters            | Office assets, Node or a Firebase account required by ordinary commands |
-| `docs/office`                | Decisions, scenarios and operational guidance               | Describing planned behavior as shipped                                  |
+| Owner              | Responsibility                                                              | Forbidden dependency                                                    |
+| ------------------ | --------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `apps/office`      | Browser routes, accessible views, UI state, app tests                       | Local SQLite, filesystem/process APIs, Rust source or test helpers      |
+| `services/office`  | Demo-project emulator bootstrap and deny-all rules; product policy deferred | Unrestricted local execution or implicit agent authority                |
+| `contracts/office` | Versioned design schema and structural conformance fixtures                 | Browser rendering, Firebase effects or duplicate domain policy          |
+| `rust/`            | Existing local CLI, domain and concrete adapters                            | Office assets, Node or a Firebase account required by ordinary commands |
+| `docs/office`      | Decisions, scenarios and operational guidance                               | Describing planned behavior as shipped                                  |
 
 There is no connector crate, deployable service or shared runtime package yet.
 Create each only with its first concrete consumer and reviewed contract.

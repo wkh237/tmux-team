@@ -107,6 +107,13 @@ failed, cancelled or unexpectedly skipped selected jobs. CI changes need positiv
 and negative selection/gate evidence before pushing; do not change branch
 protection merely to get a newly skipped job accepted.
 
+For the separate Office Auth/Firestore environment, follow
+[`services/office/README.md`](services/office/README.md). It uses Docker-contained
+Java and Firebase tooling with a demo project; no host Firebase login is required
+for emulator tests. Local real-project mappings and credentials must remain
+ignored by both Git and Docker. Never substitute this bootstrap smoke proof for
+future membership rules, invitation or browser tests.
+
 ## Rust checks
 
 Run from `rust/` for a normal native change:
