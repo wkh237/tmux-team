@@ -1,14 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { withE2EFixture, type E2EFixtureOptions } from './harness.js';
+import { withE2EFixture } from './harness.js';
 import { durableState } from './identity-state-oracle.js';
 
-function options(): E2EFixtureOptions {
-  const native = process.env.TMT_TEST_NATIVE_CLI;
-  if (!native) throw new Error('Native profile E2E requires the Docker-built CLI.');
-  return { mode: 'input-log', executableEnv: { TMT_TEST_CLI: native } };
-}
+const inputLog = { mode: 'input-log' } as const;
 
-describe.sequential('native profile identity lifecycle', () => {
+describe.sequential('profile ownership across binding transitions', () => {
   it('uses a verified implicit role and preserves saved profiles across unbind and rebind', async () => {
     await withE2EFixture(async (fixture) => {
       expect(await fixture.runJsonCli(['name', 'Alice', '-s'])).toMatchObject({ code: 0 });
@@ -56,7 +52,7 @@ describe.sequential('native profile identity lifecycle', () => {
         expect.objectContaining({ content: 'offline role' }),
       ]);
       expect(fixture.paneMetadata(peer.pane)).toBe('');
-    }, options());
+    }, inputLog);
   });
 
   it('does not mutate profiles when caller metadata no longer verifies', async () => {
@@ -85,7 +81,7 @@ describe.sequential('native profile identity lifecycle', () => {
       expect(durableState(fixture).bindings).toEqual([]);
       expect(durableState(fixture).profiles).toEqual(profiles);
       expect(JSON.parse(fixture.paneMetadata())).toEqual(metadata);
-    }, options());
+    }, inputLog);
   });
 
   it('hides retired temporary profiles without leaking them to a reused name', async () => {
@@ -106,7 +102,9 @@ describe.sequential('native profile identity lifecycle', () => {
         json: { preambles: [] },
       });
       expect(
-        await fixture.runJsonCli(['role', 'show', '--identity', 'Temporary'], { withoutTmux: true })
+        await fixture.runJsonCli(['role', 'show', '--identity', 'Temporary'], {
+          withoutTmux: true,
+        })
       ).toMatchObject({ code: 3, json: { error: { code: 'NAME_NOT_FOUND' } } });
       const fresh = await fixture.runJsonCli<{ id: string }>(['name', 'Temporary']);
       expect(fresh.code).toBe(0);
@@ -122,6 +120,6 @@ describe.sequential('native profile identity lifecycle', () => {
       expect(durableState(fixture).profiles).toEqual([
         expect.objectContaining({ identity_id: old.json?.id, content: 'old role' }),
       ]);
-    }, options());
+    }, inputLog);
   });
 });

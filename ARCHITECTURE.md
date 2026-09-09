@@ -225,6 +225,20 @@ contention, crash cleanup, retention, acknowledgment and late-final behavior.
 Tooling tests prove release-script policy and bounded command wrappers; they do
 not count as native runtime or release-archive proof.
 
+Within Docker E2E, `cli-assertions.ts` owns the repeated strict success envelope
+(zero exit, empty stderr, defined parsed JSON), not domain validation or command
+execution. Scenario-specific payload projections and assertions stay local;
+sharing a type must not turn required fields into optional ones. A different
+stderr or parsing contract is not an interchangeable helper. The native-process
+assertions in `test/support/cli-process.ts` retain their own process-result shape.
+
+All public-command E2E scenarios use `test/support/cli-executable.mjs` through
+the harness. There is no separate product-only native selector; explicit
+`TMT_TEST_CLI`/peer descriptors still exercise override and nested-reply behavior.
+`tmux-adapter` and `transport-adapter` deliberately select the test-only tmux
+probe, not the public CLI. Their evidence cannot replace public command tests.
+Feature ownership and deliberate overlap are mapped in DEVELOPMENT.md.
+
 The six required runtime smoke environments are macOS x64/arm64, Linux glibc
 x64/arm64 and Linux musl x64/arm64. Four raw native builds feed these checks;
 the static Linux musl binaries are reused for both Linux environments. The

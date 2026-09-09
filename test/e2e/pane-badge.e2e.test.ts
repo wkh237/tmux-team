@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { withE2EFixture, type CliResult, type E2EFixture } from './harness.js';
+import { expectJsonResult } from './cli-assertions.js';
+import { withE2EFixture, type E2EFixture } from './harness.js';
 import { durableIdentity, durableState } from './identity-state-oracle.js';
 
 const BADGE_OPTION = '@tmux-team.badge';
@@ -9,13 +10,6 @@ const USER_FORMAT = '#[align=left]#{window_index}.#{pane_index}#[align=right]rep
 const BADGE_FRAGMENT = '#{?@tmux-team.badge, [#{@tmux-team.badge}],}';
 const COLORED_BADGE_FRAGMENT =
   '#{?#{&&:#{@tmux-team.badge},#{e|>=:#{pane_width},80}},#[push-default]#[fg=black bg=colour153] #{@tmux-team.badge} #[default]#[pop-default],}';
-
-function successful<T>(result: CliResult<T>): T {
-  expect(result.code, result.stderr || result.stdout).toBe(0);
-  expect(result.stderr).toBe('');
-  expect(result.json).toBeDefined();
-  return result.json as T;
-}
 
 function badge(fixture: E2EFixture): string {
   // The minimal Docker image has no UTF-8 locale. Request UTF-8 output so tmux
@@ -45,11 +39,11 @@ describe.sequential('non-invasive pane badge presentation', () => {
       configureUserAppearance(fixture);
       fixture.tmux(['new-session', '-d', '-t', 'e2e', '-s', 'grouped']);
       const before = appearance(fixture);
-      successful(await fixture.runJsonCli(['name', 'alice']));
+      expectJsonResult(await fixture.runJsonCli(['name', 'alice']));
       expect(badge(fixture)).toBe('');
       expect(appearance(fixture)).toEqual(before);
-      successful(await fixture.runJsonCli(['this', 'alice']));
-      successful(await fixture.runJsonCli(['unbind']));
+      expectJsonResult(await fixture.runJsonCli(['this', 'alice']));
+      expectJsonResult(await fixture.runJsonCli(['unbind']));
       expect(appearance(fixture)).toEqual(before);
       expect(badge(fixture)).toBe('');
       expect(durableState(fixture).bindings).toHaveLength(0);
@@ -66,13 +60,13 @@ describe.sequential('non-invasive pane badge presentation', () => {
       fixture.tmux(['new-session', '-d', '-s', 'independent', 'sleep 300']);
       fixture.tmux(['link-window', '-s', 'e2e:0', '-t', 'independent:']);
       const before = appearance(fixture);
-      successful(
+      expectJsonResult(
         await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'on', '--global'], {
           withoutTmux: true,
         })
       );
       expect(badge(fixture)).toBe('');
-      successful(await fixture.runJsonCli(['add', fixture.pane, 'alice']));
+      expectJsonResult(await fixture.runJsonCli(['add', fixture.pane, 'alice']));
       expect(badge(fixture)).toBe('alice (tmt)');
       const rendered = fixture.tmux(['display-message', '-p', '-t', fixture.pane, integrated]);
       expect(rendered).toContain(' [alice (tmt)]');
@@ -88,25 +82,25 @@ describe.sequential('non-invasive pane badge presentation', () => {
       expect(fixture.paneMetadata()).toBe(metadata);
       expect(durableState(fixture).bindings).toEqual(bindings);
 
-      successful(
+      expectJsonResult(
         await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'off', '--global'], {
           withoutTmux: true,
         })
       );
       expect(badge(fixture)).toBe('alice (tmt)');
-      successful(await fixture.runJsonCli(['this', 'alice']));
+      expectJsonResult(await fixture.runJsonCli(['this', 'alice']));
       expect(badge(fixture)).toBe('');
       expect(
         fixture.tmux(['-u', 'display-message', '-p', '-t', fixture.pane, BADGE_FRAGMENT]).trim()
       ).toBe('');
-      successful(
+      expectJsonResult(
         await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'on', '--global'], {
           withoutTmux: true,
         })
       );
-      successful(await fixture.runJsonCli(['name', 'alice']));
+      expectJsonResult(await fixture.runJsonCli(['name', 'alice']));
       expect(badge(fixture)).toBe('alice (tmt)');
-      successful(await fixture.runJsonCli(['unbind']));
+      expectJsonResult(await fixture.runJsonCli(['unbind']));
       expect(badge(fixture)).toBe('');
       expect(appearance(fixture)).toEqual(before);
     });
@@ -114,9 +108,11 @@ describe.sequential('non-invasive pane badge presentation', () => {
 
   it('keeps format-like identity names literal in the cosmetic label', async () => {
     await withE2EFixture(async (fixture) => {
-      successful(await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'on', '--global']));
+      expectJsonResult(
+        await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'on', '--global'])
+      );
       const name = '#[fg=red]#{pane_title}#(false)';
-      successful(await fixture.runJsonCli(['name', name]));
+      expectJsonResult(await fixture.runJsonCli(['name', name]));
       const identity = durableIdentity(fixture, name);
       expect(identity.lifetime).toBe('temporary');
       const label = '＃[fg=red]＃{pane_title}＃(false) (tmt)';
@@ -124,7 +120,7 @@ describe.sequential('non-invasive pane badge presentation', () => {
       expect(
         fixture.tmux(['-u', 'display-message', '-p', '-t', fixture.pane, BADGE_FRAGMENT]).trim()
       ).toBe(`[${label}]`);
-      expect(successful(await fixture.runJsonCli(['whoami']))).toEqual({
+      expect(expectJsonResult(await fixture.runJsonCli(['whoami']))).toEqual({
         bound: true,
         id: identity.id,
         name,
@@ -138,8 +134,10 @@ describe.sequential('non-invasive pane badge presentation', () => {
     await withE2EFixture(async (fixture) => {
       configureUserAppearance(fixture);
       const before = appearance(fixture);
-      successful(await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'on', '--global']));
-      successful(await fixture.runJsonCli(['name', 'alice']));
+      expectJsonResult(
+        await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'on', '--global'])
+      );
+      expectJsonResult(await fixture.runJsonCli(['name', 'alice']));
       const rendered = () =>
         fixture.tmux(['display-message', '-p', '-t', fixture.pane, COLORED_BADGE_FRAGMENT]).trim();
       fixture.tmux(['resize-window', '-t', fixture.pane, '-x', '120']);
@@ -149,7 +147,7 @@ describe.sequential('non-invasive pane badge presentation', () => {
       fixture.tmux(['resize-window', '-t', fixture.pane, '-x', '60']);
       expect(rendered()).toBe('');
       fixture.tmux(['resize-window', '-t', fixture.pane, '-x', '120']);
-      successful(await fixture.runJsonCli(['unbind']));
+      expectJsonResult(await fixture.runJsonCli(['unbind']));
       expect(rendered()).toBe('');
       expect(appearance(fixture)).toEqual(before);
     });
@@ -159,7 +157,9 @@ describe.sequential('non-invasive pane badge presentation', () => {
     await withE2EFixture(async (fixture) => {
       configureUserAppearance(fixture);
       const before = appearance(fixture);
-      successful(await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'on', '--global']));
+      expectJsonResult(
+        await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'on', '--global'])
+      );
       const wrapper = path.join(fixture.wrapperDir, 'tmux');
       const denied = path.join(fixture.root, 'badge-denied.log');
       fs.writeFileSync(
@@ -171,10 +171,10 @@ describe.sequential('non-invasive pane badge presentation', () => {
             `#!/bin/sh\nfor argument in "$@"; do\n  if [ "$argument" = "@tmux-team.badge" ]; then printf 'denied\\n' >> '${denied}'; exit 1; fi\ndone\n`
           )
       );
-      successful(await fixture.runJsonCli(['name', 'alice']));
+      expectJsonResult(await fixture.runJsonCli(['name', 'alice']));
       const identity = durableIdentity(fixture, 'alice');
       expect(identity.lifetime).toBe('temporary');
-      expect(successful(await fixture.runJsonCli(['whoami']))).toEqual({
+      expect(expectJsonResult(await fixture.runJsonCli(['whoami']))).toEqual({
         bound: true,
         id: identity.id,
         name: 'alice',
@@ -182,7 +182,7 @@ describe.sequential('non-invasive pane badge presentation', () => {
         lifetime: 'temporary',
       });
       expect(durableState(fixture).bindings).toHaveLength(1);
-      successful(await fixture.runJsonCli(['unbind']));
+      expectJsonResult(await fixture.runJsonCli(['unbind']));
       expect(durableState(fixture).bindings).toHaveLength(0);
       expect(fs.readFileSync(denied, 'utf8').trim().split('\n')).toEqual(['denied', 'denied']);
       expect(appearance(fixture)).toEqual(before);
@@ -193,8 +193,10 @@ describe.sequential('non-invasive pane badge presentation', () => {
     await withE2EFixture(async (fixture) => {
       configureUserAppearance(fixture);
       const before = appearance(fixture);
-      successful(await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'on', '--global']));
-      successful(await fixture.runJsonCli(['name', 'alice']));
+      expectJsonResult(
+        await fixture.runJsonCli(['config', 'set', 'ui.paneBadge', 'on', '--global'])
+      );
+      expectJsonResult(await fixture.runJsonCli(['name', 'alice']));
       const committed = durableState(fixture);
       const metadata = fixture.paneMetadata();
       const configPath = path.join(fixture.globalDir, 'config.json');
@@ -213,7 +215,7 @@ describe.sequential('non-invasive pane badge presentation', () => {
         expect(badge(fixture)).toBe('alice (tmt)');
       }
 
-      successful(await fixture.runJsonCli(['unbind']));
+      expectJsonResult(await fixture.runJsonCli(['unbind']));
       expect(durableState(fixture).bindings).toHaveLength(0);
       expect(badge(fixture)).toBe('');
       expect(appearance(fixture)).toEqual(before);

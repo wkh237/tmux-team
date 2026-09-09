@@ -1,11 +1,7 @@
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import {
-  withE2EFixture,
-  type CliResult,
-  type E2EFixture,
-  type E2EFixtureOptions,
-} from './harness.js';
+import { expectJsonResult } from './cli-assertions.js';
+import { withE2EFixture, type E2EFixture } from './harness.js';
 import { durableState } from './identity-state-oracle.js';
 import { requestAttempts, requestResponses, type AttemptRow } from './request-state-oracle.js';
 
@@ -31,37 +27,20 @@ interface AttentionAttemptRow extends AttemptRow {
   readonly attention_acknowledged_revision: number;
 }
 
-function options(extra: E2EFixtureOptions = {}): E2EFixtureOptions {
-  const native = process.env.TMT_TEST_NATIVE_CLI;
-  if (!native) throw new Error('Native exchange-attention E2E requires the Docker-built CLI.');
-  return {
-    mode: 'respond',
-    executableEnv: { TMT_TEST_CLI: native },
-    ...extra,
-  };
-}
-
-function success<T>(result: CliResult<T>): T {
-  expect(result.code, result.stderr || result.stdout).toBe(0);
-  expect(result.stderr).toBe('');
-  expect(result.json).toBeDefined();
-  return result.json as T;
-}
-
 function attentionAttempt(fixture: E2EFixture, requestId: string): AttentionAttemptRow {
   const attempt = requestAttempts(fixture).find((row) => row.request_id === requestId);
   expect(attempt).toBeDefined();
   return attempt as AttentionAttemptRow;
 }
 
-describe.sequential('native exchange attention through Docker/tmux', () => {
+describe.sequential('exchange attention watermarks and revision fencing', () => {
   it('keeps implicit attribution, explicit offline attention, watermark cutoffs, and late revisions causal', async () => {
     const original = 'native attention original prompt';
     const body = '\uFEFFlate native final\r\n日本語🙂  ';
 
     await withE2EFixture(
       async (fixture) => {
-        const created = success(
+        const created = expectJsonResult(
           await fixture.runJsonCli<{ identity: Identity; created: boolean }>(
             ['identity', 'create', 'AttentionOwner'],
             { withoutTmux: true }
@@ -76,13 +55,15 @@ describe.sequential('native exchange attention through Docker/tmux', () => {
             lifetime: 'saved',
           },
         });
-        expect(success(await fixture.runJsonCli(['name', 'AttentionOwner']))).toMatchObject({
+        expect(
+          expectJsonResult(await fixture.runJsonCli(['name', 'AttentionOwner']))
+        ).toMatchObject({
           bound: true,
           name: 'AttentionOwner',
           pane: fixture.pane,
         });
 
-        const detached = success(
+        const detached = expectJsonResult(
           await fixture.runJsonCli<TalkOutput>([
             'talk',
             fixture.pane,
@@ -122,7 +103,7 @@ describe.sequential('native exchange attention through Docker/tmux', () => {
 
         // Remove caller binding before all attention reads: explicit saved identity selection is
         // storage-only and must work offline without silently falling back to pane discovery.
-        expect(success(await fixture.runJsonCli(['unbind']))).toMatchObject({
+        expect(expectJsonResult(await fixture.runJsonCli(['unbind']))).toMatchObject({
           unbound: true,
           name: 'AttentionOwner',
         });
@@ -130,7 +111,7 @@ describe.sequential('native exchange attention through Docker/tmux', () => {
 
         // This is deliberately the first x operation; ackall uses its identity watermark and
         // does not require a preceding list, show, token, or body read.
-        const acknowledged = success<{ identity: Identity; acknowledgedThrough: number }>(
+        const acknowledged = expectJsonResult<{ identity: Identity; acknowledgedThrough: number }>(
           await fixture.runJsonCli(['x', 'ackall', '--identity', 'attentionowner'], {
             withoutTmux: true,
           })
@@ -141,7 +122,7 @@ describe.sequential('native exchange attention through Docker/tmux', () => {
         });
         expect(attentionAttempt(fixture, requestId).attention_acknowledged_revision).toBe(0);
 
-        const beforeFinal = success<{
+        const beforeFinal = expectJsonResult<{
           identity: Identity;
           items: unknown[];
           nextAfter: number | null;
@@ -175,7 +156,7 @@ describe.sequential('native exchange attention through Docker/tmux', () => {
           }),
         ]);
 
-        const reopened = success<{
+        const reopened = expectJsonResult<{
           identity: Identity;
           items: Array<{
             requestId: string;
@@ -227,7 +208,7 @@ describe.sequential('native exchange attention through Docker/tmux', () => {
         });
         expect(attentionAttempt(fixture, requestId).attention_acknowledged_revision).toBe(0);
 
-        const current = success<{
+        const current = expectJsonResult<{
           identity: Identity;
           requestId: string;
           revision: number;
@@ -247,7 +228,7 @@ describe.sequential('native exchange attention through Docker/tmux', () => {
         });
         expect(attentionAttempt(fixture, requestId).attention_acknowledged_revision).toBe(2);
 
-        const shown = success<{
+        const shown = expectJsonResult<{
           identity: Identity;
           exchange: {
             requestId: string;
@@ -295,8 +276,8 @@ describe.sequential('native exchange attention through Docker/tmux', () => {
         });
         // Rebinding the same saved UUID restores implicit access to the same
         // retained exchange, without a second identity or attention owner.
-        success(await fixture.runJsonCli(['name', 'AttentionOwner']));
-        expect(success(await fixture.runJsonCli(['x', 'show', requestId]))).toEqual(shown);
+        expectJsonResult(await fixture.runJsonCli(['name', 'AttentionOwner']));
+        expect(expectJsonResult(await fixture.runJsonCli(['x', 'show', requestId]))).toEqual(shown);
         expect(
           fixture
             .events()
@@ -314,7 +295,7 @@ describe.sequential('native exchange attention through Docker/tmux', () => {
         ).toHaveLength(1);
         expect(fs.existsSync(fixture.forbiddenTmuxLogPath)).toBe(false);
       },
-      options({ replyGate: true, responseBodyBase64: Buffer.from(body).toString('base64') })
+      { mode: 'respond', replyGate: true, responseBodyBase64: Buffer.from(body).toString('base64') }
     );
   }, 25_000);
 });

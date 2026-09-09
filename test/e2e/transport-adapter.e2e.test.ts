@@ -23,7 +23,7 @@ function inputLines(fixture: E2EFixture, pid: number): (string | undefined)[] {
     .map((event) => event.line);
 }
 
-describe.sequential('native message transport adapter (not public talk parity)', () => {
+describe.sequential('transport adapter probe: delivery stages and capture', () => {
   it.each([false, true])(
     'delivers protected text once and preserves unrelated buffers (fallback: %s)',
     async (fallback) => {

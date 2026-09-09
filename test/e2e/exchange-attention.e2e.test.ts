@@ -1,7 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { withE2EFixture, type CliResult, type E2EFixture } from './harness.js';
+import { expectJsonResult } from './cli-assertions.js';
+import { withE2EFixture, type E2EFixture } from './harness.js';
 
 interface PublicIdentity {
   readonly id: string;
@@ -13,13 +14,6 @@ interface TalkResult {
   readonly status?: string;
   readonly requestId?: string;
   readonly error?: { readonly code?: string };
-}
-
-function success<T>(result: CliResult<T>): T {
-  expect(result.code, result.stderr || result.stdout).toBe(0);
-  expect(result.stderr).toBe('');
-  expect(result.json).toBeDefined();
-  return result.json as T;
 }
 
 function malformedConfig(fixture: E2EFixture): { global: string; local: string } {
@@ -42,7 +36,7 @@ describe.sequential('Exchange attention through the real Docker/tmux fixture', (
   it('ackall works before any list, late finals reopen attention, and explicit/implicit identity access survives rebind', async () => {
     await withE2EFixture(
       async (fixture) => {
-        const created = success(
+        const created = expectJsonResult(
           await fixture.runJsonCli<{ identity: PublicIdentity; created: boolean }>(
             ['identity', 'create', 'Alice'],
             { withoutTmux: true }
@@ -51,7 +45,7 @@ describe.sequential('Exchange attention through the real Docker/tmux fixture', (
         expect(created.created).toBe(true);
         await calibrateOfflineTmuxGuard(fixture);
 
-        const detached = success(
+        const detached = expectJsonResult(
           await fixture.runJsonCli<TalkResult>([
             'talk',
             fixture.pane,
@@ -73,7 +67,7 @@ describe.sequential('Exchange attention through the real Docker/tmux fixture', (
 
         // The acknowledgement is intentionally the first exchange read: ackall must use only
         // the identity watermark and cannot depend on a preceding list or body lookup.
-        const acknowledged = success(
+        const acknowledged = expectJsonResult(
           await fixture.runJsonCli<{ identity: PublicIdentity; acknowledgedThrough: number }>(
             ['x', 'ackall', '--identity', 'alice'],
             { withoutTmux: true }
@@ -90,7 +84,7 @@ describe.sequential('Exchange attention through the real Docker/tmux fixture', (
         );
         expect(submitted.body).toBe('mock-agent response: late attention final');
 
-        const reopened = success<{
+        const reopened = expectJsonResult<{
           identity: PublicIdentity;
           items: Array<Record<string, unknown>>;
           nextAfter: number | null;
@@ -111,7 +105,7 @@ describe.sequential('Exchange attention through the real Docker/tmux fixture', (
         expect(JSON.stringify(reopened)).not.toContain('attemptId');
         expect(JSON.stringify(reopened)).not.toContain('socketPath');
 
-        const exact = success<{
+        const exact = expectJsonResult<{
           identity: PublicIdentity;
           exchange: { final: { status: string; response?: string; bodyBytes?: number } };
         }>(
@@ -142,7 +136,7 @@ describe.sequential('Exchange attention through the real Docker/tmux fixture', (
           );
           fs.writeFileSync(path.join(fixture.globalDir, 'config.json'), '{}');
           fs.writeFileSync(path.join(fixture.workspace, 'tmux-team.json'), '{}');
-          expect(success(await fixture.runJsonCli(['name', name]))).toEqual({
+          expect(expectJsonResult(await fixture.runJsonCli(['name', name]))).toEqual({
             bound: true,
             id: created.identity.id,
             lifetime: 'saved',
@@ -152,14 +146,14 @@ describe.sequential('Exchange attention through the real Docker/tmux fixture', (
           expect(malformedConfig(fixture)).toEqual(configs);
         };
         await bindWithValidSettings('Alice', fixture.pane);
-        const implicit = success<{ items: Array<Record<string, unknown>> }>(
+        const implicit = expectJsonResult<{ items: Array<Record<string, unknown>> }>(
           await fixture.runJsonCli(['x', 'list'])
         );
         expect(implicit.items.some((item) => item.requestId === requestId)).toBe(true);
 
         const restarted = await fixture.restartServer();
         await bindWithValidSettings('alice', restarted.pane);
-        const afterRebind = success<{ identity: PublicIdentity }>(
+        const afterRebind = expectJsonResult<{ identity: PublicIdentity }>(
           await fixture.runJsonCli(['x', 'show', requestId])
         );
         expect(afterRebind.identity).toEqual(created.identity);
@@ -177,7 +171,7 @@ describe.sequential('Exchange attention through the real Docker/tmux fixture', (
   it('recovers a timed-out explicit exchange and shows the exact virtualized final body without reading the terminal', async () => {
     await withE2EFixture(
       async (fixture) => {
-        const created = success(
+        const created = expectJsonResult(
           await fixture.runJsonCli<{ identity: PublicIdentity; created: boolean }>(
             ['identity', 'create', 'VirtualizedOwner'],
             { withoutTmux: true }
@@ -225,7 +219,7 @@ describe.sequential('Exchange attention through the real Docker/tmux fixture', (
         );
         expect(submitted.body).toBe(expectedBody);
 
-        const listed = success<{
+        const listed = expectJsonResult<{
           items: Array<{
             requestId: string;
             revision: number;
@@ -245,7 +239,7 @@ describe.sequential('Exchange attention through the real Docker/tmux fixture', (
         });
         expect(item?.revision).toBeGreaterThan(1);
 
-        const acked = success<{ changed: boolean; revision: number }>(
+        const acked = expectJsonResult<{ changed: boolean; revision: number }>(
           await fixture.runJsonCli(
             [
               'x',
@@ -261,7 +255,7 @@ describe.sequential('Exchange attention through the real Docker/tmux fixture', (
         );
         expect(acked).toMatchObject({ changed: true, revision: item!.revision });
 
-        const shown = success<{
+        const shown = expectJsonResult<{
           exchange: {
             acknowledged: boolean;
             settled: boolean;

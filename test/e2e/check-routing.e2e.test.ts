@@ -1,9 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { withE2EFixture, type E2EFixture, type E2EFixtureOptions } from './harness.js';
+import { withE2EFixture, type E2EFixture } from './harness.js';
 import { durableState } from './identity-state-oracle.js';
 import { installTmuxTrace } from './tmux-trace.js';
+
+const inputLog = { mode: 'input-log' } as const;
 
 interface Capture {
   target: string;
@@ -11,12 +13,6 @@ interface Capture {
   identity?: { name: string; canonicalName: string };
   lines: number;
   output: string;
-}
-
-function options(extra: E2EFixtureOptions = {}): E2EFixtureOptions {
-  const native = process.env.TMT_TEST_NATIVE_CLI;
-  if (!native) throw new Error('Native check E2E requires the Docker-built CLI.');
-  return { mode: 'input-log', executableEnv: { TMT_TEST_CLI: native }, ...extra };
 }
 
 async function seedDiagnostic(fixture: E2EFixture, message: string): Promise<void> {
@@ -29,7 +25,7 @@ async function seedDiagnostic(fixture: E2EFixture, message: string): Promise<voi
   await fixture.waitForCapture((output) => output.includes(message));
 }
 
-describe.sequential('native current-server diagnostic routing', () => {
+describe.sequential('current-server diagnostic routing', () => {
   it('captures names, stable panes and tmux targets with configured and explicit line counts', async () => {
     await withE2EFixture(async (fixture) => {
       expect(await fixture.runJsonCli(['name', 'Alice'])).toMatchObject({
@@ -84,7 +80,7 @@ describe.sequential('native current-server diagnostic routing', () => {
       expect(unbound.json).not.toHaveProperty('identity');
       const missing = await fixture.runJsonCli(['check', '%999999']);
       expect(missing).toMatchObject({ code: 3, json: { error: { code: 'PANE_NOT_FOUND' } } });
-    }, options());
+    }, inputLog);
   });
 
   it.each([false, true])(
@@ -113,9 +109,9 @@ describe.sequential('native current-server diagnostic routing', () => {
             expect(durableState(first)).toEqual(before);
             expect(second.paneMetadata()).toBe('');
           },
-          options({ globalDir: first.globalDir })
+          { ...inputLog, globalDir: first.globalDir }
         );
-      }, options());
+      }, inputLog);
     }
   );
 
@@ -146,7 +142,7 @@ describe.sequential('native current-server diagnostic routing', () => {
       expect(paneQueries).toHaveLength(1);
       expect(paneQueries[0]).toContain(' -f ');
       expect(paneQueries[0]).toContain(fixture.pane);
-    }, options());
+    }, inputLog);
   });
 
   it.each(['exit', 'overflow', 'timeout'] as const)(
@@ -160,7 +156,7 @@ describe.sequential('native current-server diagnostic routing', () => {
         expect(result.json).not.toHaveProperty('output');
         expect(result.stdout).not.toContain('\u0000');
         expect(fixture.paneMetadata()).toBe('');
-      }, options());
+      }, inputLog);
     }
   );
 });

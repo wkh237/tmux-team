@@ -1,12 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import {
-  withE2EFixture,
-  type CliResult,
-  type E2EFixture,
-  type E2EFixtureOptions,
-} from './harness.js';
+import { expectJsonResult } from './cli-assertions.js';
+import { withE2EFixture, type E2EFixture, type E2EFixtureOptions } from './harness.js';
 import { readRealTmuxCli, releaseRealTmuxCli, spawnRealTmuxCli } from './real-tmux-caller.js';
 
 interface Snapshot {
@@ -25,20 +21,13 @@ function fixtureOptions(): E2EFixtureOptions {
   return { mode: 'input-log', executableEnv: { TMT_TEST_CLI: probe } };
 }
 
-function successful<T>(result: CliResult<T>): T {
-  expect(result.code, result.stderr || result.stdout).toBe(0);
-  expect(result.stderr).toBe('');
-  expect(result.json).toBeDefined();
-  return result.json as T;
-}
-
-describe.sequential('native tmux adapter integration (not identity CLI parity)', () => {
+describe.sequential('tmux adapter probe: caller evidence, inventory and metadata', () => {
   it('cleans the native-selected fixture after an intentional scenario failure', async () => {
     const fixtures: E2EFixture[] = [];
     await expect(
       withE2EFixture(async (fixture) => {
         fixtures.push(fixture);
-        successful(await fixture.runJsonCli(['snapshot']));
+        expectJsonResult(await fixture.runJsonCli(['snapshot']));
         throw new Error('intentional native adapter scenario failure');
       }, fixtureOptions())
     ).rejects.toThrow('intentional native adapter scenario failure');
@@ -79,19 +68,19 @@ describe.sequential('native tmux adapter integration (not identity CLI parity)',
 
   it('rejects malformed and conflicting context without choosing the active pane', async () => {
     await withE2EFixture(async (fixture) => {
-      const malformed = successful(
+      const malformed = expectJsonResult(
         await fixture.runJsonCli<Counted & { pane: null }>(['caller'], {
           caller: { tmux: 'invalid', pane: fixture.pane },
         })
       );
       expect(malformed).toEqual({ pane: null, commandCount: 0 });
-      const conflict = successful(
+      const conflict = expectJsonResult(
         await fixture.runJsonCli<Counted & { pane: null }>(['caller'], {
           caller: { tmux: `/unrelated/socket,${fixture.serverPid},0` },
         })
       );
       expect(conflict).toEqual({ pane: null, commandCount: 1 });
-      const outside = successful(
+      const outside = expectJsonResult(
         await fixture.runJsonCli<Counted & { pane: null }>(['caller'], { outsideTmux: true })
       );
       expect(outside.pane).toBeNull();
@@ -104,12 +93,12 @@ describe.sequential('native tmux adapter integration (not identity CLI parity)',
       for (let index = 0; index < 30; index++) {
         fixture.tmux(['new-window', '-d', '-t', 'e2e:', '-n', `unbound-${index}`, 'sleep', '300']);
       }
-      const initial = successful(await fixture.runJsonCli<Snapshot & Counted>(['snapshot']));
+      const initial = expectJsonResult(await fixture.runJsonCli<Snapshot & Counted>(['snapshot']));
       expect(initial.panes).toHaveLength(31);
       expect(initial.panes.every((pane) => pane.marker === null)).toBe(true);
-      const full = successful(await fixture.runJsonCli<Snapshot & Counted>(['snapshot']));
+      const full = expectJsonResult(await fixture.runJsonCli<Snapshot & Counted>(['snapshot']));
       expect(full.commandCount).toBe(2);
-      const batched = successful(
+      const batched = expectJsonResult(
         await fixture.runJsonCli<Snapshot & Counted>([
           'snapshot',
           ...full.panes.map((pane) => pane.id),
@@ -117,21 +106,21 @@ describe.sequential('native tmux adapter integration (not identity CLI parity)',
       );
       expect(batched.panes).toEqual(full.panes);
       expect(batched.commandCount).toBe(2);
-      const scoped = successful(
+      const scoped = expectJsonResult(
         await fixture.runJsonCli<Snapshot & Counted>(['snapshot', fixture.pane])
       );
       expect(scoped.commandCount).toBe(2);
       expect(scoped.panes.map((pane) => pane.id)).toEqual([fixture.pane]);
-      const empty = successful(await fixture.runJsonCli<Snapshot & Counted>(['server']));
+      const empty = expectJsonResult(await fixture.runJsonCli<Snapshot & Counted>(['server']));
       expect(empty.commandCount).toBe(2);
       expect(empty.panes).toEqual([]);
-      const missing = successful(
+      const missing = expectJsonResult(
         await fixture.runJsonCli<Snapshot & Counted>(['snapshot', '%999999'])
       );
       expect(missing.commandCount).toBe(3);
       expect(missing.panes).toEqual([]);
       expect(missing.server).toEqual(full.server);
-      const target = successful(
+      const target = expectJsonResult(
         await fixture.runJsonCli<Counted & { pane: string }>([
           'target',
           fixture.paneTarget(fixture.pane),
@@ -167,7 +156,7 @@ describe.sequential('native tmux adapter integration (not identity CLI parity)',
         const attached = rows.find((row) => Number(row[2]) > 0);
         expect(attached).toBeDefined();
         for (const args of [['snapshot'], ['snapshot', fixture.pane]]) {
-          const snapshot = successful(await fixture.runJsonCli<Snapshot & Counted>(args));
+          const snapshot = expectJsonResult(await fixture.runJsonCli<Snapshot & Counted>(args));
           const panes = snapshot.panes.filter((pane) => pane.id === fixture.pane);
           expect(panes).toHaveLength(1);
           expect(panes[0]).toMatchObject({ panePid: fixture.panePid, target: attached?.[1] });
@@ -179,7 +168,7 @@ describe.sequential('native tmux adapter integration (not identity CLI parity)',
 
   it('preserves opaque metadata and only clears the selected binding marker', async () => {
     await withE2EFixture(async (fixture) => {
-      const snapshot = successful(await fixture.runJsonCli<Snapshot>(['server']));
+      const snapshot = expectJsonResult(await fixture.runJsonCli<Snapshot>(['server']));
       const opaque = { version: 1, future: { literal: '__TMT_FIELD_4f1c__', enabled: true } };
       fixture.tmux([
         'set-option',
@@ -189,7 +178,7 @@ describe.sequential('native tmux adapter integration (not identity CLI parity)',
         '@tmux-team.agent',
         JSON.stringify(opaque),
       ]);
-      const published = successful(
+      const published = expectJsonResult(
         await fixture.runJsonCli<Counted & { changed: boolean }>([
           'set-marker',
           fixture.pane,
@@ -214,21 +203,23 @@ describe.sequential('native tmux adapter integration (not identity CLI parity)',
         },
       };
       expect(JSON.parse(fixture.paneMetadata())).toEqual(expected);
-      const observed = successful(await fixture.runJsonCli<Snapshot>(['snapshot', fixture.pane]));
+      const observed = expectJsonResult(
+        await fixture.runJsonCli<Snapshot>(['snapshot', fixture.pane])
+      );
       expect(observed.panes[0]?.marker).toEqual(expected.globalIdentity);
       const before = fixture.paneMetadata();
-      expect(successful(await fixture.runJsonCli(['clear-marker', fixture.pane, 'wrong']))).toEqual(
-        { changed: false, commandCount: 1 }
-      );
+      expect(
+        expectJsonResult(await fixture.runJsonCli(['clear-marker', fixture.pane, 'wrong']))
+      ).toEqual({ changed: false, commandCount: 1 });
       expect(fixture.paneMetadata()).toBe(before);
       expect(
-        successful(await fixture.runJsonCli(['clear-marker', fixture.pane, 'binding-1']))
+        expectJsonResult(await fixture.runJsonCli(['clear-marker', fixture.pane, 'binding-1']))
       ).toEqual({ changed: true, commandCount: 2 });
       expect(JSON.parse(fixture.paneMetadata())).toEqual(opaque);
       // tmux show-options -q may treat a missing pane as empty metadata. An
       // already-absent marker is an idempotent no-op, not proof of an IO error.
       expect(
-        successful(await fixture.runJsonCli(['clear-marker', '%999999', 'binding-1']))
+        expectJsonResult(await fixture.runJsonCli(['clear-marker', '%999999', 'binding-1']))
       ).toEqual({ changed: false, commandCount: 1 });
       const failedWrite = await fixture.runJsonCli([
         'set-marker',
@@ -268,8 +259,8 @@ describe.sequential('native tmux adapter integration (not identity CLI parity)',
       let deadSocket = '';
       let deadPid = 0;
       await withE2EFixture(async (foreign) => {
-        const expected = successful(await foreign.runJsonCli<Snapshot>(['snapshot']));
-        const probe = successful(
+        const expected = expectJsonResult(await foreign.runJsonCli<Snapshot>(['snapshot']));
+        const probe = expectJsonResult(
           await local.runJsonCli<Counted & { status: string; snapshot: Snapshot }>([
             'probe',
             foreign.socketPath,
@@ -280,7 +271,7 @@ describe.sequential('native tmux adapter integration (not identity CLI parity)',
         expect(probe.commandCount).toBe(1);
         expect(probe.snapshot).toEqual({ server: expected.server, panes: expected.panes });
         expect(probe.snapshot.server.socketPath).not.toBe(local.socketPath);
-        const unknown = successful(
+        const unknown = expectJsonResult(
           await local.runJsonCli<Counted & { status: string }>([
             'probe',
             `${foreign.socketPath}.missing`,
@@ -292,7 +283,7 @@ describe.sequential('native tmux adapter integration (not identity CLI parity)',
         deadSocket = foreign.socketPath;
         deadPid = foreign.serverPid;
       }, fixtureOptions());
-      const dead = successful(
+      const dead = expectJsonResult(
         await local.runJsonCli<Counted & { status: string }>(['probe', deadSocket, String(deadPid)])
       );
       expect(dead).toEqual({ status: 'dead', commandCount: 1 });

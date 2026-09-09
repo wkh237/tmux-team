@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { withE2EFixture, type CliResult, type E2EFixture } from './harness.js';
+import { expectJsonResult } from './cli-assertions.js';
+import { withE2EFixture, type E2EFixture } from './harness.js';
 import { durableState } from './identity-state-oracle.js';
 
 interface PublicIdentity {
@@ -20,19 +21,12 @@ interface ListedIdentity extends PublicIdentity {
   command: string;
 }
 
-function success<T>(result: CliResult<T>): T {
-  expect(result.code, result.stderr || result.stdout).toBe(0);
-  expect(result.stderr).toBe('');
-  expect(result.json).toBeDefined();
-  return result.json as T;
-}
-
 async function showStoredProfile(fixture: E2EFixture, name: string): Promise<string> {
   const result = await fixture.runJsonCli<{ identity: PublicIdentity; role: { content: string } }>(
     ['role', 'show', '--identity', name],
     { withoutTmux: true }
   );
-  return success(result).role.content;
+  return expectJsonResult(result).role.content;
 }
 
 describe.sequential('durable identity lifecycle', () => {
@@ -47,7 +41,7 @@ describe.sequential('durable identity lifecycle', () => {
 
       // Creation is deliberately outside tmux: durable identity storage is not
       // contingent on a currently reachable pane.
-      const created = success(
+      const created = expectJsonResult(
         await fixture.runJsonCli<IdentityResult>(['identity', 'create', name], {
           withoutTmux: true,
         })
@@ -61,7 +55,7 @@ describe.sequential('durable identity lifecycle', () => {
       expect(created.identity.id).toMatch(/^[0-9a-f-]{36}$/);
 
       expect(
-        success(
+        expectJsonResult(
           await fixture.runJsonCli<{ identity: PublicIdentity }>(
             ['identity', 'show', equivalentName],
             { withoutTmux: true }
@@ -69,7 +63,7 @@ describe.sequential('durable identity lifecycle', () => {
         )
       ).toEqual({ identity: created.identity });
       expect(
-        success(
+        expectJsonResult(
           await fixture.runJsonCli<{ identities: PublicIdentity[] }>(['identity', 'list'], {
             withoutTmux: true,
           })
@@ -77,19 +71,19 @@ describe.sequential('durable identity lifecycle', () => {
       ).toEqual({ identities: [created.identity] });
 
       expect(
-        success(
+        expectJsonResult(
           await fixture.runJsonCli(['role', 'set', profile, '--identity', name], {
             withoutTmux: true,
           })
         )
       ).toMatchObject({ identity: created.identity, role: { content: profile } });
       expect(
-        success(
+        expectJsonResult(
           await fixture.runJsonCli(['preamble', 'set', name, preamble], { withoutTmux: true })
         )
       ).toEqual({ agent: name, preamble, status: 'set' });
 
-      const firstBinding = success<{
+      const firstBinding = expectJsonResult<{
         bound: true;
         id: string;
         name: string;
@@ -110,7 +104,7 @@ describe.sequential('durable identity lifecycle', () => {
       expect(stateBeforeRepeat.bindings[0]?.identity_id).toBe(created.identity.id);
       expect(stateBeforeRepeat.profiles).toHaveLength(1);
 
-      const repeated = success(
+      const repeated = expectJsonResult(
         await fixture.runJsonCli<IdentityResult>(['identity', 'create', equivalentName], {
           withoutTmux: true,
         })
@@ -120,7 +114,7 @@ describe.sequential('durable identity lifecycle', () => {
       expect(await showStoredProfile(fixture, equivalentName)).toBe(profile);
       expect(durableState(fixture)).toEqual(stateBeforeRepeat);
 
-      const activeBeforeRestart = success<{
+      const activeBeforeRestart = expectJsonResult<{
         identities: ListedIdentity[];
       }>(await fixture.runJsonCli(['list']));
       expect(activeBeforeRestart.identities).toEqual([
@@ -134,12 +128,12 @@ describe.sequential('durable identity lifecycle', () => {
         }),
       ]);
 
-      const preambleBeforeRestart = success<{ agent: string; preamble: string }>(
+      const preambleBeforeRestart = expectJsonResult<{ agent: string; preamble: string }>(
         await fixture.runJsonCli(['preamble', 'show', equivalentName], { withoutTmux: true })
       );
       expect(preambleBeforeRestart).toEqual({ agent: name, preamble });
 
-      expect(success(await fixture.runJsonCli(['unbind']))).toEqual({
+      expect(expectJsonResult(await fixture.runJsonCli(['unbind']))).toEqual({
         unbound: true,
         id: created.identity.id,
         name,
@@ -147,12 +141,12 @@ describe.sequential('durable identity lifecycle', () => {
         lifetime: 'saved',
         retired: false,
       });
-      expect(success(await fixture.runJsonCli(['list']))).toEqual({
+      expect(expectJsonResult(await fixture.runJsonCli(['list']))).toEqual({
         identities: [{ ...created.identity, presence: 'offline', pane: null, command: '' }],
       });
 
       const restarted = await fixture.restartServer();
-      const rebound = success<{
+      const rebound = expectJsonResult<{
         bound: true;
         id: string;
         name: string;
@@ -168,27 +162,27 @@ describe.sequential('durable identity lifecycle', () => {
       });
       expect(await showStoredProfile(fixture, name)).toBe(profile);
       expect(
-        success(
+        expectJsonResult(
           await fixture.runJsonCli<{ agent: string; preamble: string }>(
             ['preamble', 'show', name],
             { withoutTmux: true }
           )
         )
       ).toEqual({ agent: name, preamble });
-      expect(success<{ identities: ListedIdentity[] }>(await fixture.runJsonCli(['list']))).toEqual(
-        {
-          identities: [
-            expect.objectContaining({
-              id: created.identity.id,
-              name,
-              canonicalName: 'alice',
-              lifetime: 'saved',
-              presence: 'active',
-              pane: restarted.pane,
-            }),
-          ],
-        }
-      );
+      expect(
+        expectJsonResult<{ identities: ListedIdentity[] }>(await fixture.runJsonCli(['list']))
+      ).toEqual({
+        identities: [
+          expect.objectContaining({
+            id: created.identity.id,
+            name,
+            canonicalName: 'alice',
+            lifetime: 'saved',
+            presence: 'active',
+            pane: restarted.pane,
+          }),
+        ],
+      });
       const finalState = durableState(fixture);
       expect(finalState.identities).toEqual(stateBeforeRepeat.identities);
       expect(finalState.profiles).toEqual(stateBeforeRepeat.profiles);

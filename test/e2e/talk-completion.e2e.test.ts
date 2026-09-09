@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  withE2EFixture,
-  type CliResult,
-  type E2EFixture,
-  type E2EFixtureOptions,
-  type MockEvent,
-} from './harness.js';
+import { expectJsonResult } from './cli-assertions.js';
+import { withE2EFixture, type E2EFixture, type MockEvent } from './harness.js';
 import { preambleCounters, requestAttempts } from './request-state-oracle.js';
 import { durableState } from './identity-state-oracle.js';
 
@@ -19,19 +14,6 @@ interface TalkOutput {
   bodyBytes?: number;
   submittedAtMs?: number;
   error?: { code: string; message: string; stage?: string };
-}
-
-function options(extra: E2EFixtureOptions = {}): E2EFixtureOptions {
-  const native = process.env.TMT_TEST_NATIVE_CLI;
-  if (!native) throw new Error('Native talk E2E requires the Docker-built CLI.');
-  return { executableEnv: { TMT_TEST_CLI: native }, ...extra };
-}
-
-function success<T>(result: CliResult<T>): T {
-  expect(result.code, result.stderr || result.stdout).toBe(0);
-  expect(result.stderr).toBe('');
-  expect(result.json).toBeDefined();
-  return result.json as T;
 }
 
 async function nativeRequest(fixture: E2EFixture, requestId: string): Promise<MockEvent> {
@@ -67,7 +49,7 @@ async function submittedBody(
   return submitted;
 }
 
-describe.sequential('native public talk/reply/result', () => {
+describe.sequential('public talk completion and observer lifecycle', () => {
   it.each(['completed', 'detached', 'timeout'] as const)(
     'keeps human %s output correlated with the durable request and exact final',
     async (mode) => {
@@ -112,7 +94,7 @@ describe.sequential('native public talk/reply/result', () => {
           }
           await submittedBody(fixture, requestId, body);
           expect(
-            success(
+            expectJsonResult(
               await fixture.runJsonCli<TalkOutput>(['result', requestId], { withoutTmux: true })
             )
           ).toMatchObject({
@@ -122,10 +104,10 @@ describe.sequential('native public talk/reply/result', () => {
             bodyBytes: Buffer.byteLength(body),
           });
         },
-        options({
+        {
           replyGate: mode !== 'completed',
           responseBodyBase64: Buffer.from(body).toString('base64'),
-        })
+        }
       );
     },
     15_000
@@ -140,7 +122,7 @@ describe.sequential('native public talk/reply/result', () => {
     async (_label, body) => {
       await withE2EFixture(
         async (fixture) => {
-          const talk = success(
+          const talk = expectJsonResult(
             await fixture.runJsonCli<TalkOutput>([
               'talk',
               fixture.pane,
@@ -161,7 +143,7 @@ describe.sequential('native public talk/reply/result', () => {
           const submitted = await submittedBody(fixture, talk.requestId ?? '', body);
           expect(submitted.submittedAtMs).toBe(talk.submittedAtMs);
 
-          const result = success(
+          const result = expectJsonResult(
             await fixture.runJsonCli<TalkOutput>(['result', talk.requestId ?? ''], {
               withoutTmux: true,
             })
@@ -174,10 +156,10 @@ describe.sequential('native public talk/reply/result', () => {
             submittedAtMs: talk.submittedAtMs,
           });
         },
-        options({
+        {
           responseBodyBase64: Buffer.from(body, 'utf8').toString('base64'),
           replyInput: 'stdin',
-        })
+        }
       );
     },
     20_000
@@ -187,7 +169,7 @@ describe.sequential('native public talk/reply/result', () => {
     const body = 'detached 日本語\r\nreply';
     await withE2EFixture(
       async (fixture) => {
-        const sent = success(
+        const sent = expectJsonResult(
           await fixture.runJsonCli<TalkOutput>([
             'talk',
             fixture.pane,
@@ -206,7 +188,7 @@ describe.sequential('native public talk/reply/result', () => {
         await nativeRequest(fixture, sent.requestId ?? '');
         await submittedBody(fixture, sent.requestId ?? '', body);
 
-        const result = success(
+        const result = expectJsonResult(
           await fixture.runJsonCli<TalkOutput>(['result', sent.requestId ?? ''], {
             withoutTmux: true,
           })
@@ -218,10 +200,10 @@ describe.sequential('native public talk/reply/result', () => {
           bodyBytes: Buffer.byteLength(body),
         });
       },
-      options({
+      {
         responseBodyBase64: Buffer.from(body, 'utf8').toString('base64'),
         replyInput: 'stdin',
-      })
+      }
     );
   }, 15_000);
 
@@ -283,7 +265,7 @@ describe.sequential('native public talk/reply/result', () => {
         ).toBe(false);
         fixture.releaseReplyGate(timedOut.json?.requestId);
         await submittedBody(fixture, timedOut.json?.requestId ?? '', body);
-        const result = success(
+        const result = expectJsonResult(
           await fixture.runJsonCli<TalkOutput>(['result', timedOut.json?.requestId ?? ''], {
             withoutTmux: true,
           })
@@ -291,10 +273,10 @@ describe.sequential('native public talk/reply/result', () => {
         expect(result.response).toBe(body);
         expect(result.bodyBytes).toBe(Buffer.byteLength(body));
       },
-      options({
+      {
         replyGate: true,
         responseBodyBase64: Buffer.from(body).toString('base64'),
-      })
+      }
     );
   }, 10_000);
 
@@ -353,7 +335,7 @@ describe.sequential('native public talk/reply/result', () => {
         ).toBe(false);
         fixture.releaseReplyGate(request.requestId);
         await submittedBody(fixture, request.requestId ?? '', body);
-        const result = success(
+        const result = expectJsonResult(
           await fixture.runJsonCli<TalkOutput>(['result', request.requestId ?? ''], {
             withoutTmux: true,
           })
@@ -365,10 +347,10 @@ describe.sequential('native public talk/reply/result', () => {
           bodyBytes: Buffer.byteLength(body),
         });
       },
-      options({
+      {
         replyGate: true,
         responseBodyBase64: Buffer.from(body).toString('base64'),
-      })
+      }
     );
   }, 12_000);
 
@@ -377,7 +359,7 @@ describe.sequential('native public talk/reply/result', () => {
     const body = 'manual native final';
     await withE2EFixture(
       async (fixture) => {
-        const sent = success(
+        const sent = expectJsonResult(
           await fixture.runJsonCli<TalkOutput>([
             'talk',
             fixture.pane,
@@ -409,7 +391,7 @@ describe.sequential('native public talk/reply/result', () => {
           wait_active: 0,
         });
 
-        const reply = success(
+        const reply = expectJsonResult(
           await fixture.runJsonCli<TalkOutput>(
             ['reply', sent.requestId ?? '', '--receipt', receipt, '--message', body],
             { outsideTmux: true }
@@ -420,7 +402,7 @@ describe.sequential('native public talk/reply/result', () => {
           requestId: sent.requestId,
           bodyBytes: Buffer.byteLength(body),
         });
-        const result = success(
+        const result = expectJsonResult(
           await fixture.runJsonCli<TalkOutput>(['result', sent.requestId ?? ''], {
             withoutTmux: true,
           })
@@ -433,7 +415,7 @@ describe.sequential('native public talk/reply/result', () => {
           submittedAtMs: reply.submittedAtMs,
         });
       },
-      options({ mode: 'input-log' })
+      { mode: 'input-log' }
     );
   }, 15_000);
 
@@ -463,7 +445,7 @@ describe.sequential('native public talk/reply/result', () => {
         ).code
       ).toBe(0);
 
-      const talk = success(
+      const talk = expectJsonResult(
         await fixture.runJsonCli<TalkOutput>(['talk', 'NativePeer', original, '--timeout', '8'])
       );
       const request = await nativeRequest(fixture, talk.requestId ?? '');
@@ -494,7 +476,7 @@ describe.sequential('native public talk/reply/result', () => {
 
       // A raw stable pane resolves the same bound identity and cadence owner.
       // The default cadence does not inject again on its second reservation.
-      const direct = success(
+      const direct = expectJsonResult(
         await fixture.runJsonCli<TalkOutput>(['talk', peer.pane, original, '--timeout', '8'])
       );
       expect(direct.identity).toEqual({ name: 'NativePeer', canonicalName: 'nativepeer' });
@@ -509,7 +491,7 @@ describe.sequential('native public talk/reply/result', () => {
         message_text: original,
       });
       expect(preambleCounters(fixture)[peerIdentity?.id as string]).toBe(2);
-    }, options());
+    });
   }, 20_000);
 
   it('honors an explicit offline originator and rejects a missing one before sending', async () => {
@@ -549,7 +531,7 @@ describe.sequential('native public talk/reply/result', () => {
           )
       ).toBe(false);
 
-      const sent = success(
+      const sent = expectJsonResult(
         await fixture.runJsonCli<TalkOutput>([
           'talk',
           peer.pane,
@@ -582,7 +564,7 @@ describe.sequential('native public talk/reply/result', () => {
         status: 'sent',
         wait_active: 0,
       });
-    }, options());
+    });
   }, 20_000);
 
   it.each(['json', 'human', 'forced'] as const)(
@@ -694,7 +676,7 @@ describe.sequential('native public talk/reply/result', () => {
             ])
           );
         },
-        options({ replyGate: true })
+        { replyGate: true }
       );
     },
     25_000
@@ -745,7 +727,7 @@ describe.sequential('native public talk/reply/result', () => {
           message_text: original,
         });
       },
-      options({ mode: 'input-log' })
+      { mode: 'input-log' }
     );
   }, 15_000);
 });

@@ -132,6 +132,42 @@ the fixture and leaves the shared selector unset. This exercises the same
 default path as a developer checkout, including nested replies; explicit test
 descriptors still override it. There is no second default executable owner.
 
+### Scenario ownership
+
+Name Docker scenarios for the behavior or adapter they verify, not a retired
+implementation language. All public-command scenarios already use Rust.
+Keep these boundaries when choosing where a regression belongs:
+
+| E2E file(s)                                                    | Distinct evidence                                                                                                                     |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `binding-reconciliation`                                       | Publication races, uncertain endpoint evidence, scoped/global discovery, binding transitions and live listing presentation            |
+| `durable-identity`, `identity-lifecycle`, `identity-retention` | Stored identity/profile continuity, pane/server lifecycle and retirement consequences                                                 |
+| `check-routing` versus `capture-limits`                        | Real target/server resolution and capture failures versus numeric/configuration bounds                                                |
+| `profile-binding` versus `role-lifecycle`                      | Verified caller/retired-name ownership versus restart, file input, validation and concurrent writes                                   |
+| `talk-completion` versus `durable-talk`                        | Observer interruption, output/attribution and uncertain delivery versus inline input, size bounds, concurrency and submission retries |
+| `exchange-watermarks` versus `exchange-attention`              | Gated revision/watermark state and exact late finals versus config isolation, redaction and rebind access                             |
+| `tmux-adapter`, `transport-adapter`                            | Explicit adapter-probe evidence: caller/inventory/markers and delivery/capture stages; not public CLI success                         |
+| `pane-badge`                                                   | Default-off behavior, opt-in updates, theme preservation, rendering, conflicts and cleanup                                            |
+| `executable-selection`, `smoke`                                | Harness selection, causal nested replies, startup and cleanup controls                                                                |
+
+Similar commands do not imply duplicate evidence: native-process tests inspect
+the executable's public contracts and independent stored state, while Docker
+adds real tmux/process ordering. Consolidate only after mapping setup, causal
+action, assertions and failure/cleanup observations. The redundant basic badge
+case formerly in the binding suite is owned by the stronger `pane-badge` cases;
+do not add another copy there.
+
+`test/e2e/cli-assertions.ts` owns `expectJsonResult` for the E2E result shape.
+It checks the success envelope and returns the same parsed value; it does not
+validate domain fields. Scenarios retain their exact/partial payload assertions
+and independent SQL oracles. Helpers with a different stderr or parse contract
+remain local. Do not combine partial identity views into a permissive shared
+schema or import product types to manufacture expected results.
+
+Shared cross-suite utilities belong in `test/support/`; suite-only harness,
+assertions and observers stay with their suite. Focused helper tests belong in
+`test/tooling/` and must prove rejection as well as positive behavior.
+
 For ordinary developer checks, run:
 
 ```bash
