@@ -9,3 +9,17 @@ dist/
 coverage/
 rust/target/
 target/distrib/
+
+# Owner-local Firebase settings and secrets; commit templates, never credentials.
+.firebaserc
+.firebase/
+.firebase-local/
+.secrets/
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*service-account*.json
+*-firebase-adminsdk-*.json
+application_default_credentials.json

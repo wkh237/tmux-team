@@ -29,6 +29,13 @@ Office must not import local SQLite/process adapters or native test helpers.
 Cloud services and wire contracts have reserved documented owners, not runnable
 implementations. Ordinary CLI operations remain independent of Office.
 
+`services/office` now contains the isolated Firebase emulator bootstrap (#184),
+not a deployed service. Its shared demo-project configuration and deny-all rules
+have no product membership semantics. Owner-local project aliases/secrets are
+excluded from Git and Docker; the image has no host credential/data mounts.
+`scripts/verify-office-emulators.mjs` proves emulator transport and fixture
+cleanup separately from native tmux E2E and future Office authorization tests.
+
 `scripts/ci-scope.mjs` owns conservative affected-area selection and final gate
 validation. Office-only source/docs avoid native matrices; native source/skill
 changes avoid Office. Shared or unknown paths (including lockfiles, security,
