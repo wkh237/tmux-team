@@ -150,6 +150,23 @@ footer p {
   flex-basis: 100%;
   margin: 0;
 }
+.session-panel {
+  border: 1px solid #d4dccf;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 24px;
+  background: #fff;
+  overflow-wrap: anywhere;
+}
+.session-panel p {
+  margin: 8px 0;
+}
+.session-panel button {
+  padding: 8px 12px;
+}
+.session-panel [role='alert'] {
+  color: #9b2c2c;
+}
 .skip-link {
   position: absolute;
   left: -10000px;

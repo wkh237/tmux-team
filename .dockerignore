@@ -3,6 +3,9 @@
 **/node_modules
 coverage
 **/dist
+**/dist-preview
+**/test-results
+**/playwright-report
 rust/target
 target/distrib
 .DS_Store

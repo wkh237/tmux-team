@@ -1,7 +1,8 @@
 # Office service boundary
 
-Local Firebase environment for #184, prerequisite of #176. Authentication,
-invitations, membership and presence UI are not implemented. The bootstrap
+Local Firebase environment for #184, prerequisite of #176. The SPA now offers
+explicit emulator-only sign-in (#187); real authentication deployment,
+invitations, membership and presence are not implemented. The bootstrap
 Firestore rules deny every client read/write; they are not production policy.
 
 See [the architecture](../../docs/office/architecture.md). Add functions only
@@ -28,6 +29,10 @@ docker compose -f services/office/compose.yaml down
 ```
 
 State is ephemeral: there are no mounted data volumes or automatic imports.
+
+For the optional local sign-in UI and the opt-in `browser-tests` Docker target,
+follow [Local browser sign-in](../../DEVELOPMENT.md#local-browser-sign-in).
+The default image/Compose service does not install Chromium or start the app.
 Do not mount credentials, host config or repository roots into this service.
 The first image build downloads tools and emulator binaries; later runs use the
 cached image. Rebuild deliberately to update pinned tools, not on every test.

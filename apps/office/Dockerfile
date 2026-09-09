@@ -6,6 +6,7 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/office/package.json apps/office/package.json
 RUN pnpm office:install \
   && test ! -e node_modules/better-sqlite3 \
+  && test ! -e /node_modules \
   && test ! -e rust/target/debug/tmt
 COPY apps/office apps/office
 CMD ["sh", "-c", "pnpm office:check && pnpm office:test && pnpm office:build"]

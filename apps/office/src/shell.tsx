@@ -1,6 +1,7 @@
 import { Link, Outlet } from '@tanstack/react-router';
 import { atom, useAtom } from 'jotai';
 import type { ReactElement } from 'react';
+import { SessionPanel } from './auth/session-view.js';
 
 const showPreviewNotesAtom = atom(false);
 
@@ -24,6 +25,7 @@ export function OfficeShell(): ReactElement {
         <span className="preview-badge">Local preview</span>
       </header>
       <main id="main">
+        <SessionPanel />
         <Outlet />
       </main>
       <footer>
@@ -38,7 +40,8 @@ export function OfficeShell(): ReactElement {
         </button>
         {showNotes && (
           <p id="preview-notes">
-            This shell does not sign in, create a world, read local TMT data or send work to agents.
+            This shell does not create a world, read local TMT data or send work to agents. Local
+            sign-in is available only in explicit emulator mode.
           </p>
         )}
       </footer>

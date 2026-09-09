@@ -3,7 +3,7 @@
 Tracking: [#175](https://github.com/wkh237/tmux-team/issues/175), under
 [#173](https://github.com/wkh237/tmux-team/issues/173).
 The owner approved workspace-first delivery. The full protocol and trust design
-in [#174](https://github.com/wkh237/tmux-team/issues/174) remains open; this
+in [#174](https://github.com/wkh237/tmux-team/issues/174) is merged; this
 document describes the implemented workspace. The
 [v1 design](design.md), [planned commands](commands.md) and
 [wire contracts](../../contracts/office/README.md) now record the design baseline;
@@ -13,8 +13,24 @@ they do not make the shell a connected Office.
 
 Office is an optional React SPA under `apps/office`. Its local shell has a home
 route, setup explanation, unknown-route recovery and provider-local presentation
-state. It does not authenticate, contact Firebase, load local identities, install
-an extension, open a listener or dispatch work. The native CLI remains unchanged.
+state. Default preview does not initialize Firebase. Explicit `emulator` mode
+on loopback enables local Google-provider popup sign-in, UID display and logout
+through the Auth Emulator, not real Google. It does not load local identities,
+install an extension, open a connector listener or dispatch work. The native CLI
+remains unchanged. Login does not grant world access; Firestore still denies all
+client access. This is #187, the first slice of #176, not a private-world implementation.
+
+`src/auth/firebase-session.ts` is the only Firebase initialization/adapter owner.
+The entry point creates one uniquely named app outside React rendering and
+disposes it on hot replacement. `session.ts` owns one observer, bounded public
+identity projection, action serialization, sanitized errors and teardown.
+`session-view.tsx` subscribes directly with React's external-store interface;
+Jotai and Query do not mirror identity. Only the observer changes identity;
+failed actions retain the observed state, and late completions cannot revive
+a disposed session. Auth uses explicit in-memory persistence from initialization:
+reload signs out and other tabs/contexts do not inherit the identity. No tokens
+are exposed in view snapshots. This memory policy is not a substitute for future
+server-side revocation or world authorization.
 
 | Owner              | Responsibility                                                              | Forbidden dependency                                                    |
 | ------------------ | --------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
@@ -78,6 +94,13 @@ or automatic federation. No cloud provisioning, billing or deployment occurs her
 | Expand preview details, then navigate | Disclosure stays open in this mounted app                     |
 | Unmount and start another app         | Disclosure resets; no global/persisted UI state               |
 
-The DOM tests use the real router and user interactions. They do not prove
-browser layout, hosting rewrites, Firebase rules, connector lifecycle or remote
-collaboration. Those need their own downstream evidence.
+DOM tests use the real router, with focused session lifecycle tests beside the
+owner. Playwright under `apps/office/e2e` proves real Chromium/SDK/Auth Emulator
+popup flow, cancellation, transport failure, memory isolation and default-preview
+network inactivity. Its opt-in Docker target extends the existing emulator image;
+it does not duplicate emulator pins or use the native tmux harness. Upstream
+emulator CDN presentation assets are blocked, not replaced with fake auth
+responses. Google's public popup/iframe library is still required: browser
+tests allow its script GETs on `apis.google.com`, keep all auth requests local,
+and reject other destinations. This is not a fully offline flow. These tests do not prove world rules,
+connector lifecycle, real Google login or remote collaboration.
