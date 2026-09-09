@@ -1,6 +1,7 @@
 # Development
 
-The Rust workspace is the only product runtime. The root Node package is
+The Rust workspace is the shipped CLI runtime. The optional Office SPA foundation
+lives in `apps/office` and is not required to use the CLI. The root Node package is
 private developer tooling for Vitest, fixtures and release verification; it is
 not an npm product and must not be used as a CLI fallback. Repository policy is
 in [AGENTS.md](AGENTS.md), architecture ownership in
@@ -35,6 +36,71 @@ task-owned temporary root.
 If `better-sqlite3` is used by retained tooling, it is a development-only
 independent SQLite oracle. It is not the Rust runtime, a product dependency or
 an excuse to reopen native schema state through Node.
+
+## Office SPA
+
+The optional app uses React, Vite, TanStack Router and Jotai. Read
+[Office architecture](docs/office/architecture.md) before changing its boundaries.
+From the repository root:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm office:dev
+pnpm office:check
+pnpm office:test
+pnpm office:build
+```
+
+The dev server binds loopback. Production output is `apps/office/dist`; preview
+with `pnpm --filter @tmt/office preview`. A deployed SPA host must rewrite app
+routes such as `/setup` to `index.html`; hosting and Firebase setup are not part
+of the scaffold. Tests use jsdom and the real router, not a browser-layout proof.
+
+`pnpm check` checks root tooling and Office. `pnpm check:tooling` retains the
+native test/release tooling's independent quality gate. Root `test:run` still
+selects only tooling tests; `office:test` explicitly selects app tests and fails
+on empty discovery. Office uses Oxfmt; existing root tooling/docs use Prettier.
+Run `pnpm --filter @tmt/office format` for app formatting, not the root formatter.
+The distinct Vitest versions are lockfile-owned, not a claim that native tests
+were migrated to the newer app runner.
+Root tooling runs at most two suite workers to avoid simultaneous subprocess
+startup overwhelming the existing per-test budgets; assertion/time limits are
+unchanged. Native process and tmux configurations keep their own execution rules.
+
+For an Office-only clean checkout, use `pnpm office:install`. It installs from
+the app directory against the same root lockfile, without workspace recursion.
+With pinned pnpm 10.33, a plain Office `--filter` install still builds root
+SQLite; the explicit isolated install avoids that unrelated dependency. Do not
+create an app lockfile or remove `--frozen-lockfile` to work around a mismatch.
+
+The app's verification-only Dockerfile proves the isolated install has neither
+the root SQLite oracle nor a native TMT executable. It runs quality, DOM tests
+and a production build with networking disabled:
+
+```sh
+docker build -f apps/office/Dockerfile -t tmt-office-check:local .
+docker run --rm --init --network none tmt-office-check:local
+docker image rm tmt-office-check:local
+```
+
+Choose an unused task-owned image tag; remove only that verification image.
+This is not a deployment image or a browser/Firebase E2E claim.
+
+For native-only fixtures, `pnpm --filter tmux-team install --frozen-lockfile`
+installs only root dependencies; Docker copies workspace/package metadata before
+this step. Do not make native fixture containers install or execute Office.
+The workspace explicitly permits lifecycle scripts only for the existing
+`better-sqlite3` oracle and esbuild tooling. Fresh oracle builds need Python,
+make and a C++ compiler; the tmux fixture image supplies these build tools.
+
+CI always reports `Code quality` and `Native package matrix`. A conservative
+diff selector skips expensive native jobs only for Office-only paths, and skips
+Office for native-source/skill-only paths. Shared/unknown paths run both. Code
+quality includes the selector's own focused tests even when native unit jobs are
+unselected, and requires the selected Office check. The native aggregator rejects
+failed, cancelled or unexpectedly skipped selected jobs. CI changes need positive
+and negative selection/gate evidence before pushing; do not change branch
+protection merely to get a newly skipped job accepted.
 
 ## Rust checks
 

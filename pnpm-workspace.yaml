@@ -1,0 +1,8 @@
+packages:
+  - apps/*
+
+# Native SQLite is an independent test oracle; esbuild belongs to retained
+# Vitest tooling. No arbitrary dependency lifecycle scripts are authorized.
+onlyBuiltDependencies:
+  - better-sqlite3
+  - esbuild

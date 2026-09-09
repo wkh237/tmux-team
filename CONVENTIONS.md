@@ -8,7 +8,8 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
 ## Style and readability
 
 - Write repository content in English. Use rustfmt for Rust and the repository
-  Prettier/strict TypeScript configuration for developer tooling; run checks
+  Prettier/strict TypeScript configuration for root developer tooling and Oxfmt
+  for `apps/office`; run checks
   rather than restyling unrelated files.
 - Rust uses snake_case modules and owner-local tests. Node tooling uses
   kebab-case files, `<module>.test.ts` tests and `.e2e.test.ts` integration scenarios.
@@ -59,6 +60,14 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
   changing payload/fallback behavior.
 
 ## Dependencies and refactoring
+
+Office is a React SPA, not a second CLI runtime. Keep routes, view components
+and UI state under `apps/office/src`, with behavioral tests beside the owner.
+Use TanStack Router for navigation and Jotai for ephemeral presentation state;
+do not parse URLs or invent an application-wide store in view components.
+Remote state gets one owner, not mirrored Query/Jotai/Firestore copies. See
+[Office architecture](docs/office/architecture.md) before adding a service,
+contract, drawing dependency or cross-package abstraction.
 
 Native Rust uses edition 2024, rustfmt, snake_case module files, explicit typed
 requests and standard `Result` boundaries. Keep Clap and output in `tmt-cli`,

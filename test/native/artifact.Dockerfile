@@ -19,8 +19,9 @@ RUN apt-get update && apt-get install --no-install-recommends -y binutils \
   && rm -rf /var/lib/apt/lists/*
 RUN npm install --global pnpm@10.33.0
 WORKDIR /verification
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile --ignore-scripts
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/office/package.json apps/office/package.json
+RUN pnpm --filter tmux-team install --frozen-lockfile --ignore-scripts
 COPY scripts/native-artifact-policy.mjs scripts/verify-native-artifact.mjs scripts/verify-native-installation.mjs scripts/packed-command.mjs scripts/
 COPY scripts/native-runtime-proof.mjs scripts/
 COPY test/support/performance-contract.mjs test/support/performance-contract.mjs

@@ -18,14 +18,16 @@ FROM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b8
 ARG TMUX_VERSION=3.3a-3
 ARG PROCPS_VERSION=2:4.0.2-3
 RUN apt-get update \
-  && apt-get install --no-install-recommends -y "tmux=${TMUX_VERSION}" "procps=${PROCPS_VERSION}" \
+  && apt-get install --no-install-recommends -y "tmux=${TMUX_VERSION}" "procps=${PROCPS_VERSION}" python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 
 RUN npm install --global pnpm@10.33.0
 
 WORKDIR /workspace
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/office/package.json apps/office/package.json
+RUN pnpm --filter tmux-team install --frozen-lockfile \
+  && test ! -e apps/office/node_modules/react
 COPY . .
 COPY --from=native-tests /native-artifacts/tmux-probe /opt/tmt-tests/tmux-probe
 COPY --from=native-tests /native-artifacts/adapter-tests /opt/tmt-tests/adapter-tests
