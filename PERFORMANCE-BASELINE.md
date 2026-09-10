@@ -1,11 +1,11 @@
 # Runtime performance evidence
 
-## Native closeout comparison (#151)
+## Paired runtime measurements
 
 The native alpha is published. Collected before TypeScript source retirement,
 this comparison measures both runtimes from source `e3c8bd7e9a2fdaab0ccfe59a03be7967a7719fcb`
-on the same host with unchanged command defaults. All raw observations, source
-trees, build identity and failed-calibration dispositions are retained in
+on the same host with unchanged command defaults. Raw observations, source
+trees and build identity are retained in
 [paired evidence](benchmarks/native-paired-performance.json). The historical
 baseline below remains unchanged evidence, not the denominator for this comparison.
 
@@ -69,35 +69,22 @@ to polling can move completion by an entire interval. The delayed round-trip
 difference is not a direct measurement of pure TMT processing or permission to
 subtract the mock delay and claim service time. No production timing changed.
 
-### Measurement corrections and remaining limits
-
-The old help-heading assertion rejected native output. Both benchmarks now use
-one independent command-presence oracle with missing-command/false-output tests.
-An initial native tmux calibration then failed because the trace labeled the
-global `-S` option as the command. Tracing now shares the fixture's existing
-argv inspection; actual ambient/explicit-socket buffer round trips preserve
-multiline and option-like payload bytes. Neither failed calibration produced
-accepted native timing evidence; all paired Docker runs were recollected.
+### Reproduction and limits
 
 Reproduce using the existing commands below, adding
-`--build-arg TMT_NATIVE_PROFILE=release` to Docker build and selecting
-`TMT_TEST_CLI='{"executable":"/opt/tmt-tests/tmt","args":[]}'` for native container
-runs. The peer inherits that descriptor. Default Docker regression builds remain
+`--build-arg TMT_NATIVE_PROFILE=release` to Docker build. The image places the
+selected profile's executable at `/workspace/rust/target/debug/tmt`, the shared
+selector's default. The peer inherits that selection. Default Docker regression builds remain
 debug; the profile option only selects the measured CLI, not another harness.
 
-This satisfies paired startup/scoped-latency acceptance, not all of #93.
 Complete Docker request-process CPU/RSS, sustained contention, multiple active
 peers and cross-platform distributions remain unmeasured. No high-volume capacity
-or universal speedup claim follows from these results. Source/test ownership
-cleanup is sequenced in #152 before removal of the reference runtime.
+or universal speedup claim follows from these results.
 
 ## Historical TypeScript baseline
 
-Owner: [#94](https://github.com/wkh237/tmux-team/issues/94), under the
-[Rust rewrite decision](RUST-REWRITE.md). Production reference:
-`cb53533f3a9f19a1a2ab95af59dda20df419200b`, version 5.0.0-alpha.1.
-Only measurement tools/docs/governance differ from that reference in this PR;
-`bin/`, `src/`, runtime dependencies and lockfile are unchanged.
+Production reference: `cb53533f3a9f19a1a2ab95af59dda20df419200b`,
+version 5.0.0-alpha.1. These historical measurements are not current source timings.
 
 ## What is being measured
 
@@ -107,17 +94,20 @@ Repeated samples may benefit from OS and tsx caches; no daemon stays warm.
 Seven observations are a diagnostic sample, not a tail-latency confidence study.
 Keep first, all raw samples, median and range; do not discard inconvenient runs.
 
-The Node entry wrapper spawns another Node process with the tsx import hook.
+The historical Node entry wrapper spawned another Node process with the tsx import hook.
 Measuring an imported service or only `node --version` would omit this cost.
-The macOS resource probe uses the same public wrapper; Docker uses the existing
+The macOS resource probe measures the selected public executable; Docker uses the existing
 E2E harness, including its routing/trace overhead. These are separate environments,
 not interchangeable samples for a single aggregate.
 
 ## Reproduce startup resources (macOS)
 
-With the checkout dependencies installed and the desired Node on PATH:
+Build the native executable first and select a release build for performance
+measurements. Node runs the measurement tooling only. From the repository root:
 
 ```bash
+cargo build --locked --release --manifest-path rust/Cargo.toml
+export TMT_TEST_CLI="{\"executable\":\"$PWD/rust/target/release/tmt\",\"args\":[]}"
 node scripts/benchmark-startup.mjs > /tmp/tmt-startup-run-1.json
 node scripts/benchmark-startup.mjs > /tmp/tmt-startup-run-2.json
 ```
@@ -156,20 +146,13 @@ differences. Startup is a plausible optimization target, not proof that SQL is
 free or that Rust has achieved any speedup. The separately calculated median
 user/system columns are not a median of their summed per-sample values.
 
-The probe was also run with a missing Node on the child's PATH: it failed nonzero
-and removed its temporary root. An initial incorrect help expectation failed
-rather than yielding timing evidence; it was corrected against the actual help.
-This verifies benchmark failure propagation, not the full future native
-process-tree cleanup contract. The reused runner owns group cleanup; native
-lifecycle acceptance remains a separate E2E gate.
-
 ## Reproduce isolated tmux and request latency
 
 Use the pinned E2E Dockerfile and a task-owned image; do not run tmux scenarios
 on the host. No extra benchmark dependency or second test framework is installed.
 
 ```bash
-docker build -f test/e2e/Dockerfile -t tmt-performance-local .
+docker build --build-arg TMT_NATIVE_PROFILE=release -f test/e2e/Dockerfile -t tmt-performance-local .
 docker run --rm --init --network none \
   -e TMT_PERFORMANCE_BASELINE=1 tmt-performance-local \
   pnpm exec vitest run --config test/e2e/vitest.config.ts \
@@ -194,9 +177,7 @@ fixture's zero-delay default.
 Trace counts include the fixture's caller-session lookup as well as the CLI's
 tmux calls. They count tmux invocations, not every helper process in the trace
 wrapper. Logging normalizes multiline arguments without altering forwarded
-payloads; a raw buffer round-trip tests that property. An initial calibration
-run exposed the old trace splitting multiline payloads into fake invocations;
-its incorrect counts are excluded, not presented as runtime performance.
+payloads; a raw buffer round-trip tests that property.
 
 The large case adds 200 unbound sleeping panes to the original mock-agent pane.
 Creation/setup/metadata validation are outside samples. The benchmark reports
@@ -244,17 +225,13 @@ No delay or polling default was changed to obtain these measurements.
 
 ## Native comparison and acceptance
 
-Executable selection is provided by [#95](https://github.com/wkh237/tmux-team/issues/95).
-Use [the shared descriptors](DEVELOPMENT.md#selecting-the-cli-under-test) for both
-the resource probe and Docker scenarios. New reports record the selected executable
-(and the Docker peer); historical raw baseline reports remain unchanged. The Node
-version describes test tooling, not proof that the selected executable uses Node.
-Resource accounting and output assertions are unchanged. The shared default now
-pins the test runner's Node executable and invokes the same public wrapper,
-instead of finding Node through its shebang and PATH. Re-baseline both runtimes
-with this launcher for comparisons; do not claim these historical timings are
-measurements of the new launcher. Measure **release** builds;
-record toolchain, locked dependencies, target/linkage, binary size and source head.
+Use [the shared descriptors](DEVELOPMENT.md#selecting-the-cli-under-test) for
+resource probes and Docker scenarios. The default is the repository-built native
+executable, never a Node product wrapper or installed host command. Historical
+TypeScript comparisons require an explicit isolated reference checkout and
+selector; do not restore a fallback in current tooling. New reports record
+source head, selected executable/peer, toolchain, locked dependencies, release
+profile, target/linkage and binary size. Historical raw reports remain unchanged.
 
 - Run old and new binaries on the same machine/container/resources with the same
   fixture sizes, request body and delays. Interleave their order across at least
@@ -265,10 +242,6 @@ record toolchain, locked dependencies, target/linkage, binary size and source he
 - The deterministic bound is unchanged scoped tmux subprocess counts as panes grow;
   also inspect output size and returned scope. Constant count does not prove
   constant tmux internal traversal time.
-- A provisional startup goal is at least 30% lower paired median wall time and
-  maximum RSS for help/storage, without increased CPU. This exceeds the observed
-  approximately 11% inter-run shift, but is an engineering target, not a measured
-  Rust result or an automatic CI threshold. Revisit if paired variance exceeds it.
 - Investigate any repeated median regression above 15% in scoped tmux operations;
   this is a review trigger, not a flaky test assertion. For talk, report end-to-end
   time and configured delay/poll policy separately. Do not silently reduce delays

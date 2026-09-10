@@ -131,8 +131,8 @@ Open the loopback URL printed by Vite. Choose **Sign in with Google (emulator)**
 add a local test account in the popup and observe its UID. No real Google login,
 Firebase owner alias or credentials are needed. Reload signs out; another tab
 does not inherit the session. Default `office:dev` / `office:build` stays a
-disconnected preview. Login does not create a world or grant access. #189 adds
-Console-managed tester admission and direct Firestore world creation/read.
+disconnected preview. Login does not create a world or grant access.
+Console-managed tester admission gates direct Firestore world creation/read.
 For explicit real Google sign-in and owner-local configuration, see
 [the limited cloud pilot](services/office/README.md#limited-cloud-pilot).
 Do not point automated tests at a real project.
@@ -371,7 +371,7 @@ tests, then the complete gates required by the issue:
 
 1. `pnpm check` and retained tooling tests;
 2. Rust fmt, clippy, locked tests, build and MSRV build;
-3. the complete native process suite (149 cases at cutover), plus the tooling
+3. the complete native process suite, plus the tooling
    selector's missing-native negative and selected-native positive controls;
 4. two complete Docker E2E runs for lifecycle/transport changes;
 5. available real-host smoke environments, with remaining architecture coverage
