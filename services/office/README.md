@@ -80,10 +80,19 @@ The UI observes changes and also provides **Check access again** for retry.
 No client can write this collection or list testers. Approval grants only
 access to the pilot; it does not grant access to another user's private world.
 
+Inside a world, the owner can arrange its single home block with curated
+furniture. Select an item, click a destination tile or use the coordinate inputs,
+rotate/remove it, then choose **Save layout**. Unsaved previews stay local.
+Concurrent edits conflict rather than silently overwrite; **Load latest layout**
+explicitly discards the draft in favor of the last server-confirmed view. These
+controls do not publish agents or grant any local execution authority.
+
 Rules-dependent document lookups can incur reads, including denied requests.
-The app has one tester listener after login and at most one selected-world
-listener. A create transaction reads one world and writes it once; retries may
-repeat reads. No global directory, per-frame writes or polling is used. Logout
+The app has one tester listener after login, at most one selected-world
+listener, and one home-block listener while the admitted world editor is mounted.
+A world create transaction reads one world and writes it once; a block save
+reads its revision, writes once and reads the canonical result. Retries and
+authorization checks may add reads. No global directory, per-frame writes or polling is used. Logout
 and access loss detach private listeners and clear the view. Memory-only caches
 do not recall information already disclosed. No custom claims or Admin server
 are needed to manage the pilot allowlist.

@@ -14,6 +14,36 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/testers/$(request.auth.uid)).data.enabled == true;
     }
 
+    function furniture(item) {
+      // Four ASCII characters: asset, turn, base-32 X/Y. The ranges enforce
+      // rotated footprints, not just token shape. See block-v1.md and vectors.
+      return item is string && item.matches(
+        '(d[02][0-9a-s][0-9a-u]|d[13][0-9a-u][0-9a-s]|[cp][0-3][0-9a-u]{2}|r[02][0-9a-q][0-9a-s]|r[13][0-9a-s][0-9a-q])'
+      );
+    }
+
+    function blockDocument() {
+      let value = request.resource.data;
+      let items = value.objects;
+      let count = items.size();
+      // Rules has no general iteration. Check every slot of the bounded list;
+      // the emulator suite includes malformed final-slot and overflow controls.
+      return value.keys().hasAll(['version', 'revision', 'objects', 'updatedAt'])
+        && value.keys().hasOnly(['version', 'revision', 'objects', 'updatedAt'])
+        && value.version == 1
+        && value.revision is int && value.revision >= 1 && value.revision <= 9007199254740991
+        && value.updatedAt == request.time
+        && items is list && count <= 16
+        && (count < 1 || furniture(items[0])) && (count < 2 || furniture(items[1]))
+        && (count < 3 || furniture(items[2])) && (count < 4 || furniture(items[3]))
+        && (count < 5 || furniture(items[4])) && (count < 6 || furniture(items[5]))
+        && (count < 7 || furniture(items[6])) && (count < 8 || furniture(items[7]))
+        && (count < 9 || furniture(items[8])) && (count < 10 || furniture(items[9]))
+        && (count < 11 || furniture(items[10])) && (count < 12 || furniture(items[11]))
+        && (count < 13 || furniture(items[12])) && (count < 14 || furniture(items[13]))
+        && (count < 15 || furniture(items[14])) && (count < 16 || furniture(items[15]));
+    }
+
     match /testers/{uid} {
       // Waiting users can inspect their own admission, never enumerate or grant it.
       allow get: if human() && request.auth.uid == uid;
@@ -36,9 +66,22 @@ service cloud.firestore {
         && request.resource.data.ownerUid == request.auth.uid
         && request.resource.data.createdAt == request.time;
       allow list, update, delete: if false;
+
+      match /blocks/{blockId} {
+        function ownsWorld() {
+          return approved() && blockId == 'home'
+            && get(/databases/$(database)/documents/worlds/$(worldId)).data.ownerUid == request.auth.uid;
+        }
+        allow get: if ownsWorld();
+        // Reject incompatible revisions before the bounded layout walk.
+        allow create: if request.resource.data.revision == 1 && ownsWorld() && blockDocument();
+        allow update: if request.resource.data.revision == resource.data.revision + 1
+          && ownsWorld() && blockDocument();
+        allow list, delete: if false;
+      }
     }
 
-    // Blocks, messages, memberships and every unspecified path remain closed.
+    // Other blocks, messages, memberships and every unspecified path remain closed.
     match /{document=**} {
       allow read, write: if false;
     }

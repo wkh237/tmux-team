@@ -24,6 +24,23 @@ Console-managed tester gate and direct client create/read of owner-only worlds;
 Firestore Rules enforce both gates, immutable fields and default-deny paths.
 This is not an invitation, presence or connected-agent implementation.
 
+#192 adds a single owner-only `home` block below an admitted world's route.
+`src/blocks/block-contract.ts` owns client values, catalog and footprint policy;
+`firebase-blocks.ts` implements its port using the existing initialized SDK.
+`block-state.ts` owns the server-confirmed projection and separate unsaved draft.
+It starts in the mounted `BlockPanel` effect, is keyed by world, and disposes on
+route/admission loss. Late observations and saves cannot restore disposed data.
+`block-scene.tsx` renders controlled vector primitives; `block-view.tsx` owns
+selection and controls. No canvas engine, generic scene framework, new global
+store or remote-state copy is introduced. Pointer selection/tile placement and
+equivalent numeric/keyboard controls edit locally; explicit Save uses the
+revision-checked Firestore transaction. Agent assignment/commands remain future
+#191 work. The contract and shared validation vectors live in `contracts/office`.
+The pure contract's sole codec converts readable furniture maps to four-character
+storage tokens. Actual Rules testing rejected the full-capacity map representation
+due to its expression budget; token validation retains all 16 objects and exact
+rotated bounds without a privileged CRUD service or weaker validation.
+
 `src/auth/firebase-session.ts` is the only Firebase initialization/composition owner.
 `firebase-config.ts` validates explicit activation before SDK initialization.
 `src/worlds/firebase-worlds.ts` owns direct SDK operations; `world-state.ts`

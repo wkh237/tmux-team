@@ -60,7 +60,8 @@ grants deny world access. Authentication itself is not blocked by this gate.
 See [private world document v1](../../contracts/office/private-world.md) for
 the exact create/read and retry contract. Future blocks and messages live in
 world subcollections, not unbounded arrays on the root. Those paths currently
-deny all client access. Invitations and device/work operations below remain
+deny all client access except the owner-only `blocks/home` decoration slice
+specified in [home block v1](../../contracts/office/block-v1.md). Invitations and device/work operations below remain
 future design; they do not justify a generic backend for ordinary world storage.
 The initial owner-only world does not implement visitor memberships or presence.
 

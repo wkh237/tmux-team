@@ -1,0 +1,129 @@
+.block-editor {
+  --ink: #243745;
+  --wood: #d7a16a;
+  --wood-dark: #936540;
+  --screen: #8fb9bb;
+  --paper: #f9f3df;
+  --blue: #7a98b5;
+  --blue-dark: #4d678a;
+  --clay: #b96f50;
+  --leaf: #7b9c62;
+  --leaf-dark: #426848;
+  --rug: #c19a85;
+  --rug-dark: #8c625b;
+  --floor: #ece7d7;
+  --grid: #d6ceba;
+  --wall: #9ba68d;
+  --selection: #365c97;
+  margin-top: 40px;
+  border-top: 1px solid #cbd5c8;
+  padding-top: 24px;
+}
+.block-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+.block-heading h2 {
+  font-size: clamp(24px, 3vw, 36px);
+  letter-spacing: -0.04em;
+}
+.block-heading [role='status'] {
+  color: #58685d;
+  font-size: 13px;
+}
+.block-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 28px;
+  align-items: start;
+}
+.block-scene {
+  width: 100%;
+  display: block;
+  background: #dfe4d8;
+  border-radius: 12px;
+  padding: 20px;
+  touch-action: manipulation;
+}
+.block-tools {
+  font-size: 13px;
+}
+.block-tools h3 {
+  font-size: 18px;
+  margin-top: 0;
+}
+.block-tools button {
+  border: 1px solid #c3ccbd;
+  background: #fffdf6;
+  color: #23372d;
+  padding: 9px 12px;
+  border-radius: 6px;
+}
+.block-tools button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.furniture-catalog {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.furniture-list {
+  padding: 0;
+  list-style: none;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  max-height: 180px;
+  overflow: auto;
+}
+.furniture-list [aria-pressed='true'] {
+  background: #dfe8d8;
+  border-color: #426848;
+}
+.block-tools fieldset {
+  border: 1px solid #c3ccbd;
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.block-tools label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.block-tools input {
+  width: 60px;
+  padding: 6px;
+  font: inherit;
+}
+.block-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 20px;
+}
+.block-tools .block-save {
+  background: #285b43;
+  color: white;
+}
+.block-note {
+  color: #58685d;
+}
+.block-editor [role='alert'] {
+  color: #9b2c2c;
+}
+@media (max-width: 760px) {
+  .block-workbench {
+    grid-template-columns: 1fr;
+  }
+  .block-scene {
+    padding: 10px;
+  }
+}

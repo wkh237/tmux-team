@@ -7,6 +7,10 @@ The separately versioned [private world document v1](private-world.md) is the
 not the work-handoff HTTP/JSON envelopes below. Its actual client adapter and
 Rules are exercised together in `apps/office/e2e/world-rules.spec.ts`.
 
+The [home block document v1](block-v1.md) extends that owner-only world with
+bounded, revision-checked decoration. Its vectors are shared by client and
+real Rules tests, not derived from implementation output.
+
 ## Single source of truth
 
 - `v1.schema.json` is JSON Schema 2020-12 for the initial work handoff ingress:

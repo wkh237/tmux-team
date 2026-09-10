@@ -152,7 +152,13 @@ it never contacts a real project during automated tests.
 It uses one worker, no retries, bounded waits and independent browser contexts.
 Auth responses are real and local. The suite also exercises the real Firestore
 SDK against Rules: immutable creation/retry, cross-user denial, self-grant denial,
-shape validation, and browser grant/create/revocation. Operator fixture writes
+shape validation, and browser grant/create/revocation. Operator fixtures
+also independently inspect saved block layouts. Home-block scenarios cover
+revision races, exact retries, Rules/client conformance vectors, bounded list
+validation, owner/device isolation and browser placement/save/reopen/revocation.
+Desktop and narrow editor screenshots are written to Playwright test results
+for primary visual review, not treated as automatic visual acceptance.
+Operator fixture writes
 use a hard-wired loopback demo-project bypass, never production credentials.
 Google's official popup transport still loads
 public JavaScript from `apis.google.com`, even in emulator mode. The browser
