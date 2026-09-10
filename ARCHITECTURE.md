@@ -36,14 +36,20 @@ not CLI-output scraping or a competing exchange engine. Ordinary CLI operations
 remain independent of Office.
 
 `services/office` now contains the isolated Firebase emulator bootstrap (#184),
-not a deployed service. Its shared demo-project configuration and deny-all rules
-have no product membership semantics. Owner-local project aliases/secrets are
+not a deployed service. Its shared demo-project configuration and Firestore rules
+enforce owner-only private worlds and the Console-managed tester gate (#189).
+No HTTP/Admin product service is needed for direct client world creation/reads.
+Owner-local project aliases/secrets are
 excluded from Git and Docker; the image has no host credential/data mounts.
 `scripts/verify-office-emulators.mjs` proves emulator transport and fixture
 cleanup separately from native tmux E2E and future Office authorization tests.
 
-Office's explicit emulator-only login has one app-owned Firebase/session boundary
-under `apps/office/src/auth`, with memory-only persistence and no world authority.
+Office's explicit emulator/cloud modes share one app-owned Firebase/session boundary
+under `apps/office/src/auth`, with memory-only persistence. `src/worlds` owns
+the direct Firestore adapter and session-scoped admission/selected-world state.
+Its Firebase-free `world-contract.ts` is the single client port/value/validation
+owner; pure state does not depend on the concrete SDK adapter.
+Rules, not the UI, enforce tester admission and immutable owner authority.
 React subscribes to the observer-backed session rather than copying identity into
 Jotai. The opt-in `browser-tests` stage of the same emulator Dockerfile proves
 real browser session behavior with local auth and an explicit public Google

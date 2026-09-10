@@ -4,6 +4,7 @@
 coverage
 **/dist
 **/dist-preview
+**/dist-cloud
 **/test-results
 **/playwright-report
 rust/target

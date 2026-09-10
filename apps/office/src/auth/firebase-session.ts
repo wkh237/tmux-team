@@ -10,28 +10,35 @@ import {
   signOut,
 } from 'firebase/auth';
 import { createSession } from './session.js';
-import type { OfficeSession } from './session.js';
+import {
+  connectFirestoreEmulator,
+  initializeFirestore,
+  memoryLocalCache,
+  terminate,
+} from 'firebase/firestore';
+import { officeFirebaseConfig } from './firebase-config.js';
+import { createWorldPort } from '../worlds/firebase-worlds.js';
+import { createWorldState } from '../worlds/world-state.js';
 
-/** Called by the entry point, never during a React render or with cloud credentials. */
-export function startOfficeSession(mode: string, hostname: string): OfficeSession | undefined {
-  if (mode !== 'emulator') return undefined;
-  if (!['127.0.0.1', 'localhost', '[::1]'].includes(hostname)) {
-    throw new Error('Local sign-in is only available on loopback.');
-  }
-  const app = initializeApp(
-    {
-      apiKey: 'demo-tmt-office',
-      projectId: 'demo-tmt-office',
-      authDomain: 'demo-tmt-office.firebaseapp.com',
-    },
-    `office-${crypto.randomUUID()}`
-  );
+/** One composition root for both explicit environments, outside React rendering. */
+export function startOfficeRuntime(
+  mode: string,
+  hostname: string,
+  settings: Record<string, unknown> = {}
+) {
+  const config = officeFirebaseConfig(mode, hostname, settings);
+  if (!config) return undefined;
+  const app = initializeApp(config, `office-${crypto.randomUUID()}`);
   const auth = initializeAuth(app, {
     persistence: inMemoryPersistence,
     popupRedirectResolver: browserPopupRedirectResolver,
   });
-  connectAuthEmulator(auth, 'http://127.0.0.1:9099');
-  return createSession({
+  const db = initializeFirestore(app, { localCache: memoryLocalCache() });
+  if (mode === 'emulator') {
+    connectAuthEmulator(auth, 'http://127.0.0.1:9099');
+    connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  }
+  const session = createSession({
     observe: (changed) =>
       onAuthStateChanged(auth, (user) =>
         changed(user ? { uid: user.uid, displayName: user.displayName } : null)
@@ -40,6 +47,21 @@ export function startOfficeSession(mode: string, hostname: string): OfficeSessio
       await signInWithPopup(auth, new GoogleAuthProvider());
     },
     signOut: () => signOut(auth),
-    dispose: () => deleteApp(app),
+    dispose: async () => {
+      await terminate(db);
+      await deleteApp(app);
+    },
   });
+  const worlds = createWorldState(session, createWorldPort(db));
+  return {
+    session,
+    worlds,
+    mode,
+    dispose: async () => {
+      worlds.dispose();
+      await session.dispose();
+    },
+  };
 }
+
+export type OfficeRuntime = NonNullable<ReturnType<typeof startOfficeRuntime>>;

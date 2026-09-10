@@ -78,7 +78,7 @@ describe('App-owned session', () => {
     ['auth/popup-blocked', 'Allow popups for this page, then try again.'],
     [
       'auth/network-request-failed',
-      'Cannot reach the local Auth Emulator. Check that it is running, then try again.',
+      'Cannot reach the sign-in service. Check your connection and try again.',
     ],
     ['secret-token-value', 'The session action failed. Please try again.'],
   ])(

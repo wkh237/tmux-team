@@ -131,7 +131,11 @@ Open the loopback URL printed by Vite. Choose **Sign in with Google (emulator)**
 add a local test account in the popup and observe its UID. No real Google login,
 Firebase owner alias or credentials are needed. Reload signs out; another tab
 does not inherit the session. Default `office:dev` / `office:build` stays a
-disconnected preview. Login does not create a world or grant membership.
+disconnected preview. Login does not create a world or grant access. #189 adds
+Console-managed tester admission and direct Firestore world creation/read.
+For explicit real Google sign-in and owner-local configuration, see
+[the limited cloud pilot](services/office/README.md#limited-cloud-pilot).
+Do not point automated tests at a real project.
 
 Run the real-browser suite with the same emulator owner:
 
@@ -141,10 +145,16 @@ docker run --rm --init --shm-size=256m tmt-office-browser:local
 ```
 
 The image installs pinned Chromium, checks the app, runs DOM/session tests and
-builds both preview and emulator variants. The container starts disposable
-Auth/Firestore emulators and two strict-port preview servers, then Playwright.
+builds preview, emulator and unconfigured cloud variants. The container starts
+disposable Auth/Firestore emulators and three strict-port preview servers, then
+Playwright. The cloud build must fail closed without operator configuration;
+it never contacts a real project during automated tests.
 It uses one worker, no retries, bounded waits and independent browser contexts.
-Auth responses are real and local. Google's official popup transport still loads
+Auth responses are real and local. The suite also exercises the real Firestore
+SDK against Rules: immutable creation/retry, cross-user denial, self-grant denial,
+shape validation, and browser grant/create/revocation. Operator fixture writes
+use a hard-wired loopback demo-project bypass, never production credentials.
+Google's official popup transport still loads
 public JavaScript from `apis.google.com`, even in emulator mode. The browser
 allowlist permits only those script GETs and loopback, blocks optional upstream
 CDN styling, and fails for any other destination. This suite requires Internet

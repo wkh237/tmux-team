@@ -2,6 +2,11 @@
 
 Design baseline for #174. There is no deployed API or production consumer yet.
 
+The separately versioned [private world document v1](private-world.md) is the
+#189 direct-Firestore contract. It uses native Firestore timestamps and Rules,
+not the work-handoff HTTP/JSON envelopes below. Its actual client adapter and
+Rules are exercised together in `apps/office/e2e/world-rules.spec.ts`.
+
 ## Single source of truth
 
 - `v1.schema.json` is JSON Schema 2020-12 for the initial work handoff ingress:
