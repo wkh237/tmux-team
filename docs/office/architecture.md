@@ -23,6 +23,10 @@ Each admitted world has a single owner-only `home` block.
 `src/blocks/block-contract.ts` owns client values, catalog and footprint policy;
 `firebase-blocks.ts` implements its port using the existing initialized SDK.
 `block-state.ts` owns the server-confirmed projection and separate unsaved draft.
+Watch observations and save confirmations share one nondecreasing revision
+projection. A failed watch is terminal until the block is reopened; late
+callbacks cannot restore its content. Repeated unchanged admission leaves the
+active world subscription and editor draft intact.
 It starts in the mounted `BlockPanel` effect, is keyed by world, and disposes on
 route/admission loss. Late observations and saves cannot restore disposed data.
 `block-scene.tsx` renders controlled vector primitives; `block-view.tsx` owns
@@ -42,8 +46,10 @@ concrete adapter. The contract owns shared client validation and the adapter
 implements it; the block adapter and world form reuse its world-ID contract.
 Rules retain independent validation as the authority boundary, not a generated
 client-only guard. There is no second domain model or request layer. `world-state.ts`
-owns one admission listener and at most one selected-world listener. Session,
-admission and route generations fence late callbacks/creates. React subscribes
+owns one admission listener and at most one selected-world listener. Session and
+admission generations fence late creates; route generations also fence world
+listener callbacks. A pending creation can still navigate after its form unmounts.
+React subscribes
 directly, with no parallel Jotai/Query copy. Firestore cache-only snapshots never
 grant access or display world data; only server-confirmed observations do.
 The document contract is in `contracts/office/private-world.md`; Rules are the

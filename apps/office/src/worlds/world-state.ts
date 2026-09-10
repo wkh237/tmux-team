@@ -72,6 +72,7 @@ export function createWorldState(session: OfficeSession, port: WorldPort) {
       uid,
       (enabled) => {
         if (disposed || current !== admissionGeneration) return;
+        if (snapshot.admission === (enabled ? 'approved' : 'waiting')) return;
         publish({ admission: enabled ? 'approved' : 'waiting', error: null });
         if (!enabled) {
           generation++;

@@ -12,20 +12,30 @@ interface Snapshot {
 export function createBlockState(port: BlockPort, worldId: string) {
   let snapshot: Snapshot = { ready: false, remote: null, draft: null, busy: false, error: null };
   let disposed = false;
+  let watchFailed = false;
   const listeners = new Set<() => void>();
   function publish(next: Partial<Snapshot>) {
     if (disposed) return;
     snapshot = { ...snapshot, ...next };
     for (const listener of listeners) listener();
   }
+  // Transaction confirmation and watch delivery can arrive in either order.
+  // The contract has increasing revisions and no delete operation.
+  function latest(remote: Block | null): Block | null {
+    return (snapshot.remote?.revision ?? 0) > (remote?.revision ?? 0) ? snapshot.remote : remote;
+  }
   const stop = port.watch(
     worldId,
-    (remote) => publish({ ready: true, remote }),
+    (remote) => {
+      if (!watchFailed) publish({ ready: true, remote: latest(remote) });
+    },
     () => {
+      watchFailed = true;
       publish({
         ready: false,
         remote: null,
         draft: null,
+        busy: false,
         error: 'Block unavailable. Reopen the world to retry.',
       });
     }
@@ -59,12 +69,13 @@ export function createBlockState(port: BlockPort, worldId: string) {
       publish({ busy: true, error: null });
       try {
         const remote = await port.apply(worldId, draft.revision, draft.objects);
-        if (!snapshot.ready) return;
+        if (disposed || watchFailed) return;
         publish({
-          remote: (snapshot.remote?.revision ?? 0) > remote.revision ? snapshot.remote : remote,
+          remote: latest(remote),
           draft: null,
         });
       } catch (error) {
+        if (disposed || watchFailed) return;
         publish({
           error:
             error instanceof BlockConflict
