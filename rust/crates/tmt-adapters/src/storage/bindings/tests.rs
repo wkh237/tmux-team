@@ -1,10 +1,11 @@
-use std::time::Duration;
+use std::{error::Error, time::Duration};
 
 use rusqlite::Connection;
 use tmt_core::{
     binding::BindingRepository,
     endpoint::ServerEvidence,
     identity::{Lifetime, create_or_resolve},
+    limits::MAX_JS_SAFE_INTEGER,
 };
 
 use super::super::*;
@@ -17,6 +18,118 @@ fn server() -> ServerEvidence {
         socket_path: "/tmp/tmux-test.sock".into(),
         server_pid: 41,
         server_start_time: "server-start".into(),
+    }
+}
+
+fn assert_invalid_pid(error: StorageError) {
+    assert_eq!(error.code, StorageErrorCode::Unknown);
+    assert!(matches!(
+        error.source().unwrap().downcast_ref::<rusqlite::Error>(),
+        Some(rusqlite::Error::InvalidQuery)
+    ));
+}
+
+#[test]
+fn binding_pid_boundaries_round_trip_without_conversion_loss() {
+    for pid in [1, MAX_JS_SAFE_INTEGER] {
+        let fixture = Fixture::new();
+        let mut storage = fixture.open();
+        let identity = create_or_resolve(&mut storage, "Boundary", Lifetime::Saved)
+            .unwrap()
+            .identity;
+        let mut endpoint = server();
+        endpoint.server_pid = pid;
+        let binding = storage
+            .with_binding_transaction(|records| {
+                records.insert_binding(&identity, &endpoint, &pane("%3", pid))
+            })
+            .unwrap();
+        assert_eq!(binding.server.server_pid, pid);
+        assert_eq!(binding.pane_pid, pid);
+        let observed = storage
+            .with_binding_transaction(|records| records.entry_by_id(&identity.id))
+            .unwrap()
+            .unwrap();
+        assert_eq!(observed.binding, Some(binding));
+        storage.close().unwrap();
+    }
+}
+
+#[test]
+fn invalid_binding_pid_writes_fail_before_insert_even_if_caller_handles_error() {
+    for pid in [0, MAX_JS_SAFE_INTEGER + 1, i64::MAX as u64 + 1, u64::MAX] {
+        for server_field in [true, false] {
+            let fixture = Fixture::new();
+            let mut storage = fixture.open();
+            let identity = create_or_resolve(&mut storage, "Invalid", Lifetime::Saved)
+                .unwrap()
+                .identity;
+            let mut endpoint = server();
+            let mut target = pane("%3", 99);
+            if server_field {
+                endpoint.server_pid = pid;
+            } else {
+                target.pane_pid = pid;
+            }
+            // Catch inside the transaction: rollback must not conceal an INSERT
+            // performed before a failing RETURNING decoder.
+            storage
+                .with_binding_transaction(|records| {
+                    assert_invalid_pid(
+                        records
+                            .insert_binding(&identity, &endpoint, &target)
+                            .unwrap_err(),
+                    );
+                    Ok::<_, StorageError>(())
+                })
+                .unwrap();
+            let connection = Connection::open(&fixture.database).unwrap();
+            let count: i64 = connection
+                .query_row("SELECT COUNT(*) FROM bindings", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(count, 0);
+            storage.close().unwrap();
+        }
+    }
+}
+
+#[test]
+fn corrupt_binding_pids_fail_every_reader_without_repair_or_retirement() {
+    for column in ["server_pid", "pane_pid"] {
+        for pid in [-1_i64, 0, MAX_JS_SAFE_INTEGER as i64 + 1, i64::MAX] {
+            let fixture = Fixture::new();
+            let mut storage = fixture.open();
+            let identity = create_or_resolve(&mut storage, "Corrupt", Lifetime::Temporary)
+                .unwrap()
+                .identity;
+            storage
+                .with_binding_transaction(|records| {
+                    records.insert_binding(&identity, &server(), &pane("%3", 99))
+                })
+                .unwrap();
+            let connection = Connection::open(&fixture.database).unwrap();
+            connection
+                .execute(&format!("UPDATE bindings SET {column} = ?"), [pid])
+                .unwrap();
+            storage
+                .with_binding_transaction(|records| {
+                    assert_invalid_pid(records.entry_by_id(&identity.id).unwrap_err());
+                    assert_invalid_pid(
+                        records
+                            .entry_by_pane("%3", &server().server_id)
+                            .unwrap_err(),
+                    );
+                    assert_invalid_pid(records.binding_entries().unwrap_err());
+                    Ok::<_, StorageError>(())
+                })
+                .unwrap();
+            let retained: (i64, Option<i64>) = connection.query_row(
+                &format!("SELECT b.{column}, i.retired_at_ms FROM bindings b JOIN identities i ON b.identity_id = i.id"),
+                [], |row| Ok((row.get(0)?, row.get(1)?)),
+            ).unwrap();
+            assert_eq!(retained, (pid, None));
+            storage.close().unwrap();
+        }
     }
 }
 

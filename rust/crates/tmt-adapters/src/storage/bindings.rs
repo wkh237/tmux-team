@@ -3,7 +3,7 @@
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use tmt_core::{
     binding::{Binding, BindingEntry, BindingRecords, BindingRepository},
-    endpoint::{PaneObservation, ServerEvidence},
+    endpoint::{PaneObservation, ServerEvidence, valid_process_id},
     identity::{Identity, IdentityReader},
 };
 
@@ -20,6 +20,20 @@ const BINDING_COLUMNS: &str = "b.id, b.identity_id, b.pane_id, b.server_id, b.so
 
 struct BindingRows<'a>(&'a Connection);
 
+fn process_id_at(row: &Row<'_>, offset: usize) -> rusqlite::Result<u64> {
+    u64::try_from(row.get::<_, i64>(offset)?)
+        .ok()
+        .filter(|value| valid_process_id(*value))
+        .ok_or(rusqlite::Error::InvalidQuery)
+}
+
+fn stored_process_id(value: u64) -> rusqlite::Result<i64> {
+    if !valid_process_id(value) {
+        return Err(rusqlite::Error::InvalidQuery);
+    }
+    i64::try_from(value).map_err(|_| rusqlite::Error::InvalidQuery)
+}
+
 fn binding_row(row: &Row<'_>, offset: usize) -> rusqlite::Result<Binding> {
     Ok(Binding {
         id: row.get(offset)?,
@@ -27,11 +41,11 @@ fn binding_row(row: &Row<'_>, offset: usize) -> rusqlite::Result<Binding> {
         server: ServerEvidence {
             server_id: row.get(offset + 3)?,
             socket_path: row.get(offset + 4)?,
-            server_pid: row.get::<_, i64>(offset + 5)? as u64,
+            server_pid: process_id_at(row, offset + 5)?,
             server_start_time: row.get(offset + 6)?,
         },
         pane_id: row.get(offset + 2)?,
-        pane_pid: row.get::<_, i64>(offset + 7)? as u64,
+        pane_pid: process_id_at(row, offset + 7)?,
     })
 }
 
@@ -113,6 +127,12 @@ impl BindingRecords for BindingRows<'_> {
         server: &ServerEvidence,
         pane: &PaneObservation,
     ) -> Result<Binding, Self::Error> {
+        // Reject before INSERT, including callers that handle an error inside
+        // their transaction. Conversion is checked at this storage boundary.
+        let server_pid = stored_process_id(server.server_pid)
+            .map_err(|error| classify(error, "Validate binding server PID"))?;
+        let pane_pid = stored_process_id(pane.pane_pid)
+            .map_err(|error| classify(error, "Validate binding pane PID"))?;
         let id = uuid::Uuid::new_v4().to_string();
         self.0
             .query_row(
@@ -130,9 +150,9 @@ impl BindingRecords for BindingRows<'_> {
                     pane.id,
                     server.server_id,
                     server.socket_path,
-                    server.server_pid as i64,
+                    server_pid,
                     server.server_start_time,
-                    pane.pane_pid as i64,
+                    pane_pid,
                 ],
                 |row| binding_row(row, 0),
             )
