@@ -252,6 +252,14 @@ before fixture deletion, and receive signals only when they are task-owned.
 Tests never use host tmux, global provider state, or process-wide environment
 mutation as setup.
 
+Use `withSandbox` for callback-owned native fixtures. Its descriptor clones
+share active runs; disposal stops outstanding commands before deleting files
+and rejects later launches. Each run has its execution deadline plus at most
+one second to confirm direct close and process-group exit. Unconfirmed cleanup
+fails and reports the retained fixture path instead of deleting potentially
+live state. Focused lifecycle regressions live in `test/tooling/cli-process.test.ts`;
+they use explicit Node fixtures, not a product-runtime fallback.
+
 ## Docker E2E
 
 Run the full private tmux/caller lifecycle harness twice for lifecycle,
