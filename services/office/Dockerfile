@@ -31,6 +31,7 @@ RUN pnpm --filter @tmt/office exec playwright install --with-deps chromium
 USER node
 COPY --from=emulators --chown=node:node /home/node/office/ /home/node/office/
 COPY --chown=node:node apps/office apps/office
+COPY --chown=node:node contracts/office contracts/office
 RUN --network=none pnpm office:check && pnpm office:test \
   && pnpm --filter @tmt/office exec vite build --outDir dist-preview \
   && pnpm --filter @tmt/office exec vite build --mode emulator \

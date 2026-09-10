@@ -9,4 +9,5 @@ RUN pnpm office:install \
   && test ! -e /node_modules \
   && test ! -e rust/target/debug/tmt
 COPY apps/office apps/office
+COPY contracts/office contracts/office
 CMD ["sh", "-c", "pnpm office:check && pnpm office:test && pnpm office:build"]

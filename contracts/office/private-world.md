@@ -28,6 +28,7 @@ Verified Google users may get their own admission document, but cannot list or
 write tester documents. Admission does not grant access to other owners' worlds.
 The Firebase Console operator uses IAM, not a client-side administrator role.
 
-Future `worlds/{worldId}/blocks/{blockId}` and `messages/{messageId}` will store
-bounded independent objects. They are denied until their feature contracts are
+The [home block v1](block-v1.md) contract opens only
+`worlds/{worldId}/blocks/home` to its approved world owner. Other blocks and
+`messages/{messageId}` remain denied until their feature contracts are
 implemented. World data does not authorize native agent execution.

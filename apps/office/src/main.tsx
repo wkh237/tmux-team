@@ -41,6 +41,7 @@ async function mount(): Promise<void> {
         router={createOfficeRouter()}
         session={runtime?.session}
         worlds={runtime?.worlds}
+        blocks={runtime?.blocks}
         mode={runtime?.mode}
       />
     </StrictMode>

@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useSyncExternalStore } 
 import { Link, useNavigate } from '@tanstack/react-router';
 import type { ReactElement, ReactNode } from 'react';
 import type { WorldState } from './world-state.js';
+import { BlockPanel } from '../blocks/block-view.js';
 
 export const WorldContext = createContext<WorldState | undefined>(undefined);
 
@@ -109,7 +110,7 @@ export function SelectedWorld({ state, id }: { state: WorldState; id: string }):
       <p>
         World ID: <code>{world.id}</code>
       </p>
-      <p>Your space is ready. Agent blocks and invitations are coming next.</p>
+      <BlockPanel key={world.id} worldId={world.id} />
     </section>
   );
 }

@@ -13,6 +13,17 @@ import { connectFirestoreEmulator, initializeFirestore, terminate } from 'fireba
 const projectId = 'demo-tmt-office';
 const documents = `http://127.0.0.1:8080/v1/projects/${projectId}/databases/(default)/documents`;
 
+export async function readBlockDocument(worldId: string): Promise<unknown> {
+  expect(worldId).toMatch(/^[a-zA-Z0-9]{20}$/);
+  const response = await fetch(`${documents}/worlds/${worldId}/blocks/home`, {
+    headers: { authorization: 'Bearer owner' },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (response.status === 404) return null;
+  expect(response.status).toBe(200);
+  return response.json();
+}
+
 export async function ownedWorlds(uid: string): Promise<unknown[]> {
   const response = await fetch(`${documents}:runQuery`, {
     method: 'POST',

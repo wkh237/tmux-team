@@ -50,6 +50,15 @@ the direct Firestore adapter and session-scoped admission/selected-world state.
 Its Firebase-free `world-contract.ts` is the single client port/value/validation
 owner; pure state does not depend on the concrete SDK adapter.
 Rules, not the UI, enforce tester admission and immutable owner authority.
+`src/blocks` adds one owner-only home block: pure catalog/geometry/validation,
+an SDK adapter and a mounted editor state owner. Remote snapshots and an explicit
+unsaved draft are separate, not duplicated caches. The view renders curated SVG
+primitives; it cannot execute stored markup. Block writes use expected revisions
+and online transactions, and reuse world ownership rather than adding another
+identity record. See `contracts/office/block-v1.md` for the bounded data contract.
+The same pure block owner encodes readable furniture into short storage tokens;
+Rules validate complete footprints within their expression budget. No parallel
+named-field copy is stored.
 React subscribes to the observer-backed session rather than copying identity into
 Jotai. The opt-in `browser-tests` stage of the same emulator Dockerfile proves
 real browser session behavior with local auth and an explicit public Google

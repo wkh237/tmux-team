@@ -19,6 +19,7 @@ import {
 import { officeFirebaseConfig } from './firebase-config.js';
 import { createWorldPort } from '../worlds/firebase-worlds.js';
 import { createWorldState } from '../worlds/world-state.js';
+import { createBlockPort } from '../blocks/firebase-blocks.js';
 
 /** One composition root for both explicit environments, outside React rendering. */
 export function startOfficeRuntime(
@@ -56,6 +57,7 @@ export function startOfficeRuntime(
   return {
     session,
     worlds,
+    blocks: createBlockPort(db),
     mode,
     dispose: async () => {
       worlds.dispose();
