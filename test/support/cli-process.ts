@@ -5,7 +5,15 @@ import path from 'node:path';
 import { expect } from 'vitest';
 import { resolveCliExecutables, type CliExecutable } from './cli-executable.mjs';
 
+const lifecycleKey = Symbol('sandbox process lifetime');
+interface ActiveRun {
+  result: Promise<CliResult>;
+  cleanup: Promise<void>;
+  stop: () => void;
+}
+
 export interface Sandbox {
+  readonly [lifecycleKey]: { closing: boolean; runs: Set<ActiveRun> };
   readonly cli: CliExecutable;
   readonly root: string;
   readonly cwd: string;
@@ -32,7 +40,7 @@ export interface CliRunOptions {
   readonly closeStdin?: boolean;
   /** Combined stdout/stderr bound. Reply JSON can exceed the legacy 1 MiB bound. */
   readonly outputLimitBytes?: number;
-  /** Hard process-group deadline, including startup and cleanup. */
+  /** Execution deadline; termination has a separate bounded cleanup phase. */
   readonly deadlineMs?: number;
 }
 
@@ -60,6 +68,7 @@ export function createSandbox(executableEnv: NodeJS.ProcessEnv = process.env): S
     delete env.PI_CODING_AGENT_DIR;
     delete env.OPENCODE_CONFIG_DIR;
     return {
+      [lifecycleKey]: { closing: false, runs: new Set<ActiveRun>() },
       cli,
       root,
       cwd,
@@ -82,52 +91,155 @@ export function runCli(
   args: readonly string[],
   options: CliRunOptions = {}
 ): Promise<CliResult> {
+  const lifetime = sandbox[lifecycleKey];
+  if (lifetime.closing) return Promise.reject(new Error('CLI sandbox is closing.'));
+  const run = startRun(sandbox, args, options);
+  lifetime.runs.add(run);
+  // Keep failed cleanup registered so sandbox disposal cannot delete its files.
+  void run.cleanup.then(
+    () => lifetime.runs.delete(run),
+    () => {}
+  );
+  // A callback can fail before it awaits the run; disposal still owns cleanup.
+  void run.result.catch(() => {});
+  return run.result;
+}
+
+function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOptions): ActiveRun {
   for (const key of ['TMUX', 'TMUX_PANE', 'TMUX_TEAM_HOME']) delete sandbox.env[key];
   const outputLimitBytes = options.outputLimitBytes ?? 1024 * 1024;
   const deadlineMs = options.deadlineMs ?? 5_000;
   const hasStdin = options.stdin !== undefined;
-  return new Promise((resolve, reject) => {
-    const child = spawn(sandbox.cli.executable, [...sandbox.cli.args, ...args], {
-      cwd: sandbox.cwd,
-      env: sandbox.env,
-      detached: true,
-      stdio: [hasStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    });
+  let cleaned: () => void = () => {};
+  let cleanupFailed: (error: Error) => void = () => {};
+  const cleanup = new Promise<void>((resolve, reject) => {
+    cleaned = resolve;
+    cleanupFailed = reject;
+  });
+  let stop = () => {};
+  const result = new Promise<CliResult>((resolve, reject) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(sandbox.cli.executable, [...sandbox.cli.args, ...args], {
+        cwd: sandbox.cwd,
+        env: sandbox.env,
+        detached: true,
+        stdio: [hasStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+        windowsHide: true,
+      });
+    } catch (error) {
+      // Synchronous argument rejection creates no process to dispose.
+      cleaned();
+      reject(error);
+      return;
+    }
     // Decode at the stream boundary so a multibyte UTF-8 character split
     // across OS chunks cannot be corrupted by per-buffer toString() calls.
-    const stdoutStream = child.stdout;
-    const stderrStream = child.stderr;
-    if (!stdoutStream || !stderrStream) throw new Error('CLI subprocess output pipes unavailable.');
+    // Both descriptors are unconditionally configured as pipes above.
+    const stdoutStream = child.stdout!;
+    const stderrStream = child.stderr!;
     stdoutStream.setEncoding('utf8');
     stderrStream.setEncoding('utf8');
     let stdout = '';
     let stderr = '';
     let outputBytes = 0;
-    let timedOut = false;
-    let outputLimitExceeded = false;
-    const killProcessGroup = (): void => {
-      if (child.pid === undefined) return;
+    let failure: Error | undefined;
+    let cleanupError: Error | undefined;
+    let inspectionError: unknown;
+    let closed: { status: number | null; signal: NodeJS.Signals | null } | undefined;
+    let groupGone = child.pid === undefined;
+    let finishing = false;
+    let settled = false;
+    let cleanupDeadline = 0;
+    const groupExists = (): boolean => {
+      if (groupGone || child.pid === undefined) return false;
       try {
-        process.kill(-child.pid, 'SIGKILL');
-      } catch {
-        child.kill('SIGKILL');
+        process.kill(-child.pid, 0);
+        return true;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ESRCH') {
+          groupGone = true;
+          return false;
+        }
+        throw error;
       }
     };
+    const finish = (error?: Error): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) {
+        cleanupFailed(error);
+        child.unref();
+        child.stdin?.destroy();
+        stdoutStream.destroy();
+        stderrStream.destroy();
+        reject(
+          failure
+            ? new AggregateError([failure, error], `${failure.message} ${error.message}`)
+            : error
+        );
+      } else {
+        cleaned();
+        if (failure) reject(failure);
+        else resolve({ ...closed!, stdout, stderr });
+      }
+    };
+    const pollCleanup = (): void => {
+      if (settled) return;
+      try {
+        groupExists();
+      } catch (error) {
+        // A transient probe failure is not proof of exit. Keep polling until
+        // absence is confirmed or the cleanup deadline expires.
+        inspectionError = error;
+      }
+      if (closed && groupGone) {
+        finish(cleanupError);
+        return;
+      }
+      if (performance.now() >= cleanupDeadline) {
+        finish(
+          new Error('CLI process cleanup did not confirm close and group exit within 1000ms.', {
+            cause: cleanupError ?? inspectionError,
+          })
+        );
+        return;
+      }
+      setTimeout(pollCleanup, 10);
+    };
+    const beginCleanup = (): void => {
+      if (finishing || settled) return;
+      finishing = true;
+      clearTimeout(timer);
+      cleanupDeadline = performance.now() + 1000;
+      try {
+        // Signal once while still owned; never signal a PID after observing absence.
+        if (groupExists()) process.kill(-child.pid!, 'SIGKILL');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ESRCH') groupGone = true;
+        else cleanupError = new Error('Could not stop CLI process group.', { cause: error });
+      }
+      pollCleanup();
+    };
     const timer = setTimeout(() => {
-      timedOut = true;
-      // A selected executable may launch children; kill the process group so a
-      // timeout cannot leave that descendant running after the test exits.
-      killProcessGroup();
+      failure ??= new Error(`CLI subprocess exceeded the ${deadlineMs} millisecond test bound.`);
+      beginCleanup();
     }, deadlineMs);
+    stop = () => {
+      failure ??= new Error('CLI run cancelled during sandbox disposal.');
+      beginCleanup();
+    };
     const readOutput =
       (stream: 'stdout' | 'stderr') =>
       (chunk: Buffer | string): void => {
         const text = chunk.toString();
         outputBytes += Buffer.byteLength(text);
         if (outputBytes > outputLimitBytes) {
-          outputLimitExceeded = true;
-          killProcessGroup();
+          failure ??= new Error(
+            `CLI subprocess exceeded the ${outputLimitBytes}-byte output bound.`
+          );
+          beginCleanup();
           return;
         }
         if (stream === 'stdout') stdout += text;
@@ -136,27 +248,27 @@ export function runCli(
     stdoutStream.on('data', readOutput('stdout'));
     stderrStream.on('data', readOutput('stderr'));
     if (child.stdin) child.stdin.on('error', () => undefined);
-    if (hasStdin && child.stdin) {
-      if (options.closeStdin === false) child.stdin.write(options.stdin);
-      else child.stdin.end(options.stdin);
-    }
     child.on('error', (error) => {
-      clearTimeout(timer);
-      if (outputLimitExceeded) {
-        reject(new Error(`CLI subprocess exceeded the ${outputLimitBytes}-byte output bound.`));
-      } else reject(error);
+      failure ??= error;
+      beginCleanup();
     });
-    child.on('close', (status, signal) => {
-      clearTimeout(timer);
-      if (outputLimitExceeded) {
-        reject(new Error(`CLI subprocess exceeded the ${outputLimitBytes}-byte output bound.`));
-      } else if (timedOut) {
-        reject(new Error(`CLI subprocess exceeded the ${deadlineMs} millisecond test bound.`));
-      } else {
-        resolve({ status, signal, stdout, stderr });
+    try {
+      if (hasStdin && child.stdin) {
+        if (options.closeStdin === false) child.stdin.write(options.stdin);
+        else child.stdin.end(options.stdin);
       }
+    } catch (error) {
+      failure = new Error('Could not write CLI stdin.', { cause: error });
+      beginCleanup();
+    }
+    // Descendants can keep inherited pipes open after the direct child exits.
+    child.once('exit', beginCleanup);
+    child.on('close', (status, signal) => {
+      closed = { status, signal };
+      beginCleanup();
     });
   });
+  return { result, cleanup, stop: () => stop() };
 }
 
 export function parseWholeStdout(result: CliResult): JsonDocument {
@@ -200,9 +312,26 @@ export function fileSnapshot(root: string): Record<string, string> {
 
 export async function withSandbox<T>(callback: (sandbox: Sandbox) => T | Promise<T>): Promise<T> {
   const sandbox = createSandbox();
+  let value: T | undefined;
+  let failure: { error: unknown } | undefined;
   try {
-    return await callback(sandbox);
-  } finally {
-    rmSync(sandbox.root, { recursive: true, force: true });
+    value = await callback(sandbox);
+  } catch (error) {
+    failure = { error };
   }
+  const lifetime = sandbox[lifecycleKey];
+  lifetime.closing = true;
+  const runs = [...lifetime.runs];
+  for (const run of runs) run.stop();
+  const results = await Promise.allSettled(runs.map((run) => run.cleanup));
+  const errors = results.flatMap((result) => (result.status === 'rejected' ? [result.reason] : []));
+  if (errors.length) {
+    throw new AggregateError(
+      failure ? [failure.error, ...errors] : errors,
+      `CLI sandbox cleanup failed; retained fixture at ${sandbox.root}.`
+    );
+  }
+  rmSync(sandbox.root, { recursive: true, force: true });
+  if (failure) throw failure.error;
+  return value as T;
 }

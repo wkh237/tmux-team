@@ -274,6 +274,14 @@ only then removes fixture state. Signals are sent only to task-owned child
 processes. No host tmux server, provider installation or global environment
 mutation is test evidence.
 
+`test/support/cli-process.ts` owns each native sandbox's active child runs;
+descriptor clones share that lifetime. Direct-child exit starts same-group
+cleanup even when descendants retain output pipes. Success requires direct
+close and confirmed group absence; cleanup failure is bounded and retains
+fixture files for diagnosis. Sandbox disposal cancels outstanding runs before
+removing files. This is not containment of descendants that create new sessions,
+and does not replace the separate Docker harness or release verifier.
+
 The native process suite proves parser, configuration, identity, response,
 exchange, talk, installation and skill contracts through the real executable.
 Docker E2E supplies private tmux, caller, lifecycle, transport and cross-process
