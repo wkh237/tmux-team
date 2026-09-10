@@ -29,6 +29,79 @@ function fixture() {
   };
 }
 describe('one block editor lifetime', () => {
+  it('late observations cannot roll back a confirmed save or a newer remote revision', async () => {
+    const f = fixture();
+    f.changed(null);
+    f.state.edit(objects);
+    await f.state.save();
+    f.changed(null);
+    expect(f.state.getSnapshot().remote?.revision).toBe(1);
+    f.changed({ revision: 3, objects: [], updatedAtMs: 3 });
+    f.state.edit(objects);
+    f.changed({ revision: 2, objects, updatedAtMs: 2 });
+    expect(f.state.getSnapshot()).toMatchObject({
+      remote: { revision: 3, objects: [] },
+      draft: { revision: 3, objects },
+    });
+    f.state.dispose();
+  });
+  it('a newer watch revision survives an older pending save confirmation', async () => {
+    const f = fixture();
+    f.changed(null);
+    f.state.edit(objects);
+    let resolve: (block: Block) => void = () => {};
+    vi.mocked(f.port.apply).mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        })
+    );
+    const pending = f.state.save();
+    f.changed({ revision: 2, objects: [], updatedAtMs: 2 });
+    resolve({ revision: 1, objects, updatedAtMs: 1 });
+    await pending;
+    expect(f.state.getSnapshot()).toMatchObject({
+      remote: { revision: 2, objects: [] },
+      draft: null,
+      busy: false,
+    });
+    f.state.dispose();
+  });
+  it.each(['success', 'failure'])(
+    'a terminal watch failure fences late snapshots and save %s',
+    async (outcome) => {
+      const f = fixture();
+      f.changed(null);
+      f.state.edit(objects);
+      let resolve: (block: Block) => void = () => {};
+      let reject: (error: Error) => void = () => {};
+      vi.mocked(f.port.apply).mockImplementation(
+        () =>
+          new Promise((done, fail) => {
+            resolve = done;
+            reject = fail;
+          })
+      );
+      const pending = f.state.save();
+      f.failed();
+      const block = { revision: 1, objects, updatedAtMs: 1 };
+      f.changed(block);
+      if (outcome === 'success') resolve(block);
+      else reject(new Error('Late network failure'));
+      await pending;
+      expect(f.state.getSnapshot()).toMatchObject({
+        ready: false,
+        remote: null,
+        draft: null,
+        busy: false,
+        error: 'Block unavailable. Reopen the world to retry.',
+      });
+      f.state.edit(objects);
+      await f.state.save();
+      expect(f.port.apply).toHaveBeenCalledOnce();
+      f.state.dispose();
+    }
+  );
   it('keeps edits local until explicit save commits the captured revision', async () => {
     const f = fixture();
     f.changed(null);
