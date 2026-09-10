@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/tmt-core", "crates/tmt-adapters", "crates/tmt-cli"]
+members = ["crates/tmt-core", "crates/tmt-adapters", "crates/tmt-cli", "crates/tmt-office"]
 resolver = "3"
 
 [workspace.package]

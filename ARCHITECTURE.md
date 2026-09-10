@@ -61,7 +61,7 @@ jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
 
 ## Runtime layers
 
-The three Rust crates have deliberately narrow responsibilities:
+The Rust crates have deliberately narrow responsibilities:
 
 | Layer             | Owner                           | Responsibility                                                                                                                                                                                                                              |
 | ----------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -74,6 +74,14 @@ dependency guard. It follows the actual Rust module tree, checks reviewed
 layer edges and shared declaration ownership, and fails closed for unsupported
 module remapping or incomplete discovery. It is a syntactic guard and never
 replaces review of behavior or effects.
+
+The optional `rust/crates/tmt-office` executable is independently versioned and
+currently implements only the internal compatibility probe. It depends on core,
+not the CLI, Firebase or SQLite. `tmt-core::office_protocol` owns the fixed typed
+handshake; `tmt-adapters::office_companion` verifies active installation ownership
+and composes the existing bounded subprocess runner under the installer lock.
+Its contract is [native companion handshake](contracts/office/native-companion.md).
+This is not public Office command support, pairing or a background connector.
 
 ## Public command boundary
 

@@ -12,6 +12,9 @@ use tar::{Builder, EntryType, Header};
 
 const TARGET: &str = "aarch64-apple-darwin";
 
+#[path = "office_companion_tests.rs"]
+mod office_companion_tests;
+
 enum Entry {
     File {
         path: String,
@@ -152,11 +155,15 @@ fn product_fixture(entries: Vec<Entry>, package: &str, files: &[&str]) -> Fixtur
 }
 
 fn office_fixture() -> Fixture {
+    office_fixture_with_payload(b"office executable\n")
+}
+
+fn office_fixture_with_payload(payload: &[u8]) -> Fixture {
     let root = "tmux-team-1.2.3-aarch64-apple-darwin";
     let mut entries = valid_entries(root);
     entries[0] = Entry::File {
         path: format!("{root}/tmt-office"),
-        bytes: b"office executable\n".to_vec(),
+        bytes: payload.to_vec(),
         mode: 0o755,
     };
     product_fixture(

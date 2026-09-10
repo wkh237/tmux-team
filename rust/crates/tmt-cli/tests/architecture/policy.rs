@@ -36,6 +36,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "signal-hook",
             "sha2",
         ],
+        "tmt-office" => &["tmt-core"],
         "tmt-cli" => &[
             "unicode-width",
             "tmt-core",

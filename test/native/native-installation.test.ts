@@ -68,8 +68,10 @@ async function createArtifact(
   const manifest = path.join(fixtureRoot, 'manifest.json');
   mkdirSync(root, { recursive: true });
   const executableName = product === 'cli' ? 'tmt' : 'tmt-office';
-  // The copied CLI proves installer byte preservation, not an Office release or protocol.
-  copyFileSync(sandbox.cli.executable, path.join(root, executableName));
+  // Office is built independently. Never substitute the CLI for a missing companion.
+  const source =
+    product === 'cli' ? sandbox.cli.executable : path.resolve('rust/target/debug/tmt-office');
+  copyFileSync(source, path.join(root, executableName));
   const executable = path.join(root, executableName);
   chmodSync(executable, 0o755);
   if (executableSuffix.byteLength > 0)
@@ -194,8 +196,24 @@ describe('native installation process contract', () => {
         });
         expect(readlinkSync(installed.executable)).toBe('../lib/tmt-office/current/tmt-office');
         expect(
-          readFileSync(installed.executable).equals(readFileSync(sandbox.cli.executable))
+          readFileSync(installed.executable).equals(
+            readFileSync(path.resolve('rust/target/debug/tmt-office'))
+          )
         ).toBe(true);
+        const probe = await runCli(
+          { ...sandbox, cli: { executable: installed.executable, args: [] } },
+          ['__tmt-office', '1', 'probe']
+        );
+        expect(probe.status).toBe(0);
+        expect(probe.stderr).toBe('');
+        expect(probe.stdout).toBe('TMT-OFFICE/1\n0.1.0-alpha.1\n');
+        const rejected = await runCli(
+          { ...sandbox, cli: { executable: installed.executable, args: [] } },
+          ['__tmt-office', '2', 'probe']
+        );
+        expect(rejected.status).toBe(1);
+        expect(rejected.stdout).toBe('');
+        expect(rejected.stderr).toBe('Unsupported Office invocation or protocol version.\n');
         expect(await install(sandbox, office, prefix, ['--product', 'office'])).toEqual({
           ...installed,
           changed: false,

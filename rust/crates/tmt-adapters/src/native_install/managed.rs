@@ -51,16 +51,25 @@ pub fn inspect_product(product: Product, executable: &Path) -> io::Result<Manage
 /// Keep the selected release current while its bounded skill-refresh child
 /// runs. Lock order is installation then skills; acquisition never holds either.
 pub fn with_active_release<T>(executable: &Path, operation: impl FnOnce() -> T) -> io::Result<T> {
-    let observed = inspect(executable)?;
-    let layout = Layout::existing(&observed.prefix)?;
+    with_active_product(Product::Cli, executable, |_| operation())
+}
+
+/// Run a bounded operation while the verified product remains the active release.
+pub fn with_active_product<T>(
+    product: Product,
+    executable: &Path,
+    operation: impl FnOnce(&ManagedInstallation) -> T,
+) -> io::Result<T> {
+    let observed = inspect_product(product, executable)?;
+    let layout = Layout::existing_product(&observed.prefix, product)?;
     let _lock = crate::file_lock::exclusive(&layout.root.join("install.lock"))?;
     if layout.current()?.map(|receipt| receipt.id) != Some(observed.id) {
         return Err(invalid(
-            "The active release changed before skill refresh. Retry from the current native executable.",
+            "The active release changed before the managed operation. Retry from the current native executable.",
         ));
     }
     layout.check_links(true)?;
-    Ok(operation())
+    Ok(operation(&observed))
 }
 
 fn unmanaged() -> io::Error {

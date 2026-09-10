@@ -52,6 +52,7 @@ fn directory(path: &Path, create: bool) -> io::Result<()> {
 }
 
 impl Layout {
+    #[cfg(test)]
     pub fn existing(prefix: &Path) -> io::Result<Self> {
         Self::existing_product(prefix, Product::Cli)
     }

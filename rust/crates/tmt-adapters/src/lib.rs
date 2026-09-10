@@ -12,6 +12,8 @@ mod json_document;
 #[cfg(unix)]
 pub mod native_install;
 #[cfg(unix)]
+pub mod office_companion;
+#[cfg(unix)]
 pub mod process;
 #[cfg(unix)]
 mod release_http;

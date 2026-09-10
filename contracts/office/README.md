@@ -14,6 +14,9 @@ real Rules tests, not derived from implementation output.
 
 ## Single source of truth
 
+The [native companion handshake](native-companion.md) is an implemented internal
+local boundary, independently versioned from the remote work-handoff proposal.
+
 - `v1.schema.json` is JSON Schema 2020-12 for the initial work handoff ingress:
   negotiation offer, human work submission, connector evidence and final export.
 - `examples.json` contains valid wire examples. Authentication is supplied by

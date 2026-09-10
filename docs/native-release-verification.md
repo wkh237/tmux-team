@@ -172,7 +172,11 @@ Office installs under `lib/tmt-office` with only `bin/tmt-office`; it must not
 modify CLI links, receipts, application state or managed skills. Verify coexistence,
 cross-product rejection and interruption in isolated prefixes. Copied CLI binaries
 in synthetic Office test archives prove installation behavior only, not an actual
-Office companion, protocol compatibility or public distribution.
+Office companion, protocol compatibility or public distribution. The native
+process suite now separately copies the compiled `tmt-office` into synthetic
+archives and exercises its exact versioned probe. Build the workspace first;
+a missing companion is an error, never a fallback to the CLI. This additional
+evidence does not replace real cargo-dist archive and distribution acceptance.
 
 Native adapter tests cover bounded archive acquisition and publication failures;
 native process contracts use the existing executable selector and sandbox. Test

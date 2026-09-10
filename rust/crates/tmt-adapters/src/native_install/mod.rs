@@ -3,7 +3,9 @@
 mod artifact;
 pub use tmt_core::native_install::Product;
 mod managed;
-pub use managed::{ManagedInstallation, inspect, inspect_product, with_active_release};
+pub use managed::{
+    ManagedInstallation, inspect, inspect_product, with_active_product, with_active_release,
+};
 #[cfg(test)]
 mod artifact_tests;
 #[cfg(test)]
