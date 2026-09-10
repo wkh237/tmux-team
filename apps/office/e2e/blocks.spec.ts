@@ -90,6 +90,34 @@ test('owner arranges, explicitly saves, reopens and loses block access on revoca
   await expect(page.getByRole('region', { name: 'Office block editor' })).toHaveCount(0);
 });
 
+test('save confirmation uses the available request channel while watches reconnect', async ({
+  openSession,
+}) => {
+  const { page, context } = await openSession();
+  const { worldId } = await prepareStudio(page);
+  await page.getByRole('button', { name: 'Add desk', exact: true }).click();
+  let blockedWatches = 0;
+  // GAPI probes connectivity after an offline event; block the optional probe.
+  await context.route('https://www.google.com/images/cleardot.gif*', (route) => route.abort());
+  await context.setOffline(true);
+  await context.route('http://127.0.0.1:8080/**', (route) => {
+    if (route.request().url().includes('/Listen/')) {
+      blockedWatches++;
+      return route.abort('internetdisconnected');
+    }
+    return route.continue();
+  });
+  await context.setOffline(false);
+  await page.getByRole('button', { name: 'Save layout', exact: true }).click();
+  await expect
+    .poll(() => readBlockDocument(worldId))
+    .toMatchObject({
+      fields: { revision: { integerValue: '1' } },
+    });
+  expect(blockedWatches).toBeGreaterThan(0);
+  await expect(page.getByText('Saved · revision 1', { exact: true })).toBeVisible();
+});
+
 test('a disconnected save keeps a local draft and reconnect cannot silently publish it', async ({
   openSession,
 }) => {

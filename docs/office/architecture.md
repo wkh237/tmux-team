@@ -34,6 +34,9 @@ selection and controls. No canvas engine, generic scene framework, new global
 store or remote-state copy is introduced. Pointer selection/tile placement and
 equivalent numeric/keyboard controls edit locally; explicit Save uses the
 revision-checked Firestore transaction. Agent assignment and commands are not implemented. The contract and shared validation vectors live in `contracts/office`.
+Save confirmation and conflict inspection use one-shot transaction reads in the
+same adapter, independent of watch-channel recovery. Watch snapshots remain
+the ongoing projection, not an acknowledgment channel for explicit saves.
 The pure contract's sole codec converts readable furniture maps to four-character
 storage tokens, allowing Rules to validate all 16 objects and exact rotated
 bounds within their expression budget.
