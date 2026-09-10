@@ -48,7 +48,9 @@ Rules retain independent validation as the authority boundary, not a generated
 client-only guard. There is no second domain model or request layer. `world-state.ts`
 owns one admission listener and at most one selected-world listener. Session and
 admission generations fence late creates; route generations also fence world
-listener callbacks. A pending creation can still navigate after its form unmounts.
+listener callbacks. Creation success navigation is local to the mounted create
+form and rendered through the router; unmounted forms cannot redirect a later
+view. Leaving does not cancel the write or discard its session-owned retry draft.
 React subscribes
 directly, with no parallel Jotai/Query copy. Firestore cache-only snapshots never
 grant access or display world data; only server-confirmed observations do.

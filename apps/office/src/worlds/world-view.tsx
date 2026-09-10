@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useSyncExternalStore } from 'react';
-import { Link, useNavigate } from '@tanstack/react-router';
+import { Link, Navigate, useNavigate } from '@tanstack/react-router';
 import type { ReactElement, ReactNode } from 'react';
 import type { WorldState } from './world-state.js';
 import { WORLD_ID_PATTERN } from './world-contract.js';
@@ -41,17 +41,17 @@ function Admission({
 export function CreateWorld({ state }: { state: WorldState }): ReactElement {
   const [name, setName] = useState('');
   const [worldId, setWorldId] = useState('');
+  const [createdId, setCreatedId] = useState<string | null>(null);
   const { busy, error, draft } = useSyncExternalStore(state.subscribe, state.getSnapshot);
   const navigate = useNavigate();
+  if (createdId) return <Navigate to="/worlds/$worldId" params={{ worldId: createdId }} />;
   return (
     <section aria-label="Create a world">
       <h2>Create your private world</h2>
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          void state.create(name).then((id) => {
-            if (id) void navigate({ to: '/worlds/$worldId', params: { worldId: id } });
-          });
+          void state.create(name).then(setCreatedId);
         }}
       >
         <label htmlFor="world-name">World name</label>

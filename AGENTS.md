@@ -89,6 +89,7 @@ or present planned behavior as shipped.
 
 ## Code organization
 
+- Prefer fixes that simplify ownership and data flow over accumulating defensive patches. Before adding flags, counters, branches or abstractions, check whether moving responsibility to its natural owner or removing redundant state eliminates the defect. Judge simplicity across the affected flow, not by the smallest diff. Keep necessary trust-boundary validation and behavior tests; this is not permission for unrelated rewrites.
 - Keep production behavior, test infrastructure, fixtures, and scenario assertions in clearly separated modules.
 - Prefer small, purpose-specific interfaces and existing dependency-injection boundaries over new global state or parallel abstractions.
 - Put shared behavior in one named helper only after more than one caller needs it; keep scenario-specific behavior close to the scenario.
