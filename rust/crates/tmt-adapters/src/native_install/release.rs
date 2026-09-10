@@ -112,7 +112,8 @@ pub(super) fn download(
         deadline,
         &mut get,
     )?;
-    let (archive_name, manifest_version) = artifact::select(&manifest, target)?;
+    let (archive_name, manifest_version) =
+        artifact::select(super::Product::Cli, &manifest, target)?;
     if manifest_version != version {
         return Err(invalid(
             "Release and cargo-dist manifest versions disagree.",

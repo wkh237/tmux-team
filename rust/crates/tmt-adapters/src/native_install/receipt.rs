@@ -1,7 +1,8 @@
 //! Installation evidence is rooted in a release directory, not application config.
 
 use super::{
-    artifact::{Artifact, FILES, digest},
+    Product,
+    artifact::{Artifact, digest},
     invalid,
 };
 use crate::bounded_file;
@@ -58,13 +59,24 @@ impl Receipt {
         .map_err(io::Error::other)
     }
 
+    #[cfg(test)]
     pub fn read(directory: &Path, prefix: &Path, id: Uuid) -> io::Result<Self> {
+        Self::read_product(Product::Cli, directory, prefix, id)
+    }
+
+    pub fn read_product(
+        product: Product,
+        directory: &Path,
+        prefix: &Path,
+        id: Uuid,
+    ) -> io::Result<Self> {
         let mut inventory = fs::read_dir(directory)?
-            .take(FILES.len() + 2)
+            .take(product.files().len() + 2)
             .map(|entry| entry.map(|entry| entry.file_name()))
             .collect::<io::Result<Vec<_>>>()?;
         inventory.sort();
-        let mut expected = FILES
+        let mut expected = product
+            .files()
             .into_iter()
             .chain(["receipt.json"])
             .map(std::ffi::OsString::from)
@@ -138,16 +150,16 @@ impl Receipt {
         let hashes = value["file_sha256"]
             .as_object()
             .ok_or_else(|| invalid("Missing installed file digests."))?;
-        if hashes.len() != FILES.len() {
+        if hashes.len() != product.files().len() {
             return Err(invalid("Unexpected installed file digest inventory."));
         }
         let mut file_hashes = BTreeMap::new();
-        for name in FILES {
+        for name in product.files() {
             let metadata = fs::symlink_metadata(directory.join(name))?;
             let mode = metadata.permissions().mode();
             if !metadata.file_type().is_file()
                 || mode & 0o7000 != 0
-                || (name == "tmt" && mode & 0o111 == 0)
+                || (name == product.executable() && mode & 0o111 == 0)
             {
                 return Err(invalid(
                     "Installed release file type or permissions have changed.",

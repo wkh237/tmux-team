@@ -149,6 +149,8 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         },
         ["__native-refresh-skills"] => Invocation::NativeRefreshSkills,
         ["__native-install"] => Invocation::NativeInstall {
+            product: tmt_core::native_install::Product::parse(&required(m, "product"))
+                .expect("product was validated by grammar"),
             archive: required(m, "archive"),
             manifest: required(m, "manifest"),
             prefix: required(m, "prefix"),

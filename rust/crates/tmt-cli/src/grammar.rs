@@ -196,6 +196,7 @@ pub fn grammar() -> Command {
         .subcommand(
             general("__native-install", "Internal offline native installation")
                 .hide(true)
+                .arg(Arg::new("product").long("product").default_value("cli").value_parser(tmt_core::native_install::Product::ALL.map(|product| product.as_str())))
                 .arg(Arg::new("archive").long("archive").required(true))
                 .arg(Arg::new("manifest").long("manifest").required(true))
                 .arg(Arg::new("prefix").long("prefix").required(true))

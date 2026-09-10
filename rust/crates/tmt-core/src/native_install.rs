@@ -1,5 +1,8 @@
 //! Pure release-channel and version policy; no filesystem or transport effects.
 
+mod product;
+pub use product::Product;
+
 use semver::Version;
 use std::{cmp::Ordering, error::Error, fmt};
 

@@ -85,6 +85,7 @@ mod tests {
             },
             Invocation::NativeRefreshSkills,
             Invocation::NativeInstall {
+                product: tmt_core::native_install::Product::Cli,
                 archive: "archive.tar.gz".into(),
                 manifest: "manifest.json".into(),
                 prefix: "/explicit-prefix".into(),

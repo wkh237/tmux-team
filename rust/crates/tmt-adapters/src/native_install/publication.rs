@@ -1,10 +1,6 @@
 //! One durable release directory and one atomic activation pointer.
 
-use super::{
-    artifact::{Artifact, FILES},
-    invalid,
-    receipt::Receipt,
-};
+use super::{Product, artifact::Artifact, invalid, receipt::Receipt};
 use std::{
     fs::{self, File, OpenOptions},
     io::{self, Write},
@@ -33,6 +29,7 @@ impl std::error::Error for ActivatedError {
 }
 
 pub(super) struct Layout {
+    pub product: Product,
     pub prefix: PathBuf,
     pub root: PathBuf,
 }
@@ -56,9 +53,13 @@ fn directory(path: &Path, create: bool) -> io::Result<()> {
 
 impl Layout {
     pub fn existing(prefix: &Path) -> io::Result<Self> {
+        Self::existing_product(prefix, Product::Cli)
+    }
+
+    pub fn existing_product(prefix: &Path, product: Product) -> io::Result<Self> {
         directory(prefix, false)?;
         let prefix = fs::canonicalize(prefix)?;
-        let root = prefix.join("lib/tmux-team");
+        let root = prefix.join(product.namespace());
         for path in [
             prefix.join("lib"),
             prefix.join("bin"),
@@ -67,10 +68,19 @@ impl Layout {
         ] {
             directory(&path, false)?;
         }
-        Ok(Self { prefix, root })
+        Ok(Self {
+            prefix,
+            root,
+            product,
+        })
     }
 
+    #[cfg(test)]
     pub fn open(prefix: &Path) -> io::Result<Self> {
+        Self::open_product(prefix, Product::Cli)
+    }
+
+    pub fn open_product(prefix: &Path, product: Product) -> io::Result<Self> {
         if prefix.as_os_str().is_empty() {
             return Err(invalid("Installation prefix must not be empty."));
         }
@@ -85,10 +95,14 @@ impl Layout {
         let prefix = fs::canonicalize(&requested)?;
         directory(&prefix.join("lib"), true)?;
         directory(&prefix.join("bin"), true)?;
-        let root = prefix.join("lib/tmux-team");
+        let root = prefix.join(product.namespace());
         directory(&root, true)?;
         directory(&root.join("releases"), true)?;
-        Ok(Self { prefix, root })
+        Ok(Self {
+            prefix,
+            root,
+            product,
+        })
     }
 
     pub fn current(&self) -> io::Result<Option<Receipt>> {
@@ -108,11 +122,11 @@ impl Layout {
         if !fs::symlink_metadata(&release)?.file_type().is_dir() {
             return Err(invalid("Native current release is not a real directory."));
         }
-        Receipt::read(&release, &self.prefix, id).map(Some)
+        Receipt::read_product(self.product, &release, &self.prefix, id).map(Some)
     }
 
     pub fn check_links(&self, has_current: bool) -> io::Result<()> {
-        for name in ["tmt", "tmux-team"] {
+        for name in self.product.links() {
             let path = self.prefix.join("bin").join(name);
             match fs::symlink_metadata(&path) {
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -120,7 +134,7 @@ impl Layout {
                 Ok(metadata)
                     if has_current
                         && metadata.file_type().is_symlink()
-                        && fs::read_link(&path)? == Path::new("../lib/tmux-team/current/tmt") => {}
+                        && fs::read_link(&path)? == Path::new(&self.product.link_target()) => {}
                 Ok(_) => {
                     return Err(io::Error::new(
                         io::ErrorKind::AlreadyExists,
@@ -137,9 +151,9 @@ impl Layout {
 
     pub fn ensure_links(&self) -> io::Result<()> {
         self.check_links(true)?;
-        for name in ["tmt", "tmux-team"] {
+        for name in self.product.links() {
             let path = self.prefix.join("bin").join(name);
-            match symlink("../lib/tmux-team/current/tmt", &path) {
+            match symlink(self.product.link_target(), &path) {
                 Ok(()) => {}
                 Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                     self.check_links(true)?
@@ -177,12 +191,16 @@ impl Layout {
         let mut pointer_created = false;
         let mut activated = false;
         let result = (|| {
-            for name in FILES {
+            for name in self.product.files() {
                 checkpoint()?;
                 write(
                     &release.join(name),
                     &artifact.files[name],
-                    if name == "tmt" { 0o755 } else { 0o644 },
+                    if name == self.product.executable() {
+                        0o755
+                    } else {
+                        0o644
+                    },
                 )?;
             }
             write(

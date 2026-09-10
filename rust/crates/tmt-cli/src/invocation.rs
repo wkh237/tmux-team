@@ -62,6 +62,7 @@ pub enum Invocation {
     },
     NativeRefreshSkills,
     NativeInstall {
+        product: tmt_core::native_install::Product,
         archive: String,
         manifest: String,
         prefix: String,

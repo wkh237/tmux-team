@@ -166,6 +166,14 @@ with the same payload. Receipts record local-archive provenance, not authenticat
 public release provenance. Keep application state isolated separately when running
 identity/profile commands; installing the executable must not open a database.
 
+The internal `--product office` selector uses the same offline verifier/publisher
+for a `tmt-office` package and executable. Omission selects the CLI unchanged.
+Office installs under `lib/tmt-office` with only `bin/tmt-office`; it must not
+modify CLI links, receipts, application state or managed skills. Verify coexistence,
+cross-product rejection and interruption in isolated prefixes. Copied CLI binaries
+in synthetic Office test archives prove installation behavior only, not an actual
+Office companion, protocol compatibility or public distribution.
+
 Native adapter tests cover bounded archive acquisition and publication failures;
 native process contracts use the existing executable selector and sandbox. Test
 current/receipt tampering, manager collisions, pin changes, interrupted staging,

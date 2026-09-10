@@ -1,6 +1,6 @@
 //! Read-only ownership of the executing binary, independent of PATH/app state.
 
-use super::{invalid, publication::Layout};
+use super::{Product, invalid, publication::Layout};
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -19,15 +19,19 @@ pub struct ManagedInstallation {
 }
 
 pub fn inspect(executable: &Path) -> io::Result<ManagedInstallation> {
+    inspect_product(Product::Cli, executable)
+}
+
+pub fn inspect_product(product: Product, executable: &Path) -> io::Result<ManagedInstallation> {
     let executable = fs::canonicalize(executable)?;
     let prefix = executable.ancestors().nth(5).ok_or_else(unmanaged)?;
-    let layout = Layout::existing(prefix).map_err(|_| unmanaged())?;
+    let layout = Layout::existing_product(prefix, product).map_err(|_| unmanaged())?;
     let current = layout.current()?.ok_or_else(unmanaged)?;
     let active = layout
         .root
         .join("releases")
         .join(current.id.to_string())
-        .join("tmt");
+        .join(product.executable());
     if executable != active {
         return Err(invalid(
             "This executable is not the active managed release. Run the current native installation, or update using its original package manager.",
@@ -35,7 +39,7 @@ pub fn inspect(executable: &Path) -> io::Result<ManagedInstallation> {
     }
     layout.check_links(true)?;
     Ok(ManagedInstallation {
-        executable: layout.prefix.join("bin/tmt"),
+        executable: layout.prefix.join("bin").join(product.executable()),
         active_executable: active,
         state: current.state,
         target: current.target,

@@ -1,8 +1,9 @@
 //! Verified native release acquisition and managed publication, without app state.
 
 mod artifact;
+pub use tmt_core::native_install::Product;
 mod managed;
-pub use managed::{ManagedInstallation, inspect, with_active_release};
+pub use managed::{ManagedInstallation, inspect, inspect_product, with_active_release};
 #[cfg(test)]
 mod artifact_tests;
 #[cfg(test)]
@@ -68,18 +69,38 @@ pub fn install(
     install_observed(request, None, None, checkpoint)
 }
 
+/// Install the explicitly selected fixed product; never discover one from archive data.
+pub fn install_product(
+    product: Product,
+    request: InstallRequest<'_>,
+    checkpoint: impl FnMut() -> io::Result<()>,
+) -> io::Result<InstallReport> {
+    install_product_observed(product, request, None, None, checkpoint)
+}
+
 fn install_observed(
+    request: InstallRequest<'_>,
+    expected: Option<uuid::Uuid>,
+    provenance: Option<receipt::GitHubProvenance>,
+    checkpoint: impl FnMut() -> io::Result<()>,
+) -> io::Result<InstallReport> {
+    install_product_observed(Product::Cli, request, expected, provenance, checkpoint)
+}
+
+fn install_product_observed(
+    product: Product,
     request: InstallRequest<'_>,
     expected: Option<uuid::Uuid>,
     provenance: Option<receipt::GitHubProvenance>,
     mut checkpoint: impl FnMut() -> io::Result<()>,
 ) -> io::Result<InstallReport> {
     checkpoint()?;
-    let artifact = artifact::acquire(request.manifest, request.archive, request.target)?;
+    let artifact =
+        artifact::acquire_product(product, request.manifest, request.archive, request.target)?;
     plan_version(None, &artifact.version, request.channel, request.pin)
         .map_err(io::Error::other)?;
     checkpoint()?;
-    let layout = publication::Layout::open(request.prefix)?;
+    let layout = publication::Layout::open_product(request.prefix, product)?;
     let _lock = crate::file_lock::exclusive(&layout.root.join("install.lock"))?;
     let current = layout.current()?;
     if let Some(expected) = expected
@@ -163,12 +184,12 @@ fn installed_report(
     changed: bool,
 ) -> InstallReport {
     InstallReport {
-        executable: layout.prefix.join("bin/tmt"),
+        executable: layout.prefix.join("bin").join(layout.product.executable()),
         active_executable: layout
             .root
             .join("releases")
             .join(active_id.to_string())
-            .join("tmt"),
+            .join(layout.product.executable()),
         version: version.into(),
         changed,
     }

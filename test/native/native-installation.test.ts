@@ -56,18 +56,21 @@ function nativeTarget(): string {
 async function createArtifact(
   sandbox: Sandbox,
   version: string,
-  executableSuffix: Uint8Array = new Uint8Array()
+  executableSuffix: Uint8Array = new Uint8Array(),
+  product: 'cli' | 'office' = 'cli'
 ): Promise<ArtifactFixture> {
   const target = nativeTarget();
-  const name = `tmux-team-${version}-${target}.tar.gz`;
-  const fixtureRoot = path.join(sandbox.root, 'native archive inputs with spaces');
+  const name = `${product}-${version}-${target}.tar.gz`;
+  const fixtureRoot = path.join(sandbox.root, 'native archive inputs with spaces', product);
   const tree = path.join(fixtureRoot, 'tree');
   const root = path.join(tree, name.slice(0, -'.tar.gz'.length));
   const archive = path.join(fixtureRoot, name);
   const manifest = path.join(fixtureRoot, 'manifest.json');
   mkdirSync(root, { recursive: true });
-  copyFileSync(sandbox.cli.executable, path.join(root, 'tmt'));
-  const executable = path.join(root, 'tmt');
+  const executableName = product === 'cli' ? 'tmt' : 'tmt-office';
+  // The copied CLI proves installer byte preservation, not an Office release or protocol.
+  copyFileSync(sandbox.cli.executable, path.join(root, executableName));
+  const executable = path.join(root, executableName);
   chmodSync(executable, 0o755);
   if (executableSuffix.byteLength > 0)
     writeFileSync(executable, Buffer.concat([readFileSync(executable), executableSuffix]));
@@ -85,10 +88,16 @@ async function createArtifact(
           name,
           target_triples: [target],
           checksums: { sha256: checksum },
-          assets: REQUIRED_FILES.map((file) => ({ path: file })),
+          assets: REQUIRED_FILES.map((file) => ({ path: file === 'tmt' ? executableName : file })),
         },
       },
-      releases: [{ app_name: 'tmt-cli', app_version: version, artifacts: [name] }],
+      releases: [
+        {
+          app_name: product === 'cli' ? 'tmt-cli' : 'tmt-office',
+          app_version: version,
+          artifacts: [name],
+        },
+      ],
     })}\n`
   );
   return { archive, manifest, version, target };
@@ -132,7 +141,7 @@ async function install(
     ],
     { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
   );
-  expect(result.status).toBe(0);
+  expect(result.status, result.stdout + result.stderr).toBe(0);
   expect(result.stderr).toBe('');
   return parseWholeStdout(result) as unknown as InstallResult;
 }
@@ -165,6 +174,42 @@ function artifactChecksum(fixture: ArtifactFixture): string {
 }
 
 describe('native installation process contract', () => {
+  it(
+    'installs Office explicitly without changing CLI bytes, receipts or application state',
+    { timeout: 60_000 },
+    async () => {
+      await withSandbox(async (sandbox) => {
+        const version = (await runCli(sandbox, ['--version'])).stdout.trim();
+        const cli = await createArtifact(sandbox, version);
+        const prefix = installPrefix(sandbox);
+        const installedCli = await install(sandbox, cli, prefix);
+        const cliReceipt = readFileSync(receiptPath(prefix));
+        const pointer = readlinkSync(currentPointer(prefix));
+        const office = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'office');
+        const installed = await install(sandbox, office, prefix, ['--product', 'office']);
+        expect(installed).toEqual({
+          executable: path.join(realpathSync(prefix), 'bin/tmt-office'),
+          version: '0.1.0-alpha.1',
+          changed: true,
+        });
+        expect(readlinkSync(installed.executable)).toBe('../lib/tmt-office/current/tmt-office');
+        expect(
+          readFileSync(installed.executable).equals(readFileSync(sandbox.cli.executable))
+        ).toBe(true);
+        expect(await install(sandbox, office, prefix, ['--product', 'office'])).toEqual({
+          ...installed,
+          changed: false,
+        });
+        expect(readlinkSync(currentPointer(prefix))).toBe(pointer);
+        expect(readFileSync(receiptPath(prefix)).equals(cliReceipt)).toBe(true);
+        expect(
+          readFileSync(installedCli.executable).equals(readFileSync(sandbox.cli.executable))
+        ).toBe(true);
+        expect(existsSync(sandbox.database)).toBe(false);
+      });
+    }
+  );
+
   it(
     'installs a real copied native executable from spaced paths and runs it with an empty PATH',
     { timeout: 60_000 },

@@ -8,6 +8,7 @@ use std::{
 use tmt_core::native_install::{Channel, PinAction};
 
 pub fn execute(
+    product: tmt_core::native_install::Product,
     archive: &str,
     manifest: &str,
     prefix: &str,
@@ -45,7 +46,7 @@ pub fn execute(
         channel,
         pin,
     };
-    let report = match tmt_adapters::native_install::install(request, || {
+    let report = match tmt_adapters::native_install::install_product(product, request, || {
         if interrupt.is_interrupted() {
             Err(io::Error::new(
                 io::ErrorKind::Interrupted,
@@ -77,12 +78,13 @@ pub fn execute(
     } else {
         writeln!(
             stdout,
-            "{} tmt {} at {}",
+            "{} {} {} at {}",
             if report.changed {
                 "Installed"
             } else {
                 "Current"
             },
+            product.executable(),
             report.version,
             report.executable.display()
         )?;

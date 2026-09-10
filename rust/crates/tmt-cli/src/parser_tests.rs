@@ -68,6 +68,7 @@ fn internal_native_install_requires_explicit_inputs_and_typed_pin_policy() {
     assert_eq!(
         parsed.invocation,
         Invocation::NativeInstall {
+            product: tmt_core::native_install::Product::Cli,
             archive: "archive.tar.gz".into(),
             manifest: "manifest.json".into(),
             prefix: "/prefix with spaces".into(),
@@ -84,6 +85,18 @@ fn internal_native_install_requires_explicit_inputs_and_typed_pin_policy() {
             if actual == if pin == "--pin" { PinAction::PinCandidate } else { PinAction::Clear })
         );
     }
+    let mut office = input.to_vec();
+    office.extend(["--product", "office"]);
+    assert!(matches!(
+        super::parse(&self::args(&office)).unwrap().invocation,
+        Invocation::NativeInstall {
+            product: tmt_core::native_install::Product::Office,
+            ..
+        }
+    ));
+    let mut invalid_product = input.to_vec();
+    invalid_product.extend(["--product", "third-party"]);
+    assert_eq!(parse_error(&invalid_product).code, "USAGE_ERROR");
     let mut conflict = input.to_vec();
     conflict.extend(["--pin", "--unpin"]);
     assert_eq!(parse_error(&conflict).code, "USAGE_ERROR");

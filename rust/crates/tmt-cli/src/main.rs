@@ -144,6 +144,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
             return skill_refresh_command::execute(parsed.mode);
         }
         Invocation::NativeInstall {
+            product,
             archive,
             manifest,
             prefix,
@@ -152,6 +153,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         } => {
             drop(stdout);
             return native_install_command::execute(
+                product,
                 &archive,
                 &manifest,
                 &prefix,

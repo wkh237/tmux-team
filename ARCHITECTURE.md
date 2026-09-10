@@ -237,6 +237,15 @@ replaces an unmanaged path.
 Native executable installation is a different owner under
 `tmt-adapters::native_install`:
 
+Core's fixed `native_install::Product` policy owns CLI/Office package identity,
+inventory and installation namespace; it has no filesystem or network effects.
+The hidden offline installer accepts an explicit product (CLI by default), while
+both products use the same acquisition, receipt and atomic publication path.
+Office's command link, lock and current release are independent of the CLI's;
+existing CLI receipts retain their format. Manifest selection uses product and
+target together, rejecting ambiguous or multiply owned artifacts. This internal
+path is not a public Office installer, pairing implementation or release claim.
+
 - `artifact` consumes cargo-dist metadata and a matching archive, checking
   target, manifest membership, SHA-256, bounded compressed/expanded input,
   notices and executable contents;
