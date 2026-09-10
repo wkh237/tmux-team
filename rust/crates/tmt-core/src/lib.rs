@@ -7,6 +7,7 @@ pub mod identity;
 pub mod limits;
 pub mod names;
 pub mod native_install;
+pub mod office_protocol;
 pub mod profile;
 pub mod request;
 pub mod retention;

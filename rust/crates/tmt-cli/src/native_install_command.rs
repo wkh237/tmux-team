@@ -8,6 +8,7 @@ use std::{
 use tmt_core::native_install::{Channel, PinAction};
 
 pub fn execute(
+    product: tmt_core::native_install::Product,
     archive: &str,
     manifest: &str,
     prefix: &str,
@@ -15,20 +16,19 @@ pub fn execute(
     pin: PinAction,
     mode: OutputMode,
 ) -> io::Result<u8> {
-    let target = match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("macos", "aarch64") => "aarch64-apple-darwin",
-        ("macos", "x86_64") => "x86_64-apple-darwin",
-        ("linux", "aarch64") => "aarch64-unknown-linux-musl",
-        ("linux", "x86_64") => "x86_64-unknown-linux-musl",
-        _ => {
-            return Failure::new(
-                "NATIVE_INSTALL_UNSUPPORTED",
-                "No native artifact is supported for this platform.",
-                1,
-            )
-            .publish(mode);
-        }
-    };
+    let target =
+        match tmt_core::native_install::native_target(std::env::consts::OS, std::env::consts::ARCH)
+        {
+            Some(target) => target,
+            None => {
+                return Failure::new(
+                    "NATIVE_INSTALL_UNSUPPORTED",
+                    "No native artifact is supported for this platform.",
+                    1,
+                )
+                .publish(mode);
+            }
+        };
     let interrupt = match tmt_adapters::interrupt::Interrupt::install() {
         Ok(interrupt) => interrupt,
         Err(error) => {
@@ -45,7 +45,7 @@ pub fn execute(
         channel,
         pin,
     };
-    let report = match tmt_adapters::native_install::install(request, || {
+    let report = match tmt_adapters::native_install::install_product(product, request, || {
         if interrupt.is_interrupted() {
             Err(io::Error::new(
                 io::ErrorKind::Interrupted,
@@ -77,12 +77,13 @@ pub fn execute(
     } else {
         writeln!(
             stdout,
-            "{} tmt {} at {}",
+            "{} {} {} at {}",
             if report.changed {
                 "Installed"
             } else {
                 "Current"
             },
+            product.executable(),
             report.version,
             report.executable.display()
         )?;

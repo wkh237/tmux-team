@@ -25,188 +25,226 @@ pub fn grammar() -> Command {
     ] {
         root = root.arg(option(id).global(true));
     }
+    root = root.subcommand(office_commands());
     root.subcommand(general("help", "Show help"))
-        .subcommand(
-            general("team", "Retired command")
-                .hide(true)
-                .arg(operand("scope", false)),
+    .subcommand(
+        general("team", "Retired command")
+            .hide(true)
+            .arg(operand("scope", false)),
+    )
+    .subcommand(general("init", "Create workspace settings"))
+    .subcommand(
+        general("list", "List global identities, lifetime and live presence")
+            .visible_alias("ls")
+            .arg(operand("target", false)),
+    )
+    .subcommand(
+        with_options(
+            general("add", "Bind an explicit pane; temporary unless saved"),
+            &["save"],
         )
-        .subcommand(general("init", "Create workspace settings"))
-        .subcommand(
-            general("list", "List global identities, lifetime and live presence")
-                .visible_alias("ls")
-                .arg(operand("target", false)),
+        .arg(operand("pane-target", true))
+        .arg(operand("name", true)),
+    )
+    .subcommand(
+        with_options(
+            general("name", "Bind this pane; temporary unless saved"),
+            &["save"],
         )
-        .subcommand(
-            with_options(
-                general("add", "Bind an explicit pane; temporary unless saved"),
-                &["save"],
+        .visible_alias("this")
+        .arg(operand("name", true)),
+    )
+    .subcommand(
+        with_options(
+            general(
+                "rm",
+                "Retire identity and remove role/preamble; keep pane/exchanges (--force for saved)",
+            ),
+            &["force"],
+        )
+        .visible_alias("remove")
+        .arg(operand("name", true)),
+    )
+    .subcommand(
+        with_options(
+            general("talk", "Send a request and wait for its durable reply"),
+            &[
+                "force",
+                "delay",
+                "detach",
+                "timeout",
+                "no-preamble",
+                "identity",
+            ],
+        )
+        .visible_alias("send")
+        .arg(operand("target", true))
+        .arg(operand("message", true)),
+    )
+    .subcommand(
+        with_options(
+            general("check", "Capture diagnostic pane output"),
+            &["lines"],
+        )
+        .visible_alias("read")
+        .arg(operand("target", true))
+        .arg(operand("capture-lines", false)),
+    )
+    .subcommand(general("whoami", "Show this pane's verified identity"))
+    .subcommand(general(
+        "unbind",
+        "Detach this pane; retire temporary identity",
+    ))
+    .subcommand(
+        general("config", "View or modify settings")
+            .subcommand(general("show", "Show settings"))
+            .subcommand(
+                with_options(general("set", "Set a setting"), &["global"])
+                    .arg(operand("key", true))
+                    .arg(operand("value", true).allow_negative_numbers(true)),
             )
-            .arg(operand("pane-target", true))
-            .arg(operand("name", true)),
-        )
-        .subcommand(
-            with_options(
-                general("name", "Bind this pane; temporary unless saved"),
-                &["save"],
+            .subcommand(general("clear", "Clear a local setting").arg(operand("key", false))),
+    )
+    .subcommand(
+        general("preamble", "Manage identity-owned preambles")
+            .subcommand(general("show", "Show preambles").arg(operand("agent", false)))
+            .subcommand(
+                general("set", "Set a preamble")
+                    .arg(operand("agent", true))
+                    .arg(operand("content", true).num_args(1..)),
             )
-            .visible_alias("this")
-            .arg(operand("name", true)),
+            .subcommand(general("clear", "Clear a preamble").arg(operand("agent", true))),
+    )
+    .subcommand(
+        with_options(
+            storage("x", "Inspect and acknowledge exchanges"),
+            &["identity", "limit", "after"],
         )
-        .subcommand(
-            with_options(
-                general("rm", "Retire identity and remove role/preamble; keep pane/exchanges (--force for saved)"),
-                &["force"],
-            )
-            .visible_alias("remove")
-            .arg(operand("name", true)),
-        )
-        .subcommand(
-            with_options(
-                general("talk", "Send a request and wait for its durable reply"),
-                &[
-                    "force",
-                    "delay",
-                    "detach",
-                    "timeout",
-                    "no-preamble",
-                    "identity",
-                ],
-            )
-            .visible_alias("send")
-            .arg(operand("target", true))
-            .arg(operand("message", true)),
-        )
-        .subcommand(
-            with_options(
-                general("check", "Capture diagnostic pane output"),
-                &["lines"],
-            )
-            .visible_alias("read")
-            .arg(operand("target", true))
-            .arg(operand("capture-lines", false)),
-        )
-        .subcommand(general("whoami", "Show this pane's verified identity"))
-        .subcommand(general(
-            "unbind",
-            "Detach this pane; retire temporary identity",
+        .subcommand(with_options(
+            storage("list", "List unacknowledged exchanges"),
+            &["identity", "limit", "after"],
         ))
         .subcommand(
-            general("config", "View or modify settings")
-                .subcommand(general("show", "Show settings"))
-                .subcommand(
-                    with_options(general("set", "Set a setting"), &["global"])
-                        .arg(operand("key", true))
-                        .arg(operand("value", true).allow_negative_numbers(true)),
-                )
-                .subcommand(general("clear", "Clear a local setting").arg(operand("key", false))),
-        )
-        .subcommand(
-            general("preamble", "Manage identity-owned preambles")
-                .subcommand(general("show", "Show preambles").arg(operand("agent", false)))
-                .subcommand(
-                    general("set", "Set a preamble")
-                        .arg(operand("agent", true))
-                        .arg(operand("content", true).num_args(1..)),
-                )
-                .subcommand(general("clear", "Clear a preamble").arg(operand("agent", true))),
-        )
-        .subcommand(
             with_options(
-                storage("x", "Inspect and acknowledge exchanges"),
-                &["identity", "limit", "after"],
-            )
-            .subcommand(with_options(
-                storage("list", "List unacknowledged exchanges"),
-                &["identity", "limit", "after"],
-            ))
-            .subcommand(
-                with_options(
-                    storage("show", "Show retained exchange content"),
-                    &["identity"],
-                )
-                .arg(operand("request-id", true)),
-            )
-            .subcommand(
-                with_options(
-                    storage("ack", "Acknowledge an observed revision"),
-                    &["identity"],
-                )
-                .arg(option("revision").required(true))
-                .arg(operand("request-id", true)),
-            )
-            .subcommand(with_options(
-                storage("ackall", "Acknowledge the current identity snapshot"),
+                storage("show", "Show retained exchange content"),
                 &["identity"],
-            )),
-        )
-        .subcommand(
-            storage("identity", "Manage identity records without probing tmux")
-                .subcommand_required(true)
-                .subcommand(
-                    storage("create", "Create or save an identity").arg(operand("name", true)),
-                )
-                .subcommand(storage("show", "Show an identity").arg(operand("name", true)))
-                .subcommand(storage("list", "List non-retired identities")),
-        )
-        .subcommand(
-            with_options(general("role", "Manage role profiles"), &["identity"])
-                .subcommand_required(true)
-                .subcommand(with_options(general("show", "Show a role"), &["identity"]))
-                .subcommand(
-                    with_options(
-                        general("set", "Set a role from inline text or file"),
-                        &["identity", "file"],
-                    )
-                    .arg(operand("content", false)),
-                )
-                .subcommand(with_options(
-                    general("clear", "Clear a role"),
-                    &["identity"],
-                )),
-        )
-        .subcommand(
-            with_options(
-                storage("reply", "Submit an exact final response"),
-                &["file", "message", "stdin"],
             )
-            .arg(option("receipt").required(true))
             .arg(operand("request-id", true)),
         )
         .subcommand(
-            storage("result", "Retrieve a retained final response")
-                .arg(operand("request-id", true)),
-        )
-        .subcommand(
             with_options(
-                general("install", "Install or refresh agent skills"),
-                &["force", "dir"],
+                storage("ack", "Acknowledge an observed revision"),
+                &["identity"],
             )
-            .arg(operand("agent", false).value_parser(
-                tmt_core::skill_provider::Provider::ALL.into_iter().map(|provider| provider.as_str()).chain(["all"]).collect::<Vec<_>>()
-            ).ignore_case(true)),
-        )
-        .subcommand(general("completion", "Generate shell completion").arg(operand("shell", false)))
-        .subcommand(general("upgrade", "Upgrade the native CLI and refresh managed skills")
-            .visible_alias("update")
-            .arg(Arg::new("channel").long("channel").value_parser(tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str())))
-            .arg(Arg::new("to").long("to").conflicts_with("unpin"))
-            .arg(Arg::new("unpin").long("unpin").action(ArgAction::SetTrue)))
-        .subcommand(general("__native-refresh-skills", "Internal managed skill refresh").hide(true))
-        .subcommand(
-            general("__native-install", "Internal offline native installation")
-                .hide(true)
-                .arg(Arg::new("archive").long("archive").required(true))
-                .arg(Arg::new("manifest").long("manifest").required(true))
-                .arg(Arg::new("prefix").long("prefix").required(true))
-                .arg(Arg::new("channel").long("channel").required(true).value_parser(tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str())))
-                .arg(Arg::new("pin").long("pin").action(ArgAction::SetTrue).conflicts_with("unpin"))
-                .arg(Arg::new("unpin").long("unpin").action(ArgAction::SetTrue)),
+            .arg(option("revision").required(true))
+            .arg(operand("request-id", true)),
         )
         .subcommand(with_options(
-            general("learn", "Read agent guidance"),
-            &["skill"],
-        ))
+            storage("ackall", "Acknowledge the current identity snapshot"),
+            &["identity"],
+        )),
+    )
+    .subcommand(
+        storage("identity", "Manage identity records without probing tmux")
+            .subcommand_required(true)
+            .subcommand(storage("create", "Create or save an identity").arg(operand("name", true)))
+            .subcommand(storage("show", "Show an identity").arg(operand("name", true)))
+            .subcommand(storage("list", "List non-retired identities")),
+    )
+    .subcommand(
+        with_options(general("role", "Manage role profiles"), &["identity"])
+            .subcommand_required(true)
+            .subcommand(with_options(general("show", "Show a role"), &["identity"]))
+            .subcommand(
+                with_options(
+                    general("set", "Set a role from inline text or file"),
+                    &["identity", "file"],
+                )
+                .arg(operand("content", false)),
+            )
+            .subcommand(with_options(
+                general("clear", "Clear a role"),
+                &["identity"],
+            )),
+    )
+    .subcommand(
+        with_options(
+            storage("reply", "Submit an exact final response"),
+            &["file", "message", "stdin"],
+        )
+        .arg(option("receipt").required(true))
+        .arg(operand("request-id", true)),
+    )
+    .subcommand(
+        storage("result", "Retrieve a retained final response").arg(operand("request-id", true)),
+    )
+    .subcommand(
+        with_options(
+            general("install", "Install or refresh agent skills"),
+            &["force", "dir"],
+        )
+        .arg(
+            operand("agent", false)
+                .value_parser(
+                    tmt_core::skill_provider::Provider::ALL
+                        .into_iter()
+                        .map(|provider| provider.as_str())
+                        .chain(["all"])
+                        .collect::<Vec<_>>(),
+                )
+                .ignore_case(true),
+        ),
+    )
+    .subcommand(general("completion", "Generate shell completion").arg(operand("shell", false)))
+    .subcommand(
+        general(
+            "upgrade",
+            "Upgrade the native CLI and refresh managed skills",
+        )
+        .visible_alias("update")
+        .arg(
+            Arg::new("channel").long("channel").value_parser(
+                tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str()),
+            ),
+        )
+        .arg(Arg::new("to").long("to").conflicts_with("unpin"))
+        .arg(Arg::new("unpin").long("unpin").action(ArgAction::SetTrue)),
+    )
+    .subcommand(general("__native-refresh-skills", "Internal managed skill refresh").hide(true))
+    .subcommand(
+        general("__native-install", "Internal offline native installation")
+            .hide(true)
+            .arg(
+                Arg::new("product")
+                    .long("product")
+                    .default_value("cli")
+                    .value_parser(
+                        tmt_core::native_install::Product::ALL.map(|product| product.as_str()),
+                    ),
+            )
+            .arg(Arg::new("archive").long("archive").required(true))
+            .arg(Arg::new("manifest").long("manifest").required(true))
+            .arg(Arg::new("prefix").long("prefix").required(true))
+            .arg(
+                Arg::new("channel")
+                    .long("channel")
+                    .required(true)
+                    .value_parser(
+                        tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str()),
+                    ),
+            )
+            .arg(
+                Arg::new("pin")
+                    .long("pin")
+                    .action(ArgAction::SetTrue)
+                    .conflicts_with("unpin"),
+            )
+            .arg(Arg::new("unpin").long("unpin").action(ArgAction::SetTrue)),
+    )
+    .subcommand(with_options(
+        general("learn", "Read agent guidance"),
+        &["skill"],
+    ))
 }
 
 fn base(name: &'static str, about: &'static str) -> Command {
@@ -224,6 +262,38 @@ fn storage(name: &'static str, about: &'static str) -> Command {
 
 fn general(name: &'static str, about: &'static str) -> Command {
     with_options(storage(name, about), &["wait", "team"])
+}
+
+fn office(name: &'static str, about: &'static str) -> Command {
+    general(name, about).arg(Arg::new("prefix").long("prefix").global(true))
+}
+
+fn office_commands() -> Command {
+    office("office", "Manage the optional Office companion")
+        .subcommand(office("status", "Inspect the local Office installation"))
+        .subcommand(
+            office("install", "Explicitly install the Office companion")
+                .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue))
+                .arg(Arg::new("archive").long("archive").requires("manifest"))
+                .arg(Arg::new("manifest").long("manifest").requires("archive"))
+                .arg(Arg::new("channel").long("channel").value_parser(
+                    tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str()),
+                )),
+        )
+        .subcommand(
+            office("upgrade", "Explicitly update the Office companion").arg(
+                Arg::new("channel").long("channel").value_parser(
+                    tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str()),
+                ),
+            ),
+        )
+        .subcommand(
+            office(
+                "uninstall",
+                "Deactivate Office without deleting retained data",
+            )
+            .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue)),
+        )
 }
 
 fn with_options(mut command: Command, ids: &[&'static str]) -> Command {

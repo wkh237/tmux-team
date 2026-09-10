@@ -8,6 +8,7 @@ import {
   readlinkSync,
   readdirSync,
   realpathSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -56,18 +57,23 @@ function nativeTarget(): string {
 async function createArtifact(
   sandbox: Sandbox,
   version: string,
-  executableSuffix: Uint8Array = new Uint8Array()
+  executableSuffix: Uint8Array = new Uint8Array(),
+  product: 'cli' | 'office' = 'cli'
 ): Promise<ArtifactFixture> {
   const target = nativeTarget();
-  const name = `tmux-team-${version}-${target}.tar.gz`;
-  const fixtureRoot = path.join(sandbox.root, 'native archive inputs with spaces');
+  const name = `${product}-${version}-${target}.tar.gz`;
+  const fixtureRoot = path.join(sandbox.root, 'native archive inputs with spaces', product);
   const tree = path.join(fixtureRoot, 'tree');
   const root = path.join(tree, name.slice(0, -'.tar.gz'.length));
   const archive = path.join(fixtureRoot, name);
   const manifest = path.join(fixtureRoot, 'manifest.json');
   mkdirSync(root, { recursive: true });
-  copyFileSync(sandbox.cli.executable, path.join(root, 'tmt'));
-  const executable = path.join(root, 'tmt');
+  const executableName = product === 'cli' ? 'tmt' : 'tmt-office';
+  // Office is built independently. Never substitute the CLI for a missing companion.
+  const source =
+    product === 'cli' ? sandbox.cli.executable : path.resolve('rust/target/debug/tmt-office');
+  copyFileSync(source, path.join(root, executableName));
+  const executable = path.join(root, executableName);
   chmodSync(executable, 0o755);
   if (executableSuffix.byteLength > 0)
     writeFileSync(executable, Buffer.concat([readFileSync(executable), executableSuffix]));
@@ -85,10 +91,16 @@ async function createArtifact(
           name,
           target_triples: [target],
           checksums: { sha256: checksum },
-          assets: REQUIRED_FILES.map((file) => ({ path: file })),
+          assets: REQUIRED_FILES.map((file) => ({ path: file === 'tmt' ? executableName : file })),
         },
       },
-      releases: [{ app_name: 'tmt-cli', app_version: version, artifacts: [name] }],
+      releases: [
+        {
+          app_name: product === 'cli' ? 'tmt-cli' : 'tmt-office',
+          app_version: version,
+          artifacts: [name],
+        },
+      ],
     })}\n`
   );
   return { archive, manifest, version, target };
@@ -132,7 +144,7 @@ async function install(
     ],
     { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
   );
-  expect(result.status).toBe(0);
+  expect(result.status, result.stdout + result.stderr).toBe(0);
   expect(result.stderr).toBe('');
   return parseWholeStdout(result) as unknown as InstallResult;
 }
@@ -165,6 +177,126 @@ function artifactChecksum(fixture: ArtifactFixture): string {
 }
 
 describe('native installation process contract', () => {
+  it(
+    'exposes explicit Office installation, local status and recoverable deactivation',
+    { timeout: 60_000 },
+    async () => {
+      await withSandbox(async (sandbox) => {
+        const prefix = installPrefix(sandbox);
+        const office = (args: string[]) =>
+          runCli(sandbox, ['office', '--prefix', prefix, ...args, '--json'], {
+            deadlineMs: INSTALL_PROCESS_BUDGET_MS,
+          });
+        expectError(await office(['status']), 'OFFICE_NOT_INSTALLED');
+        expectError(await office([]), 'OFFICE_NOT_INSTALLED');
+        expectError(await office(['install']), 'OFFICE_CONSENT_REQUIRED');
+        expectError(await office(['uninstall']), 'OFFICE_CONSENT_REQUIRED');
+        expectError(
+          await office(['install', '--yes', '--archive', 'missing', '--manifest', 'missing']),
+          'OFFICE_INSTALL_FAILED'
+        );
+        expect(existsSync(prefix)).toBe(false);
+        const fixture = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'office');
+        const args = [
+          'install',
+          '--yes',
+          '--archive',
+          fixture.archive,
+          '--manifest',
+          fixture.manifest,
+        ];
+        const installed = await office(args);
+        expect(installed.status, installed.stdout + installed.stderr).toBe(0);
+        expect(parseWholeStdout(installed)).toMatchObject({
+          installed: true,
+          changed: true,
+          version: '0.1.0-alpha.1',
+        });
+        const status = await office(['status']);
+        expect(status.status, status.stdout + status.stderr).toBe(0);
+        expect(status.stderr).toBe('');
+        expect(parseWholeStdout(status)).toMatchObject({
+          installed: true,
+          protocolVersion: '1',
+          version: '0.1.0-alpha.1',
+        });
+        expectError(await office([]), 'OFFICE_NOT_PAIRED');
+        expect(parseWholeStdout(await office(args))).toMatchObject({ changed: false });
+        const payload = readFileSync(path.join(prefix, 'bin/tmt-office'));
+        const releases = path.join(prefix, 'lib/tmt-office/releases');
+        const release = readdirSync(releases)[0];
+        // Interrupted removal may lose the command link before the activation.
+        // Report that state honestly and allow explicit removal to finish.
+        unlinkSync(path.join(prefix, 'bin/tmt-office'));
+        expectError(await office(['status']), 'OFFICE_INSTALLATION_INVALID');
+        expect(parseWholeStdout(await office(['uninstall', '--yes']))).toEqual({
+          installed: false,
+          changed: true,
+          retainedReleases: true,
+        });
+        expect(readFileSync(path.join(releases, release, 'tmt-office')).equals(payload)).toBe(true);
+        expectError(await office(['status']), 'OFFICE_NOT_INSTALLED');
+        expect(parseWholeStdout(await office(['uninstall', '--yes']))).toMatchObject({
+          changed: false,
+        });
+        expect(parseWholeStdout(await office(args))).toMatchObject({ changed: true });
+        expect(existsSync(sandbox.database)).toBe(false);
+      });
+    }
+  );
+
+  it(
+    'installs Office explicitly without changing CLI bytes, receipts or application state',
+    { timeout: 60_000 },
+    async () => {
+      await withSandbox(async (sandbox) => {
+        const version = (await runCli(sandbox, ['--version'])).stdout.trim();
+        const cli = await createArtifact(sandbox, version);
+        const prefix = installPrefix(sandbox);
+        const installedCli = await install(sandbox, cli, prefix);
+        const cliReceipt = readFileSync(receiptPath(prefix));
+        const pointer = readlinkSync(currentPointer(prefix));
+        const office = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'office');
+        const installed = await install(sandbox, office, prefix, ['--product', 'office']);
+        expect(installed).toEqual({
+          executable: path.join(realpathSync(prefix), 'bin/tmt-office'),
+          version: '0.1.0-alpha.1',
+          changed: true,
+        });
+        expect(readlinkSync(installed.executable)).toBe('../lib/tmt-office/current/tmt-office');
+        expect(
+          readFileSync(installed.executable).equals(
+            readFileSync(path.resolve('rust/target/debug/tmt-office'))
+          )
+        ).toBe(true);
+        const probe = await runCli(
+          { ...sandbox, cli: { executable: installed.executable, args: [] } },
+          ['__tmt-office', '1', 'probe']
+        );
+        expect(probe.status).toBe(0);
+        expect(probe.stderr).toBe('');
+        expect(probe.stdout).toBe('TMT-OFFICE/1\n0.1.0-alpha.1\n');
+        const rejected = await runCli(
+          { ...sandbox, cli: { executable: installed.executable, args: [] } },
+          ['__tmt-office', '2', 'probe']
+        );
+        expect(rejected.status).toBe(1);
+        expect(rejected.stdout).toBe('');
+        expect(rejected.stderr).toBe('Unsupported Office invocation or protocol version.\n');
+        expect(await install(sandbox, office, prefix, ['--product', 'office'])).toEqual({
+          ...installed,
+          changed: false,
+        });
+        expect(readlinkSync(currentPointer(prefix))).toBe(pointer);
+        expect(readFileSync(receiptPath(prefix)).equals(cliReceipt)).toBe(true);
+        expect(
+          readFileSync(installedCli.executable).equals(readFileSync(sandbox.cli.executable))
+        ).toBe(true);
+        expect(existsSync(sandbox.database)).toBe(false);
+      });
+    }
+  );
+
   it(
     'installs a real copied native executable from spaced paths and runs it with an empty PATH',
     { timeout: 60_000 },
@@ -473,7 +605,9 @@ describe('native installation process contract', () => {
         const completion = await runCli(sandbox, ['completion', shell]);
         expect(completion.status).toBe(0);
         expect(completion.stdout).not.toContain('__native-install');
-        expect(completion.stdout).not.toContain('--archive');
+        expect(completion.stdout).not.toContain('--product');
+        // Offline Office installation is public; only the internal publisher is hidden.
+        expect(completion.stdout).toContain('--archive');
       }
       expect(existsSync(sandbox.database)).toBe(false);
     });

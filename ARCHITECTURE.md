@@ -61,7 +61,7 @@ jobs cannot satisfy either gate. No passing zero-test configuration is allowed.
 
 ## Runtime layers
 
-The three Rust crates have deliberately narrow responsibilities:
+The Rust crates have deliberately narrow responsibilities:
 
 | Layer             | Owner                           | Responsibility                                                                                                                                                                                                                              |
 | ----------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -74,6 +74,15 @@ dependency guard. It follows the actual Rust module tree, checks reviewed
 layer edges and shared declaration ownership, and fails closed for unsupported
 module remapping or incomplete discovery. It is a syntactic guard and never
 replaces review of behavior or effects.
+
+The optional `rust/crates/tmt-office` executable is independently versioned and
+currently implements only the internal compatibility probe. It depends on core,
+not the CLI, Firebase or SQLite. `tmt-core::office_protocol` owns the fixed typed
+handshake; `tmt-adapters::office_companion` verifies active installation ownership
+and composes the existing bounded subprocess runner under the installer lock.
+Its contract is [native companion handshake](contracts/office/native-companion.md).
+The public `office` subtree composes installation and this local probe; pairing
+and background connection remain unimplemented.
 
 ## Public command boundary
 
@@ -93,7 +102,9 @@ The maintained public surface is:
   `reply`, `result`, `talk`/`send`, `check`/`read`;
 - managed native updates through `upgrade`/`update`, with the hidden
   `__native-install` and `__native-refresh-skills` composition points used by
-  verified release tooling.
+  verified release tooling;
+- optional `office`, `office install|upgrade|status|uninstall`. Installation
+  requires consent; noninteractive root/status never download or prompt.
 
 The grammar owns option placement and rejection. Handlers do not search raw
 argv, create competing option parsers, or reinterpret payload text as flags.
@@ -236,6 +247,26 @@ replaces an unmanaged path.
 
 Native executable installation is a different owner under
 `tmt-adapters::native_install`:
+
+Core's fixed `native_install::Product` policy owns CLI/Office package identity,
+inventory and installation namespace; it has no filesystem or network effects.
+The hidden offline installer accepts an explicit product (CLI by default), while
+both products use the same acquisition, receipt and atomic publication path.
+Office's command link, lock and current release are independent of the CLI's;
+existing CLI receipts retain their format. Manifest selection uses product and
+target together, rejecting ambiguous or multiply owned artifacts. This internal
+path also serves public Office installation. `office_command` owns consent and
+typed composition, not a second downloader. Default Office prefix is the user's
+`.local`, independent of application configuration; `--prefix` selects another
+owned installation. Public distribution and pairing remain separate gates.
+GitHub selection filters CLI `v` and Office `tmt-office-v` tags independently.
+Downloaded bytes feed the same bounded artifact verifier directly; there is no
+extra download-to-disk/read-back stage. Before activating Office, publication
+executes the bounded versioned probe and rejects incompatible candidates.
+Removal validates ownership and deactivates links without deleting releases,
+skills or application data. It is recoverable, not a multi-file atomic deletion:
+a missing command link with a retained activation is reported as invalid and
+explicit uninstall can finish that state.
 
 - `artifact` consumes cargo-dist metadata and a matching archive, checking
   target, manifest membership, SHA-256, bounded compressed/expanded input,

@@ -80,7 +80,13 @@ Firebase setup is implied.
 | `rust/`            | Existing local CLI, domain and concrete adapters                 | Office assets, Node or a Firebase account required by ordinary commands |
 | `docs/office`      | Definitions, scenarios and operational guidance                  | Describing planned behavior as shipped                                  |
 
-There is no connector crate, deployable service or shared runtime package yet.
+There is no work connector, deployable service or shared browser runtime package yet.
+The independently versioned native `tmt-office` companion currently implements
+only the [internal local handshake](../../contracts/office/native-companion.md).
+It has no cloud access or public distribution. The CLI's explicit `office`
+subtree installs, inspects, updates and deactivates it through existing native
+owners; other CLI operations do not execute or probe it. Shared native protocol
+values remain in the existing core.
 Create each only with its first concrete consumer and reviewed contract.
 Do not relocate established Rust, test, script or canonical skill paths simply
 to make the tree symmetric.

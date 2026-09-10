@@ -1,8 +1,10 @@
 use super::*;
+use crate::native_install::inspect;
 use crate::native_install::{
     receipt::Receipt,
     test_support::{artifact, publish, published_layout, state},
 };
+use std::fs;
 
 fn release_download() -> impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>> {
     let (release, manifest, archive, _) =
@@ -68,8 +70,8 @@ fn finalization_failure_reports_the_active_release_and_retry_repairs_links() {
         .join(old.id.to_string())
         .join("tmt");
     let mut checkpoints = 0;
-    // Four orchestration checkpoints precede the existing publisher's sequence.
-    let last_checkpoint = crate::native_install::test_support::checkpoint_count() + 4;
+    // Three orchestration checkpoints precede the publisher; downloads stay in memory.
+    let last_checkpoint = crate::native_install::test_support::checkpoint_count() + 3;
     let error = upgrade_with(
         UpgradeRequest {
             executable: &executable,

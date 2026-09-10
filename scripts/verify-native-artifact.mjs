@@ -14,14 +14,27 @@ const { values } = parseArgs({
     skill: { type: 'string' },
     notices: { type: 'string' },
     license: { type: 'string' },
+    product: { type: 'string', default: 'cli' },
   },
 });
-for (const name of ['manifest', 'archive', 'target', 'skill', 'notices', 'license']) {
+for (const name of [
+  'manifest',
+  'archive',
+  'target',
+  'notices',
+  'license',
+  ...(values.product === 'cli' ? ['skill'] : []),
+]) {
   assert(values[name], `--${name} is required`);
 }
-const metadata = selectNativeArtifact(values.manifest, values.archive, values.target);
+const metadata = selectNativeArtifact(
+  values.manifest,
+  values.archive,
+  values.target,
+  values.product
+);
 assertNativeTarget(values.target, 'Artifact requires a matching native host');
-const skill = fs.readFileSync(values.skill, 'utf8');
+const skill = values.skill ? fs.readFileSync(values.skill, 'utf8') : undefined;
 const notices = fs.readFileSync(values.notices, 'utf8');
 assert(
   !/<year>|<copyright holders>/.test(notices),
@@ -40,7 +53,8 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
     'Native archive license differs from the selected source'
   );
   verifyNativeRuntime({
-    executable: path.join(artifactRoot, 'tmt'),
+    executable: path.join(artifactRoot, values.product === 'cli' ? 'tmt' : 'tmt-office'),
+    product: values.product,
     target: metadata.target,
     version: metadata.version,
     skill,
@@ -49,6 +63,6 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
     matchingHostMessage: 'Artifact requires a matching native host',
   });
   console.log(
-    `Verified native archive ${metadata.name}: linkage, version, skill, managed install, SQLite persistence`
+    `Verified native archive ${metadata.name}: ${values.product === 'cli' ? 'linkage, version, skill, managed install, SQLite persistence' : 'linkage, exact Office handshake, no application state'}`
   );
 });

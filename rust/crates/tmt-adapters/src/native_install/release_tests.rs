@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tar::{Builder, EntryType, Header};
-use tmt_core::native_install::Channel;
+use tmt_core::native_install::{Channel, Product};
 
 const TARGET: &str = "aarch64-apple-darwin";
 const MANIFEST_NAME: &str = "dist-manifest.json";
@@ -115,14 +115,14 @@ fn append_file(builder: &mut Builder<GzEncoder<Vec<u8>>>, path: &str, bytes: &[u
     builder.append(&header, bytes).unwrap();
 }
 
-fn archive(version: &str, target: &str) -> (String, Vec<u8>) {
-    let name = format!("tmux-team-{version}-{target}.tar.gz");
+fn archive(product: Product, version: &str, target: &str) -> (String, Vec<u8>) {
+    let name = format!("{}-{version}-{target}.tar.gz", product.package());
     let root = name.strip_suffix(".tar.gz").unwrap();
     let encoder = GzEncoder::new(Vec::new(), Compression::default());
     let mut builder = Builder::new(encoder);
     append_file(
         &mut builder,
-        &format!("{root}/tmt"),
+        &format!("{root}/{}", product.executable()),
         b"native executable\n",
         0o755,
     );
@@ -149,7 +149,16 @@ pub(in crate::native_install) fn valid_fixture(
     target: &str,
     release_id: u64,
 ) -> (Value, Vec<u8>, Vec<u8>, String) {
-    let (archive_name, archive) = archive(version, target);
+    product_fixture(Product::Cli, version, target, release_id)
+}
+
+fn product_fixture(
+    product: Product,
+    version: &str,
+    target: &str,
+    release_id: u64,
+) -> (Value, Vec<u8>, Vec<u8>, String) {
+    let (archive_name, archive) = archive(product, version, target);
     let manifest = serde_json::to_vec(&json!({
         "artifacts": {
             archive_name.clone(): {
@@ -157,14 +166,14 @@ pub(in crate::native_install) fn valid_fixture(
                 "name": archive_name.clone(),
                 "target_triples": [target],
                 "checksums": {"sha256": sha256(&archive)},
-                "assets": artifact::FILES
+                "assets": product.files()
                     .iter()
                     .map(|path| json!({"path": path}))
                     .collect::<Vec<_>>(),
             }
         },
         "releases": [{
-            "app_name": "tmt-cli",
+            "app_name": product.package(),
             "app_version": version,
             "artifacts": [archive_name.clone()]
         }]
@@ -172,7 +181,7 @@ pub(in crate::native_install) fn valid_fixture(
     .unwrap();
     let release = json!({
         "id": release_id,
-        "tag_name": format!("v{version}"),
+        "tag_name": format!("{}{version}", product.tag_prefix()),
         "draft": false,
         "immutable": true,
         "prerelease": version.contains('-'),
@@ -209,6 +218,80 @@ fn update_manifest_asset(release: &mut Value, manifest: &[u8]) {
         .unwrap();
     asset["size"] = json!(manifest.len());
     asset["digest"] = json!(format!("sha256:{}", sha256(manifest)));
+}
+
+#[test]
+fn office_discovery_ignores_cli_versions_and_uses_its_own_exact_tags() {
+    let (cli, _, _, _) = valid_fixture("99.0.0", TARGET, 400);
+    let (office, manifest, archive, _) =
+        product_fixture(Product::Office, "0.1.0-alpha.1", TARGET, 401);
+    let mut fixture = HttpFixture::default();
+    fixture.page(1, &[cli, office.clone()]);
+    register(&mut fixture, &office, &manifest, &archive);
+    let result = super::download_product(
+        Product::Office,
+        Channel::Alpha,
+        None,
+        TARGET,
+        deadline(),
+        |u, a, l, d| fixture.get(u, a, l, d),
+    )
+    .unwrap();
+    assert_eq!(result.version.to_string(), "0.1.0-alpha.1");
+    assert_eq!(
+        fixture
+            .calls
+            .iter()
+            .map(|c| c.url.clone())
+            .collect::<Vec<_>>(),
+        vec![page_url(1), asset_url(4011), asset_url(4012)]
+    );
+    let artifact = artifact::acquire_bytes(
+        Product::Office,
+        &result.manifest,
+        &result.archive_name,
+        &result.archive,
+        TARGET,
+    )
+    .unwrap();
+    assert!(artifact.files.contains_key("tmt-office"));
+    assert!(!artifact.files.contains_key("tmt"));
+    fixture.calls.clear();
+    let url = format!("{}/tags/tmt-office-v0.1.0-alpha.1", endpoint());
+    fixture.response(url.clone(), serde_json::to_vec(&office).unwrap());
+    super::download_product(
+        Product::Office,
+        Channel::Alpha,
+        Some(&"0.1.0-alpha.1".parse().unwrap()),
+        TARGET,
+        deadline(),
+        |u, a, l, d| fixture.get(u, a, l, d),
+    )
+    .unwrap();
+    assert_eq!(fixture.calls[0].url, url);
+}
+
+#[test]
+fn cli_only_releases_are_not_an_office_installation_candidate() {
+    let (cli, _, _, _) = valid_fixture("99.0.0-alpha.1", TARGET, 410);
+    let mut fixture = HttpFixture::default();
+    fixture.page(1, &[cli]);
+    let error = super::download_product(
+        Product::Office,
+        Channel::Alpha,
+        None,
+        TARGET,
+        deadline(),
+        |u, a, l, d| fixture.get(u, a, l, d),
+    )
+    .err()
+    .unwrap();
+    assert_eq!(error.kind(), io::ErrorKind::NotFound);
+    assert_eq!(
+        error.to_string(),
+        "No release is available in the selected native channel."
+    );
+    assert_eq!(fixture.calls.len(), 1);
 }
 
 #[test]

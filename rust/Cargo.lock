@@ -1269,6 +1269,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tmt-office"
+version = "0.1.0-alpha.1"
+dependencies = [
+ "tmt-core",
+]
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

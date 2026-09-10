@@ -10,6 +10,57 @@ fn args(values: &[&str]) -> Vec<OsString> {
 }
 
 #[test]
+fn office_prefix_is_scoped_to_its_subtree_and_file_inputs_are_paired() {
+    use crate::invocation::OfficeOperation;
+    for input in [
+        vec![
+            "office",
+            "--prefix",
+            "/prefix with spaces",
+            "status",
+            "--json",
+        ],
+        vec![
+            "office",
+            "status",
+            "--prefix",
+            "/prefix with spaces",
+            "--json",
+        ],
+    ] {
+        assert_eq!(
+            parsed(&input).invocation,
+            Invocation::Office {
+                prefix: Some("/prefix with spaces".into()),
+                operation: OfficeOperation::Status,
+            }
+        );
+    }
+    assert_eq!(
+        parsed(&["office", "install", "--yes"]).invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Install {
+                yes: true,
+                archive: None,
+                manifest: None,
+                channel: None,
+            }
+        }
+    );
+    for input in [
+        vec!["office", "install", "--archive", "file"],
+        vec!["office", "install", "--manifest", "file"],
+        vec!["office", "status", "--yes"],
+        vec!["office", "upgrade", "--channel", "beta"],
+        vec!["office", "pair"],
+        vec!["ls", "--prefix", "/prefix"],
+    ] {
+        assert_eq!(parse_error(&input).code, "USAGE_ERROR");
+    }
+}
+
+#[test]
 fn native_upgrade_alias_and_selection_share_one_typed_contract() {
     for command in ["upgrade", "update"] {
         let invocation = parsed(&[
@@ -68,6 +119,7 @@ fn internal_native_install_requires_explicit_inputs_and_typed_pin_policy() {
     assert_eq!(
         parsed.invocation,
         Invocation::NativeInstall {
+            product: tmt_core::native_install::Product::Cli,
             archive: "archive.tar.gz".into(),
             manifest: "manifest.json".into(),
             prefix: "/prefix with spaces".into(),
@@ -84,6 +136,18 @@ fn internal_native_install_requires_explicit_inputs_and_typed_pin_policy() {
             if actual == if pin == "--pin" { PinAction::PinCandidate } else { PinAction::Clear })
         );
     }
+    let mut office = input.to_vec();
+    office.extend(["--product", "office"]);
+    assert!(matches!(
+        super::parse(&self::args(&office)).unwrap().invocation,
+        Invocation::NativeInstall {
+            product: tmt_core::native_install::Product::Office,
+            ..
+        }
+    ));
+    let mut invalid_product = input.to_vec();
+    invalid_product.extend(["--product", "third-party"]);
+    assert_eq!(parse_error(&invalid_product).code, "USAGE_ERROR");
     let mut conflict = input.to_vec();
     conflict.extend(["--pin", "--unpin"]);
     assert_eq!(parse_error(&conflict).code, "USAGE_ERROR");

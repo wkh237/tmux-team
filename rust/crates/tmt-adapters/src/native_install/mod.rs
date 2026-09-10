@@ -1,8 +1,15 @@
 //! Verified native release acquisition and managed publication, without app state.
 
 mod artifact;
+mod online;
+mod remove;
+pub use online::{default_install_prefix, install_release};
+pub use remove::uninstall_office;
+pub use tmt_core::native_install::Product;
 mod managed;
-pub use managed::{ManagedInstallation, inspect, with_active_release};
+pub use managed::{
+    ManagedInstallation, inspect, inspect_product, with_active_product, with_active_release,
+};
 #[cfg(test)]
 mod artifact_tests;
 #[cfg(test)]
@@ -13,7 +20,7 @@ mod publication_tests;
 mod receipt;
 mod release;
 mod upgrade;
-pub use upgrade::{UpgradeFailure, UpgradeReport, UpgradeRequest, upgrade};
+pub use upgrade::{UpgradeFailure, UpgradeReport, UpgradeRequest, upgrade, upgrade_product};
 #[cfg(test)]
 mod test_support;
 
@@ -68,21 +75,69 @@ pub fn install(
     install_observed(request, None, None, checkpoint)
 }
 
+/// Install the explicitly selected fixed product; never discover one from archive data.
+pub fn install_product(
+    product: Product,
+    request: InstallRequest<'_>,
+    checkpoint: impl FnMut() -> io::Result<()>,
+) -> io::Result<InstallReport> {
+    install_product_observed(product, request, None, None, checkpoint)
+}
+
 fn install_observed(
+    request: InstallRequest<'_>,
+    expected: Option<uuid::Uuid>,
+    provenance: Option<receipt::GitHubProvenance>,
+    checkpoint: impl FnMut() -> io::Result<()>,
+) -> io::Result<InstallReport> {
+    install_product_observed(Product::Cli, request, expected, provenance, checkpoint)
+}
+
+fn install_product_observed(
+    product: Product,
     request: InstallRequest<'_>,
     expected: Option<uuid::Uuid>,
     provenance: Option<receipt::GitHubProvenance>,
     mut checkpoint: impl FnMut() -> io::Result<()>,
 ) -> io::Result<InstallReport> {
     checkpoint()?;
-    let artifact = artifact::acquire(request.manifest, request.archive, request.target)?;
+    let artifact =
+        artifact::acquire_product(product, request.manifest, request.archive, request.target)?;
+    activate(
+        ActivationRequest {
+            product,
+            prefix: request.prefix,
+            channel: request.channel,
+            pin: request.pin,
+            expected,
+            provenance,
+        },
+        &artifact,
+        checkpoint,
+    )
+}
+
+struct ActivationRequest<'a> {
+    product: Product,
+    prefix: &'a Path,
+    channel: tmt_core::native_install::Channel,
+    pin: tmt_core::native_install::PinAction,
+    expected: Option<uuid::Uuid>,
+    provenance: Option<receipt::GitHubProvenance>,
+}
+
+fn activate(
+    request: ActivationRequest<'_>,
+    artifact: &artifact::Artifact,
+    mut checkpoint: impl FnMut() -> io::Result<()>,
+) -> io::Result<InstallReport> {
     plan_version(None, &artifact.version, request.channel, request.pin)
         .map_err(io::Error::other)?;
     checkpoint()?;
-    let layout = publication::Layout::open(request.prefix)?;
+    let layout = publication::Layout::open_product(request.prefix, request.product)?;
     let _lock = crate::file_lock::exclusive(&layout.root.join("install.lock"))?;
     let current = layout.current()?;
-    if let Some(expected) = expected
+    if let Some(expected) = request.expected
         && current.as_ref().map(|receipt| receipt.id) != Some(expected)
     {
         return Err(invalid(
@@ -109,10 +164,10 @@ fn install_observed(
         ));
     }
     let active_id = if plan.changed {
-        let mut receipt = receipt::Receipt::new(&artifact, plan.state);
-        receipt.provenance = provenance;
+        let mut receipt = receipt::Receipt::new(artifact, plan.state);
+        receipt.provenance = request.provenance;
         if let Err(error) = layout.publish(
-            &artifact,
+            artifact,
             &receipt,
             current.as_ref().map(|receipt| receipt.id),
             &mut checkpoint,
@@ -163,12 +218,12 @@ fn installed_report(
     changed: bool,
 ) -> InstallReport {
     InstallReport {
-        executable: layout.prefix.join("bin/tmt"),
+        executable: layout.prefix.join("bin").join(layout.product.executable()),
         active_executable: layout
             .root
             .join("releases")
             .join(active_id.to_string())
-            .join("tmt"),
+            .join(layout.product.executable()),
         version: version.into(),
         changed,
     }

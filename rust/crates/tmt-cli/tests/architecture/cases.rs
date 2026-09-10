@@ -423,6 +423,28 @@ fn dependency_policy_rejects_unknown_workspace_packages() {
 }
 
 #[test]
+fn companion_reuses_core_without_cli_or_storage_dependencies() {
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-office",
+            vec![dependency("tmt-core", "normal", None, None)]
+        ))
+        .is_empty()
+    );
+    for name in ["tmt-cli", "tmt-adapters", "rusqlite", "ureq"] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                "tmt-office",
+                vec![dependency(name, "normal", None, None)]
+            )),
+            vec![format!(
+                "tmt-office: unreviewed production dependency {name} (kind=\"normal\", target=null, rename=null)"
+            )]
+        );
+    }
+}
+
+#[test]
 fn receipt_dependencies_stay_at_their_reviewed_layer() {
     assert!(
         policy::dependency_violations(&package(

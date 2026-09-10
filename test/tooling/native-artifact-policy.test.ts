@@ -16,7 +16,8 @@ const { selectNativeArtifact, withNativeArtifact } = (await import(
   selectNativeArtifact: (
     manifestFile: string,
     archiveFile: string,
-    target: string
+    target: string,
+    product?: 'cli' | 'office'
   ) => NativeArtifact;
   withNativeArtifact: <T>(
     archiveFile: string,
@@ -37,6 +38,7 @@ interface NativeArtifact {
 }
 
 interface ArchiveOptions {
+  readonly product?: 'cli' | 'office';
   readonly duplicate?: string;
   readonly executable?: boolean;
   readonly extra?: string;
@@ -70,12 +72,14 @@ async function createArchiveFixture(
   const manifestFile = path.join(fixtureRoot, 'manifest.json');
   fs.mkdirSync(root, { recursive: true });
 
-  for (const file of REQUIRED_FILES) {
+  const executable = options.product === 'office' ? 'tmt-office' : 'tmt';
+  const files = [executable, ...REQUIRED_FILES.slice(1)];
+  for (const file of files) {
     if (file === options.omit) continue;
     const target = path.join(root, file);
-    fs.writeFileSync(target, `${file} fixture\n`, { mode: file === 'tmt' ? 0o755 : 0o644 });
+    fs.writeFileSync(target, `${file} fixture\n`, { mode: file === executable ? 0o755 : 0o644 });
   }
-  if (options.executable === false) fs.chmodSync(path.join(root, 'tmt'), 0o644);
+  if (options.executable === false) fs.chmodSync(path.join(root, executable), 0o644);
   if (options.specialPermissions) fs.chmodSync(path.join(root, 'tmt'), 0o4755);
   if (options.extra !== undefined) {
     fs.writeFileSync(path.join(root, options.extra), 'unexpected test fixture\n');
@@ -117,17 +121,19 @@ async function createArchiveFixture(
         name,
         target_triples: [TARGET],
         checksums: { sha256 },
-        assets: REQUIRED_FILES.map((file) => ({ path: file })),
+        assets: files.map((file) => ({ path: file })),
       },
     },
-    releases: [{ app_name: 'tmt-cli', app_version: VERSION, artifacts: [name] }],
+    releases: [
+      { app_name: `tmt-${options.product ?? 'cli'}`, app_version: VERSION, artifacts: [name] },
+    ],
   };
   fs.writeFileSync(manifestFile, `${JSON.stringify(manifest)}\n`);
   return {
     archiveFile,
     manifestFile,
     manifest,
-    metadata: selectNativeArtifact(manifestFile, archiveFile, TARGET),
+    metadata: selectNativeArtifact(manifestFile, archiveFile, TARGET, options.product),
   };
 }
 
@@ -141,6 +147,31 @@ function withArtifactMetadata(sha256: string): NativeArtifact {
 }
 
 describe('native artifact policy', () => {
+  it('verifies Office through the shared allowlist without accepting CLI ownership or a non-executable payload', async () => {
+    await withSandbox(async (sandbox) => {
+      const office = await createArchiveFixture(sandbox, { product: 'office' });
+      await withNativeArtifact(office.archiveFile, office.metadata, (root) => {
+        expect(fs.readdirSync(root).sort()).toEqual([
+          'LICENSE',
+          'NATIVE-INSTALL.md',
+          'THIRD-PARTY-NOTICES.txt',
+          'tmt-office',
+        ]);
+        expect(fs.readFileSync(path.join(root, 'tmt-office'), 'utf8')).toBe('tmt-office fixture\n');
+      });
+      expect(() => selectNativeArtifact(office.manifestFile, office.archiveFile, TARGET)).toThrow(
+        'Archive must belong to the TMT release'
+      );
+      const cli = await createArchiveFixture(sandbox);
+      expect(() =>
+        selectNativeArtifact(cli.manifestFile, cli.archiveFile, TARGET, 'office')
+      ).toThrow('Archive must belong to the TMT release');
+      const invalid = await createArchiveFixture(sandbox, { product: 'office', executable: false });
+      await expect(
+        withNativeArtifact(invalid.archiveFile, invalid.metadata, () => undefined)
+      ).rejects.toThrow('Native executable lacks execute permission');
+    });
+  });
   it.each([
     ['notices', 'stale notices', 'Native archive notices differ from the generated inventory'],
     ['license', 'stale license', 'Native archive license differs from the selected source'],

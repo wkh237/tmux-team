@@ -109,8 +109,9 @@ jobs:
           TMT_NATIVE_REAL_CARGO=$(command -v cargo)
           export TMT_NATIVE_REAL_CARGO
           export CARGO="$GITHUB_WORKSPACE/scripts/native-cargo.sh"
-          dist plan --output-format=json --no-local-paths > "$RUNNER_TEMP/plan.json"
-          dist build --artifacts global --output-format=json --no-local-paths > "$RUNNER_TEMP/dist-manifest.json"
+          version=$(cargo metadata --manifest-path rust/Cargo.toml --locked --no-deps --format-version 1 | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).packages.find(p => p.name === "tmt-cli").version')
+          dist plan --tag "v$version" --output-format=json --no-local-paths > "$RUNNER_TEMP/plan.json"
+          dist build --tag "v$version" --artifacts global --output-format=json --no-local-paths > "$RUNNER_TEMP/dist-manifest.json"
           cp "$RUNNER_TEMP/dist-manifest.json" target/distrib/dist-manifest.json
           node scripts/generate-native-bootstrap.mjs --manifest target/distrib/dist-manifest.json --archive-dir target/distrib --plan "$RUNNER_TEMP/plan.json" > target/distrib/tmt-installer.sh
           sh -n target/distrib/tmt-installer.sh

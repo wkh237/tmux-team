@@ -11,6 +11,10 @@ use std::{
 use tar::{Builder, EntryType, Header};
 
 const TARGET: &str = "aarch64-apple-darwin";
+const OFFICE_PAYLOAD: &[u8] = b"#!/bin/sh\nprintf 'TMT-OFFICE/1\\n1.2.3\\n'\n";
+
+#[path = "office_companion_tests.rs"]
+mod office_companion_tests;
 
 enum Entry {
     File {
@@ -111,6 +115,10 @@ fn gzip_tar(entries: Vec<Entry>) -> Vec<u8> {
 }
 
 fn fixture(entries: Vec<Entry>) -> Fixture {
+    product_fixture(entries, "tmt-cli", &FILES)
+}
+
+fn product_fixture(entries: Vec<Entry>, package: &str, files: &[&str]) -> Fixture {
     let directory = TestDirectory::new();
     let name = "tmux-team-1.2.3-aarch64-apple-darwin.tar.gz".to_owned();
     let archive = directory.path.join(&name);
@@ -127,11 +135,11 @@ fn fixture(entries: Vec<Entry>) -> Fixture {
                     "name": name.clone(),
                     "target_triples": [TARGET],
                     "checksums": {"sha256": checksum},
-                    "assets": FILES.iter().map(|path| json!({"path": path})).collect::<Vec<_>>(),
+                    "assets": files.iter().map(|path| json!({"path": path})).collect::<Vec<_>>(),
                 }
             },
             "releases": [{
-                "app_name": "tmt-cli",
+                "app_name": package,
                 "app_version": "1.2.3",
                 "artifacts": [name.clone()]
             }]
@@ -145,6 +153,196 @@ fn fixture(entries: Vec<Entry>) -> Fixture {
         archive,
         name,
     }
+}
+
+fn office_fixture() -> Fixture {
+    office_fixture_with_payload(OFFICE_PAYLOAD)
+}
+
+fn office_fixture_with_payload(payload: &[u8]) -> Fixture {
+    let root = "tmux-team-1.2.3-aarch64-apple-darwin";
+    let mut entries = valid_entries(root);
+    entries[0] = Entry::File {
+        path: format!("{root}/tmt-office"),
+        bytes: payload.to_vec(),
+        mode: 0o755,
+    };
+    product_fixture(
+        entries,
+        "tmt-office",
+        &[
+            "tmt-office",
+            "LICENSE",
+            "NATIVE-INSTALL.md",
+            "THIRD-PARTY-NOTICES.txt",
+        ],
+    )
+}
+
+fn install_fixture(
+    fixture: &Fixture,
+    prefix: &std::path::Path,
+    product: super::Product,
+) -> io::Result<super::InstallReport> {
+    super::install_product(
+        product,
+        super::InstallRequest {
+            archive: &fixture.archive,
+            manifest: &fixture.manifest,
+            prefix,
+            target: TARGET,
+            channel: tmt_core::native_install::Channel::Stable,
+            pin: tmt_core::native_install::PinAction::Preserve,
+        },
+        || Ok(()),
+    )
+}
+
+#[test]
+fn office_installation_and_exact_retry_preserve_cli_ownership_and_bytes() {
+    let cli = fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin"));
+    let office = office_fixture();
+    let prefix = cli.directory.path.join("prefix");
+    let cli_report = install_fixture(&cli, &prefix, super::Product::Cli).unwrap();
+    let cli_receipt = fs::read(
+        cli_report
+            .active_executable
+            .parent()
+            .unwrap()
+            .join("receipt.json"),
+    )
+    .unwrap();
+    let cli_pointer = fs::read_link(prefix.join("lib/tmux-team/current")).unwrap();
+    let office_report = install_fixture(&office, &prefix, super::Product::Office).unwrap();
+    assert!(office_report.changed);
+    assert_eq!(
+        office_report.executable,
+        fs::canonicalize(&prefix).unwrap().join("bin/tmt-office")
+    );
+    assert_eq!(fs::read(&office_report.executable).unwrap(), OFFICE_PAYLOAD);
+    assert_eq!(
+        fs::read_link(&office_report.executable).unwrap(),
+        PathBuf::from("../lib/tmt-office/current/tmt-office")
+    );
+    let retry = install_fixture(&office, &prefix, super::Product::Office).unwrap();
+    assert!(!retry.changed);
+    assert_eq!(retry.active_executable, office_report.active_executable);
+    assert_eq!(
+        fs::read_link(prefix.join("lib/tmux-team/current")).unwrap(),
+        cli_pointer
+    );
+    assert_eq!(
+        fs::read(&cli_report.executable).unwrap(),
+        b"native executable\n"
+    );
+    assert_eq!(
+        fs::read(
+            cli_report
+                .active_executable
+                .parent()
+                .unwrap()
+                .join("receipt.json")
+        )
+        .unwrap(),
+        cli_receipt
+    );
+    super::inspect(&cli_report.executable).unwrap();
+    super::inspect_product(super::Product::Office, &office_report.executable).unwrap();
+    assert!(super::inspect(&office_report.executable).is_err());
+    assert!(super::inspect_product(super::Product::Office, &cli_report.executable).is_err());
+}
+
+#[test]
+fn cross_product_archives_are_rejected_before_creating_installation_prefix() {
+    for (fixture, product) in [
+        (office_fixture(), super::Product::Cli),
+        (
+            fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin")),
+            super::Product::Office,
+        ),
+    ] {
+        let prefix = fixture.directory.path.join("prefix");
+        assert!(install_fixture(&fixture, &prefix, product).is_err());
+        assert!(!prefix.exists());
+        assert_only_inputs_remain(&fixture);
+    }
+}
+
+#[test]
+fn interrupted_office_pin_preserves_both_active_releases() {
+    let cli = fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin"));
+    let office = office_fixture();
+    let prefix = cli.directory.path.join("prefix");
+    let cli_report = install_fixture(&cli, &prefix, super::Product::Cli).unwrap();
+    let office_report = install_fixture(&office, &prefix, super::Product::Office).unwrap();
+    let office_root = prefix.join("lib/tmt-office");
+    let current = fs::read_link(office_root.join("current")).unwrap();
+    let mut calls = 0;
+    let error = super::install_product(
+        super::Product::Office,
+        super::InstallRequest {
+            archive: &office.archive,
+            manifest: &office.manifest,
+            prefix: &prefix,
+            target: TARGET,
+            channel: tmt_core::native_install::Channel::Stable,
+            pin: tmt_core::native_install::PinAction::PinCandidate,
+        },
+        || {
+            calls += 1;
+            if calls == 4 {
+                Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "test cancellation",
+                ))
+            } else {
+                Ok(())
+            }
+        },
+    )
+    .unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+    assert_eq!(calls, 4);
+    assert_eq!(fs::read_link(office_root.join("current")).unwrap(), current);
+    assert_eq!(
+        fs::read_dir(office_root.join("releases")).unwrap().count(),
+        1
+    );
+    assert!(
+        super::inspect_product(super::Product::Office, &office_report.executable)
+            .unwrap()
+            .state
+            .pinned_version
+            .is_none()
+    );
+    assert_eq!(
+        super::inspect(&cli_report.executable)
+            .unwrap()
+            .active_executable,
+        cli_report.active_executable
+    );
+    assert_eq!(fs::read(&office_report.executable).unwrap(), OFFICE_PAYLOAD);
+}
+
+#[test]
+fn office_command_collision_does_not_overwrite_user_file_or_cli() {
+    let cli = fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin"));
+    let office = office_fixture();
+    let prefix = cli.directory.path.join("prefix");
+    let cli_report = install_fixture(&cli, &prefix, super::Product::Cli).unwrap();
+    fs::write(prefix.join("bin/tmt-office"), b"user managed command").unwrap();
+    assert!(install_fixture(&office, &prefix, super::Product::Office).is_err());
+    assert_eq!(
+        fs::read(prefix.join("bin/tmt-office")).unwrap(),
+        b"user managed command"
+    );
+    assert!(!prefix.join("lib/tmt-office/current").exists());
+    assert_eq!(
+        super::inspect(&cli_report.executable)
+            .unwrap()
+            .active_executable,
+        cli_report.active_executable
+    );
 }
 
 fn replace_archive(fixture: &Fixture, compressed: &[u8]) {
@@ -161,6 +359,80 @@ fn file_map(entries: &[(&str, &[u8])]) -> BTreeMap<String, Vec<u8>> {
         .iter()
         .map(|(name, bytes)| ((*name).to_owned(), bytes.to_vec()))
         .collect()
+}
+
+fn multi_product_manifest() -> serde_json::Value {
+    let cli = fixture(valid_entries("tmux-team-1.2.3-aarch64-apple-darwin"));
+    let office = office_fixture();
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&cli.manifest).unwrap()).unwrap();
+    let office_manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&office.manifest).unwrap()).unwrap();
+    let office_name = "tmt-office-aarch64-apple-darwin.tar.gz";
+    let mut office_asset = office_manifest["artifacts"][&office.name].clone();
+    office_asset["name"] = json!(office_name);
+    manifest["artifacts"][office_name] = office_asset;
+    manifest["releases"].as_array_mut().unwrap().push(json!({
+        "app_name": "tmt-office", "app_version": "0.1.0", "artifacts": [office_name]
+    }));
+    manifest
+}
+
+#[test]
+fn manifest_selection_keeps_products_and_versions_independent_on_the_same_target() {
+    let manifest = serde_json::to_vec(&multi_product_manifest()).unwrap();
+    assert_eq!(
+        artifact::select(super::Product::Cli, &manifest, TARGET).unwrap(),
+        (
+            "tmux-team-1.2.3-aarch64-apple-darwin.tar.gz".into(),
+            semver::Version::new(1, 2, 3)
+        )
+    );
+    assert_eq!(
+        artifact::select(super::Product::Office, &manifest, TARGET).unwrap(),
+        (
+            "tmt-office-aarch64-apple-darwin.tar.gz".into(),
+            semver::Version::new(0, 1, 0)
+        )
+    );
+}
+
+#[test]
+fn manifest_selection_rejects_cross_product_claims_and_duplicate_candidates() {
+    let mut shared = multi_product_manifest();
+    shared["releases"][0]["artifacts"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("tmt-office-aarch64-apple-darwin.tar.gz"));
+    let error = artifact::select(
+        super::Product::Office,
+        &serde_json::to_vec(&shared).unwrap(),
+        TARGET,
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "Native archive must belong to exactly one TMT release."
+    );
+
+    let mut duplicate = multi_product_manifest();
+    let mut asset = duplicate["artifacts"]["tmt-office-aarch64-apple-darwin.tar.gz"].clone();
+    asset["name"] = json!("second-office.tar.gz");
+    duplicate["artifacts"]["second-office.tar.gz"] = asset;
+    duplicate["releases"][1]["artifacts"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!("second-office.tar.gz"));
+    let error = artifact::select(
+        super::Product::Office,
+        &serde_json::to_vec(&duplicate).unwrap(),
+        TARGET,
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "Native manifest must select exactly one target archive."
+    );
 }
 
 fn root_entries(directory: &TestDirectory) -> Vec<String> {

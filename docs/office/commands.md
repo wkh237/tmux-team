@@ -1,7 +1,39 @@
-# Planned Office command experience
+# Office command experience
 
-Status: proposed commands, not part of the current CLI grammar or instructions
-for an available extension.
+## Implemented local installation
+
+The CLI exposes `office install`, `upgrade`, `status` and `uninstall`. Office is
+optional and independently versioned; no public Office release is available yet.
+Source builds and explicit local archives can exercise this boundary. Do not
+confuse successful local installation with pairing or a running connector.
+
+```sh
+tmt office install --yes
+tmt office status --json
+tmt office upgrade
+tmt office uninstall --yes
+```
+
+All accept `--prefix <folder>` inside the Office subtree; omission selects
+`~/.local`. Use the same prefix for subsequent operations. First installation
+defaults to alpha; install/upgrade retain the recorded channel unless explicitly
+given `--channel stable|alpha`. Office uses immutable `tmt-office-v<version>` releases
+and the shared native archive verifier. Explicit offline installation uses
+`office install --yes --archive <file> --manifest <file>` with both inputs.
+Without a published candidate, online installation fails rather than claiming
+success. `tmt upgrade` continues to update only the CLI and its managed skills.
+
+`status --json` returns `installed`, `version`, `protocolVersion` and `executable`
+after local ownership/integrity and handshake verification. It never checks cloud
+availability. Plain `tmt office` currently reports `OFFICE_NOT_PAIRED` after a
+successful probe; world opening and pairing are not implemented. Uninstall
+requires explicit consent and removes verified activation links only. Release
+files and unrelated data remain. A partial removal reports an invalid
+installation; repeat explicit uninstall to finish before reinstalling.
+
+## Planned connected commands
+
+The following connected behaviors are proposals, not installed instructions.
 
 | Command                                                    | Planned behavior                                                                                        |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -55,8 +87,9 @@ error mappings must be fixed in the implementation ticket before adding grammar.
 
 The core Clap grammar owns syntax, help and completions for the maintained Office
 entrypoints. It produces typed invocations and dispatches to the verified extension;
-handlers never slice argv again. A versioned internal invocation contract
-must be defined before the executable boundary exists. Do not create a generic
+handlers never slice argv again. The versioned
+[internal handshake](../../contracts/office/native-companion.md) defines the
+current executable boundary. Do not create a generic
 plugin platform or move all TMT commands into extensions.
 
 ## Missing extension
