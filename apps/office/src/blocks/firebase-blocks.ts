@@ -1,11 +1,4 @@
-import {
-  doc,
-  getDocFromServer,
-  onSnapshot,
-  runTransaction,
-  serverTimestamp,
-  Timestamp,
-} from 'firebase/firestore';
+import { doc, onSnapshot, runTransaction, serverTimestamp, Timestamp } from 'firebase/firestore';
 import type { Firestore } from 'firebase/firestore';
 import { FirebaseError } from 'firebase/app';
 import { validWorldId } from '../worlds/world-contract.js';
@@ -65,6 +58,8 @@ export function createBlockPort(db: Firestore): BlockPort {
         throw new Error('Invalid block edit.');
       }
       const target = reference(worldId);
+      // One-shot confirmation must not depend on the watch channel reconnecting.
+      const readCurrent = () => runTransaction(db, (transaction) => transaction.get(target));
       try {
         await runTransaction(db, async (transaction) => {
           const snapshot = await transaction.get(target);
@@ -83,7 +78,7 @@ export function createBlockPort(db: Firestore): BlockPort {
         // transaction. Classify it only after a fresh, authorized server read;
         // never turn a revoked/foreign user's denial into a conflict or success.
         if (error instanceof FirebaseError && error.code === 'permission-denied') {
-          const observed = await getDocFromServer(target).catch(() => {
+          const observed = await readCurrent().catch(() => {
             throw error;
           });
           if (observed.exists()) {
@@ -97,7 +92,7 @@ export function createBlockPort(db: Firestore): BlockPort {
       }
       // A separate server read confirms canonical timestamps without relying on
       // pending-write snapshots. It may observe a newer edit, which must be kept.
-      const saved = await getDocFromServer(target);
+      const saved = await readCurrent();
       if (!saved.exists()) throw new Error('Block unavailable.');
       return readBlock(saved.data());
     },
