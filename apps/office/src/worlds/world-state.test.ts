@@ -40,6 +40,24 @@ function fixture() {
 const world: World = { id: 'a'.repeat(20), name: 'Private', ownerUid: 'alice', createdAtMs: 1 };
 
 describe('private world lifetime', () => {
+  it('duplicate approval preserves the selected world and its active subscription', () => {
+    const f = fixture();
+    f.state.select(world.id);
+    f.admissions[0](true);
+    f.worlds[0](world);
+    const observed: Array<World | null> = [];
+    const unsubscribe = f.state.subscribe(() => observed.push(f.state.getSnapshot().world));
+    f.admissions[0](true);
+    expect(f.state.getSnapshot().world).toEqual(world);
+    expect(observed).not.toContain(null);
+    expect(f.port.watch).toHaveBeenCalledOnce();
+    expect(f.stopWorld).not.toHaveBeenCalled();
+    f.admissions[0](false);
+    expect(f.state.getSnapshot().world).toBeNull();
+    expect(f.stopWorld).toHaveBeenCalledOnce();
+    unsubscribe();
+    f.state.dispose();
+  });
   it('invalid local input reports validation feedback without a draft or transport', async () => {
     const f = fixture();
     f.admissions[0](true);
