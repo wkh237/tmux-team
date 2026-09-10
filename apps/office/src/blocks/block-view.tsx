@@ -45,12 +45,16 @@ export function BlockEditor({ state }: { state: BlockState }) {
         </div>
         <span role="status">
           {!ready
-            ? 'Connecting…'
+            ? error
+              ? 'Block unavailable'
+              : 'Connecting…'
             : busy
               ? 'Saving…'
               : draft
                 ? 'Unsaved changes'
-                : `Saved · revision ${remote?.revision ?? 0}`}
+                : remote
+                  ? `Saved · revision ${remote.revision}`
+                  : 'No saved layout yet'}
         </span>
       </div>
       {error && <p role="alert">{error}</p>}

@@ -8,7 +8,7 @@ import {
 } from 'firebase/firestore';
 import type { Firestore } from 'firebase/firestore';
 
-import { validWorldName } from './world-contract.js';
+import { validWorldId, validWorldName } from './world-contract.js';
 import type { World, WorldDraft, WorldPort } from './world-contract.js';
 
 function readWorld(id: string, value: Record<string, unknown>): World {
@@ -37,7 +37,7 @@ export function createWorldPort(db: Firestore): WorldPort {
       return { id: doc(collection(db, 'worlds')).id, name };
     },
     async create(draft: WorldDraft, uid: string): Promise<string> {
-      if (!/^[a-zA-Z0-9]{20}$/.test(draft.id) || !validWorldName(draft.name)) {
+      if (!validWorldId(draft.id) || !validWorldName(draft.name)) {
         throw new Error('Invalid world draft.');
       }
       const reference = doc(db, 'worlds', draft.id);
@@ -59,7 +59,7 @@ export function createWorldPort(db: Firestore): WorldPort {
       return draft.id;
     },
     watch(id: string, changed: (world: World | null) => void, failed: () => void): () => void {
-      if (!/^[a-zA-Z0-9]{20}$/.test(id)) {
+      if (!validWorldId(id)) {
         failed();
         return () => {};
       }

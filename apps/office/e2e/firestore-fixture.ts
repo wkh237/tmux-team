@@ -122,3 +122,7 @@ export async function createFirestoreFixture() {
     },
   };
 }
+// Pinned Firebase uses five transaction attempts with 1s initial retry delay,
+// factor 1.5 and +/-50% jitter: four waits can total 12.1875s. Allow transport
+// overhead only for failed-transaction assertions, not every UI expectation.
+export const TRANSACTION_FAILURE_TIMEOUT_MS = 20_000;

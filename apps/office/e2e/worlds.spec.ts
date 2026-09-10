@@ -1,6 +1,6 @@
 import { expect } from '@playwright/test';
 import { test, signIn } from './browser-session.js';
-import { setTester, ownedWorlds } from './firestore-fixture.js';
+import { setTester, ownedWorlds, TRANSACTION_FAILURE_TIMEOUT_MS } from './firestore-fixture.js';
 
 test('transport failure cannot queue a create across reconnect; explicit retry creates exactly once', async ({
   openSession,
@@ -12,10 +12,17 @@ test('transport failure cannot queue a create across reconnect; explicit retry c
   await expect(page.getByRole('button', { name: 'Create world', exact: true })).toBeVisible();
   expect(await ownedWorlds(uid)).toEqual([]);
   const transport = 'http://127.0.0.1:8080/**';
-  await context.route(transport, (route) => route.abort('internetdisconnected'));
+  let abortedReads = 0;
+  await context.route(transport, (route) => {
+    if (route.request().url().includes(':batchGet')) abortedReads++;
+    return route.abort('internetdisconnected');
+  });
   await page.getByLabel('World name').fill('Reconnect room');
   await page.getByRole('button', { name: 'Create world', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('could not be confirmed');
+  await expect(page.getByRole('alert')).toContainText('could not be confirmed', {
+    timeout: TRANSACTION_FAILURE_TIMEOUT_MS,
+  });
+  expect(abortedReads).toBeGreaterThan(0);
   expect(await ownedWorlds(uid)).toEqual([]);
   await context.unroute(transport);
   expect(await ownedWorlds(uid)).toEqual([]);

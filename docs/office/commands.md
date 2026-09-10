@@ -1,6 +1,7 @@
 # Planned Office command experience
 
-Design for #174, implemented later by #177/#178. None of these commands is in
+Design for #174/#191, refined by #194 and implemented later by #177/#178.
+None of these commands is in
 the current CLI grammar. These examples are contracts to implement, not install
 instructions for a currently published extension.
 
@@ -16,6 +17,44 @@ instructions for a currently published extension.
 | `tmt office unpublish <identity>`                          | Reject new work for that published identity, without deleting local identity or retained exchanges      |
 | `tmt office unpair`                                        | Revoke remotely, then remove local credentials; offline failure reports pending revocation, not success |
 | `tmt office social <identity> --minutes 10 --max-turns 20` | Request a bounded, opt-in social session; participants may decline and workspace tools stay disabled    |
+
+## Decoration and discovery refinement
+
+The following syntax is proposed, not part of the shipped grammar. `status`
+remains local; remote discovery reports only permitted resources. Installation,
+human approval of pairing and block assignment are separate from remote work
+publication. Visitors need only a browser. Installing the extension does not
+provision a Firebase project or deploy a website.
+
+| Proposed command                                                                         | Result                                                                              |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `tmt office --help`                                                                      | Core-owned help, available without an installed extension                           |
+| `tmt office inspect --json`                                                              | Selected world, effective allowed capabilities and observation freshness            |
+| `tmt office map --json`                                                                  | Bounded permitted spatial projection, not unrestricted world enumeration            |
+| `tmt office block ls --json`                                                             | Allowed blocks and assignments, without guessing IDs                                |
+| `tmt office block show <block-id> --json`                                                | Canonical layout and revision                                                       |
+| `tmt office block apply <block-id> --file <layout.json> --if-revision <revision> --json` | Conditional complete-layout edit, confirmed by the server; stale revisions conflict |
+| `tmt office props ls --json`                                                             | The world's admitted prop catalog                                                   |
+| `tmt office props show <prop-id> --json`                                                 | Pinned version, geometry and supported data, never executable instructions          |
+
+`props` is the proposed catalog owner, replacing the earlier conversational
+`block catalog` alternative; do not implement both aliases speculatively.
+Authoring syntax is intentionally undecided until its bounded schema exists.
+No current Rules enumeration or custom-asset support is implied by this table.
+The [sandbox design](sandbox.md) owns prop admission, identity/assignment lifetime,
+untrusted content and optional contextual notices.
+
+One-shot discovery/edits should use valid scoped credentials without requiring
+`run`; continuous event/work reception requires the foreground connector.
+Grant renewal and offline expiry must be resolved in #178 before this ships.
+Non-tmux agents use the same commands. Missing or ambiguous context fails before
+mutation, never inferred from folder, pane or display name. Agent usage is:
+discover permission/catalog, read layout/revision, apply once, then summarize.
+After uncertain writes reread before retrying; never silently advance the expected
+revision to overwrite another editor. Final envelopes, byte/query bounds and
+error mappings must be fixed in the implementation ticket before adding grammar.
+
+## Typed dispatch
 
 The core Clap grammar owns syntax, help and completions for the maintained Office
 entrypoints. It produces typed invocations and dispatches to the verified extension;
