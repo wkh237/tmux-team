@@ -130,6 +130,9 @@ The concrete implementations are `storage::identities`,
 `binding_command` performs caller/target preflight and composes those owners.
 Presence is observation, not routing permission; an explicit socket or pane
 marker cannot authorize a different identity.
+Binding SQLite reads and writes reuse `endpoint::valid_process_id` with checked
+signed/unsigned conversion. Invalid stored PIDs fail decoding
+without repair or retirement, and invalid inputs fail before insertion.
 
 Names are global within the selected local database, not folder-scoped. Plain
 `name`/`add` creates temporary bindings; `-s` saves/promotes the same identity UUID.
