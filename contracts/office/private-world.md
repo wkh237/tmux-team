@@ -1,6 +1,6 @@
 # Private world document v1
 
-Tracking: #189. This is a Firestore document contract, not an HTTP envelope or
+Implemented Firestore document contract, not an HTTP envelope or
 the work-dispatch protocol. Security Rules are the enforcement boundary; browser
 validation provides feedback, not authority.
 
@@ -14,7 +14,7 @@ exactly these fields:
 | `ownerUid`  | Creating Google-authenticated human's Firebase UID                             |
 | `createdAt` | Firestore server timestamp at creation                                         |
 
-All fields are immutable in this slice. There is no delete or global listing.
+All fields are immutable. There is no delete or global listing.
 One online transaction reads the selected ID, creates if absent, or returns the
 same document when owner/name/version match. Conflicts never overwrite. The UI
 keeps the same ID and name for an uncertain retry. Deduplication lasts while the

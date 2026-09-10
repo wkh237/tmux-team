@@ -50,6 +50,17 @@ messages, and pull request metadata. Non-language symbols and technically
 required fixture data are allowed when necessary; explain any such exception
 in English.
 
+## Durable documentation
+
+Keep living documents focused on current results, definitions, contracts and
+clearly labeled proposals. User and developer guides may include actionable
+instructions and the constraints needed to use them safely. Keep implementation
+chronology, rejected alternatives, per-run logs and review evidence in issues/PRs
+or pinned history, not repeated in manuals. Preserve non-obvious invariants and
+fixture provenance. Each definition has one document owner; other guides link
+to it rather than copying it. Removing narrative must not remove a safety gate
+or present planned behavior as shipped.
+
 ## Delivery lifecycle
 
 - GitHub Issues is the active tracker for TMT. Historical Linear links are

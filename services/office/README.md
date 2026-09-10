@@ -1,7 +1,7 @@
 # Office service boundary
 
-Local Firebase environment for #184 and private-world Rules for #189, under
-#176. The SPA offers explicit emulator/cloud Google sign-in and direct client
+Local Firebase emulators and private-world Rules. The SPA offers explicit
+emulator/cloud Google sign-in and direct client
 creation/read of owner-only worlds. Rules require operator-managed tester
 admission. Cloud deployment, invitations, guest memberships and presence are
 not implied by this implementation. Unspecified paths remain denied.

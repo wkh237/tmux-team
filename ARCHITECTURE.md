@@ -10,8 +10,8 @@ native build is an error. No test, script, or installer may silently execute an
 installed host `tmt` or a retired TypeScript product implementation. Node may
 run explicit developer fixtures and verifiers, never serve as a product fallback.
 
-The published alpha2 release remains immutable. Source cutover does not publish
-a replacement, migrate application data, or add user-facing features.
+Published releases are immutable. Source changes do not publish replacements
+or migrate application data.
 TMT remains an invocation-owned local CLI, without a daemon, remote MCP server,
 identity memory or a separate inbox service.
 
@@ -98,7 +98,7 @@ The maintained public surface is:
 The grammar owns option placement and rejection. Handlers do not search raw
 argv, create competing option parsers, or reinterpret payload text as flags.
 JSON and human output use the same typed result and status contracts.
-`OutputMode` contains only the supported JSON selection. Former no-op
+`OutputMode` contains only the supported JSON selection. Unsupported
 `--verbose`/`-v` and `--debug` flags are absent from the grammar and fail with
 `USAGE_ERROR` before effects; literal message/option-value text is unchanged.
 
@@ -116,6 +116,9 @@ profile and diagnostic bodies bypass table rendering.
 
 `tmt-core::names` owns canonical identity and pane-target classification,
 including the pinned normalization/casing behavior and bounded name rules.
+Canonicalization is ECMAScript whitespace trim, NFKC and root-locale default
+lowercase using pinned ICU data, not case folding or compiler-dependent casing.
+Dependency upgrades must not renormalize stored keys.
 `tmt-core::identity` owns lifetime and storage-only create/promote policy.
 `tmt-core::binding` owns evidence evaluation, retirement authorization and
 binding use cases. Unknown or conflicting endpoint evidence is never treated as
@@ -148,6 +151,11 @@ Existing files, directories and links are refused without mutation.
 Configuration errors retain their stable public codes and useful paths only at
 the adapter boundary.
 
+`json_document` owns editable config/tmux metadata number compatibility:
+IEEE-754 values with non-finite opaque values serialized as null. Known invalid
+settings still fail. Raw object order is retained on targeted edits; this is not
+an exact reply/body transformation or the receipt decoder's policy.
+
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
@@ -155,6 +163,11 @@ schema migrations 1 through 9, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
+Migrations preserve recorded names and historical retention backfills. Schema 9
+promotes existing identities to saved without changing UUIDs; unsupported custom
+identity-table definitions are rejected rather than silently rebuilt. Old
+schema-8 writers cannot share the migrated database. Frozen inputs retain their
+own provenance in `test/fixtures/storage-history`, not in this architecture map.
 
 `tmt-core::request::RequestService` owns preparation, delivery-state
 transitions, exact final submission, waiter release, attention revisions and
@@ -290,7 +303,7 @@ smoke checks, not npm-package checks. Smoke runs outside the checkout with
 isolated HOME/state, no Node/Rust on the product PATH, exact embedded skill
 checks, managed skill installation and SQLite reopen/persistence.
 
-The source-cutover gate is positive and negative: a selected native executable
+Executable selection is checked positively and negatively: a selected native executable
 must run, and a missing default native build must fail clearly. No Rust coverage
 percentage is compared with the retired TypeScript source or reported as a
 zero-file success.

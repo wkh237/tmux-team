@@ -1,9 +1,10 @@
 # Office contract boundary
 
-Design baseline for #174. There is no deployed API or production consumer yet.
+Private-world and home-block document contracts are implemented in the browser
+and Rules. The remote work-handoff protocol remains a proposal, not a deployed API.
 
 The separately versioned [private world document v1](private-world.md) is the
-#189 direct-Firestore contract. It uses native Firestore timestamps and Rules,
+direct-Firestore contract. It uses native Firestore timestamps and Rules,
 not the work-handoff HTTP/JSON envelopes below. Its actual client adapter and
 Rules are exercised together in `apps/office/e2e/world-rules.spec.ts`.
 

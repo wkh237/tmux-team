@@ -1,7 +1,7 @@
 # Home block document v1
 
-Tracking: #192, the browser/data slice of #191. Agent commands, pairing and
-assignment are not implemented by this contract.
+Implemented owner-only decoration contract. Agent commands, pairing and
+assignment are not defined by this contract.
 
 `worlds/{worldId}/blocks/home` contains exactly `version: 1`, `revision`,
 `objects` and `updatedAt`. Authority comes from the existing immutable world's
@@ -49,12 +49,9 @@ is a desk rotated once at (30, 28). `block-contract.ts` owns the only codec;
 the browser and future command inputs retain readable named fields. There is
 no second stored layout or cache. Unknown tokens/fields reject, never truncate.
 
-The initially tested map representation exceeded the real Rules expression
-budget at the full 16-object boundary. Encoding permits one bounded regex per
-slot to enforce asset-specific rotated footprints, while retaining capacity and
-direct client writes. Vectors contain literal expected tokens independent of the
-encoder, and test both directions plus actual Rules. This is a pre-release
-contract refinement, not a migration of deployed data.
+Encoding permits one bounded regex per slot to enforce asset-specific rotated
+footprints within the Rules expression budget. Vectors contain literal expected
+tokens independent of the encoder and test both directions plus actual Rules.
 
 Rules explicitly check all 16 possible slots because they cannot iterate over
 an arbitrary list. The independent vectors in `block-v1.vectors.json` run both

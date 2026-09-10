@@ -1,6 +1,6 @@
 # Office v1 design
 
-Status: design baseline for #174, not implemented service behavior. The delivered
+Status: proposed protocol, not implemented service behavior. The delivered
 SPA implementation is described in [architecture](architecture.md).
 This document owns policy and user-visible semantics; the
 [wire schema](../../contracts/office/v1.schema.json) owns message shapes.
@@ -16,7 +16,7 @@ computer. Independently deployed worlds do not federate in v1.
 Visitors need only a browser. One-shot agent decoration requires an installed
 extension and valid scoped pairing/assignment, not a resident connector.
 Continuous local event/work reception requires a foreground-running connector.
-Credential renewal remains an implementation gate in #178. Native TMT remains usable without
+Credential renewal requires a defined scoped authorization contract. Native TMT remains usable without
 Office, Node, Firebase or a background process. No agent is a human account.
 
 The [data-only sandbox refinement](sandbox.md) owns community props, structured
@@ -54,7 +54,7 @@ own auth configuration; no project IDs or credentials ship in source.
 
 ## Authorization, not proximity
 
-### Private-world pilot refinement (#189)
+### Implemented private-world boundary
 
 World creation and reads use the authenticated Firestore client directly, not
 an HTTP/Admin world service. `worlds/{worldId}` owns immutable world metadata
@@ -136,8 +136,8 @@ Pairing is a separate authorization from installation and login:
    refresh tokens. Custom-token issuance stays server-side.
 5. The local owner separately selects identities/capabilities to publish. Default
    publication is empty. Credentials use an adapter-owned protected store, never
-   the app config, source tree, process arguments or logs. #178 must verify the
-   selected platform store and secure fallback before shipping it.
+   the app config, source tree, process arguments or logs. The credential adapter must verify the
+   selected platform store and secure fallback before use.
 
 Pairing polling is bounded (at least five seconds between polls), idempotent and
 stops on expiry/revocation. Incorrect proof cannot consume another pending
@@ -244,10 +244,9 @@ No network operation, tmux delivery or model call occurs inside a retried cloud
 transaction. At-least-once network delivery is expected; distributed exactly-once
 execution is not promised.
 
-Current code gap: `talk_command::preparation` generates new IDs per invocation,
-and `RequestService::prepare` is not a remote-idempotency API. #178 must introduce
-a typed orchestration seam and adapter-owned transactional correlation mapping
-around the existing service. Do not shell out to `tmt talk`, scrape stdout, open
+Remote orchestration requires a typed seam and adapter-owned transactional
+correlation mapping around the existing request service. Current native prepare
+is not a remote-idempotency API. Do not shell out to `tmt talk`, scrape stdout, open
 raw SQLite from the bridge, or duplicate SQL/lifecycle policy. Its crash fixtures
 must prove the commit/effect windows above before remote execution is enabled.
 
@@ -309,7 +308,7 @@ These are conservative PoC defaults, not existing CLI settings:
   Clients must never reuse an ID or silently turn an expired retry into a new
   submission. An explicit new request uses a fresh random ID and new admission.
 - Blocks: the implemented [home block v1](../../contracts/office/block-v1.md)
-  narrows the original 64 KiB ceiling to 16 curated objects on a 32x32 grid,
+  accepts 16 curated objects on a 32x32 grid within a 64 KiB ceiling,
   rendered with repository-controlled SVG/CSS. Custom props require the versioned
   sandbox successor; no arbitrary artwork is accepted by the current codec.
 - One opted-in social session per agent: at most 10 minutes and 20 agent turns,
@@ -317,7 +316,7 @@ These are conservative PoC defaults, not existing CLI settings:
   default. No automatic social session merely because agents stand nearby.
 - Whiteboard v1: bounded independently owned objects with revision-checked writes,
   not a full CRDT editor or an unbounded world document. Object limits and the
-  drawing library are refined in #180 before implementation.
+  drawing library require a concrete contract before implementation.
 
 Browser caches are memory-only for private Office data by default. Logout or
 membership loss clears views and subscriptions; persistence requires an explicit
@@ -333,28 +332,13 @@ merge or assertion that the human owner endorsed them. Fetching private code and
 publishing feedback each require their own existing access/authorization. Never
 upload a local repository simply because a remote visitor named its URL.
 
-## Dependencies and validation handoff
-
-- #176 owns Firebase auth/rules/invitations and private-world presence tests.
-- #177 owns native extension acquisition and command dispatch; reuse the existing
-  verified installer boundaries instead of a second downloader. Existing artifact
-  validation is CLI-specific; generalize only the necessary shared integrity seam.
-- #178 owns authoritative work admission/queue tests, device pairing, typed local
-  dispatch integration, correlation storage,
-  credential storage and crash/revocation tests. Authentication/data-plane libraries
-  are selected there against these requirements; none is added to the CLI here.
-- #179/#180 own social/rendering/board implementation, with library selection
-  allowed and bounded operations measured instead of per-frame cloud writes.
-- #181 owns schedules/reception/revision-bound review scenarios.
-- #182 owns owner-managed deployment, export/restore and end-to-end pilot. Trusted
-  functions may require billable Firebase services; activation needs separate
-  approval and documented costs. This design provisions nothing.
+## Verification boundary
 
 Schema validation proves structural compatibility only. The scenario vectors in
-`contracts/office/scenarios.json` are expected behavioral cases for the service,
-rules and connector suites, not evidence those systems exist or enforce policy.
-Before each implementation, refine its ticket with concrete affected files and
-turn its owned vectors into causal positive/negative tests.
+`contracts/office/scenarios.json` define required outcomes, not evidence that
+services, rules or connectors enforce them. Their actual implementations require
+causal authorization, crash and revocation tests. Cloud activation and billable
+services require separate operator authorization; this protocol provisions nothing.
 
 ## Primary sources
 
