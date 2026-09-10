@@ -1,13 +1,8 @@
-# Office foundation
+# Office architecture
 
-Tracking: [#175](https://github.com/wkh237/tmux-team/issues/175), under
-[#173](https://github.com/wkh237/tmux-team/issues/173).
-The owner approved workspace-first delivery. The full protocol and trust design
-in [#174](https://github.com/wkh237/tmux-team/issues/174) is merged; this
-document describes the implemented workspace. The
-[v1 design](design.md), [planned commands](commands.md) and
-[wire contracts](../../contracts/office/README.md) now record the design baseline;
-they do not make the shell a connected Office.
+Current browser and data ownership is defined here. [Design](design.md),
+[planned commands](commands.md) and [contracts](../../contracts/office/README.md)
+separate proposed capabilities from implemented behavior.
 
 ## Current implementation
 
@@ -19,12 +14,12 @@ through the Auth Emulator, not real Google. Explicit `cloud` mode requires
 owner-local Firebase web configuration and uses the same Google/session adapter.
 It does not load local identities,
 install an extension, open a connector listener or dispatch work. The native CLI
-remains unchanged. Login alone does not grant world access. #189 adds a
-Console-managed tester gate and direct client create/read of owner-only worlds;
+remains independent. Login alone does not grant world access. A
+Console-managed tester gate controls direct client create/read of owner-only worlds;
 Firestore Rules enforce both gates, immutable fields and default-deny paths.
 This is not an invitation, presence or connected-agent implementation.
 
-#192 adds a single owner-only `home` block below an admitted world's route.
+Each admitted world has a single owner-only `home` block.
 `src/blocks/block-contract.ts` owns client values, catalog and footprint policy;
 `firebase-blocks.ts` implements its port using the existing initialized SDK.
 `block-state.ts` owns the server-confirmed projection and separate unsaved draft.
@@ -38,12 +33,10 @@ route/admission loss. Late observations and saves cannot restore disposed data.
 selection and controls. No canvas engine, generic scene framework, new global
 store or remote-state copy is introduced. Pointer selection/tile placement and
 equivalent numeric/keyboard controls edit locally; explicit Save uses the
-revision-checked Firestore transaction. Agent assignment/commands remain future
-#191 work. The contract and shared validation vectors live in `contracts/office`.
+revision-checked Firestore transaction. Agent assignment and commands are not implemented. The contract and shared validation vectors live in `contracts/office`.
 The pure contract's sole codec converts readable furniture maps to four-character
-storage tokens. Actual Rules testing rejected the full-capacity map representation
-due to its expression budget; token validation retains all 16 objects and exact
-rotated bounds without a privileged CRUD service or weaker validation.
+storage tokens, allowing Rules to validate all 16 objects and exact rotated
+bounds within their expression budget.
 
 `src/auth/firebase-session.ts` is the only Firebase initialization/composition owner.
 `firebase-config.ts` validates explicit activation before SDK initialization.
@@ -80,14 +73,14 @@ Firebase setup is implied.
 | `services/office`  | Demo-project emulator bootstrap and private-world security rules | Unrestricted local execution or implicit agent authority                |
 | `contracts/office` | Versioned design schema and structural conformance fixtures      | Browser rendering, Firebase effects or duplicate domain policy          |
 | `rust/`            | Existing local CLI, domain and concrete adapters                 | Office assets, Node or a Firebase account required by ordinary commands |
-| `docs/office`      | Decisions, scenarios and operational guidance                    | Describing planned behavior as shipped                                  |
+| `docs/office`      | Definitions, scenarios and operational guidance                  | Describing planned behavior as shipped                                  |
 
 There is no connector crate, deployable service or shared runtime package yet.
 Create each only with its first concrete consumer and reviewed contract.
 Do not relocate established Rust, test, script or canonical skill paths simply
 to make the tree symmetric.
 
-## Frontend decisions
+## Frontend stack
 
 - React + Vite SPA with TanStack Router; no Next.js, SSR or TanStack Start.
 - Jotai owns shared cross-view presentation state; component-local forms and
@@ -105,7 +98,7 @@ to make the tree symmetric.
   Oxfmt, and no file has competing formatter owners.
 - Drawing dependencies are allowed. Compare a library's actual map/drag/board
   functionality, accessibility, bundle cost, maintenance and license before
-  choosing it in #179/#180. The scaffold needs no canvas engine, sprites or
+  adding one. The scaffold needs no canvas engine, sprites or
   speculative universal scene abstraction.
 
 ## Trust boundaries for later design
@@ -128,9 +121,8 @@ durable work state are distinct observations. Proximity or user-supplied content
 never grants tool access. Shared requests correlate with existing local exchanges;
 they do not mirror the SQLite database or become an alternate task engine.
 
-Before implementing these features, review the #174 design for version
-negotiation, ownership/correlation, deduplication, expiry/revocation and failure
-scenarios. Refine each downstream issue before adding its runtime consumer.
+The planned protocol defines version negotiation, ownership/correlation,
+deduplication, expiry/revocation and failure semantics separately from the SPA.
 Firestore deployment means an owner's Firebase project, not self-hosted Firestore
 or automatic federation. No cloud provisioning, billing or deployment occurs here.
 
@@ -157,9 +149,7 @@ Rules scenarios additionally prove tester/owner isolation and immutable creation
 the browser world scenario proves grant/create/read/revocation through the UI.
 They do not prove connector lifecycle, real Google login or remote collaboration.
 
-The emulator did not close an already authorized listener within the test budget
-when only its dependent tester grant changed. Tests separately prove denial of
-the next server read and next world update, while the app's own admission stream
-clears the view and detaches its world listener. Do not claim instantaneous
+On tester revocation, subsequent server reads/writes are denied and the app's
+admission stream clears the view and detaches its world listener. Do not claim instantaneous
 server stream closure or recall of prior data. Real cloud revocation timing must
 be verified during the explicitly authorized pilot.

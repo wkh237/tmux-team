@@ -1,9 +1,7 @@
 # Planned Office command experience
 
-Design for #174/#191, refined by #194 and implemented later by #177/#178.
-None of these commands is in
-the current CLI grammar. These examples are contracts to implement, not install
-instructions for a currently published extension.
+Status: proposed commands, not part of the current CLI grammar or instructions
+for an available extension.
 
 | Command                                                    | Planned behavior                                                                                        |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -18,7 +16,7 @@ instructions for a currently published extension.
 | `tmt office unpair`                                        | Revoke remotely, then remove local credentials; offline failure reports pending revocation, not success |
 | `tmt office social <identity> --minutes 10 --max-turns 20` | Request a bounded, opt-in social session; participants may decline and workspace tools stay disabled    |
 
-## Decoration and discovery refinement
+## Decoration and discovery
 
 The following syntax is proposed, not part of the shipped grammar. `status`
 remains local; remote discovery reports only permitted resources. Installation,
@@ -37,8 +35,7 @@ provision a Firebase project or deploy a website.
 | `tmt office props ls --json`                                                             | The world's admitted prop catalog                                                   |
 | `tmt office props show <prop-id> --json`                                                 | Pinned version, geometry and supported data, never executable instructions          |
 
-`props` is the proposed catalog owner, replacing the earlier conversational
-`block catalog` alternative; do not implement both aliases speculatively.
+`props` is the catalog namespace; block operations consume that catalog.
 Authoring syntax is intentionally undecided until its bounded schema exists.
 No current Rules enumeration or custom-asset support is implied by this table.
 The [sandbox design](sandbox.md) owns prop admission, identity/assignment lifetime,
@@ -46,7 +43,7 @@ untrusted content and optional contextual notices.
 
 One-shot discovery/edits should use valid scoped credentials without requiring
 `run`; continuous event/work reception requires the foreground connector.
-Grant renewal and offline expiry must be resolved in #178 before this ships.
+Grant renewal and offline expiry require a defined scoped authorization contract.
 Non-tmux agents use the same commands. Missing or ambiguous context fails before
 mutation, never inferred from folder, pane or display name. Agent usage is:
 discover permission/catalog, read layout/revision, apply once, then summarize.
@@ -58,8 +55,8 @@ error mappings must be fixed in the implementation ticket before adding grammar.
 
 The core Clap grammar owns syntax, help and completions for the maintained Office
 entrypoints. It produces typed invocations and dispatches to the verified extension;
-handlers never slice argv again. A versioned internal invocation contract is
-refined with #177 before the executable boundary exists. Do not create a generic
+handlers never slice argv again. A versioned internal invocation contract
+must be defined before the executable boundary exists. Do not create a generic
 plugin platform or move all TMT commands into extensions.
 
 ## Missing extension
@@ -83,8 +80,8 @@ Noninteractive and `--json` calls never prompt or download. They fail promptly:
 }
 ```
 
-This uses the existing native `Failure::document` envelope; #177 must reuse that
-formatter rather than introduce another JSON output contract. Use normal nonzero
+Office errors use the existing native `Failure::document` envelope, not another
+JSON output contract. Use normal nonzero
 failure exit status `1` for Office installation, compatibility, authentication,
 permission and network errors; API HTTP numbers are not process exit codes.
 Unsupported flags retain the native grammar's existing parse-error contract.
@@ -115,7 +112,7 @@ do not probe for updates or incur Office startup/network cost.
 Social startup also requires an explicit owner-configured cost ceiling. If the
 chosen provider cannot enforce the configured bounds or a tool-free context,
 refuse startup rather than silently running an unbounded privileged conversation.
-The provider/configuration seam is refined in #179 before this command ships.
+Provider capability and cost enforcement must be verified before enabling social startup.
 
 The local agent receives the existing native TMT request/reply guidance, with
 remote source attribution shown as untrusted presentation. The connector carries
@@ -127,6 +124,5 @@ show a short human-readable summary. Office displays the approved stored final,
 not cropped terminal output. A completed local response with withheld export is
 shown as withheld, not failed execution or an invitation to rerun the task.
 
-Installed `skills/tmux-team/SKILL.md` must be updated in the same implementation
-PR that exposes these commands. Do not advertise unimplemented syntax in the
-installed skill or public README today.
+Installed `skills/tmux-team/SKILL.md` and public help must match executable
+commands. Proposed syntax is not installed-agent guidance.

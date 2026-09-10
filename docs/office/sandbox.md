@@ -1,7 +1,7 @@
 # Data-only Office sandbox
 
-Status: approved direction recorded in #194, not shipped APIs. #191 still owns
-the first real agent-decoration integration. [Architecture](architecture.md)
+Status: proposed data-only sandbox; no authoring, exploration or assignment APIs
+are shipped. [Architecture](architecture.md)
 describes current behavior; [commands](commands.md) owns proposed CLI syntax.
 
 ## Boundary
@@ -110,6 +110,6 @@ model tokens. Update the canonical installed skill only with actual commands.
 - Test notice deduplication, disabled mode, control-character handling, zero
   added network lookups and byte-identical JSON/payload output.
 
-Implement installation/pairing and fixed-catalog agent decoration first (#191),
-then a bounded authoring/catalog slice. Social chat, arbitrary runtimes, remote
-work, guest federation and production deployment are not authorized here.
+Authoring depends on verified installation, scoped pairing and fixed-catalog
+agent decoration. Social chat, arbitrary runtimes, remote work, guest federation
+and production deployment are outside this sandbox.
