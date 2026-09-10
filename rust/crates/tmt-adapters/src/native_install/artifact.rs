@@ -50,18 +50,55 @@ pub(super) fn acquire_product(
     target: &str,
 ) -> io::Result<Artifact> {
     let bytes = bounded_file::read_no_follow(manifest, MANIFEST_LIMIT).map_err(io::Error::other)?;
-    let manifest: Value = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
     let name = archive
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| invalid("Native archive requires an ASCII filename."))?;
-    let (version, sha256) = metadata(product, &manifest, name, target)?;
+    let (version, sha256) = metadata_bytes(product, &bytes, name, target)?;
     let compressed =
         bounded_file::read_no_follow(archive, COMPRESSED_LIMIT).map_err(io::Error::other)?;
-    if digest(&compressed) != sha256 {
+    verified_archive(product, name, target, version, sha256, &compressed)
+}
+
+pub(super) fn acquire_bytes(
+    product: Product,
+    manifest: &[u8],
+    name: &str,
+    compressed: &[u8],
+    target: &str,
+) -> io::Result<Artifact> {
+    let (version, sha256) = metadata_bytes(product, manifest, name, target)?;
+    verified_archive(product, name, target, version, sha256, compressed)
+}
+
+fn metadata_bytes(
+    product: Product,
+    bytes: &[u8],
+    name: &str,
+    target: &str,
+) -> io::Result<(Version, String)> {
+    if bytes.len() > MANIFEST_LIMIT {
+        return Err(invalid("Native manifest exceeds its bound."));
+    }
+    let manifest: Value = serde_json::from_slice(bytes).map_err(io::Error::other)?;
+    metadata(product, &manifest, name, target)
+}
+
+fn verified_archive(
+    product: Product,
+    name: &str,
+    target: &str,
+    version: Version,
+    sha256: String,
+    compressed: &[u8],
+) -> io::Result<Artifact> {
+    if compressed.len() > COMPRESSED_LIMIT {
+        return Err(invalid("Native archive exceeds its bound."));
+    }
+    if digest(compressed) != sha256 {
         return Err(invalid("Native archive checksum mismatch."));
     }
-    let files = decode(product, &compressed, archive_root(name)?)?;
+    let files = decode(product, compressed, archive_root(name)?)?;
     Ok(Artifact {
         name: name.into(),
         version,

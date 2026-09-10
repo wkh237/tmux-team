@@ -21,6 +21,7 @@ fn eligible(parsed: &Parsed, interactive: bool) -> bool {
                 | Invocation::Upgrade { .. }
                 | Invocation::NativeInstall { .. }
                 | Invocation::NativeRefreshSkills
+                | Invocation::Office { .. }
         )
 }
 

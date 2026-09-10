@@ -1,12 +1,8 @@
 //! Public update orchestration. Network acquisition never holds the install lock.
 
-use super::{
-    ActivatedInstallation, InstallReport, InstallRequest, inspect, install_observed, release,
-};
+use super::{ActivatedInstallation, ActivationRequest, InstallReport, activate, artifact, release};
 use std::{
-    fs,
-    io::{self, Write},
-    os::unix::fs::{DirBuilderExt, OpenOptionsExt},
+    io,
     path::Path,
     time::{Duration, Instant},
 };
@@ -63,19 +59,40 @@ pub fn upgrade(
     request: UpgradeRequest<'_>,
     checkpoint: impl FnMut() -> io::Result<()>,
 ) -> Result<UpgradeReport, UpgradeFailure> {
-    let client = crate::release_http::Https::new();
-    upgrade_with(request, checkpoint, |url, accept, limit, deadline| {
-        client.get(url, accept, limit, deadline)
-    })
+    upgrade_product(super::Product::Cli, request, checkpoint)
 }
 
+pub fn upgrade_product(
+    product: super::Product,
+    request: UpgradeRequest<'_>,
+    checkpoint: impl FnMut() -> io::Result<()>,
+) -> Result<UpgradeReport, UpgradeFailure> {
+    let client = crate::release_http::Https::new();
+    upgrade_product_with(
+        product,
+        request,
+        checkpoint,
+        |url, accept, limit, deadline| client.get(url, accept, limit, deadline),
+    )
+}
+
+#[cfg(test)]
 fn upgrade_with(
+    request: UpgradeRequest<'_>,
+    checkpoint: impl FnMut() -> io::Result<()>,
+    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>>,
+) -> Result<UpgradeReport, UpgradeFailure> {
+    upgrade_product_with(super::Product::Cli, request, checkpoint, get)
+}
+
+fn upgrade_product_with(
+    product: super::Product,
     request: UpgradeRequest<'_>,
     mut checkpoint: impl FnMut() -> io::Result<()>,
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>>,
 ) -> Result<UpgradeReport, UpgradeFailure> {
     checkpoint()?;
-    let current = inspect(request.executable)?;
+    let current = super::inspect_product(product, request.executable)?;
     let selection = select_upgrade(
         &current.state,
         request.channel,
@@ -100,7 +117,8 @@ fn upgrade_with(
             skipped_pinned: true,
         });
     };
-    let downloaded = release::download(
+    let downloaded = release::download_product(
+        product,
         channel,
         exact.as_ref(),
         &current.target,
@@ -110,42 +128,26 @@ fn upgrade_with(
     let plan = plan_version(Some(&current.state), &downloaded.version, channel, pin)
         .map_err(io::Error::other)?;
     checkpoint()?;
-    // Only this successful create grants cleanup ownership. Never remove a
-    // colliding or abandoned staging directory from another invocation.
-    let stage = current
-        .prefix
-        .join("lib/tmux-team")
-        .join(format!(".download-{}", uuid::Uuid::new_v4()));
-    fs::DirBuilder::new().mode(0o700).create(&stage)?;
-    let archive = stage.join(&downloaded.archive_name);
-    let manifest = stage.join("dist-manifest.json");
-    let result = (|| {
-        for (path, bytes) in [
-            (&archive, &downloaded.archive),
-            (&manifest, &downloaded.manifest),
-        ] {
-            let mut file = fs::OpenOptions::new()
-                .create_new(true)
-                .write(true)
-                .mode(0o600)
-                .open(path)?;
-            file.write_all(bytes)?;
-        }
-        install_observed(
-            InstallRequest {
-                archive: &archive,
-                manifest: &manifest,
-                prefix: &current.prefix,
-                target: &current.target,
-                channel,
-                pin,
-            },
-            Some(current.id),
-            Some(downloaded.provenance),
-            &mut checkpoint,
-        )
-    })();
-    let result = result
+    let artifact = artifact::acquire_bytes(
+        product,
+        &downloaded.manifest,
+        &downloaded.archive_name,
+        &downloaded.archive,
+        &current.target,
+    )?;
+    let result = activate(
+        ActivationRequest {
+            product,
+            prefix: &current.prefix,
+            channel,
+            pin,
+            expected: Some(current.id),
+            provenance: Some(downloaded.provenance),
+        },
+        &artifact,
+        &mut checkpoint,
+    );
+    result
         .map(|installation| UpgradeReport {
             installation,
             state: plan.state.clone(),
@@ -163,27 +165,7 @@ fn upgrade_with(
                     })
                 });
             UpgradeFailure { activated, cause }
-        });
-    match (result, fs::remove_dir_all(&stage)) {
-        (result, Ok(())) => result,
-        (Ok(report), Err(cleanup)) => Err(UpgradeFailure {
-            activated: report.installation.changed.then(|| Box::new(report)),
-            cause: io::Error::new(
-                cleanup.kind(),
-                format!("Native update staging cleanup failed: {cleanup}"),
-            ),
-        }),
-        (Err(mut failure), Err(cleanup)) => {
-            failure.cause = io::Error::new(
-                failure.cause.kind(),
-                format!(
-                    "{}; native update staging cleanup failed: {cleanup}",
-                    failure.cause
-                ),
-            );
-            Err(failure)
-        }
-    }
+        })
 }
 
 #[cfg(test)]

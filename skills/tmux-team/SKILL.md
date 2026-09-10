@@ -425,6 +425,29 @@ before using remembered commands. Pi can load `/skill:tmux-team`; OpenCode uses
 its `skill` tool. Installation does not bypass provider permissions or guarantee
 that a running conversation has refreshed its instructions.
 
+## Optional Office installation
+
+Office is separate from pane messaging. `tmt office status --json` verifies only
+the local companion and protocol; it does not report online agents or start a
+connection. Missing Office returns `OFFICE_NOT_INSTALLED`. Do not install it
+unless the user requests Office. Installation requires explicit consent:
+`tmt office install --yes`; updates use `tmt office upgrade`. Both accept
+`--channel stable|alpha`; a first install defaults to alpha, while later calls
+retain the recorded channel. No public Office release is available yet; do not
+invent a download URL or report a missing release as success.
+
+The default prefix is `~/.local`; use `tmt office --prefix <folder> ...` for
+another installation, consistently across commands. Explicit local installation
+accepts paired `--archive <file> --manifest <file>` inputs on `office install`.
+`tmt office uninstall --yes` removes only verified Office activation links and
+retains release files, CLI installation, skills and application data.
+Noninteractive/JSON invocations never prompt or install implicitly. Interactive
+`tmt office` offers a default-No installation prompt. The installed root command
+currently returns `OFFICE_NOT_PAIRED`: pairing, world opening, decoration and
+notebooks are not available through this CLI yet. Do not guess their commands.
+After any failed mutation, inspect `office status` before retrying; failure can
+occur after activation. Ordinary TMT commands do not probe Office.
+
 ## Configuration safety
 
 Use `tmt config show --json` to inspect resolved settings and file paths.

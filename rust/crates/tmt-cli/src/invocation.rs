@@ -61,6 +61,10 @@ pub enum Invocation {
         unpin: bool,
     },
     NativeRefreshSkills,
+    Office {
+        prefix: Option<String>,
+        operation: OfficeOperation,
+    },
     NativeInstall {
         product: tmt_core::native_install::Product,
         archive: String,
@@ -68,6 +72,24 @@ pub enum Invocation {
         prefix: String,
         channel: tmt_core::native_install::Channel,
         pin: tmt_core::native_install::PinAction,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum OfficeOperation {
+    Open,
+    Status,
+    Install {
+        yes: bool,
+        archive: Option<String>,
+        manifest: Option<String>,
+        channel: Option<tmt_core::native_install::Channel>,
+    },
+    Upgrade {
+        channel: Option<tmt_core::native_install::Channel>,
+    },
+    Uninstall {
+        yes: bool,
     },
 }
 

@@ -83,8 +83,10 @@ Firebase setup is implied.
 There is no work connector, deployable service or shared browser runtime package yet.
 The independently versioned native `tmt-office` companion currently implements
 only the [internal local handshake](../../contracts/office/native-companion.md).
-It has no cloud access or public distribution; ordinary CLI operations do not
-execute or probe it. Shared native protocol values remain in the existing core.
+It has no cloud access or public distribution. The CLI's explicit `office`
+subtree installs, inspects, updates and deactivates it through existing native
+owners; other CLI operations do not execute or probe it. Shared native protocol
+values remain in the existing core.
 Create each only with its first concrete consumer and reviewed contract.
 Do not relocate established Rust, test, script or canonical skill paths simply
 to make the tree symmetric.

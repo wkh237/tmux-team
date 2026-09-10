@@ -3,6 +3,16 @@
 mod product;
 pub use product::Product;
 
+pub fn native_target(os: &str, architecture: &str) -> Option<&'static str> {
+    match (os, architecture) {
+        ("macos", "aarch64") => Some("aarch64-apple-darwin"),
+        ("macos", "x86_64") => Some("x86_64-apple-darwin"),
+        ("linux", "aarch64") => Some("aarch64-unknown-linux-musl"),
+        ("linux", "x86_64") => Some("x86_64-unknown-linux-musl"),
+        _ => None,
+    }
+}
+
 use semver::Version;
 use std::{cmp::Ordering, error::Error, fmt};
 

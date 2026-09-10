@@ -11,6 +11,7 @@ use std::{
 use tar::{Builder, EntryType, Header};
 
 const TARGET: &str = "aarch64-apple-darwin";
+const OFFICE_PAYLOAD: &[u8] = b"#!/bin/sh\nprintf 'TMT-OFFICE/1\\n1.2.3\\n'\n";
 
 #[path = "office_companion_tests.rs"]
 mod office_companion_tests;
@@ -155,7 +156,7 @@ fn product_fixture(entries: Vec<Entry>, package: &str, files: &[&str]) -> Fixtur
 }
 
 fn office_fixture() -> Fixture {
-    office_fixture_with_payload(b"office executable\n")
+    office_fixture_with_payload(OFFICE_PAYLOAD)
 }
 
 fn office_fixture_with_payload(payload: &[u8]) -> Fixture {
@@ -218,10 +219,7 @@ fn office_installation_and_exact_retry_preserve_cli_ownership_and_bytes() {
         office_report.executable,
         fs::canonicalize(&prefix).unwrap().join("bin/tmt-office")
     );
-    assert_eq!(
-        fs::read(&office_report.executable).unwrap(),
-        b"office executable\n"
-    );
+    assert_eq!(fs::read(&office_report.executable).unwrap(), OFFICE_PAYLOAD);
     assert_eq!(
         fs::read_link(&office_report.executable).unwrap(),
         PathBuf::from("../lib/tmt-office/current/tmt-office")
@@ -323,10 +321,7 @@ fn interrupted_office_pin_preserves_both_active_releases() {
             .active_executable,
         cli_report.active_executable
     );
-    assert_eq!(
-        fs::read(&office_report.executable).unwrap(),
-        b"office executable\n"
-    );
+    assert_eq!(fs::read(&office_report.executable).unwrap(), OFFICE_PAYLOAD);
 }
 
 #[test]

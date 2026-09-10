@@ -51,6 +51,9 @@ The PR smoke matrix verifies raw native runtimes, not release archives.
 #135 introduced archive generation; later slices delivered installation.
 The target inventory and artifact metadata live in `dist-workspace.toml` and
 the generated cargo-dist manifest, not another TMT release catalog.
+Select the CLI release explicitly with `--tag v<CLI-version>` for direct
+`dist plan`/`dist build` calls: Office is independently versioned. The maintained
+build script resolves the selected package version from Cargo automatically.
 
 Install the pinned developer tools into a chosen tool directory (not needed by
 end users): cargo-dist 0.32.0 with `cargo install --locked`, and cargo-about
@@ -177,6 +180,31 @@ process suite now separately copies the compiled `tmt-office` into synthetic
 archives and exercises its exact versioned probe. Build the workspace first;
 a missing companion is an error, never a fallback to the CLI. This additional
 evidence does not replace real cargo-dist archive and distribution acceptance.
+
+### Office archives
+
+Generate an actual matching-host Office archive with the same toolchain and
+target policy, selecting Office's runtime dependency notices:
+
+```sh
+scripts/build-native-artifact.sh aarch64-apple-darwin office > /absolute/office-manifest.json
+node scripts/verify-native-artifact.mjs --product office \
+  --manifest /absolute/office-manifest.json \
+  --archive target/distrib/tmt-office-aarch64-apple-darwin.tar.gz \
+  --target aarch64-apple-darwin \
+  --notices rust/target/native-notices/THIRD-PARTY-NOTICES.txt --license LICENSE
+```
+
+Build products sequentially and retain their manifests, archives and generated
+notices separately before another build overwrites distribution output. The
+same bounded independent verifier checks inventory, hashes, notices and linkage;
+Office runtime proof requires its exact probe without creating application state,
+not CLI-only skill/SQLite commands. Follow with `office install --yes --archive
+<archive> --manifest <manifest> --prefix <task-owned-prefix>`, status, repeat
+installation and explicit uninstall. Inspect surviving bytes after rejected
+candidates and deactivation. Public availability is a separate authorized gate;
+local cargo-dist's package selection tag does not publish a Git tag. Public Office
+discovery uses `tmt-office-v<version>`; the existing CLI workflow remains CLI-only.
 
 Native adapter tests cover bounded archive acquisition and publication failures;
 native process contracts use the existing executable selector and sandbox. Test

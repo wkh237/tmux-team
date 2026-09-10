@@ -204,6 +204,12 @@ impl Layout {
                     },
                 )?;
             }
+            if self.product == Product::Office {
+                crate::office_companion::probe_candidate(
+                    &release.join(self.product.executable()),
+                    &artifact.version,
+                )?;
+            }
             write(
                 &release.join("receipt.json"),
                 &receipt.encode(&self.prefix)?,

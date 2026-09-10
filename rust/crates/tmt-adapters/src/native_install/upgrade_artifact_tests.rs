@@ -1,4 +1,5 @@
 use super::*;
+use crate::native_install::{InstallRequest, install_observed};
 use crate::{
     content_digest::sha256,
     native_install::{artifact, publication::Layout},

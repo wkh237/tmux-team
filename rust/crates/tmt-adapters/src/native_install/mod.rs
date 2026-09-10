@@ -1,6 +1,10 @@
 //! Verified native release acquisition and managed publication, without app state.
 
 mod artifact;
+mod online;
+mod remove;
+pub use online::{default_install_prefix, install_release};
+pub use remove::uninstall_office;
 pub use tmt_core::native_install::Product;
 mod managed;
 pub use managed::{
@@ -16,7 +20,7 @@ mod publication_tests;
 mod receipt;
 mod release;
 mod upgrade;
-pub use upgrade::{UpgradeFailure, UpgradeReport, UpgradeRequest, upgrade};
+pub use upgrade::{UpgradeFailure, UpgradeReport, UpgradeRequest, upgrade, upgrade_product};
 #[cfg(test)]
 mod test_support;
 
@@ -99,13 +103,41 @@ fn install_product_observed(
     checkpoint()?;
     let artifact =
         artifact::acquire_product(product, request.manifest, request.archive, request.target)?;
+    activate(
+        ActivationRequest {
+            product,
+            prefix: request.prefix,
+            channel: request.channel,
+            pin: request.pin,
+            expected,
+            provenance,
+        },
+        &artifact,
+        checkpoint,
+    )
+}
+
+struct ActivationRequest<'a> {
+    product: Product,
+    prefix: &'a Path,
+    channel: tmt_core::native_install::Channel,
+    pin: tmt_core::native_install::PinAction,
+    expected: Option<uuid::Uuid>,
+    provenance: Option<receipt::GitHubProvenance>,
+}
+
+fn activate(
+    request: ActivationRequest<'_>,
+    artifact: &artifact::Artifact,
+    mut checkpoint: impl FnMut() -> io::Result<()>,
+) -> io::Result<InstallReport> {
     plan_version(None, &artifact.version, request.channel, request.pin)
         .map_err(io::Error::other)?;
     checkpoint()?;
-    let layout = publication::Layout::open_product(request.prefix, product)?;
+    let layout = publication::Layout::open_product(request.prefix, request.product)?;
     let _lock = crate::file_lock::exclusive(&layout.root.join("install.lock"))?;
     let current = layout.current()?;
-    if let Some(expected) = expected
+    if let Some(expected) = request.expected
         && current.as_ref().map(|receipt| receipt.id) != Some(expected)
     {
         return Err(invalid(
@@ -132,10 +164,10 @@ fn install_product_observed(
         ));
     }
     let active_id = if plan.changed {
-        let mut receipt = receipt::Receipt::new(&artifact, plan.state);
-        receipt.provenance = provenance;
+        let mut receipt = receipt::Receipt::new(artifact, plan.state);
+        receipt.provenance = request.provenance;
         if let Err(error) = layout.publish(
-            &artifact,
+            artifact,
             &receipt,
             current.as_ref().map(|receipt| receipt.id),
             &mut checkpoint,

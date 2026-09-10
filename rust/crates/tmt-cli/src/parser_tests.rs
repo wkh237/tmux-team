@@ -10,6 +10,57 @@ fn args(values: &[&str]) -> Vec<OsString> {
 }
 
 #[test]
+fn office_prefix_is_scoped_to_its_subtree_and_file_inputs_are_paired() {
+    use crate::invocation::OfficeOperation;
+    for input in [
+        vec![
+            "office",
+            "--prefix",
+            "/prefix with spaces",
+            "status",
+            "--json",
+        ],
+        vec![
+            "office",
+            "status",
+            "--prefix",
+            "/prefix with spaces",
+            "--json",
+        ],
+    ] {
+        assert_eq!(
+            parsed(&input).invocation,
+            Invocation::Office {
+                prefix: Some("/prefix with spaces".into()),
+                operation: OfficeOperation::Status,
+            }
+        );
+    }
+    assert_eq!(
+        parsed(&["office", "install", "--yes"]).invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Install {
+                yes: true,
+                archive: None,
+                manifest: None,
+                channel: None,
+            }
+        }
+    );
+    for input in [
+        vec!["office", "install", "--archive", "file"],
+        vec!["office", "install", "--manifest", "file"],
+        vec!["office", "status", "--yes"],
+        vec!["office", "upgrade", "--channel", "beta"],
+        vec!["office", "pair"],
+        vec!["ls", "--prefix", "/prefix"],
+    ] {
+        assert_eq!(parse_error(&input).code, "USAGE_ERROR");
+    }
+}
+
+#[test]
 fn native_upgrade_alias_and_selection_share_one_typed_contract() {
     for command in ["upgrade", "update"] {
         let invocation = parsed(&[

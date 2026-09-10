@@ -18,7 +18,19 @@ pub(super) struct DownloadedRelease {
     pub provenance: GitHubProvenance,
 }
 
+#[cfg(test)]
 pub(super) fn download(
+    channel: Channel,
+    exact: Option<&Version>,
+    target: &str,
+    deadline: Instant,
+    get: impl FnMut(&str, &str, usize, Instant) -> io::Result<Vec<u8>>,
+) -> io::Result<DownloadedRelease> {
+    download_product(super::Product::Cli, channel, exact, target, deadline, get)
+}
+
+pub(super) fn download_product(
+    product: super::Product,
     channel: Channel,
     exact: Option<&Version>,
     target: &str,
@@ -28,7 +40,7 @@ pub(super) fn download(
     let endpoint = format!("https://api.github.com/repos/{OFFICIAL_REPOSITORY}/releases");
     let document = if let Some(version) = exact {
         json(&get(
-            &format!("{endpoint}/tags/v{version}"),
+            &format!("{endpoint}/tags/{}{version}", product.tag_prefix()),
             "application/vnd.github+json",
             METADATA_LIMIT,
             deadline,
@@ -65,7 +77,11 @@ pub(super) fn download(
         }
         let candidates = releases
             .iter()
-            .filter_map(|release| version(release).ok().map(|version| (release, version)))
+            .filter_map(|release| {
+                version(product, release)
+                    .ok()
+                    .map(|version| (release, version))
+            })
             .collect::<Vec<_>>();
         let versions = candidates
             .iter()
@@ -86,7 +102,7 @@ pub(super) fn download(
             .0
             .clone()
     };
-    let version = version(&document)?;
+    let version = version(product, &document)?;
     if !channel.accepts(&version) || exact.is_some_and(|expected| expected != &version) {
         return Err(invalid(
             "Release version does not match the selected channel or exact version.",
@@ -112,8 +128,7 @@ pub(super) fn download(
         deadline,
         &mut get,
     )?;
-    let (archive_name, manifest_version) =
-        artifact::select(super::Product::Cli, &manifest, target)?;
+    let (archive_name, manifest_version) = artifact::select(product, &manifest, target)?;
     if manifest_version != version {
         return Err(invalid(
             "Release and cargo-dist manifest versions disagree.",
@@ -143,10 +158,10 @@ fn json(bytes: &[u8]) -> io::Result<Value> {
     serde_json::from_slice(bytes).map_err(|_| invalid("Invalid release metadata JSON."))
 }
 
-fn version(release: &Value) -> io::Result<Version> {
+fn version(product: super::Product, release: &Value) -> io::Result<Version> {
     release["tag_name"]
         .as_str()
-        .and_then(|tag| tag.strip_prefix('v'))
+        .and_then(|tag| tag.strip_prefix(product.tag_prefix()))
         .and_then(|version| version.parse().ok())
         .ok_or_else(|| invalid("Release tag is not a canonical native version."))
 }

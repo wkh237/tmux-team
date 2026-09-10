@@ -13,6 +13,7 @@ mod install_command;
 mod invocation;
 mod native_install_command;
 mod native_upgrade_command;
+mod office_command;
 mod output;
 mod parser;
 mod profile_command;
@@ -142,6 +143,10 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::NativeRefreshSkills => {
             drop(stdout);
             return skill_refresh_command::execute(parsed.mode);
+        }
+        Invocation::Office { prefix, operation } => {
+            drop(stdout);
+            return office_command::execute(prefix, operation, parsed.mode);
         }
         Invocation::NativeInstall {
             product,

@@ -147,6 +147,31 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             exact: text(m, "to"),
             unpin: flag(m, "unpin"),
         },
+        ["office"]
+        | ["office", "status"]
+        | ["office", "install"]
+        | ["office", "upgrade"]
+        | ["office", "uninstall"] => Invocation::Office {
+            prefix: text(m, "prefix"),
+            operation: match path.last().copied() {
+                Some("status") => OfficeOperation::Status,
+                Some("install") => OfficeOperation::Install {
+                    yes: flag(m, "yes"),
+                    archive: text(m, "archive"),
+                    manifest: text(m, "manifest"),
+                    channel: text(m, "channel")
+                        .and_then(|value| tmt_core::native_install::Channel::parse(&value)),
+                },
+                Some("upgrade") => OfficeOperation::Upgrade {
+                    channel: text(m, "channel")
+                        .and_then(|value| tmt_core::native_install::Channel::parse(&value)),
+                },
+                Some("uninstall") => OfficeOperation::Uninstall {
+                    yes: flag(m, "yes"),
+                },
+                _ => OfficeOperation::Open,
+            },
+        },
         ["__native-refresh-skills"] => Invocation::NativeRefreshSkills,
         ["__native-install"] => Invocation::NativeInstall {
             product: tmt_core::native_install::Product::parse(&required(m, "product"))

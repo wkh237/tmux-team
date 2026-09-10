@@ -1,5 +1,14 @@
 # TMT native alpha installation
 
+For an optional `tmt-office` archive, use an installed native CLI:
+`tmt office install --yes --archive <archive.tar.gz> --manifest <dist-manifest.json>`.
+Then run `tmt office status`. Add the same `--prefix <folder>` to both commands
+for a custom installation. Office is independently versioned and currently only
+provides a local compatibility probe; installation does not pair, open a world
+or start a service. No public Office release is available yet.
+
+The remaining instructions apply to the core `tmt` archive.
+
 This archive contains the standalone Rust native alpha runtime. It needs no
 Node.js, npm, pnpm, Rust toolchain or source checkout to run. tmux and socket
 access are required for binding, sending and capturing live panes, not for

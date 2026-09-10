@@ -7,6 +7,12 @@ pub enum Product {
 }
 
 impl Product {
+    pub const fn tag_prefix(self) -> &'static str {
+        match self {
+            Self::Cli => "v",
+            Self::Office => "tmt-office-v",
+        }
+    }
     pub const ALL: [Self; 2] = [Self::Cli, Self::Office];
 
     pub const fn as_str(self) -> &'static str {

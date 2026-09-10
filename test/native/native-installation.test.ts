@@ -8,6 +8,7 @@ import {
   readlinkSync,
   readdirSync,
   realpathSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
@@ -176,6 +177,74 @@ function artifactChecksum(fixture: ArtifactFixture): string {
 }
 
 describe('native installation process contract', () => {
+  it(
+    'exposes explicit Office installation, local status and recoverable deactivation',
+    { timeout: 60_000 },
+    async () => {
+      await withSandbox(async (sandbox) => {
+        const prefix = installPrefix(sandbox);
+        const office = (args: string[]) =>
+          runCli(sandbox, ['office', '--prefix', prefix, ...args, '--json'], {
+            deadlineMs: INSTALL_PROCESS_BUDGET_MS,
+          });
+        expectError(await office(['status']), 'OFFICE_NOT_INSTALLED');
+        expectError(await office([]), 'OFFICE_NOT_INSTALLED');
+        expectError(await office(['install']), 'OFFICE_CONSENT_REQUIRED');
+        expectError(await office(['uninstall']), 'OFFICE_CONSENT_REQUIRED');
+        expectError(
+          await office(['install', '--yes', '--archive', 'missing', '--manifest', 'missing']),
+          'OFFICE_INSTALL_FAILED'
+        );
+        expect(existsSync(prefix)).toBe(false);
+        const fixture = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'office');
+        const args = [
+          'install',
+          '--yes',
+          '--archive',
+          fixture.archive,
+          '--manifest',
+          fixture.manifest,
+        ];
+        const installed = await office(args);
+        expect(installed.status, installed.stdout + installed.stderr).toBe(0);
+        expect(parseWholeStdout(installed)).toMatchObject({
+          installed: true,
+          changed: true,
+          version: '0.1.0-alpha.1',
+        });
+        const status = await office(['status']);
+        expect(status.status, status.stdout + status.stderr).toBe(0);
+        expect(status.stderr).toBe('');
+        expect(parseWholeStdout(status)).toMatchObject({
+          installed: true,
+          protocolVersion: '1',
+          version: '0.1.0-alpha.1',
+        });
+        expectError(await office([]), 'OFFICE_NOT_PAIRED');
+        expect(parseWholeStdout(await office(args))).toMatchObject({ changed: false });
+        const payload = readFileSync(path.join(prefix, 'bin/tmt-office'));
+        const releases = path.join(prefix, 'lib/tmt-office/releases');
+        const release = readdirSync(releases)[0];
+        // Interrupted removal may lose the command link before the activation.
+        // Report that state honestly and allow explicit removal to finish.
+        unlinkSync(path.join(prefix, 'bin/tmt-office'));
+        expectError(await office(['status']), 'OFFICE_INSTALLATION_INVALID');
+        expect(parseWholeStdout(await office(['uninstall', '--yes']))).toEqual({
+          installed: false,
+          changed: true,
+          retainedReleases: true,
+        });
+        expect(readFileSync(path.join(releases, release, 'tmt-office')).equals(payload)).toBe(true);
+        expectError(await office(['status']), 'OFFICE_NOT_INSTALLED');
+        expect(parseWholeStdout(await office(['uninstall', '--yes']))).toMatchObject({
+          changed: false,
+        });
+        expect(parseWholeStdout(await office(args))).toMatchObject({ changed: true });
+        expect(existsSync(sandbox.database)).toBe(false);
+      });
+    }
+  );
+
   it(
     'installs Office explicitly without changing CLI bytes, receipts or application state',
     { timeout: 60_000 },
@@ -536,7 +605,9 @@ describe('native installation process contract', () => {
         const completion = await runCli(sandbox, ['completion', shell]);
         expect(completion.status).toBe(0);
         expect(completion.stdout).not.toContain('__native-install');
-        expect(completion.stdout).not.toContain('--archive');
+        expect(completion.stdout).not.toContain('--product');
+        // Offline Office installation is public; only the internal publisher is hidden.
+        expect(completion.stdout).toContain('--archive');
       }
       expect(existsSync(sandbox.database)).toBe(false);
     });

@@ -6,7 +6,15 @@ import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import * as tar from 'tar';
 
-const requiredFiles = ['tmt', 'LICENSE', 'NATIVE-INSTALL.md', 'THIRD-PARTY-NOTICES.txt'];
+function runtimeFiles(product = 'cli') {
+  assert(['cli', 'office'].includes(product), 'Unknown native product');
+  return [
+    product === 'cli' ? 'tmt' : 'tmt-office',
+    'LICENSE',
+    'NATIVE-INSTALL.md',
+    'THIRD-PARTY-NOTICES.txt',
+  ];
+}
 const compressedLimit = 64 * 1024 * 1024;
 const expandedLimit = 128 * 1024 * 1024;
 
@@ -38,7 +46,8 @@ export function readBoundedFile(file, limit) {
 }
 
 /** Consume cargo-dist metadata; do not maintain a second checksum/version catalog. */
-export function selectNativeArtifact(manifestFile, archiveFile, target) {
+export function selectNativeArtifact(manifestFile, archiveFile, target, product = 'cli') {
+  const requiredFiles = runtimeFiles(product);
   const manifest = JSON.parse(readBoundedFile(manifestFile, 4 * 1024 * 1024));
   const name = path.basename(archiveFile);
   archiveRootName(name);
@@ -49,7 +58,7 @@ export function selectNativeArtifact(manifestFile, archiveFile, target) {
   assert(/^[a-f0-9]{64}$/.test(artifact.checksums?.sha256), 'Manifest requires SHA-256');
   const releases = manifest.releases?.filter((release) => release.artifacts.includes(name));
   assert.equal(releases?.length, 1, 'Archive must belong to exactly one release');
-  assert.equal(releases[0].app_name, 'tmt-cli', 'Archive must belong to the TMT release');
+  assert.equal(releases[0].app_name, `tmt-${product}`, 'Archive must belong to the TMT release');
   const version = releases[0].app_version;
   assert(typeof version === 'string' && version.length > 0, 'Manifest requires a version');
   assert.deepEqual(
@@ -57,11 +66,18 @@ export function selectNativeArtifact(manifestFile, archiveFile, target) {
     [...requiredFiles].sort(),
     'Manifest must describe exactly the native runtime files'
   );
-  return { name, version, target, sha256: artifact.checksums.sha256 };
+  return {
+    name,
+    version,
+    target,
+    sha256: artifact.checksums.sha256,
+    ...(product === 'office' ? { product } : {}),
+  };
 }
 
 /** Extract only verified regular files into an owned directory and always remove it. */
 export async function withNativeArtifact(archiveFile, metadata, inspect) {
+  const requiredFiles = runtimeFiles(metadata.product);
   const rootName = archiveRootName(metadata.name);
   const compressed = readBoundedFile(archiveFile, compressedLimit);
   assert.equal(
@@ -89,7 +105,7 @@ export async function withNativeArtifact(archiveFile, metadata, inspect) {
         assert.equal(entry.type, 'File', `Native archive entry must be regular: ${entry.path}`);
         assert.equal(entry.mode & 0o7000, 0, 'Native archive must not set special permission bits');
         assert(entry.size > 0, `Empty native archive entry: ${entry.path}`);
-        if (entry.path.endsWith('/tmt')) {
+        if (entry.path === `${rootName}/${requiredFiles[0]}`) {
           assert(entry.mode & 0o111, 'Native executable lacks execute permission');
         }
       },

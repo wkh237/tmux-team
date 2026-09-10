@@ -82,6 +82,7 @@ export function verifyNativeRuntime({
   skill,
   profileContent,
   subject,
+  product = 'cli',
   matchingHostMessage = `${subject} requires a matching native host`,
 }) {
   assert(fs.statSync(executable).isFile(), `${subject} must be a regular file`);
@@ -101,6 +102,18 @@ export function verifyNativeRuntime({
     verifyLinkage(executable, cwd, env, subject);
 
     const run = (args) => runPackedCommand(executable, args, { cwd, env });
+    assert(['cli', 'office'].includes(product), 'Unknown native runtime product');
+    if (product === 'office') {
+      assert.equal(
+        run(['__tmt-office', '1', 'probe']),
+        `TMT-OFFICE/1\n${version}\n`,
+        `${subject} handshake mismatch`
+      );
+      assert(!fs.existsSync(xdg), 'Office probe must not initialize config state');
+      assert.deepEqual(fs.readdirSync(home), [], 'Office probe must not create home state');
+      assert.deepEqual(fs.readdirSync(cwd), [], 'Office probe must not create workspace state');
+      return;
+    }
     const json = (args) => JSON.parse(run([...args, '--json']));
     const globalRoot = path.join(xdg, 'tmux-team');
     assert.equal(run(['--version']).trim(), version, `${subject} version mismatch`);
