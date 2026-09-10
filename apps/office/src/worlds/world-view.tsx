@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useSyncExternalStore } 
 import { Link, useNavigate } from '@tanstack/react-router';
 import type { ReactElement, ReactNode } from 'react';
 import type { WorldState } from './world-state.js';
+import { WORLD_ID_PATTERN } from './world-contract.js';
 import { BlockPanel } from '../blocks/block-view.js';
 
 export const WorldContext = createContext<WorldState | undefined>(undefined);
@@ -78,7 +79,7 @@ export function CreateWorld({ state }: { state: WorldState }): ReactElement {
           id="open-world-id"
           value={worldId}
           required
-          pattern="[a-zA-Z0-9]{20}"
+          pattern={WORLD_ID_PATTERN}
           onChange={(event) => setWorldId(event.target.value)}
         />
         <button>Open world</button>

@@ -35,36 +35,20 @@ delivery. Future connector dispatch reuses native request/storage ownership,
 not CLI-output scraping or a competing exchange engine. Ordinary CLI operations
 remain independent of Office.
 
-`services/office` now contains the isolated Firebase emulator bootstrap (#184),
-not a deployed service. Its shared demo-project configuration and Firestore rules
-enforce owner-only private worlds and the Console-managed tester gate (#189).
-No HTTP/Admin product service is needed for direct client world creation/reads.
-Owner-local project aliases/secrets are
-excluded from Git and Docker; the image has no host credential/data mounts.
-`scripts/verify-office-emulators.mjs` proves emulator transport and fixture
-cleanup separately from native tmux E2E and future Office authorization tests.
+Office has three app-owned boundaries: `auth` initializes Firebase/session,
+`worlds` owns admission and world access, and `blocks` owns the layout contract,
+codec, adapter and editor lifecycle. Rules enforce authority; views never grant
+it. Remote snapshots have one owner, separate from unsaved drafts and ephemeral
+presentation state. No stored markup executes and no parallel layout is stored.
+The detailed lifecycle and verification map lives only in
+[Office architecture](docs/office/architecture.md); exact persisted data belongs
+in [Office contracts](contracts/office/README.md).
 
-Office's explicit emulator/cloud modes share one app-owned Firebase/session boundary
-under `apps/office/src/auth`, with memory-only persistence. `src/worlds` owns
-the direct Firestore adapter and session-scoped admission/selected-world state.
-Its Firebase-free `world-contract.ts` is the single client port/value/validation
-owner; pure state does not depend on the concrete SDK adapter.
-Rules, not the UI, enforce tester admission and immutable owner authority.
-`src/blocks` adds one owner-only home block: pure catalog/geometry/validation,
-an SDK adapter and a mounted editor state owner. Remote snapshots and an explicit
-unsaved draft are separate, not duplicated caches. The view renders curated SVG
-primitives; it cannot execute stored markup. Block writes use expected revisions
-and online transactions, and reuse world ownership rather than adding another
-identity record. See `contracts/office/block-v1.md` for the bounded data contract.
-The same pure block owner encodes readable furniture into short storage tokens;
-Rules validate complete footprints within their expression budget. No parallel
-named-field copy is stored.
-React subscribes to the observer-backed session rather than copying identity into
-Jotai. The opt-in `browser-tests` stage of the same emulator Dockerfile proves
-real browser session behavior with local auth and an explicit public Google
-script allowlist, not fully offline OAuth; its default stage remains
-the lightweight emulator environment. See Office architecture for lifecycle and
-failure ownership. No cloud membership service or connector is implemented.
+`services/office` owns isolated emulator infrastructure and Rules, not a deployed
+backend. Owner-local configuration stays outside Git and Docker. Native tmux,
+Office browser/Rules and bootstrap smoke proofs retain separate fixture owners.
+Community props and exploration remain a [data-only sandbox plan](docs/office/sandbox.md),
+not a shipped runtime SDK, identity registry or alternate exchange engine.
 
 `scripts/ci-scope.mjs` owns conservative affected-area selection and final gate
 validation. Office-only source/docs avoid native matrices; native source/skill

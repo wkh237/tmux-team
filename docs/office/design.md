@@ -13,9 +13,16 @@ objects, opt into a finite social session and request revision-bound review.
 Connecting blocks is not connecting databases or automatically trusting another
 computer. Independently deployed worlds do not federate in v1.
 
-Visitors need only a browser. Bringing local agents requires an installed,
-paired and foreground-running connector. Native TMT remains usable without
+Visitors need only a browser. One-shot agent decoration requires an installed
+extension and valid scoped pairing/assignment, not a resident connector.
+Continuous local event/work reception requires a foreground-running connector.
+Credential renewal remains an implementation gate in #178. Native TMT remains usable without
 Office, Node, Firebase or a background process. No agent is a human account.
+
+The [data-only sandbox refinement](sandbox.md) owns community props, structured
+exploration, temporary/saved identity assignments and trusted contextual notices.
+Community content provides neither runtime code nor prompts. This refines the
+decoration path; the remote-work protocol below remains separately authorized.
 
 ## Ownership and identifiers
 
@@ -301,9 +308,10 @@ These are conservative PoC defaults, not existing CLI settings:
   tombstone deletion a changed deadline cannot be compared with old fields.
   Clients must never reuse an ID or silently turn an expired retry into a new
   submission. An explicit new request uses a fresh random ID and new admission.
-- Blocks: 32 by 32 tiles, one 16-color indexed palette, at most 64 KiB validated
-  decoration data. No scripts, HTML, arbitrary SVG, external URLs or embedded
-  instructions. Rendering-library choice is deferred to #179.
+- Blocks: the implemented [home block v1](../../contracts/office/block-v1.md)
+  narrows the original 64 KiB ceiling to 16 curated objects on a 32x32 grid,
+  rendered with repository-controlled SVG/CSS. Custom props require the versioned
+  sandbox successor; no arbitrary artwork is accepted by the current codec.
 - One opted-in social session per agent: at most 10 minutes and 20 agent turns,
   with a caller-configured cost ceiling. Zero workspace tools/private context by
   default. No automatic social session merely because agents stand nearby.

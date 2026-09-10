@@ -20,30 +20,34 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
 
 ## Promotion and prerelease checks
 
-- For Rust archives, follow DEVELOPMENT's native Rust release archive procedure.
+Read the complete [native release verification guide](../../../docs/native-release-verification.md)
+before archive, installer, upgrade, bootstrap or publication work. It owns the
+procedures referenced below; DEVELOPMENT owns ordinary native checks.
+
+- For Rust archives, follow the guide's native Rust release archive procedure.
   Keep cargo-dist's manifest as the artifact metadata owner; independently verify
   bounded extraction, notices, linkage, skill installation and persisted state.
   Raw PR runtime checks do not establish release archive correctness. Do not enable a
   generated installer or publication workflow merely to obtain local archives.
-- Follow DEVELOPMENT's native runtime and archive verification for artifact changes.
+- Follow DEVELOPMENT's native runtime checks and the guide's archive verification for artifact changes.
   Reuse the shared runtime proof for linkage, exact embedded skills and SQLite
   reopen behavior. Keep the independent archive inventory/checksum/notices and
   installer failure/cleanup evidence; raw binaries are not release artifacts.
-- For native binary publication changes, also follow DEVELOPMENT's offline
+- For native binary publication changes, also follow the guide's offline
   installer lifecycle procedure using actual separately versioned archives.
   Keep ownership anchored in the installation prefix, not application-state
   selectors; verify old executable preservation, pin policy, partial command-link
   finalization and unchanged data. The internal preview entrypoint is not a
   public bootstrap or permission to replace a user/package-manager installation.
 - Promotion requires passing Code quality, Unit tests, and Docker E2E checks.
-- For a public native alpha, follow DEVELOPMENT's explicit multi-platform
+- For a public native alpha, follow the guide's explicit multi-platform
   release preparation procedure. The manual artifact workflow never publishes;
   all four final native verifiers must pass on the recorded reviewed commit.
   Keep cargo-dist as the merged manifest owner. Authorized publication uses an
   immutable draft-to-published GitHub release and verifies its attestation and
   public installer before promoting README instructions. Do not equate a
   downloadable CI bundle with a published or accepted release.
-- For curl bootstrap, follow DEVELOPMENT's native curl bootstrap verification.
+- For curl bootstrap, follow the guide's native curl bootstrap verification.
   Generate from final verified cargo-dist artifacts and invoke the existing
   native publisher; do not enable a competing stock installer. Test an actual
   matching-host archive without Node/Rust on runtime PATH, and distinguish

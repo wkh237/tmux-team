@@ -46,7 +46,9 @@ rotated bounds without a privileged CRUD service or weaker validation.
 `src/worlds/firebase-worlds.ts` owns direct SDK operations; `world-state.ts`
 depends on the Firebase-free `world-contract.ts` port and value types, not the
 concrete adapter. The contract owns shared client validation and the adapter
-implements it; there is no second domain model or request layer. `world-state.ts`
+implements it; the block adapter and world form reuse its world-ID contract.
+Rules retain independent validation as the authority boundary, not a generated
+client-only guard. There is no second domain model or request layer. `world-state.ts`
 owns one admission listener and at most one selected-world listener. Session,
 admission and route generations fence late callbacks/creates. React subscribes
 directly, with no parallel Jotai/Query copy. Firestore cache-only snapshots never
@@ -82,7 +84,8 @@ to make the tree symmetric.
 ## Frontend decisions
 
 - React + Vite SPA with TanStack Router; no Next.js, SSR or TanStack Start.
-- Jotai owns ephemeral UI state. Each mounted app owns its store. No identity,
+- Jotai owns shared cross-view presentation state; component-local forms and
+  selection use React state. Each mounted app owns its store. No identity,
   authentication or durable task state is inferred from a UI atom.
 - TanStack Query is the chosen future owner for non-streaming remote requests
   when needed. It is not installed without a consumer. Firestore streams need a
@@ -101,9 +104,16 @@ to make the tree symmetric.
 
 ## Trust boundaries for later design
 
+[Sandbox design](sandbox.md) owns the planned data-only prop and exploration
+boundary. It does not introduce a runtime/plugin SDK into the current app or
+extend the fixed-asset block codec. Keep future native inputs and rendering
+conformant to a versioned contract, not a second layout model.
+
 The browser is an untrusted client of server-enforced membership rules. A local
-connector must be explicitly installed, paired and running before it can expose
-selected local agents. Visiting, chatting, board editing, requesting work and
+connector must be explicitly installed, paired and running before it can receive
+remote work for selected local agents. One-shot block operations are a separate
+scoped authorization path, not a requirement to run a background process.
+Visiting, chatting, board editing, requesting work and
 executing locally are separate permissions. An optional receptionist can route
 work but cannot replace authentication or authorization.
 

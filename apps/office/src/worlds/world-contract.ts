@@ -1,3 +1,10 @@
+export const WORLD_ID_PATTERN = '[a-zA-Z0-9]{20}';
+const worldIdPattern = new RegExp(`^${WORLD_ID_PATTERN}$`);
+
+export function validWorldId(id: string): boolean {
+  return worldIdPattern.test(id);
+}
+
 export interface World {
   id: string;
   name: string;

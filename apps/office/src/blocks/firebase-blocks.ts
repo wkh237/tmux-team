@@ -8,6 +8,7 @@ import {
 } from 'firebase/firestore';
 import type { Firestore } from 'firebase/firestore';
 import { FirebaseError } from 'firebase/app';
+import { validWorldId } from '../worlds/world-contract.js';
 import {
   BlockConflict,
   sameLayout,
@@ -35,7 +36,7 @@ function readBlock(value: Record<string, unknown>): Block {
 }
 export function createBlockPort(db: Firestore): BlockPort {
   function reference(worldId: string) {
-    if (!/^[a-zA-Z0-9]{20}$/.test(worldId)) throw new Error('Invalid world ID.');
+    if (!validWorldId(worldId)) throw new Error('Invalid world ID.');
     return doc(db, 'worlds', worldId, 'blocks', 'home');
   }
   return {

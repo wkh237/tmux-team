@@ -63,8 +63,9 @@ Use the [development skill](.agents/skills/tmt-dev/SKILL.md) to apply them.
 
 Office is a React SPA, not a second CLI runtime. Keep routes, view components
 and UI state under `apps/office/src`, with behavioral tests beside the owner.
-Use TanStack Router for navigation and Jotai for ephemeral presentation state;
-do not parse URLs or invent an application-wide store in view components.
+Use TanStack Router for navigation and Jotai for shared cross-view presentation
+state; component-local forms and selection may use React state.
+Do not parse URLs or invent an application-wide store in view components.
 Remote state gets one owner, not mirrored Query/Jotai/Firestore copies. See
 [Office architecture](docs/office/architecture.md) before adding a service,
 contract, drawing dependency or cross-package abstraction.
