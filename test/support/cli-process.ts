@@ -286,10 +286,11 @@ export function parseWholeStdout(result: CliResult): JsonDocument {
 export function expectError(result: CliResult, code: string, message?: string): JsonDocument {
   const document = parseWholeStdout(result);
   const error = document.error as { code?: unknown; message?: unknown } | undefined;
-  assert.equal(error?.code, code);
-  assert.equal(typeof error?.message, 'string');
-  assert.ok((error?.message as string).length > 0);
-  if (message !== undefined) assert.equal(error?.message, message);
+  assert.ok(error);
+  assert.equal(error.code, code);
+  assert.ok(typeof error.message === 'string');
+  assert.ok(error.message.length > 0);
+  if (message !== undefined) assert.equal(error.message, message);
   return document;
 }
 

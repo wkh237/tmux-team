@@ -280,6 +280,22 @@ cargo build --locked --example tmux-probe
 cargo +1.88.0 build --locked
 ```
 
+Before native installation/process tests, build the two product fixtures
+independently, after workspace checks:
+
+```sh
+CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked -p tmt-office
+CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked -p tmt-cli
+```
+
+Workspace builds unify adapter features, so their debug CLI can include Office
+dependency debug information. Package-scoped builds exercise the ordinary CLI
+product without Office features. These fixtures omit debug symbols, not debug
+assertions or runtime checks; installation tests should hash/package executable
+behavior rather than large DWARF payloads. Keep the existing process deadlines
+and assertions. Both binaries remain in `target/debug`, using the established
+selectors. This does not replace optimized release-archive verification.
+
 The architecture guard is included in `cargo test`. A focused offline run is:
 
 ```bash

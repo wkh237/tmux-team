@@ -110,6 +110,10 @@ owns pending proof or credentials; no SQLite binding index mirrors it. OS random
 bytes create proofs; explicit Keychain/Secret Service backends fail closed.
 Background connection and resource editing remain unimplemented.
 
+Workspace quality checks cover the unified feature graph. Native process
+fixtures build products separately to retain ordinary CLI feature isolation;
+[Development](DEVELOPMENT.md#rust-checks) owns their symbol/profile selection.
+
 ## Public command boundary
 
 `rust/crates/tmt-cli/src/grammar.rs` is the single syntax/help/completion
