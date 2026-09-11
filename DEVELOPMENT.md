@@ -163,7 +163,7 @@ isolation, malformed/expired grants and one-way owner revocation with unchanged
 cached tokens. `pairing-service.spec.ts` adds actual HTTP approval/custom-token
 issuance, concurrent claims and live revocation. Direct service composition with
 an injected signer adds failure/recovery evidence against the same real database.
-This is not evidence of protected native storage or
+Those service scenarios alone are not evidence of protected native storage or
 CLI-to-browser pairing. Service-only scenarios can run with `--network none`
 by overriding the image command to select that spec. Operator fixtures
 also independently inspect saved block layouts. Home-block scenarios cover
@@ -194,11 +194,37 @@ consume the same literal pairing corpus; browser encoding tests use an independe
 Node encoder. Review desktop/narrow screenshots rather than accepting their
 existence as visual proof.
 
+`native-pairing.spec.ts` installs the real compiled CLI/companion through a
+synthetic verified archive, using the existing `test/support` process and artifact
+owners. It resumes a protected proof across CLI processes after Chromium consent,
+then independently checks the issued grant, OS-store record, scoped Firestore
+read, token refresh, expiry, corruption, revocation and same-name replacement.
+The browser target therefore builds Rust and installs the root test-helper
+dependencies with scripts disabled; it does not execute the SQLite oracle or
+import native helpers into the SPA. The standalone app image stays independent.
+`with-test-keyring.sh` owns a disposable D-Bus session and real Linux Secret Service
+with a fixture-only password and private container directories. The scenario
+deletes and verifies absence of its protected entry; container teardown removes
+the disposable store. No host Keychain, credentials or installed CLI is used.
+This is Linux credential-store evidence, not macOS runtime or real release-archive
+acceptance. Reuse the separate native artifact verifier for published artifacts.
+
 For focused service checks use `pnpm office:service:check`,
 `pnpm office:service:test` and `pnpm office:service:build`. `pnpm check` also runs
 the combined `@tmt/office type:check:e2e`; standalone `office:check` deliberately
 does not load service dependencies through E2E fixtures. The Docker browser
 target runs both package checks and this explicit E2E type check on Node 22.
+
+For in-progress native deployment discovery, run
+`cargo test --locked --workspace office_deployment` from `rust/` (or select
+`-p tmt-adapters --features office office_deployment`). The optional Office feature
+is not enabled by the native-only tmux fixture. These tests verify literal
+browser/native descriptor conformance, strict URL/JSON validation and bounded
+unauthenticated HTTP; they do not prove native pairing or protected credentials.
+`deployment.spec.ts` checks the actual built emulator descriptor and unavailable
+preview/cloud variants. Issuer scenarios independently compare claim
+`grantExpiresAt` with Firestore, including retries and a shortened grant; approval
+and token expiry must not stand in for that value.
 
 ## Personal-office milestone acceptance
 
@@ -209,8 +235,9 @@ tmux where relevant, Playwright Chromium and demo-project Auth/Firestore
 emulators. Extend the existing fixture owners as each feature ships, not a
 parallel mock implementation of TMT. Independent database observations must
 corroborate UI and command results. Separate green layer suites are not proof of
-this integrated flow; the current browser/Rules suite does not yet run native
-pairing or companion operations.
+this integrated flow. The native pairing browser scenario covers acquisition and
+scoped reads; native resource editing and visible browser results remain separate
+milestone work, not implied by successful credential retention.
 
 Automated acceptance must not call a paid model, use provider/host credentials,
 contact production Firebase or require paid runners. Keep the native-only tmux
@@ -252,6 +279,22 @@ cargo build --locked --example storage-probe
 cargo build --locked --example tmux-probe
 cargo +1.88.0 build --locked
 ```
+
+Before native installation/process tests, build the two product fixtures
+independently, after workspace checks:
+
+```sh
+CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked -p tmt-office
+CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked -p tmt-cli
+```
+
+Workspace builds unify adapter features, so their debug CLI can include Office
+dependency debug information. Package-scoped builds exercise the ordinary CLI
+product without Office features. These fixtures omit debug symbols, not debug
+assertions or runtime checks; installation tests should hash/package executable
+behavior rather than large DWARF payloads. Keep the existing process deadlines
+and assertions. Both binaries remain in `target/debug`, using the established
+selectors. This does not replace optimized release-archive verification.
 
 The architecture guard is included in `cargo test`. A focused offline run is:
 

@@ -19,6 +19,26 @@
       "installationLabel": "Read-only laptop",
       "identityLabel": "Review agent",
       "capabilities": ["layout.read"]
+    },
+    {
+      "version": 1,
+      "pairingId": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "worldId": "AbCdEfGhIjKlMnOpQrSt",
+      "installationId": "00000000-0000-4000-8000-000000000001",
+      "identityId": "00000000-0000-4000-8000-000000000002",
+      "installationLabel": "Office workstation",
+      "identityLabel": "Café 🤖",
+      "capabilities": ["layout.read", "layout.write"]
+    },
+    {
+      "version": 1,
+      "pairingId": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "worldId": "AbCdEfGhIjKlMnOpQrSt",
+      "installationId": "00000000-0000-4000-8000-000000000001",
+      "identityId": "00000000-0000-4000-8000-000000000002",
+      "installationLabel": "Office workstation",
+      "identityLabel": "🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖",
+      "capabilities": ["layout.read", "layout.write"]
     }
   ],
   "invalid": [
@@ -103,6 +123,59 @@
       "installationLabel": "Office workstation",
       "identityLabel": "Alice",
       "capabilities": ["layout.read", "board.write"]
+    },
+    {
+      "version": 1,
+      "pairingId": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "worldId": "AbCdEfGhIjKlMnOpQrSt",
+      "installationId": "00000000-0000-4000-8000-000000000001",
+      "identityId": "00000000-0000-4000-8000-000000000002",
+      "installationLabel": "Office workstation",
+      "identityLabel": "🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖🤖",
+      "capabilities": ["layout.read", "layout.write"]
+    },
+    {
+      "version": 1,
+      "pairingId": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "worldId": "AbCdEfGhIjKlMnOpQrSt",
+      "installationId": "00000000-0000-4000-8000-000000000001",
+      "identityId": "00000000-0000-4000-8000-000000000002",
+      "installationLabel": "Office workstation",
+      "identityLabel": "﻿",
+      "capabilities": ["layout.read", "layout.write"]
+    },
+    {
+      "version": 1,
+      "pairingId": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "worldId": "AbCdEfGhIjKlMnOpQrSt",
+      "installationId": "00000000-0000-4000-8000-000000000001",
+      "identityId": "00000000-0000-4000-8000-000000000002",
+      "installationLabel": "Office workstation",
+      "identityLabel": "  ",
+      "capabilities": ["layout.read", "layout.write"]
+    },
+    {
+      "version": 1,
+      "pairingId": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "worldId": "AbCdEfGhIjKlMnOpQrSt",
+      "installationId": "00000000-0000-4000-8000-000000000001",
+      "identityId": "00000000-0000-4000-8000-000000000002",
+      "installationLabel": "Office workstation",
+      "identityLabel": "\u0001agent",
+      "capabilities": ["layout.read", "layout.write"]
+    },
+    {
+      "version": 1,
+      "pairingId": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "worldId": "AbCdEfGhIjKlMnOpQrSt",
+      "installationId": "00000000-0000-4000-8000-000000000001",
+      "identityId": "00000000-0000-4000-8000-000000000002",
+      "installationLabel": "Office workstation",
+      "identityLabel": "agent",
+      "capabilities": ["layout.read", "layout.write"]
     }
+  ],
+  "invalidJson": [
+    "{\"version\":1,\"pairingId\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\",\"worldId\":\"AbCdEfGhIjKlMnOpQrSt\",\"installationId\":\"00000000-0000-4000-8000-000000000001\",\"identityId\":\"00000000-0000-4000-8000-000000000002\",\"installationLabel\":\"Office workstation\",\"identityLabel\":\"\\ud800\",\"capabilities\":[\"layout.read\",\"layout.write\"]}"
   ]
 }

@@ -6,23 +6,85 @@ pub const OFFICE_PROTOCOL_VERSION: &str = "1";
 pub const OFFICE_PROTOCOL_OUTPUT_LIMIT: usize = 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OfficeError {
+    DeploymentInvalid,
+    CredentialsUnavailable,
+    CredentialsInvalid,
+    NotPaired,
+    PairingPending,
+    PairingExpired,
+    RemoteDenied,
+    RemoteUncertain,
+}
+
+impl OfficeError {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::DeploymentInvalid => "OFFICE_DEPLOYMENT_INVALID",
+            Self::CredentialsUnavailable => "OFFICE_CREDENTIALS_UNAVAILABLE",
+            Self::CredentialsInvalid => "OFFICE_CREDENTIALS_INVALID",
+            Self::NotPaired => "OFFICE_NOT_PAIRED",
+            Self::PairingPending => "OFFICE_PAIRING_PENDING",
+            Self::PairingExpired => "OFFICE_PAIRING_EXPIRED",
+            Self::RemoteDenied => "OFFICE_REMOTE_DENIED",
+            Self::RemoteUncertain => "OFFICE_REMOTE_UNCERTAIN",
+        }
+    }
+
+    pub fn parse(code: &str) -> Option<Self> {
+        [
+            Self::DeploymentInvalid,
+            Self::CredentialsUnavailable,
+            Self::CredentialsInvalid,
+            Self::NotPaired,
+            Self::PairingPending,
+            Self::PairingExpired,
+            Self::RemoteDenied,
+            Self::RemoteUncertain,
+        ]
+        .into_iter()
+        .find(|value| value.code() == code)
+    }
+}
+
+impl std::fmt::Display for OfficeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.code())
+    }
+}
+impl std::error::Error for OfficeError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OfficeInvocation {
     Probe,
+    PairBegin,
+    PairPoll,
+    PairStatus,
+    Inspect,
 }
 
 impl OfficeInvocation {
     pub fn arguments(self) -> [&'static str; 3] {
         match self {
             Self::Probe => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "probe"],
+            Self::PairBegin => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "pair-begin"],
+            Self::PairPoll => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "pair-poll"],
+            Self::PairStatus => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "pair-status"],
+            Self::Inspect => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "inspect"],
         }
     }
 
     pub fn parse(arguments: &[&str]) -> Result<Self, &'static str> {
-        if arguments == Self::Probe.arguments() {
-            Ok(Self::Probe)
-        } else {
-            Err("Unsupported Office invocation or protocol version.")
-        }
+        [
+            Self::Probe,
+            Self::PairBegin,
+            Self::PairPoll,
+            Self::PairStatus,
+            Self::Inspect,
+        ]
+        .into_iter()
+        .find(|operation| arguments == operation.arguments())
+        .ok_or("Unsupported Office invocation or protocol version.")
     }
 }
 
@@ -68,6 +130,24 @@ mod tests {
             decode_office_probe(b"TMT-OFFICE/1\n0.1.0-alpha.1\n"),
             Ok(version)
         );
+    }
+
+    #[test]
+    fn pairing_operations_have_exact_versioned_arguments() {
+        for (name, operation) in [
+            ("pair-begin", OfficeInvocation::PairBegin),
+            ("pair-poll", OfficeInvocation::PairPoll),
+            ("pair-status", OfficeInvocation::PairStatus),
+            ("inspect", OfficeInvocation::Inspect),
+        ] {
+            assert_eq!(operation.arguments(), ["__tmt-office", "1", name]);
+            assert_eq!(
+                OfficeInvocation::parse(&["__tmt-office", "1", name]),
+                Ok(operation)
+            );
+            assert!(OfficeInvocation::parse(&["__tmt-office", "2", name]).is_err());
+            assert!(OfficeInvocation::parse(&["__tmt-office", "1", name, "extra"]).is_err());
+        }
     }
 
     #[test]

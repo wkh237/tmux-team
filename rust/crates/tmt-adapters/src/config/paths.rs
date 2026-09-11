@@ -14,6 +14,10 @@ pub struct ConfigPaths {
 }
 
 impl ConfigPaths {
+    pub fn office_directory(&self) -> PathBuf {
+        self.global_dir.join("office")
+    }
+
     pub fn discover() -> Result<Self, ConfigError> {
         let cwd = env::current_dir().map_err(|error| ConfigError::internal(error.to_string()))?;
         let home = env::home_dir()

@@ -5,33 +5,6 @@ import {
 } from './pairing-contract.js';
 import type { PairingPort } from './pairing-contract.js';
 
-/** Deployment configuration is trusted input; pairing links never select an endpoint. */
-export function pairingEndpoint(
-  mode: string,
-  settings: Record<string, unknown>
-): string | undefined {
-  if (mode === 'emulator') return 'http://127.0.0.1:5001/demo-tmt-office/us-central1/officePairing';
-  if (
-    mode !== 'cloud' ||
-    settings.VITE_OFFICE_PAIRING_URL === undefined ||
-    settings.VITE_OFFICE_PAIRING_URL === ''
-  )
-    return undefined;
-  const value = settings.VITE_OFFICE_PAIRING_URL;
-  if (typeof value !== 'string') throw new Error('Invalid Office pairing service configuration.');
-  const url = new URL(value);
-  if (
-    url.protocol !== 'https:' ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash ||
-    url.href !== value
-  )
-    throw new Error('Invalid Office pairing service configuration.');
-  return url.href.replace(/\/$/, '');
-}
-
 async function responseBody(response: Response): Promise<unknown> {
   if (
     !response.headers.get('content-type')?.match(/^application\/json(?:\s*;|$)/i) ||

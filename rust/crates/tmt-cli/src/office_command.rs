@@ -210,6 +210,14 @@ fn run(
     }
     let executable = prefix.join("bin/tmt-office");
     match operation {
+        OfficeOperation::Pair { .. }
+        | OfficeOperation::PairStatus { .. }
+        | OfficeOperation::Inspect { .. } => {
+            if !installed(&executable)? {
+                return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
+            }
+            crate::office_pairing_command::run(&executable, operation, mode)
+        }
         OfficeOperation::Status | OfficeOperation::Open => {
             if !installed(&executable)? {
                 if matches!(operation, OfficeOperation::Status)

@@ -92,6 +92,13 @@ test('HTTP approval and proof claim produce an actually usable scoped credential
     const principalUid = field(claimed, 'principalUid');
     const blockId = field(claimed, 'blockId');
     expect(principalUid).toBe(approved.body.principalUid);
+    const issuedGrant = (
+      await db.collection('worlds').doc(world.id).collection('agentGrants').doc(principalUid).get()
+    ).data();
+    expect(claimed.grantExpiresAt).toBe(issuedGrant?.expiresAt.toMillis());
+    expect(claimed.expiresAt).toBe(approved.body.expiresAt);
+    expect(claimed.grantExpiresAt).toBeGreaterThan(claimed.expiresAt as number);
+    expect(approved.body).not.toHaveProperty('grantExpiresAt');
     const agent = await fixture.client(false, 'device');
     await signInWithCustomToken(agent.auth, field(claimed, 'customToken'));
     expect(agent.auth.currentUser!.uid).toBe(principalUid);
@@ -271,10 +278,24 @@ test('signer failure and lost-response retries preserve one principal and the or
     now += CLAIM_INTERVAL_MS;
     const recovered = await service.claim({ version: 1, secret });
     expect(recovered.principalUid).toBe(approved.principalUid);
+    expect(recovered.grantExpiresAt).toBe(original?.expiresAt.toMillis());
     now += CLAIM_INTERVAL_MS;
-    expect((await service.claim({ version: 1, secret })).principalUid).toBe(approved.principalUid);
+    expect(await service.claim({ version: 1, secret })).toMatchObject({
+      principalUid: approved.principalUid,
+      expiresAt: approved.expiresAt,
+      grantExpiresAt: recovered.grantExpiresAt,
+    });
     expect((await grants.get()).size).toBe(1);
     expect((await grants.doc(approved.principalUid).get()).data()).toEqual(original);
+    // A trusted operator can shorten a grant. The response must read that live
+    // expiry, not reconstruct a new 24-hour lease from the retry time.
+    const shortenedExpiry = now + 60_000;
+    await grants.doc(approved.principalUid).update({ expiresAt: new Date(shortenedExpiry) });
+    now += CLAIM_INTERVAL_MS;
+    expect((await service.claim({ version: 1, secret })).grantExpiresAt).toBe(shortenedExpiry);
+    expect((await grants.doc(approved.principalUid).get()).data()?.expiresAt.toMillis()).toBe(
+      shortenedExpiry
+    );
     await store.revoke(owner.uid, request.pairingId);
     now += CLAIM_INTERVAL_MS;
     await expect(service.claim({ version: 1, secret })).rejects.toMatchObject({

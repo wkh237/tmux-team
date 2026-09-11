@@ -5,6 +5,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y musl-tools \
 RUN cargo install cargo-dist --version 0.32.0 --locked \
   && cargo install cargo-about --version 0.9.2 --locked --features cli
 ARG TARGET_TRIPLE
+ARG PRODUCT=cli
 RUN test -n "$TARGET_TRIPLE" && rustup target add "$TARGET_TRIPLE"
 WORKDIR /workspace
 COPY rust/ rust/
@@ -12,7 +13,7 @@ COPY skills/ skills/
 COPY scripts/native-cargo.sh scripts/build-native-artifact.sh scripts/
 COPY dist-workspace.toml LICENSE NATIVE-INSTALL.md ./
 RUN cd rust && cargo fetch --locked
-RUN scripts/build-native-artifact.sh "$TARGET_TRIPLE" > native-manifest.json
+RUN scripts/build-native-artifact.sh "$TARGET_TRIPLE" "$PRODUCT" > native-manifest.json
 
 FROM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
 RUN apt-get update && apt-get install --no-install-recommends -y binutils \

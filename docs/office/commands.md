@@ -26,14 +26,44 @@ success. `tmt upgrade` continues to update only the CLI and its managed skills.
 `status --json` returns `installed`, `version`, `protocolVersion` and `executable`
 after local ownership/integrity and handshake verification. It never checks cloud
 availability. Plain `tmt office` currently reports `OFFICE_NOT_PAIRED` after a
-successful probe; world opening and pairing are not implemented. Uninstall
+successful probe; automatic world opening is not implemented. Uninstall
 requires explicit consent and removes verified activation links only. Release
 files and unrelated data remain. A partial removal reports an invalid
 installation; repeat explicit uninstall to finish before reinstalling.
 
+## Native pairing (source builds)
+
+Pairing requires an installed compatible companion and an unlocked OS credential
+store (macOS Keychain or Linux Secret Service). No public Office release is
+published yet. Select a world and an existing identity explicitly outside tmux:
+
+```sh
+tmt office pair --world https://office.example/worlds/abcdefghijklmnopqrst --identity Alice
+tmt office status --world https://office.example/worlds/abcdefghijklmnopqrst --identity Alice --json
+tmt office inspect --world https://office.example/worlds/abcdefghijklmnopqrst --identity Alice --json
+```
+
+Open the printed approval link, sign in as the admitted world owner, recognize
+the identity/installation and approve. `pair` waits up to 300 seconds; use
+`--timeout 30` for a shorter observer and repeat the same command to resume the
+original pending request. `--read-only` requests only layout read access. Omit
+`--identity` only with verified pane context. Temporary identities are accepted
+without promoting them to saved identities.
+
+World-qualified `status` reports local retained state, not live authority.
+`inspect` checks server access and reports only whether the assigned block exists;
+it does not expose layouts or list other agents. Revocation can therefore leave
+local status `credential` while inspect fails `OFFICE_REMOTE_DENIED`. A same-name
+replacement has a different UUID and cannot inherit the pairing. Expiry never
+silently creates a replacement grant; renewal and unpair remain planned.
+The [native pairing contract](../../contracts/office/native-pairing.md) owns exact
+scope, output, errors and emulator restrictions.
+
 ## Planned connected commands
 
 The following connected behaviors are proposals, not installed instructions.
+The [native pairing contract](../../contracts/office/native-pairing.md) refines
+the in-progress pair/status/inspect inputs, outputs and deployment trust boundary.
 
 | Command                                                    | Planned behavior                                                                                        |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -41,7 +71,6 @@ The following connected behaviors are proposals, not installed instructions.
 | `tmt office install --yes`                                 | Explicitly acquire and verify the official extension; `--yes` consents to installation only             |
 | `tmt office upgrade`                                       | Explicit verified extension update, with compatibility checks and rollback-safe activation              |
 | `tmt office status --json`                                 | Local extension/pairing/connector status; no network or automatic update check                          |
-| `tmt office pair --world <https-origin/world-id>`          | Explicit bounded pairing and capability confirmation with the selected deployment                       |
 | `tmt office run`                                           | Run the connector in the foreground; Ctrl-C stops it without cancelling native work                     |
 | `tmt office publish <identity> --capability review`        | Publish an explicitly selected identity UUID and allowed capability; no implicit all-agent publication  |
 | `tmt office unpublish <identity>`                          | Reject new work for that published identity, without deleting local identity or retained exchanges      |
@@ -59,7 +88,6 @@ provision a Firebase project or deploy a website.
 | Proposed command                                                                         | Result                                                                              |
 | ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | `tmt office --help`                                                                      | Core-owned help, available without an installed extension                           |
-| `tmt office inspect --json`                                                              | Selected world, effective allowed capabilities and observation freshness            |
 | `tmt office map --json`                                                                  | Bounded permitted spatial projection, not unrestricted world enumeration            |
 | `tmt office block ls --json`                                                             | Allowed blocks and assignments, without guessing IDs                                |
 | `tmt office block show <block-id> --json`                                                | Canonical layout and revision                                                       |

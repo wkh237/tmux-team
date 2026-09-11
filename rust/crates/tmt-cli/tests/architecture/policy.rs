@@ -22,6 +22,12 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "sha2",
         ],
         "tmt-adapters" => &[
+            "getrandom",
+            "keyring-core",
+            "zbus-secret-service-keyring-store",
+            "apple-native-keyring-store",
+            "serde",
+            "url",
             "ureq",
             "semver",
             "tar",
@@ -36,7 +42,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "signal-hook",
             "sha2",
         ],
-        "tmt-office" => &["tmt-core"],
+        "tmt-office" => &["tmt-core", "tmt-adapters"],
         "tmt-cli" => &[
             "unicode-width",
             "tmt-core",

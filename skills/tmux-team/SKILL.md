@@ -443,10 +443,34 @@ accepts paired `--archive <file> --manifest <file>` inputs on `office install`.
 retains release files, CLI installation, skills and application data.
 Noninteractive/JSON invocations never prompt or install implicitly. Interactive
 `tmt office` offers a default-No installation prompt. The installed root command
-currently returns `OFFICE_NOT_PAIRED`: pairing, world opening, decoration and
+currently returns `OFFICE_NOT_PAIRED`; automatic world opening, decoration and
 notebooks are not available through this CLI yet. Do not guess their commands.
-After any failed mutation, inspect `office status` before retrying; failure can
+After any failed installation mutation, inspect `office status` before retrying; failure can
 occur after activation. Ordinary TMT commands do not probe Office.
+
+Compatible source builds support explicit pairing:
+
+```sh
+tmt office pair --world <world-url> --identity <name> --timeout 30
+tmt office status --world <world-url> --identity <name> --json
+tmt office inspect --world <world-url> --identity <name> --json
+```
+
+The world URL is canonical HTTPS `/worlds/<world-id>`. Omit `--identity` only
+with verified pane context. Pairing requires an unlocked macOS Keychain or Linux
+Secret Service. Give the user the public approval link; never approve on their
+behalf or expose credentials. JSON mode puts the link on stderr and the final
+result on stdout. Retry the same command within the original five-minute window
+after an observer timeout; do not replace the identity or delete pairing state.
+`--read-only` requests layout read only; otherwise pair requests read/write.
+
+World-qualified status is local retained state, not live authorization. Inspect
+checks server access and returns `blockExists`; it does not read layouts or list
+agents. A revoked grant can still have local status `credential`. Same-name
+replacement never inherits the old identity UUID's pairing. Expired pairing or
+grants require recovery/renewal that is not implemented yet; stop and report the
+error rather than silently creating another grant. Uninstall does not revoke
+remote grants. Do not use proposed connector or resource-edit commands.
 
 ## Configuration safety
 

@@ -423,15 +423,18 @@ fn dependency_policy_rejects_unknown_workspace_packages() {
 }
 
 #[test]
-fn companion_reuses_core_without_cli_or_storage_dependencies() {
+fn companion_reuses_core_and_adapters_without_direct_cli_or_effect_libraries() {
     assert!(
         policy::dependency_violations(&package(
             "tmt-office",
-            vec![dependency("tmt-core", "normal", None, None)]
+            vec![
+                dependency("tmt-core", "normal", None, None),
+                dependency("tmt-adapters", "normal", None, None)
+            ]
         ))
         .is_empty()
     );
-    for name in ["tmt-cli", "tmt-adapters", "rusqlite", "ureq"] {
+    for name in ["tmt-cli", "rusqlite", "ureq", "url", "serde"] {
         assert_eq!(
             policy::dependency_violations(&package(
                 "tmt-office",

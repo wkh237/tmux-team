@@ -10,6 +10,72 @@ fn args(values: &[&str]) -> Vec<OsString> {
 }
 
 #[test]
+fn office_pairing_has_bounded_typed_options_and_retains_unqualified_status() {
+    use crate::invocation::OfficeOperation;
+    let world = "https://office.example/worlds/abcdefghijklmnopqrst";
+    assert_eq!(
+        parsed(&[
+            "office",
+            "pair",
+            "--world",
+            world,
+            "--identity",
+            "Alice",
+            "--read-only",
+            "--timeout",
+            "12"
+        ])
+        .invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Pair {
+                world: world.into(),
+                identity: Some("Alice".into()),
+                emulator: false,
+                read_only: true,
+                timeout_seconds: 12
+            }
+        }
+    );
+    assert_eq!(
+        parsed(&["office", "status", "--world", world]).invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::PairStatus {
+                world: world.into(),
+                identity: None,
+                emulator: false
+            }
+        }
+    );
+    assert_eq!(
+        parsed(&["office", "inspect", "--world", world, "--emulator"]).invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Inspect {
+                world: world.into(),
+                identity: None,
+                emulator: true
+            }
+        }
+    );
+    for timeout in ["0", "301", "1.5", "1s", "-1", "NaN"] {
+        assert_eq!(
+            parse_error(&["office", "pair", "--world", world, "--timeout", timeout]).code,
+            "USAGE_ERROR"
+        );
+    }
+    for input in [
+        vec!["office", "status", "--identity", "Alice"],
+        vec!["office", "status", "--emulator"],
+        vec!["office", "inspect"],
+        vec!["office", "status", "--world", world, "--read-only"],
+    ] {
+        assert_eq!(parse_error(&input).code, "USAGE_ERROR");
+    }
+}
+
+#[test]
 fn office_prefix_is_scoped_to_its_subtree_and_file_inputs_are_paired() {
     use crate::invocation::OfficeOperation;
     for input in [

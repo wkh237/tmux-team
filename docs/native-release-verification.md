@@ -183,6 +183,11 @@ evidence does not replace real cargo-dist archive and distribution acceptance.
 
 ### Office archives
 
+The local Linux artifact Dockerfile accepts `--build-arg PRODUCT=office` with
+the matching `TARGET_TRIPLE`. Pass `--product office` and the corresponding
+Office archive to its verifier entrypoint. The default remains CLI; both use
+the same generator, notice owner and independent verification path.
+
 Generate an actual matching-host Office archive with the same toolchain and
 target policy, selecting Office's runtime dependency notices:
 

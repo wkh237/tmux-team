@@ -1,8 +1,9 @@
 # Pairing approval and claim v1
 
-Locally implemented issuer and browser approval protocol. Native commands,
-assignment management and production activation remain separate gates; no
-currently installed command is promised by this contract.
+Locally implemented issuer and browser approval protocol. The
+[native pairing contract](native-pairing.md) defines its source-build consumer.
+Assignment management and production activation remain separate gates; no
+public Office distribution is promised by this contract.
 
 ## Proof and consent
 
@@ -45,7 +46,10 @@ Browser decoding is input feedback and response integrity, not authentication.
 The service remains authoritative. Cross-consumer conformance fixtures pin this
 wire contract instead of adding a shared Firebase/runtime package to the SPA.
 `pairing-examples.json` contains independent literal acceptance/rejection vectors
-used by both browser and service decoders. The browser accepts only an exact
+used by browser, service and native decoders. Unicode labels and escaped invalid
+surrogates are technical fixture data for cross-language scalar/whitespace
+boundaries; invalid raw JSON stays in `invalidJson`, not imported JSON values.
+The browser accepts only an exact
 approval response echo with a valid principal/block and representable expiry;
 unexpected token fields never become view state.
 
@@ -71,6 +75,12 @@ alphanumeric characters. Labels are 1..80 Unicode scalar values, nonblank,
 without control characters. Capabilities are exactly the ordered layout lists
 in [agent grant v1](agent-grant-v1.md). No arbitrary paths or additional resource
 permissions are accepted.
+
+Claim responses retain the exact approved binding and approval `expiresAt`, and
+add `customToken` plus `grantExpiresAt` from the validated resource grant. Approval
+expiry, grant expiry and Firebase token expiry are separate clocks. A retry reads
+the existing grant expiry; it never computes a new lease or extends one. Approval
+responses do not contain `grantExpiresAt` because no grant has been issued yet.
 
 Missing/invalid human authentication is `401 UNAUTHENTICATED`; invalid input is
 `400 INVALID_ARGUMENT`; unauthorized approval/revocation is `403 PERMISSION_DENIED`.

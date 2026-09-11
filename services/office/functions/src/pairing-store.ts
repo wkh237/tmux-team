@@ -31,6 +31,10 @@ export interface ApprovedBinding extends Approval {
   expiresAt: number;
 }
 
+export interface ClaimedBinding extends ApprovedBinding {
+  grantExpiresAt: number;
+}
+
 function unavailable(): never {
   throw new PairingError('PAIRING_UNAVAILABLE');
 }
@@ -105,7 +109,7 @@ function sameRequest(left: Approval, right: Approval): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function validGrant(input: unknown, pairing: Pairing, now: number): void {
+function validGrant(input: unknown, pairing: Pairing, now: number): number {
   try {
     const value = object(input);
     exact(value, [
@@ -135,6 +139,7 @@ function validGrant(input: unknown, pairing: Pairing, now: number): void {
       value.expiresAt.toMillis() - value.createdAt.toMillis() > GRANT_MS
     )
       unavailable();
+    return value.expiresAt.toMillis();
   } catch {
     unavailable();
   }
@@ -203,14 +208,16 @@ export function createPairingStore(db: Firestore, clock: () => number = Date.now
       });
     },
 
-    async reserveClaim(id: string): Promise<ApprovedBinding> {
+    async reserveClaim(id: string): Promise<ClaimedBinding> {
       return db.runTransaction(async (tx) => {
         const now = clock();
         const pairing = await current(tx, id, now);
         if (pairing.nextClaimAt.toMillis() > now) throw new PairingError('RETRY_LATER');
         const grant = await tx.get(grantRef(pairing));
-        if (pairing.claimed) validGrant(grant.data(), pairing, now);
-        else {
+        const grantExpiresAt = pairing.claimed
+          ? validGrant(grant.data(), pairing, now)
+          : now + GRANT_MS;
+        if (!pairing.claimed) {
           if (grant.exists) unavailable();
           tx.create(grantRef(pairing), {
             version: 1,
@@ -221,14 +228,14 @@ export function createPairingStore(db: Firestore, clock: () => number = Date.now
             capabilities: pairing.request.capabilities,
             enabled: true,
             createdAt: Timestamp.fromMillis(now),
-            expiresAt: Timestamp.fromMillis(now + GRANT_MS),
+            expiresAt: Timestamp.fromMillis(grantExpiresAt),
           });
         }
         tx.update(pairingRef(id), {
           claimed: true,
           nextClaimAt: Timestamp.fromMillis(now + CLAIM_INTERVAL_MS),
         });
-        return view(pairing);
+        return { ...view(pairing), grantExpiresAt };
       });
     },
 

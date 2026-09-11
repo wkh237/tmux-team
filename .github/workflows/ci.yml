@@ -101,6 +101,13 @@ jobs:
           cargo +1.88.0 build --locked
           cargo build --locked
           cargo build --locked --example storage-probe
+      - name: Build independent native process fixtures
+        working-directory: rust
+        env:
+          CARGO_PROFILE_DEV_DEBUG: 0
+        run: |
+          cargo build --locked -p tmt-office
+          cargo build --locked -p tmt-cli
       - name: Set up Node.js test tooling
         uses: actions/setup-node@v4
         with:
