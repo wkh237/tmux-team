@@ -1,8 +1,8 @@
 # Pairing approval and claim v1
 
-Implementation target for #218. Native commands, browser assignment UI and
-production activation are separate gates; no currently installed command is
-promised by this contract.
+Locally implemented issuer and browser approval protocol. Native commands,
+assignment management and production activation remain separate gates; no
+currently installed command is promised by this contract.
 
 ## Proof and consent
 
@@ -10,8 +10,11 @@ The originating native installation generates 32 cryptographically random bytes.
 The claim secret is their canonical unpadded base64url encoding (43 characters).
 `pairingId` is the lowercase hexadecimal SHA-256 digest of those original bytes.
 Only the public pairing ID and bounded requested binding appear in the browser
-link fragment. Never put the secret, an ID token or a refresh token in a URL,
-ordinary output, log or browser request for owner approval.
+link fragment. Never put secrets or tokens in a URL, ordinary output, log or
+approval request body. The claim secret and refresh token never enter browser
+approval requests. The current owner's ID token is sent only in the
+`Authorization: Bearer` header to the trusted configured HTTPS service (loopback
+HTTP is allowed only for the demo emulator).
 
 There is no unauthenticated durable "begin" write. The admitted human owner must
 approve the exact installation/identity/world and layout capability selection
@@ -21,6 +24,32 @@ also compare the claimed binding with its own expected values before storing
 credentials. A comparison code or copied link alone does not prove possession.
 
 ## HTTP operations
+
+### Browser approval link
+
+The owner approval route is `/worlds/{worldId}/pair` with fragment
+`#tmt-pair={payload}`. Payload is canonical unpadded base64url of a UTF-8 JSON
+approval input (including `version`); decoded input is at most 2048 bytes.
+The route world must match the requested world. Unknown fields, secret/token
+material, invalid Unicode, noncanonical encoding and malformed input reject.
+No endpoint or actor identity comes from this fragment. Display labels are text,
+never markup. A URL visit, login or admission change performs no approval write.
+
+The browser uses its operator-configured pairing service and the current human
+session; only explicit approval/revocation actions send requests. Uncertain
+approval retries preserve the same immutable request and challenge. Session,
+world and route changes dispose the view and fence late action completions,
+without pretending that a submitted remote write was cancelled.
+
+Browser decoding is input feedback and response integrity, not authentication.
+The service remains authoritative. Cross-consumer conformance fixtures pin this
+wire contract instead of adding a shared Firebase/runtime package to the SPA.
+`pairing-examples.json` contains independent literal acceptance/rejection vectors
+used by both browser and service decoders. The browser accepts only an exact
+approval response echo with a valid principal/block and representable expiry;
+unexpected token fields never become view state.
+
+### Service operations
 
 The service accepts JSON POST operations under its explicitly configured base
 URL. Bodies are bounded to 4 KiB, reject unknown fields and use `version: 1`.
@@ -98,5 +127,7 @@ loopback endpoints, never accept unsigned emulator credentials in a real project
 The [local-first M1 acceptance contract](../../DEVELOPMENT.md#personal-office-milestone-acceptance)
 owns verification/cost requirements. Issuer tests must exercise actual emulator
 tokens, transactions, concurrent claims, injected signer failure and downstream
-Rules. They are not evidence of protected native credential storage, usable
-pairing UI, native retirement or the full CLI-to-browser milestone flow.
+Rules. Browser scenarios additionally verify explicit owner consent, lost-response
+retry and logout fencing through the real service. These are not evidence of
+protected native credential storage, native retirement or the full CLI-to-browser
+milestone flow.

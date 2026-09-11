@@ -20,6 +20,7 @@ import { officeFirebaseConfig } from './firebase-config.js';
 import { createWorldPort } from '../worlds/firebase-worlds.js';
 import { createWorldState } from '../worlds/world-state.js';
 import { createBlockPort } from '../blocks/firebase-blocks.js';
+import { createPairingPort, pairingEndpoint } from '../pairing/pairing-transport.js';
 
 /** One composition root for both explicit environments, outside React rendering. */
 export function startOfficeRuntime(
@@ -29,6 +30,7 @@ export function startOfficeRuntime(
 ) {
   const config = officeFirebaseConfig(mode, hostname, settings);
   if (!config) return undefined;
+  const pairingUrl = pairingEndpoint(mode, settings);
   const app = initializeApp(config, `office-${crypto.randomUUID()}`);
   const auth = initializeAuth(app, {
     persistence: inMemoryPersistence,
@@ -58,6 +60,7 @@ export function startOfficeRuntime(
     session,
     worlds,
     blocks: createBlockPort(db),
+    pairing: pairingUrl ? createPairingPort(auth, pairingUrl) : undefined,
     mode,
     dispose: async () => {
       worlds.dispose();

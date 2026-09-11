@@ -9,18 +9,22 @@ import { WorldContext } from './worlds/world-view.js';
 import type { WorldState } from './worlds/world-state.js';
 import { BlockContext } from './blocks/block-view.js';
 import type { BlockPort } from './blocks/block-contract.js';
+import { PairingContext } from './pairing/pairing-view.js';
+import type { PairingPort } from './pairing/pairing-contract.js';
 
 export function OfficeApp({
   router,
   session,
   worlds,
   blocks,
+  pairing,
   mode = 'emulator',
 }: {
   router: ReturnType<typeof createOfficeRouter>;
   session?: OfficeSession;
   worlds?: WorldState;
   blocks?: BlockPort;
+  pairing?: PairingPort;
   mode?: string;
 }): ReactElement {
   // A mounted app owns its UI state; tests and future embedded views cannot leak it.
@@ -31,7 +35,9 @@ export function OfficeApp({
         <OfficeModeContext value={mode}>
           <WorldContext value={worlds}>
             <BlockContext value={blocks}>
-              <RouterProvider router={router} />
+              <PairingContext value={pairing}>
+                <RouterProvider router={router} />
+              </PairingContext>
             </BlockContext>
           </WorldContext>
         </OfficeModeContext>

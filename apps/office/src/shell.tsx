@@ -12,7 +12,14 @@ export function OfficeShell(): ReactElement {
   const mode = useContext(OfficeModeContext);
   return (
     <div className="office-shell">
-      <a className="skip-link" href="#main">
+      <a
+        className="skip-link"
+        href="#main"
+        onClick={(event) => {
+          event.preventDefault();
+          document.getElementById('main')?.focus();
+        }}
+      >
         Skip to content
       </a>
       <header>
@@ -29,7 +36,7 @@ export function OfficeShell(): ReactElement {
           {session ? (mode === 'cloud' ? 'Private pilot' : 'Local emulator') : 'Local preview'}
         </span>
       </header>
-      <main id="main">
+      <main id="main" tabIndex={-1}>
         <SessionPanel />
         <Outlet />
       </main>

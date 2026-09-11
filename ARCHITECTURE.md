@@ -36,10 +36,13 @@ delivery. Future connector dispatch reuses native request/storage ownership,
 not CLI-output scraping or a competing exchange engine. Ordinary CLI operations
 remain independent of Office.
 
-Office has three app-owned boundaries: `auth` initializes Firebase/session,
+Office has four app-owned boundaries: `auth` initializes Firebase/session,
 `worlds` owns admission and world access, and `blocks` owns the layout contract,
-codec, adapter and editor lifecycle. Rules enforce authority; views never grant
-it. Remote snapshots have one owner, separate from unsaved drafts and ephemeral
+codec, adapter and editor lifecycle. `pairing` owns public-link decoding, explicit
+owner approval/revocation and sanitized action state, reusing the selected-world
+lifecycle and authenticated runtime composition. Rules and the trusted issuer
+enforce authority; views never grant it. Remote snapshots have one owner, separate
+from unsaved drafts and ephemeral
 presentation state. No stored markup executes and no parallel layout is stored.
 The detailed lifecycle and verification map lives only in
 [Office architecture](docs/office/architecture.md); exact persisted data belongs
