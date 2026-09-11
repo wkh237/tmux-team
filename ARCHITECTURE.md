@@ -27,7 +27,8 @@ Rust, test, release script and canonical skill paths remain stable. Read
 [Office architecture](docs/office/architecture.md) for current SPA ownership,
 the chosen React/Vite/TanStack/Jotai stack and the
 [Office design](docs/office/design.md) for planned trust/lifecycle semantics.
-Office must not import local SQLite/process adapters or native test helpers.
+Office runtime code must not import local SQLite/process adapters or native test helpers.
+Its browser E2E may reuse the established test-only process and artifact owners.
 The pairing issuer is implemented for local emulator verification and disabled
 by default outside that environment; it is not deployed. `contracts/office`
 owns the versioned work-handoff schema and fixtures; derived representations must
@@ -53,7 +54,8 @@ pairing issuer under `functions/`, not a deployed backend. Admin operations
 bypass Rules: the issuer explicitly checks verified human authentication, live
 admission, ownership and grant authority in its transaction owner. Signing stays
 outside transactions. Rules enforce the issued grant using the existing UUID
-block validator. Native pairing remains unimplemented. See
+block validator. The native companion consumes this issuer through its optional
+Office adapter feature. See
 [pairing v1](contracts/office/pairing-v1.md) for approval/retry semantics and the
 agent-grant contract for resource leases. Owner-local configuration stays outside Git and Docker. Native tmux,
 Office browser/Rules and bootstrap smoke proofs retain separate fixture owners.
@@ -86,9 +88,10 @@ module remapping or incomplete discovery. It is a syntactic guard and never
 replaces review of behavior or effects.
 
 The optional `rust/crates/tmt-office` executable is independently versioned and
-currently exposes only the internal compatibility probe. It depends on core and
-the existing adapters, not the CLI. Its adapter `office` feature owns validated
-deployment decoding for in-progress pairing; ordinary CLI builds do not enable
+exposes the compatibility probe and typed one-shot pairing/status/inspect operations.
+It depends on core and the existing adapters, not the CLI. Its adapter `office`
+feature owns validated deployment decoding, bounded HTTP, protected pairing
+records and explicit platform credential stores; ordinary CLI builds do not enable
 that feature. Serde derives reject duplicate/unknown descriptor fields; the URL
 Standard library matches browser URL interpretation instead of introducing a
 handwritten parser. Neither dependency enters core. The probe acquires no
@@ -97,8 +100,15 @@ handshake; `tmt-adapters::office_companion` verifies active installation ownersh
 and starts the existing bounded subprocess under the installer lock, then waits
 outside that lock and validates the version selected at launch.
 Its contract is [native companion handshake](contracts/office/native-companion.md).
-The public `office` subtree composes installation and this local probe; pairing
-and background connection remain unimplemented.
+The public `office` subtree composes installation, identity resolution and bounded
+pairing observation, never credentials or HTTP. `office_pairing` separates wire
+values, remote Auth/resource access, vault access, local installation metadata,
+record transitions and one-shot composition. `office_http` shares bounded JSON
+transport with deployment discovery. Existing ConfigPaths, identity storage,
+file locks and process owners remain authoritative. One protected scope record
+owns pending proof or credentials; no SQLite binding index mirrors it. OS random
+bytes create proofs; explicit Keychain/Secret Service backends fail closed.
+Background connection and resource editing remain unimplemented.
 
 ## Public command boundary
 

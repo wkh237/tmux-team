@@ -270,7 +270,37 @@ fn office(name: &'static str, about: &'static str) -> Command {
 
 fn office_commands() -> Command {
     office("office", "Manage the optional Office companion")
-        .subcommand(office("status", "Inspect the local Office installation"))
+        .subcommand(office_scope(
+            office(
+                "inspect",
+                "Check access to the paired identity's assigned block",
+            ),
+            true,
+        ))
+        .subcommand(office_scope(
+            office("status", "Inspect installation or local pairing state"),
+            false,
+        ))
+        .subcommand(
+            office_scope(
+                office(
+                    "pair",
+                    "Pair an existing identity with a private Office world",
+                ),
+                true,
+            )
+            .arg(
+                Arg::new("read-only")
+                    .long("read-only")
+                    .action(ArgAction::SetTrue),
+            )
+            .arg(
+                Arg::new("timeout")
+                    .long("timeout")
+                    .default_value("300")
+                    .value_parser(clap::value_parser!(u64).range(1..=300)),
+            ),
+        )
         .subcommand(
             office("install", "Explicitly install the Office companion")
                 .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue))
@@ -293,6 +323,18 @@ fn office_commands() -> Command {
                 "Deactivate Office without deleting retained data",
             )
             .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue)),
+        )
+}
+
+fn office_scope(command: Command, required: bool) -> Command {
+    command
+        .arg(Arg::new("world").long("world").required(required))
+        .arg(option("identity").requires("world"))
+        .arg(
+            Arg::new("emulator")
+                .long("emulator")
+                .requires("world")
+                .action(ArgAction::SetTrue),
         )
 }
 

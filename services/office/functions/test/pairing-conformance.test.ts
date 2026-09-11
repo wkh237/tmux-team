@@ -5,6 +5,7 @@ import { parseApproval } from '../src/pairing-contract.js';
 interface PairingVectors {
   valid: unknown[];
   invalid: unknown[];
+  invalidJson: string[];
 }
 
 const vectors = JSON.parse(
@@ -15,6 +16,9 @@ const vectors = JSON.parse(
 ) as PairingVectors;
 
 describe('pairing request conformance', () => {
+  it.each(vectors.invalidJson)('rejects malformed Unicode in raw JSON %#', (input) => {
+    expect(() => parseApproval(JSON.parse(input))).toThrow('INVALID_ARGUMENT');
+  });
   it('keeps positive and negative vectors instead of passing an empty corpus', () => {
     expect(vectors.valid.length).toBeGreaterThan(0);
     expect(vectors.invalid.length).toBeGreaterThan(0);

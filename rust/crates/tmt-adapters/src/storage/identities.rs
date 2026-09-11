@@ -92,6 +92,21 @@ impl IdentityReader for Storage {
     }
 }
 
+impl Storage {
+    /// Office revalidates the originally selected UUID across separate calls;
+    /// a same-name replacement must never inherit a pending proof or credential.
+    pub fn find_active_identity_by_id(&self, id: &str) -> Result<Option<Identity>, StorageError> {
+        self.connection()?
+            .query_row(
+                &format!("SELECT {COLUMNS} FROM identities WHERE id = ? AND retired_at_ms IS NULL"),
+                [id],
+                identity_row,
+            )
+            .optional()
+            .map_err(|error| classify(error, "Find active identity by ID"))
+    }
+}
+
 impl IdentityRepository for Storage {
     fn with_identity_transaction<T>(
         &mut self,

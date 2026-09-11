@@ -163,7 +163,7 @@ isolation, malformed/expired grants and one-way owner revocation with unchanged
 cached tokens. `pairing-service.spec.ts` adds actual HTTP approval/custom-token
 issuance, concurrent claims and live revocation. Direct service composition with
 an injected signer adds failure/recovery evidence against the same real database.
-This is not evidence of protected native storage or
+Those service scenarios alone are not evidence of protected native storage or
 CLI-to-browser pairing. Service-only scenarios can run with `--network none`
 by overriding the image command to select that spec. Operator fixtures
 also independently inspect saved block layouts. Home-block scenarios cover
@@ -194,6 +194,21 @@ consume the same literal pairing corpus; browser encoding tests use an independe
 Node encoder. Review desktop/narrow screenshots rather than accepting their
 existence as visual proof.
 
+`native-pairing.spec.ts` installs the real compiled CLI/companion through a
+synthetic verified archive, using the existing `test/support` process and artifact
+owners. It resumes a protected proof across CLI processes after Chromium consent,
+then independently checks the issued grant, OS-store record, scoped Firestore
+read, token refresh, expiry, corruption, revocation and same-name replacement.
+The browser target therefore builds Rust and installs the root test-helper
+dependencies with scripts disabled; it does not execute the SQLite oracle or
+import native helpers into the SPA. The standalone app image stays independent.
+`with-test-keyring.sh` owns a disposable D-Bus session and real Linux Secret Service
+with a fixture-only password and private container directories. The scenario
+deletes and verifies absence of its protected entry; container teardown removes
+the disposable store. No host Keychain, credentials or installed CLI is used.
+This is Linux credential-store evidence, not macOS runtime or real release-archive
+acceptance. Reuse the separate native artifact verifier for published artifacts.
+
 For focused service checks use `pnpm office:service:check`,
 `pnpm office:service:test` and `pnpm office:service:build`. `pnpm check` also runs
 the combined `@tmt/office type:check:e2e`; standalone `office:check` deliberately
@@ -220,8 +235,9 @@ tmux where relevant, Playwright Chromium and demo-project Auth/Firestore
 emulators. Extend the existing fixture owners as each feature ships, not a
 parallel mock implementation of TMT. Independent database observations must
 corroborate UI and command results. Separate green layer suites are not proof of
-this integrated flow; the current browser/Rules suite does not yet run native
-pairing or companion operations.
+this integrated flow. The native pairing browser scenario covers acquisition and
+scoped reads; native resource editing and visible browser results remain separate
+milestone work, not implied by successful credential retention.
 
 Automated acceptance must not call a paid model, use provider/host credentials,
 contact production Firebase or require paid runners. Keep the native-only tmux

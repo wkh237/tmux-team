@@ -3,12 +3,13 @@
 This internal local protocol is separate from the proposed remote work-handoff
 schema. It grants no Office access and does not replace pairing.
 
-The core-owned `OfficeInvocation` currently has one operation: `Probe`. Its exact
-argument vector is `__tmt-office`, `1`, `probe`. Unknown versions, operations,
+The core-owned `OfficeInvocation` has exact operations `probe`, `pair-begin`,
+`pair-poll`, `pair-status` and `inspect`. Its argument vector is
+`__tmt-office`, `1`, `<operation>`. Unknown versions, operations,
 extra arguments and non-UTF-8 arguments fail with exit 1, empty stdout and a brief
 stderr diagnostic. There is no arbitrary argv forwarding or shell evaluation.
 
-Successful output is exactly two LF-terminated UTF-8 lines:
+Successful probe output is exactly two LF-terminated UTF-8 lines:
 
 ```text
 TMT-OFFICE/1
@@ -40,5 +41,21 @@ available; no public release has been published. Synthetic archive process tests
 exercise the real compiled companion. The independent native artifact verifier
 separately checks actual Office archives; neither constitutes public publication.
 
-Future operations require a reviewed typed contract before implementation.
-Do not reuse this probe response as a generic payload or remote authentication.
+## Pairing operations
+
+Non-probe operations consume one bounded JSON object on stdin (4096 bytes):
+`world`, `identityId`, `emulator` and `readOnly`, with no unknown or duplicate
+fields. Selectors contain no credentials. The adapter accepts at most 4096 bytes
+per output stream and uses the existing subprocess deadline/cleanup owner.
+The companion receives at most 25 seconds for a single operation; the public
+observer's shorter deadline still wins. A successful process emits only a public
+JSON result: local `state`, pending `state` plus `approvalUrl`, `blockExists`, or
+a known `error` code. Stderr must be empty. Credentials and provider diagnostics
+never cross this boundary. Public CLI output uses its existing error envelope.
+
+The adapter validates this allowlist; the CLI additionally checks that the result
+belongs to the requested operation. The protected state machine and HTTP/vault
+adapters stay in the Office feature, not the CLI or core. See
+[native pairing](native-pairing.md) for scope, deadlines and server authority.
+Future operations require a reviewed typed contract before implementation;
+the probe response is never a generic payload or remote authentication.

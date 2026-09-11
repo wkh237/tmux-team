@@ -1,7 +1,7 @@
 # Native pairing v1
 
-Implementation contract for #222. Deployment discovery is implemented;
-public pairing and protected credential use are not yet shipped.
+Implementation contract for #222. Source builds implement deployment discovery,
+pairing and protected credential use; no public Office release is published.
 [Approval and claim](pairing-v1.md) owns remote proof/consent semantics.
 
 ## Deployment discovery
@@ -49,7 +49,7 @@ deployment cannot retarget an existing proof or credential. Discovery has a
 10-second budget within the command deadline; reject redirects, non-JSON responses
 and oversized headers/bodies before use.
 
-## Planned command and credential contract
+## Command and credential contract
 
 ```sh
 tmt office pair --world <url> [--identity <name>] [--read-only] [--timeout <seconds>]
@@ -66,17 +66,38 @@ Pair requests layout read/write unless `--read-only`. Timeout is integer seconds
 poll floor. Human mode prints the public approval URL before polling. JSON mode
 puts that URL on stderr and one final object on stdout. No secret enters output
 or argv. Unqualified status retains installation-only behavior; world-qualified
-status is local-only. Inspect reads the assigned block, not a world-wide index.
+status is local-only and returns `unpaired`, `pending`, `credential` or `expired`,
+with `serverAuthorizationChecked: false`. Inspect performs a server-authorized
+read of the assigned block, not a world-wide index. Its result is
+`blockExists: true|false` with `serverAuthorizationChecked: true`; it does not
+return or interpret layout contents. Missing pairing fails `OFFICE_NOT_PAIRED`.
 
-A stable installation UUID is independent of release receipts. Nonsecret binding
-metadata lives under ConfigPaths, not a second identity registry. Protected
-records bind origin, descriptor, world, installation and identity UUID, validated
+A stable installation UUID is independent of release receipts and binary prefixes:
+one logical installation per ConfigPaths root. Only that public UUID and scope
+locks live in its `office/` directory; there is no disk binding index or second
+identity registry. Missing or corrupt metadata is not automatically regenerated
+inside an existing installation. One protected record per origin/world/mode/
+installation/identity UUID pins the complete descriptor, immutable approval and
+pending proof/deadline/cadence or paired credential/resource lease, validated
 on every read. Store the pending proof before exposing an approval link. No token
 belongs in config, SQLite or logs. Missing/locked storage fails closed; no sample
-or plaintext fallback. OS storage and metadata are not one atomic transaction.
+or plaintext fallback. Linux uses Secret Service on the session bus; macOS uses
+the user Keychain. Each write requires exact readback before reporting success.
+The per-scope lock serializes mutation; local status reads one protected snapshot
+without creating locks. OS storage and metadata are not one atomic transaction.
+Uncertain claim or publication retains the original scope for retry. Expired
+pending records and grants fail closed without silently requesting another grant;
+explicit renewal/recovery remains part of #209. Do not delete local state as a
+substitute for server revocation.
+
+Auth exchange and refresh use fixed Firebase endpoints. ID-token payload checks
+detect inconsistent scope but are not signature verification or authorization;
+Firestore Rules enforce every resource request. Token refresh preserves the
+original resource assignment and grant expiry. Identity names resolve once to an
+active UUID and are rechecked before protected publication and resource use.
 
 Office failures use the existing envelope and exit 1:
-`OFFICE_DEPLOYMENT_INVALID`, `OFFICE_DEPLOYMENT_CHANGED`,
+`OFFICE_DEPLOYMENT_INVALID`,
 `OFFICE_CREDENTIALS_UNAVAILABLE`, `OFFICE_CREDENTIALS_INVALID`,
 `OFFICE_NOT_PAIRED`, `OFFICE_PAIRING_PENDING`, `OFFICE_PAIRING_EXPIRED`,
 `OFFICE_REMOTE_DENIED`, `OFFICE_REMOTE_UNCERTAIN`. Interruption uses

@@ -22,6 +22,10 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "sha2",
         ],
         "tmt-adapters" => &[
+            "getrandom",
+            "keyring-core",
+            "zbus-secret-service-keyring-store",
+            "apple-native-keyring-store",
             "serde",
             "url",
             "ureq",

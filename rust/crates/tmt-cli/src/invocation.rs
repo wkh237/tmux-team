@@ -79,6 +79,23 @@ pub enum Invocation {
 pub enum OfficeOperation {
     Open,
     Status,
+    Inspect {
+        world: String,
+        identity: Option<String>,
+        emulator: bool,
+    },
+    Pair {
+        world: String,
+        identity: Option<String>,
+        emulator: bool,
+        read_only: bool,
+        timeout_seconds: u64,
+    },
+    PairStatus {
+        world: String,
+        identity: Option<String>,
+        emulator: bool,
+    },
     Install {
         yes: bool,
         archive: Option<String>,

@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process';
+import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { expect } from 'vitest';
 import { resolveCliExecutables, type CliExecutable } from './cli-executable.mjs';
 
 const lifecycleKey = Symbol('sandbox process lifetime');
@@ -272,29 +272,30 @@ function startRun(sandbox: Sandbox, args: readonly string[], options: CliRunOpti
 }
 
 export function parseWholeStdout(result: CliResult): JsonDocument {
-  expect(result.signal).toBeNull();
-  expect(result.stderr).toBe('');
-  expect(result.stdout.trim()).not.toBe('');
+  assert.equal(result.signal, null);
+  assert.equal(result.stderr, '');
+  assert.notEqual(result.stdout.trim(), '');
   // Parse the complete stream. Parsing only the final line would allow human
   // output or a second JSON document to leak into JSON mode unnoticed.
   const document = JSON.parse(result.stdout) as unknown;
-  expect(document).toBeTypeOf('object');
-  expect(document).not.toBeNull();
+  assert.equal(typeof document, 'object');
+  assert.notEqual(document, null);
   return document as JsonDocument;
 }
 
 export function expectError(result: CliResult, code: string, message?: string): JsonDocument {
   const document = parseWholeStdout(result);
-  expect(document.error).toMatchObject({ code });
-  expect(document.error).toHaveProperty('message', expect.any(String));
-  expect((document.error as { message: string }).message.length).toBeGreaterThan(0);
-  if (message !== undefined) expect((document.error as { message: string }).message).toBe(message);
+  const error = document.error as { code?: unknown; message?: unknown } | undefined;
+  assert.equal(error?.code, code);
+  assert.equal(typeof error?.message, 'string');
+  assert.ok((error?.message as string).length > 0);
+  if (message !== undefined) assert.equal(error?.message, message);
   return document;
 }
 
 export function expectJsonSuccess(result: CliResult, value: JsonDocument): void {
-  expect(result.status).toBe(0);
-  expect(parseWholeStdout(result)).toEqual(value);
+  assert.equal(result.status, 0);
+  assert.deepEqual(parseWholeStdout(result), value);
 }
 
 export function fileSnapshot(root: string): Record<string, string> {

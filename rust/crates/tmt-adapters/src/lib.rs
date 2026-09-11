@@ -15,6 +15,10 @@ pub mod native_install;
 pub mod office_companion;
 #[cfg(feature = "office")]
 pub mod office_deployment;
+#[cfg(feature = "office")]
+mod office_http;
+#[cfg(feature = "office")]
+pub mod office_pairing;
 #[cfg(unix)]
 pub mod process;
 #[cfg(unix)]

@@ -1,7 +1,7 @@
 //! Internal optional companion entrypoint. No implicit authentication or service.
 
 use std::{
-    io::{self, Write},
+    io::{self, Read, Write},
     process::ExitCode,
 };
 use tmt_core::office_protocol::{OfficeInvocation, encode_office_probe};
@@ -24,6 +24,15 @@ fn main() -> ExitCode {
             io::stdout()
                 .lock()
                 .write_all(encode_office_probe(&version).as_bytes())
+        }
+        Ok(operation) => {
+            let mut input = Vec::new();
+            match io::stdin().lock().take(4097).read_to_end(&mut input) {
+                Ok(_) => io::stdout()
+                    .lock()
+                    .write_all(&tmt_adapters::office_pairing::execute(operation, &input)),
+                Err(error) => Err(error),
+            }
         }
         Err(message) => {
             let _ = writeln!(io::stderr().lock(), "{message}");

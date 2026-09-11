@@ -1,9 +1,10 @@
 use super::*;
+use crate::office_http::tests::with_http_response;
 use serde_json::{Value, json};
 use std::{
-    io::{Read, Write},
+    io,
     net::TcpListener,
-    thread,
+    time::{Duration, Instant},
 };
 
 fn cloud() -> WorldTarget {
@@ -203,53 +204,6 @@ fn emulator_requires_explicit_mode_and_exact_demo_endpoints() {
     }
 }
 
-fn serve_discovery(response: Vec<u8>) -> (io::Result<OfficeDeployment>, String) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    listener.set_nonblocking(true).unwrap();
-    let target = WorldTarget::parse(
-        &format!(
-            "http://{}/worlds/abcdefghijklmnopqrst",
-            listener.local_addr().unwrap()
-        ),
-        DeploymentMode::Emulator,
-    )
-    .unwrap();
-    thread::scope(|scope| {
-        let server = scope.spawn(move || {
-            let deadline = Instant::now() + Duration::from_secs(3);
-            let mut stream = loop {
-                match listener.accept() {
-                    Ok((stream, _)) => break stream,
-                    Err(error)
-                        if error.kind() == io::ErrorKind::WouldBlock
-                            && Instant::now() < deadline =>
-                    {
-                        thread::sleep(Duration::from_millis(5))
-                    }
-                    Err(error) => panic!("fixture accept failed: {error}"),
-                }
-            };
-            stream
-                .set_read_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
-            stream
-                .set_write_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
-            let mut request = Vec::new();
-            while !request.ends_with(b"\r\n\r\n") {
-                assert!(request.len() < 16 * 1024);
-                let mut byte = [0];
-                stream.read_exact(&mut byte).unwrap();
-                request.push(byte[0]);
-            }
-            stream.write_all(&response).unwrap();
-            String::from_utf8(request).unwrap()
-        });
-        let result = OfficeDeployment::discover(target, Instant::now() + Duration::from_secs(2));
-        (result, server.join().unwrap())
-    })
-}
-
 #[test]
 fn real_discovery_uses_exact_unauthenticated_path_and_bounds_response() {
     let body = json!({"version":1,"mode":"emulator","projectId":DEMO_PROJECT,"apiKey":DEMO_PROJECT,"pairingUrl":DEMO_ISSUER}).to_string();
@@ -257,7 +211,14 @@ fn real_discovery_uses_exact_unauthenticated_path_and_bounds_response() {
         "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
-    let (result, request) = serve_discovery(response.into_bytes());
+    let (result, request) = with_http_response(response.into_bytes(), |origin| {
+        let target = WorldTarget::parse(
+            &format!("{origin}/worlds/abcdefghijklmnopqrst"),
+            DeploymentMode::Emulator,
+        )
+        .unwrap();
+        OfficeDeployment::discover(target, Instant::now() + Duration::from_secs(2))
+    });
     assert_eq!(result.unwrap().project_id(), DEMO_PROJECT);
     assert!(request.starts_with("GET /.well-known/tmt-office.json HTTP/1.1\r\n"));
     let lower = request.to_ascii_lowercase();
@@ -270,7 +231,14 @@ fn real_discovery_uses_exact_unauthenticated_path_and_bounds_response() {
         (format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 4097\r\n\r\n{}", " ".repeat(4097)), io::ErrorKind::InvalidData),
         ("HTTP/1.1 503 Unavailable\r\nContent-Type: application/json\r\nContent-Length: 16\r\n\r\nprivate-material".to_owned(), io::ErrorKind::Other),
     ] {
-        let (result, _) = serve_discovery(response.into_bytes());
+        let (result, _) = with_http_response(response.into_bytes(), |origin| {
+            let target = WorldTarget::parse(
+                &format!("{origin}/worlds/abcdefghijklmnopqrst"),
+                DeploymentMode::Emulator,
+            )
+            .unwrap();
+            OfficeDeployment::discover(target, Instant::now() + Duration::from_secs(2))
+        });
         let error = result.unwrap_err();
         assert_eq!(error.kind(), kind);
         assert!(!error.to_string().contains("private-material"));

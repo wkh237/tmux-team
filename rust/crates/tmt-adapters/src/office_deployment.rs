@@ -1,14 +1,8 @@
 //! Public Office deployment decoding. These values select scope, not authority.
 
-use serde::Deserialize;
-use std::{
-    fmt, io,
-    time::{Duration, Instant},
-};
-use ureq::{
-    Agent,
-    tls::{RootCerts, TlsConfig},
-};
+use crate::office_http;
+use serde::{Deserialize, Serialize};
+use std::{fmt, io, time::Instant};
 use url::Url;
 
 pub const DEPLOYMENT_PATH: &str = "/.well-known/tmt-office.json";
@@ -17,7 +11,7 @@ const URL_LIMIT: usize = 2048;
 const DEMO_PROJECT: &str = "demo-tmt-office";
 const DEMO_ISSUER: &str = "http://127.0.0.1:5001/demo-tmt-office/us-central1/officePairing";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DeploymentMode {
     Cloud,
@@ -76,12 +70,16 @@ impl WorldTarget {
         &self.world_id
     }
 
+    pub fn mode(&self) -> DeploymentMode {
+        self.mode
+    }
+
     pub fn discovery_url(&self) -> String {
         format!("{}{DEPLOYMENT_PATH}", self.origin)
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Descriptor {
     version: u8,
@@ -103,53 +101,25 @@ pub struct OfficeDeployment {
 impl OfficeDeployment {
     /// Unauthenticated acquisition from the explicitly selected website only.
     pub fn discover(target: WorldTarget, deadline: Instant) -> io::Result<Self> {
-        let remaining = deadline
-            .checked_duration_since(Instant::now())
-            .filter(|remaining| !remaining.is_zero())
-            .ok_or_else(|| io::Error::new(io::ErrorKind::TimedOut, "Office discovery timed out."))?
-            .min(Duration::from_secs(10));
-        let agent = Agent::new_with_config(
-            Agent::config_builder()
-                .https_only(target.mode == DeploymentMode::Cloud)
-                .max_redirects(0)
-                .max_response_header_size(16 * 1024)
-                .timeout_global(Some(remaining))
-                .tls_config(
-                    TlsConfig::builder()
-                        .root_certs(RootCerts::PlatformVerifier)
-                        .build(),
-                )
-                .build(),
-        );
+        let agent = office_http::agent(target.mode, deadline)?;
         let mut response = agent
             .get(target.discovery_url())
             .header("Accept", "application/json")
             .header("Cache-Control", "no-store")
             .call()
-            .map_err(discovery_failure)?;
-        if response.status().as_u16() != 200
-            || !response
-                .headers()
-                .get("content-type")
-                .and_then(|value| value.to_str().ok())
-                .is_some_and(|value| {
-                    value
-                        .split(';')
-                        .next()
-                        .is_some_and(|mime| mime.trim().eq_ignore_ascii_case("application/json"))
-                })
-        {
+            .map_err(office_http::failure)?;
+        if response.status().is_server_error() || response.status().is_client_error() {
+            return Err(io::Error::other(
+                "Office deployment discovery could not be confirmed.",
+            ));
+        }
+        if response.status().as_u16() != 200 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 InvalidDeployment,
             ));
         }
-        let bytes = response
-            .body_mut()
-            .with_config()
-            .limit((DEPLOYMENT_LIMIT + 1) as u64)
-            .read_to_vec()
-            .map_err(discovery_failure)?;
+        let bytes = office_http::json_body(&mut response, DEPLOYMENT_LIMIT)?;
         Self::decode(target, &bytes)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
     }
@@ -210,6 +180,17 @@ impl OfficeDeployment {
         &self.api_key
     }
 
+    pub fn encode_descriptor(&self) -> Vec<u8> {
+        serde_json::to_vec(&Descriptor {
+            version: 1,
+            mode: self.target.mode,
+            project_id: self.project_id.clone(),
+            api_key: self.api_key.clone(),
+            pairing_url: self.pairing_url.clone(),
+        })
+        .expect("validated deployment contains only JSON scalar values")
+    }
+
     pub fn claim_url(&self) -> String {
         format!("{}/claim", self.pairing_url)
     }
@@ -245,15 +226,6 @@ fn valid_project(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-}
-
-fn discovery_failure(error: ureq::Error) -> io::Error {
-    let kind = match error {
-        ureq::Error::Timeout(_) => io::ErrorKind::TimedOut,
-        ureq::Error::BodyExceedsLimit(_) => io::ErrorKind::InvalidData,
-        _ => io::ErrorKind::Other,
-    };
-    io::Error::new(kind, "Office deployment discovery could not be confirmed.")
 }
 
 #[cfg(test)]

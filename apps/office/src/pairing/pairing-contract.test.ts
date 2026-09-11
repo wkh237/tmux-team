@@ -8,7 +8,7 @@ import {
   type PairingRequest,
 } from './pairing-contract.js';
 
-type PairingVectors = { valid: PairingRequest[]; invalid: unknown[] };
+type PairingVectors = { valid: PairingRequest[]; invalid: unknown[]; invalidJson: string[] };
 const pairingVectors = vectors as PairingVectors;
 const BASE64URL = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 
@@ -33,6 +33,12 @@ function noncanonical(encoded: string): string {
 }
 
 describe('pairing request vectors', () => {
+  it.each(pairingVectors.invalidJson)('rejects malformed Unicode in raw JSON %#', (input) => {
+    const encoded = Buffer.from(input, 'utf8').toString('base64url');
+    expect(() =>
+      parsePairingFragment(`#tmt-pair=${encoded}`, pairingVectors.valid[0].worldId)
+    ).toThrow('Invalid pairing input.');
+  });
   it('keeps a nonempty positive and negative conformance corpus', () => {
     expect(pairingVectors.valid.length).toBeGreaterThan(0);
     expect(pairingVectors.invalid.length).toBeGreaterThan(0);

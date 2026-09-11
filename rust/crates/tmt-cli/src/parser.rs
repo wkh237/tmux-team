@@ -149,12 +149,35 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         },
         ["office"]
         | ["office", "status"]
+        | ["office", "pair"]
+        | ["office", "inspect"]
         | ["office", "install"]
         | ["office", "upgrade"]
         | ["office", "uninstall"] => Invocation::Office {
             prefix: text(m, "prefix"),
             operation: match path.last().copied() {
-                Some("status") => OfficeOperation::Status,
+                Some("inspect") => OfficeOperation::Inspect {
+                    world: required(m, "world"),
+                    identity: text(m, "identity"),
+                    emulator: flag(m, "emulator"),
+                },
+                Some("status") => match text(m, "world") {
+                    Some(world) => OfficeOperation::PairStatus {
+                        world,
+                        identity: text(m, "identity"),
+                        emulator: flag(m, "emulator"),
+                    },
+                    None => OfficeOperation::Status,
+                },
+                Some("pair") => OfficeOperation::Pair {
+                    world: required(m, "world"),
+                    identity: text(m, "identity"),
+                    emulator: flag(m, "emulator"),
+                    read_only: flag(m, "read-only"),
+                    timeout_seconds: *m
+                        .get_one::<u64>("timeout")
+                        .expect("grammar supplies pairing timeout"),
+                },
                 Some("install") => OfficeOperation::Install {
                     yes: flag(m, "yes"),
                     archive: text(m, "archive"),

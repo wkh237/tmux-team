@@ -23,7 +23,8 @@ Rules also implement the [agent grant boundary](../../contracts/office/agent-gra
 trusted per-agent principals can access only an assigned UUID block with matching
 installation/identity claims, live capability/lease and current owner admission.
 Only the owner can revoke a grant; clients cannot issue or enlarge one. This
-does not provide native credentials or assignment management. Retained UUID blocks
+does not provide assignment management. Native credential consumption is owned
+by the optional companion described below. Retained UUID blocks
 use the existing layout validator; no parallel layout/ownership document is introduced.
 
 The current browser edits one owner-only `home` block per admitted world.
@@ -89,9 +90,10 @@ Firebase setup is implied.
 
 There is no work connector, deployed service or shared browser runtime package yet.
 The independently versioned native `tmt-office` companion currently implements
-only the [internal local handshake](../../contracts/office/native-companion.md).
-Its optional adapter feature prepares validated deployment discovery; no public
-command consumes credentials yet. It has no public distribution. The CLI's explicit `office`
+the [typed local protocol](../../contracts/office/native-companion.md), including
+pairing, local status and an authorized assigned-block existence check.
+Its optional adapter feature owns discovery, Auth exchange/refresh and protected
+scope records. It has no public distribution. The CLI's explicit `office`
 subtree installs, inspects, updates and deactivates it through existing native
 owners; other CLI operations do not execute or probe it. Shared native protocol
 values remain in the existing core.

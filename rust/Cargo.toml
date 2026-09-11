@@ -11,6 +11,10 @@ publish = false
 repository = "https://github.com/wkh237/tmux-team"
 
 [workspace.dependencies]
+getrandom = "=0.4.3"
+keyring-core = "=1.0.0"
+zbus-secret-service-keyring-store = { version = "=1.0.1", default-features = false, features = ["rt-async-io-crypto-rust"] }
+apple-native-keyring-store = { version = "=1.0.2", default-features = false, features = ["keychain"] }
 serde = { version = "=1.0.229", features = ["derive"] }
 url = "=2.5.8"
 unicode-width = { version = "=0.2.2", default-features = false }
