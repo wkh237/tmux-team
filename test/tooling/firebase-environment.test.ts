@@ -71,6 +71,7 @@ describe('Firebase configuration isolation', () => {
     expect(Object.keys(config.emulators).sort()).toEqual([
       'auth',
       'firestore',
+      'functions',
       'hub',
       'logging',
       'singleProjectMode',
@@ -80,6 +81,11 @@ describe('Firebase configuration isolation', () => {
     expect(config.emulators.ui.enabled).toBe(false);
     expect(config.emulators.singleProjectMode).toBe(true);
     expect(config.hosting).toBeUndefined();
-    expect(config.functions).toBeUndefined();
+    expect(config.functions).toEqual({
+      source: 'functions',
+      codebase: 'office',
+      runtime: 'nodejs22',
+    });
+    expect(config.emulators.functions).toEqual({ host: '127.0.0.1', port: 5001 });
   });
 });

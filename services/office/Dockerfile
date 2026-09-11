@@ -23,8 +23,10 @@ RUN npm install --global pnpm@10.33.0 && mkdir -p /workspace/apps/office && chow
 WORKDIR /workspace
 COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY --chown=node:node apps/office/package.json apps/office/package.json
+COPY --chown=node:node services/office/functions/package.json services/office/functions/package.json
 USER node
 RUN pnpm office:install && test ! -e node_modules/better-sqlite3 && test ! -e /node_modules
+RUN cd services/office/functions && pnpm install --ignore-workspace --lockfile-dir "$PWD/../../.." --frozen-lockfile
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 USER root
 RUN pnpm --filter @tmt/office exec playwright install --with-deps chromium
@@ -32,11 +34,16 @@ USER node
 COPY --from=emulators --chown=node:node /home/node/office/ /home/node/office/
 COPY --chown=node:node apps/office apps/office
 COPY --chown=node:node contracts/office contracts/office
+COPY --chown=node:node services/office/functions services/office/functions
+COPY --chown=node:node services/office/firebase.json services/office/firestore.rules services/office/
+RUN --network=none pnpm --filter @tmt/office-service check \
+  && pnpm --filter @tmt/office-service test && pnpm --filter @tmt/office-service build
 RUN --network=none pnpm office:check && pnpm office:test \
+  && pnpm --filter @tmt/office type:check:e2e \
   && pnpm --filter @tmt/office exec vite build --outDir dist-preview \
   && pnpm --filter @tmt/office exec vite build --mode emulator \
   && pnpm --filter @tmt/office exec vite build --mode cloud --outDir dist-cloud
-CMD ["firebase", "emulators:exec", "--only", "auth,firestore", "--project", "demo-tmt-office", "--config", "/home/node/office/firebase.json", "--non-interactive", "pnpm --filter @tmt/office test:browser"]
+CMD ["firebase", "emulators:exec", "--only", "auth,firestore,functions", "--project", "demo-tmt-office", "--config", "/workspace/services/office/firebase.json", "--non-interactive", "pnpm --filter @tmt/office test:browser"]
 
 # Keep the existing default build and compose behavior lightweight.
 FROM emulators AS default

@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:browser": "playwright test",
     "type:check": "tsc --noEmit",
+    "type:check:e2e": "tsc -p tsconfig.e2e.json --noEmit",
     "lint": "oxlint --deny-warnings --react-plugin src e2e vite.config.ts playwright.config.ts",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",

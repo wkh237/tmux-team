@@ -1,7 +1,7 @@
 # Office v1 design
 
-Status: proposed protocol, not implemented service behavior. The delivered
-SPA implementation is described in [architecture](architecture.md).
+Status: broader pilot proposal; delivered SPA, Rules and local pairing issuer
+boundaries are described in [architecture](architecture.md).
 This document owns policy and user-visible semantics; the
 [wire schema](../../contracts/office/v1.schema.json) owns message shapes.
 
@@ -70,7 +70,8 @@ world subcollections, not unbounded arrays on the root. Those paths currently
 deny all client access except the owner-only `blocks/home` decoration slice
 specified in [block v1](../../contracts/office/block-v1.md) and scoped UUID blocks
 under [agent grant v1](../../contracts/office/agent-grant-v1.md). Grant enforcement
-does not implement issuance or pairing. Invitations and device/work operations below remain
+is complemented by the local [pairing issuer](../../contracts/office/pairing-v1.md),
+not yet native/browser pairing. Invitations and device/work operations below remain
 future design; they do not justify a generic backend for ordinary world storage.
 The initial owner-only world does not implement visitor memberships or presence.
 
@@ -126,15 +127,17 @@ invitations later must handle verified email/account changes explicitly.
 Pairing is a separate authorization from installation and login:
 
 1. The connector creates a cryptographically random 256-bit secret locally and
-   sends only its SHA-256 challenge
-   to a rate-limited pairing endpoint. A pending pairing expires in five minutes.
+   carries only its SHA-256 challenge to the browser approval page. There is no
+   unauthenticated durable begin write. An approved pairing expires in five minutes.
 2. It shows a short comparison code and opens the configured deployment's pairing
    page. The code is an identifier, not sufficient to claim the device.
 3. The logged-in human chooses a world and sees the device label/fingerprint,
    selected local identity and exact requested resources/capabilities. They approve explicitly. No auto-approval from
    an agent message, a URL parameter or a claimed owner UID.
 4. The originating connector proves possession of its secret and claims the
-   approval once. The service creates a distinct principal for the selected
+   approval as one logical assignment. Original-proof retries within the same
+   window reuse its principal/grant and never renew its deadline; see
+   [pairing v1](../../contracts/office/pairing-v1.md). The service creates a distinct principal for the selected
    installation/identity/world binding and returns a
    short-lived Firebase custom token; only that device exchanges it for its own
    credentials. Neither the pairing URL nor ordinary output contains bearer or

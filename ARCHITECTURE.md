@@ -21,14 +21,15 @@ of native schema and application state.
 
 ## Office workspace boundary
 
-The pnpm workspace has one lockfile and one app package, `@tmt/office`. Existing
+The pnpm workspace has one lockfile, the `@tmt/office` SPA and the
+`@tmt/office-service` trusted pairing service. Existing
 Rust, test, release script and canonical skill paths remain stable. Read
 [Office architecture](docs/office/architecture.md) for current SPA ownership,
 the chosen React/Vite/TanStack/Jotai stack and the
 [Office design](docs/office/design.md) for planned trust/lifecycle semantics.
 Office must not import local SQLite/process adapters or native test helpers.
-Cloud product services remain unimplemented; the emulator bootstrap below is
-local verification infrastructure. `contracts/office`
+The pairing issuer is implemented for local emulator verification and disabled
+by default outside that environment; it is not deployed. `contracts/office`
 owns the versioned work-handoff schema and fixtures; derived representations must
 prove conformance there. Structural tests do not prove remote authorization or
 delivery. Future connector dispatch reuses native request/storage ownership,
@@ -44,11 +45,14 @@ The detailed lifecycle and verification map lives only in
 [Office architecture](docs/office/architecture.md); exact persisted data belongs
 in [Office contracts](contracts/office/README.md).
 
-`services/office` owns isolated emulator infrastructure and Rules, not a deployed
-backend. Rules enforce scoped custom-principal grants for UUID blocks, using the
-existing layout validator and live owner admission. Issuance and native pairing
-remain unimplemented; see the canonical agent-grant contract for lease and
-revocation semantics. Owner-local configuration stays outside Git and Docker. Native tmux,
+`services/office` owns isolated emulator infrastructure, Rules and the trusted
+pairing issuer under `functions/`, not a deployed backend. Admin operations
+bypass Rules: the issuer explicitly checks verified human authentication, live
+admission, ownership and grant authority in its transaction owner. Signing stays
+outside transactions. Rules enforce the issued grant using the existing UUID
+block validator. Native pairing remains unimplemented. See
+[pairing v1](contracts/office/pairing-v1.md) for approval/retry semantics and the
+agent-grant contract for resource leases. Owner-local configuration stays outside Git and Docker. Native tmux,
 Office browser/Rules and bootstrap smoke proofs retain separate fixture owners.
 Community props and exploration remain a [data-only sandbox plan](docs/office/sandbox.md),
 not a shipped runtime SDK, identity registry or alternate exchange engine.
