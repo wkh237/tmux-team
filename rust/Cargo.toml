@@ -11,6 +11,8 @@ publish = false
 repository = "https://github.com/wkh237/tmux-team"
 
 [workspace.dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+url = "=2.5.8"
 unicode-width = { version = "=0.2.2", default-features = false }
 ureq = { version = "=3.4.0", default-features = false, features = ["rustls", "platform-verifier"] }
 rustls = { version = "=0.23.44", default-features = false, features = ["std", "ring", "tls12"] }

@@ -72,6 +72,12 @@ without control characters. Capabilities are exactly the ordered layout lists
 in [agent grant v1](agent-grant-v1.md). No arbitrary paths or additional resource
 permissions are accepted.
 
+Claim responses retain the exact approved binding and approval `expiresAt`, and
+add `customToken` plus `grantExpiresAt` from the validated resource grant. Approval
+expiry, grant expiry and Firebase token expiry are separate clocks. A retry reads
+the existing grant expiry; it never computes a new lease or extends one. Approval
+responses do not contain `grantExpiresAt` because no grant has been issued yet.
+
 Missing/invalid human authentication is `401 UNAUTHENTICATED`; invalid input is
 `400 INVALID_ARGUMENT`; unauthorized approval/revocation is `403 PERMISSION_DENIED`.
 Claims with wrong/unknown proof, expired/disabled approval or lost owner/grant

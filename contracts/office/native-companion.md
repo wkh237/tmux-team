@@ -32,8 +32,10 @@ subprocess owner handles deadline, output limits and cleanup. Handshake success 
 pairing, remote availability, granted capabilities or service startup.
 
 `tmt-core::office_protocol` owns request encoding and response validation, with
-literal positive/negative test vectors. The separate `tmt-office` executable has
-no Firebase, SQLite or networking dependency. Local cargo-dist packaging is
+literal positive/negative test vectors. The separate `tmt-office` executable
+depends on core and the shared adapters, with Office-specific deployment decoding
+enabled only for that consumer. Its probe performs no Firebase, SQLite, network
+or credential-store operations. Local cargo-dist packaging is
 available; no public release has been published. Synthetic archive process tests
 exercise the real compiled companion. The independent native artifact verifier
 separately checks actual Office archives; neither constitutes public publication.

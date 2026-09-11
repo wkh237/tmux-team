@@ -90,7 +90,8 @@ Firebase setup is implied.
 There is no work connector, deployed service or shared browser runtime package yet.
 The independently versioned native `tmt-office` companion currently implements
 only the [internal local handshake](../../contracts/office/native-companion.md).
-It has no cloud access or public distribution. The CLI's explicit `office`
+Its optional adapter feature prepares validated deployment discovery; no public
+command consumes credentials yet. It has no public distribution. The CLI's explicit `office`
 subtree installs, inspects, updates and deactivates it through existing native
 owners; other CLI operations do not execute or probe it. Shared native protocol
 values remain in the existing core.
@@ -145,6 +146,18 @@ requires explicit recognition before approval. Existing session/admission and
 selected-world owners gate the route; unmount fences late completions without
 claiming to cancel submitted writes. Skip-to-content focuses the main landmark
 without overwriting the request fragment. The browser cannot claim agent tokens.
+
+### Public deployment discovery
+
+`auth/firebase-config.ts` owns Firebase configuration and issuer selection.
+Vite publishes only the allowlisted
+[native deployment descriptor](../../contracts/office/native-pairing.md) at
+`/.well-known/tmt-office.json`; private environment values are never spread into
+it. Preview and unconfigured cloud publish no usable descriptor. Invalid
+configured deployments fail the build. Browser transport consumes this same
+configuration owner, not a second deployment registry or settings file.
+Literal fixtures verify generator/native-decoder conformance. This metadata does
+not prove world ownership, activate the issuer or complete native pairing.
 
 ## Frontend stack
 

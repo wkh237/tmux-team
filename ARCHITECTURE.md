@@ -86,8 +86,13 @@ module remapping or incomplete discovery. It is a syntactic guard and never
 replaces review of behavior or effects.
 
 The optional `rust/crates/tmt-office` executable is independently versioned and
-currently implements only the internal compatibility probe. It depends on core,
-not the CLI, Firebase or SQLite. `tmt-core::office_protocol` owns the fixed typed
+currently exposes only the internal compatibility probe. It depends on core and
+the existing adapters, not the CLI. Its adapter `office` feature owns validated
+deployment decoding for in-progress pairing; ordinary CLI builds do not enable
+that feature. Serde derives reject duplicate/unknown descriptor fields; the URL
+Standard library matches browser URL interpretation instead of introducing a
+handwritten parser. Neither dependency enters core. The probe acquires no
+credentials or network data. `tmt-core::office_protocol` owns the fixed typed
 handshake; `tmt-adapters::office_companion` verifies active installation ownership
 and starts the existing bounded subprocess under the installer lock, then waits
 outside that lock and validates the version selected at launch.

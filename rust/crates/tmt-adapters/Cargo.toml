@@ -6,7 +6,12 @@ rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+office = ["dep:serde", "dep:url"]
+
 [dependencies]
+serde = { workspace = true, optional = true }
+url = { workspace = true, optional = true }
 ureq.workspace = true
 tmt-core.workspace = true
 rusqlite.workspace = true

@@ -13,6 +13,8 @@ mod json_document;
 pub mod native_install;
 #[cfg(unix)]
 pub mod office_companion;
+#[cfg(feature = "office")]
+pub mod office_deployment;
 #[cfg(unix)]
 pub mod process;
 #[cfg(unix)]

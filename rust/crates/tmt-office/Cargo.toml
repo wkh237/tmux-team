@@ -12,6 +12,7 @@ dist = true
 
 [dependencies]
 tmt-core.workspace = true
+tmt-adapters = { workspace = true, features = ["office"] }
 
 [lints]
 workspace = true

@@ -7,6 +7,8 @@ The [agent resource grant v1](agent-grant-v1.md) adds server-enforced access to
 assigned UUID blocks. [Pairing approval and claim v1](pairing-v1.md) defines the
 locally tested trusted issuer. Native pairing and the agent-block UI remain
 separate work; the browser currently edits only the owner's home block.
+The [native pairing contract](native-pairing.md) defines deployment discovery and
+the in-progress command/credential boundary, not shipped command guidance.
 
 The separately versioned [private world document v1](private-world.md) is the
 direct-Firestore contract. It uses native Firestore timestamps and Rules,

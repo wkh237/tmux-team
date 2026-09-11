@@ -16,11 +16,11 @@ import {
   memoryLocalCache,
   terminate,
 } from 'firebase/firestore';
-import { officeFirebaseConfig } from './firebase-config.js';
+import { officeFirebaseConfig, pairingEndpoint } from './firebase-config.js';
 import { createWorldPort } from '../worlds/firebase-worlds.js';
 import { createWorldState } from '../worlds/world-state.js';
 import { createBlockPort } from '../blocks/firebase-blocks.js';
-import { createPairingPort, pairingEndpoint } from '../pairing/pairing-transport.js';
+import { createPairingPort } from '../pairing/pairing-transport.js';
 
 /** One composition root for both explicit environments, outside React rendering. */
 export function startOfficeRuntime(

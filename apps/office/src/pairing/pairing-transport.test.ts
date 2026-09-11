@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
-import { createPairingPort, pairingEndpoint } from './pairing-transport.js';
+import { createPairingPort } from './pairing-transport.js';
+import { pairingEndpoint } from '../auth/firebase-config.js';
 
 const pairingId = 'a'.repeat(64);
 const endpoint = 'https://pair.example/officePairing';

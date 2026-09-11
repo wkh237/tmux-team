@@ -327,6 +327,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "form_urlencoded"
+version = "1.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
+dependencies = [
+ "percent-encoding",
+]
+
+[[package]]
 name = "futures-core"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -510,6 +519,27 @@ dependencies = [
  "zerofrom",
  "zerotrie",
  "zerovec",
+]
+
+[[package]]
+name = "idna"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b0875f23caa03898994f6ddc501886a45c7d3d62d04d2d90788d47be1b1e4de"
+dependencies = [
+ "idna_adapter",
+ "smallvec",
+ "utf8_iter",
+]
+
+[[package]]
+name = "idna_adapter"
+version = "1.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb68373c0d6620ef8105e855e7745e18b0d00d3bdb07fb532e434244cdb9a714"
+dependencies = [
+ "icu_normalizer",
+ "icu_properties",
 ]
 
 [[package]]
@@ -1233,6 +1263,7 @@ dependencies = [
  "rusqlite",
  "rustls",
  "semver",
+ "serde",
  "serde_json",
  "sha2",
  "signal-hook",
@@ -1240,6 +1271,7 @@ dependencies = [
  "tar",
  "tmt-core",
  "ureq",
+ "url",
  "uuid",
 ]
 
@@ -1272,6 +1304,7 @@ dependencies = [
 name = "tmt-office"
 version = "0.1.0-alpha.1"
 dependencies = [
+ "tmt-adapters",
  "tmt-core",
 ]
 
@@ -1326,6 +1359,18 @@ dependencies = [
  "http",
  "httparse",
  "log",
+]
+
+[[package]]
+name = "url"
+version = "2.5.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
+dependencies = [
+ "form_urlencoded",
+ "idna",
+ "percent-encoding",
+ "serde",
 ]
 
 [[package]]

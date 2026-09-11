@@ -34,6 +34,8 @@ installation; repeat explicit uninstall to finish before reinstalling.
 ## Planned connected commands
 
 The following connected behaviors are proposals, not installed instructions.
+The [native pairing contract](../../contracts/office/native-pairing.md) refines
+the in-progress pair/status/inspect inputs, outputs and deployment trust boundary.
 
 | Command                                                    | Planned behavior                                                                                        |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -41,7 +43,7 @@ The following connected behaviors are proposals, not installed instructions.
 | `tmt office install --yes`                                 | Explicitly acquire and verify the official extension; `--yes` consents to installation only             |
 | `tmt office upgrade`                                       | Explicit verified extension update, with compatibility checks and rollback-safe activation              |
 | `tmt office status --json`                                 | Local extension/pairing/connector status; no network or automatic update check                          |
-| `tmt office pair --world <https-origin/world-id>`          | Explicit bounded pairing and capability confirmation with the selected deployment                       |
+| `tmt office pair --world <https-origin/worlds/world-id>`   | Explicit bounded pairing and capability confirmation with the selected deployment                       |
 | `tmt office run`                                           | Run the connector in the foreground; Ctrl-C stops it without cancelling native work                     |
 | `tmt office publish <identity> --capability review`        | Publish an explicitly selected identity UUID and allowed capability; no implicit all-agent publication  |
 | `tmt office unpublish <identity>`                          | Reject new work for that published identity, without deleting local identity or retained exchanges      |
