@@ -6,6 +6,12 @@ creation/read of owner-only worlds. Rules require operator-managed tester
 admission. Cloud deployment, invitations, guest memberships and presence are
 not implied by this implementation. Unspecified paths remain denied.
 
+Rules also enforce [scoped agent grants](../../contracts/office/agent-grant-v1.md)
+for UUID blocks with live expiry, capability and owner-admission checks. The
+trusted issuer and native pairing are not implemented. Do not manually enable
+anonymous authentication or create production agent grants to simulate pairing.
+The current browser continues to edit only the owner's home block.
+
 See [the architecture](../../docs/office/architecture.md). Add functions only
 when a trusted operation cannot be safely implemented with reviewed rules and
 client contracts. Never place local TMT database or process access here.

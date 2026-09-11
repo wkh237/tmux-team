@@ -68,7 +68,9 @@ See [private world document v1](../../contracts/office/private-world.md) for
 the exact create/read and retry contract. Future blocks and messages live in
 world subcollections, not unbounded arrays on the root. Those paths currently
 deny all client access except the owner-only `blocks/home` decoration slice
-specified in [home block v1](../../contracts/office/block-v1.md). Invitations and device/work operations below remain
+specified in [block v1](../../contracts/office/block-v1.md) and scoped UUID blocks
+under [agent grant v1](../../contracts/office/agent-grant-v1.md). Grant enforcement
+does not implement issuance or pairing. Invitations and device/work operations below remain
 future design; they do not justify a generic backend for ordinary world storage.
 The initial owner-only world does not implement visitor memberships or presence.
 
@@ -102,7 +104,9 @@ not a generic backend wrapping every Firestore read. Privileged SDK calls bypass
 Firestore rules, so these handlers must perform the same current membership,
 resource and device checks themselves and use restricted IAM. Browser direct
 reads/board writes remain constrained by rules and bounded queries. No client
-may directly write membership, device grants, dispatch permits or final status.
+may directly issue or enlarge membership, device grants, dispatch permits or
+final status. The implemented agent-grant contract permits only one-way owner
+revocation through client Rules, not client issuance or renewal.
 
 World operators are trusted with cloud-visible data; v1 is not end-to-end
 encrypted. Do not upload private repository content by default. Request previews
@@ -126,16 +130,18 @@ Pairing is a separate authorization from installation and login:
    to a rate-limited pairing endpoint. A pending pairing expires in five minutes.
 2. It shows a short comparison code and opens the configured deployment's pairing
    page. The code is an identifier, not sufficient to claim the device.
-3. The logged-in human chooses a world and sees the device label/fingerprint and
-   exact requested capabilities. They approve explicitly. No auto-approval from
+3. The logged-in human chooses a world and sees the device label/fingerprint,
+   selected local identity and exact requested resources/capabilities. They approve explicitly. No auto-approval from
    an agent message, a URL parameter or a claimed owner UID.
 4. The originating connector proves possession of its secret and claims the
-   approval once. The service creates a distinct device principal and returns a
+   approval once. The service creates a distinct principal for the selected
+   installation/identity/world binding and returns a
    short-lived Firebase custom token; only that device exchanges it for its own
    credentials. Neither the pairing URL nor ordinary output contains bearer or
    refresh tokens. Custom-token issuance stays server-side.
-5. The local owner separately selects identities/capabilities to publish. Default
-   publication is empty. Credentials use an adapter-owned protected store, never
+5. This scoped resource approval does not publish work capabilities. The local
+   owner separately opts into work publication; its default is empty.
+   Credentials use an adapter-owned protected store, never
    the app config, source tree, process arguments or logs. The credential adapter must verify the
    selected platform store and secure fallback before use.
 

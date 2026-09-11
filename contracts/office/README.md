@@ -3,6 +3,10 @@
 Private-world and home-block document contracts are implemented in the browser
 and Rules. The remote work-handoff protocol remains a proposal, not a deployed API.
 
+The [agent resource grant v1](agent-grant-v1.md) adds server-enforced access to
+assigned UUID blocks. Credential issuance, native pairing and the agent-block UI
+remain separate work; the browser currently edits only the owner's home block.
+
 The separately versioned [private world document v1](private-world.md) is the
 direct-Firestore contract. It uses native Firestore timestamps and Rules,
 not the work-handoff HTTP/JSON envelopes below. Its actual client adapter and

@@ -1,12 +1,14 @@
-# Home block document v1
+# Block document v1
 
-Implemented owner-only decoration contract. Agent commands, pairing and
-assignment are not defined by this contract.
+Implemented decoration contract. The browser edits the owner-only home block;
+[agent grants](agent-grant-v1.md) reuse this exact document at UUID block IDs.
+Agent commands and pairing are not defined by this contract.
 
 `worlds/{worldId}/blocks/home` contains exactly `version: 1`, `revision`,
 `objects` and `updatedAt`. Authority comes from the existing immutable world's
 owner and current tester admission. There is no second owner/agent identity
-field. Other block IDs, enumeration and deletion remain denied. Clear a room by
+field. UUID blocks use the separate scoped authorization contract; other block
+IDs, enumeration and deletion remain denied. Clear a room by
 saving an empty object list, not resetting its revision counter. Previous layout
 versions are not retained as an edit-history feature.
 

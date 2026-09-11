@@ -157,7 +157,11 @@ Those scenarios assert intercepted transaction reads and independent durable
 state before and after explicit retry; a timeout alone is not transport evidence.
 Auth responses are real and local. The suite also exercises the real Firestore
 SDK against Rules: immutable creation/retry, cross-user denial, self-grant denial,
-shape validation, and browser grant/create/revocation. Operator fixtures
+shape validation, and browser grant/create/revocation. The separate agent-grant
+Rules suite adds custom-principal tokens, assigned UUID blocks, claim/capability
+isolation, malformed/expired grants and one-way owner revocation with unchanged
+cached tokens. This is not evidence of credential issuance, protected native
+storage or end-to-end pairing. Operator fixtures
 also independently inspect saved block layouts. Home-block scenarios cover
 revision races, exact retries, Rules/client conformance vectors, bounded list
 validation, owner/device isolation and browser placement/save/reopen/revocation.

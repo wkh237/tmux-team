@@ -68,7 +68,23 @@ export async function writeTesterFields(
   uid: string,
   fields: Record<string, unknown>
 ): Promise<void> {
-  const response = await fetch(`${documents}/testers/${encodeURIComponent(uid)}`, {
+  await writeOperatorDocument(`testers/${encodeURIComponent(uid)}`, fields);
+}
+
+export async function writeAgentGrantFields(
+  worldId: string,
+  principalUid: string,
+  fields: Record<string, unknown>
+): Promise<void> {
+  expect(worldId).toMatch(/^[a-zA-Z0-9]{20}$/);
+  await writeOperatorDocument(
+    `worlds/${worldId}/agentGrants/${encodeURIComponent(principalUid)}`,
+    fields
+  );
+}
+
+async function writeOperatorDocument(path: string, fields: Record<string, unknown>): Promise<void> {
+  const response = await fetch(`${documents}/${path}`, {
     method: 'PATCH',
     headers: { authorization: 'Bearer owner', 'content-type': 'application/json' },
     body: JSON.stringify({ fields }),
@@ -82,7 +98,8 @@ export async function createFirestoreFixture() {
   return {
     async client(
       approved = false,
-      provider: 'google' | 'unverified' | 'anonymous' | 'device' = 'google'
+      provider: 'google' | 'unverified' | 'anonymous' | 'device' = 'google',
+      claims: Record<string, unknown> = {}
     ) {
       const app = initializeApp({ projectId, apiKey: 'demo-key' }, crypto.randomUUID());
       const auth = initializeAuth(app);
@@ -97,7 +114,7 @@ export async function createFirestoreFixture() {
       const customToken = () => {
         // Unsigned fixture credential is accepted only by the Auth Emulator.
         const part = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
-        return `${part({ alg: 'none', typ: 'JWT' })}.${part({ uid: identity, aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit', iss: 'fixture@example.test', sub: 'fixture@example.test', iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 3600 })}.`;
+        return `${part({ alg: 'none', typ: 'JWT' })}.${part({ uid: identity, claims, aud: 'https://identitytoolkit.googleapis.com/google.identity.identitytoolkit.v1.IdentityToolkit', iss: 'fixture@example.test', sub: 'fixture@example.test', iat: Math.floor(Date.now() / 1000), exp: Math.floor(Date.now() / 1000) + 3600 })}.`;
       };
       const { user } =
         provider === 'anonymous'

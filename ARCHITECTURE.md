@@ -45,7 +45,10 @@ The detailed lifecycle and verification map lives only in
 in [Office contracts](contracts/office/README.md).
 
 `services/office` owns isolated emulator infrastructure and Rules, not a deployed
-backend. Owner-local configuration stays outside Git and Docker. Native tmux,
+backend. Rules enforce scoped custom-principal grants for UUID blocks, using the
+existing layout validator and live owner admission. Issuance and native pairing
+remain unimplemented; see the canonical agent-grant contract for lease and
+revocation semantics. Owner-local configuration stays outside Git and Docker. Native tmux,
 Office browser/Rules and bootstrap smoke proofs retain separate fixture owners.
 Community props and exploration remain a [data-only sandbox plan](docs/office/sandbox.md),
 not a shipped runtime SDK, identity registry or alternate exchange engine.
