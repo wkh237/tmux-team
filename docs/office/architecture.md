@@ -23,7 +23,7 @@ Rules also implement the [agent grant boundary](../../contracts/office/agent-gra
 trusted per-agent principals can access only an assigned UUID block with matching
 installation/identity claims, live capability/lease and current owner admission.
 Only the owner can revoke a grant; clients cannot issue or enlarge one. This
-adds no issuer, native credentials or pairing UI. Retained UUID blocks use the
+does not provide native credentials or pairing UI. Retained UUID blocks use the
 existing layout validator; no parallel layout/ownership document is introduced.
 
 The current browser edits one owner-only `home` block per admitted world.
@@ -79,15 +79,15 @@ authorization. Removing tester admission clears private UI and denies subsequent
 server operations; previously disclosed content cannot be recalled. No production
 Firebase setup is implied.
 
-| Owner              | Responsibility                                                   | Forbidden dependency                                                    |
-| ------------------ | ---------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `apps/office`      | Browser routes, accessible views, UI state, app tests            | Local SQLite, filesystem/process APIs, Rust source or test helpers      |
-| `services/office`  | Demo-project emulator bootstrap and private-world security rules | Unrestricted local execution or implicit agent authority                |
-| `contracts/office` | Versioned design schema and structural conformance fixtures      | Browser rendering, Firebase effects or duplicate domain policy          |
-| `rust/`            | Existing local CLI, domain and concrete adapters                 | Office assets, Node or a Firebase account required by ordinary commands |
-| `docs/office`      | Definitions, scenarios and operational guidance                  | Describing planned behavior as shipped                                  |
+| Owner              | Responsibility                                                | Forbidden dependency                                                    |
+| ------------------ | ------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `apps/office`      | Browser routes, accessible views, UI state, app tests         | Local SQLite, filesystem/process APIs, Rust source or test helpers      |
+| `services/office`  | Emulator bootstrap, Rules and trusted scoped pairing issuance | Local execution, browser imports or implicit agent authority            |
+| `contracts/office` | Versioned design schema and structural conformance fixtures   | Browser rendering, Firebase effects or duplicate domain policy          |
+| `rust/`            | Existing local CLI, domain and concrete adapters              | Office assets, Node or a Firebase account required by ordinary commands |
+| `docs/office`      | Definitions, scenarios and operational guidance               | Describing planned behavior as shipped                                  |
 
-There is no work connector, deployable service or shared browser runtime package yet.
+There is no work connector, deployed service or shared browser runtime package yet.
 The independently versioned native `tmt-office` companion currently implements
 only the [internal local handshake](../../contracts/office/native-companion.md).
 It has no cloud access or public distribution. The CLI's explicit `office`
@@ -97,6 +97,32 @@ values remain in the existing core.
 Create each only with its first concrete consumer and reviewed contract.
 Do not relocate established Rust, test, script or canonical skill paths simply
 to make the tree symmetric.
+
+### Trusted pairing issuer
+
+`services/office/functions` is a separate Node 22 Functions package, not a CLI
+runtime or SPA dependency. Official Admin/Functions SDKs own token verification,
+signing, Firestore transactions and HTTP platform integration; no custom JWT or
+database client is introduced. Its [pairing contract](../../contracts/office/pairing-v1.md)
+owns the wire format and recovery policy.
+
+`pairing-contract` owns bounded value decoding; `pairing-store` owns transactional
+approval/grant state and live owner admission. `pairing-service` composes human
+authentication and external signing, with a final authority recheck before token
+delivery. `pairing-http` maps transport/error results; `index` alone initializes
+SDKs and exposes the function. Admin bypasses Rules, so server validation is an
+independent trust boundary, not a substitute for downstream Rules enforcement.
+No public unauthenticated begin write, alternate block model or work queue exists.
+
+The service defaults off outside the strictly configured demo emulators.
+Production activation requires separate ingress/abuse, retention, IAM and cost
+review; instance/concurrency limits are not a billing cap. Native secure storage,
+browser approval UI and the integrated CLI flow remain separate delivery gates.
+Service unit checks use its own Vitest/Oxlint/Oxfmt configuration. The existing
+browser Docker owner adds Functions and the real-token pairing scenarios; its
+service-owned privileged fixture is test-only. Standalone SPA type checks exclude
+E2E imports; `type:check:e2e` explicitly checks the combined fixture with both
+packages installed. Browser production source never imports the Admin SDK.
 
 ## Frontend stack
 

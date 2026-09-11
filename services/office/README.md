@@ -8,9 +8,15 @@ not implied by this implementation. Unspecified paths remain denied.
 
 Rules also enforce [scoped agent grants](../../contracts/office/agent-grant-v1.md)
 for UUID blocks with live expiry, capability and owner-admission checks. The
-trusted issuer and native pairing are not implemented. Do not manually enable
+trusted issuer is implemented under `functions/` for emulator verification;
+native pairing and browser approval UI are not implemented. Do not manually enable
 anonymous authentication or create production agent grants to simulate pairing.
 The current browser continues to edit only the owner's home block.
+
+[Pairing v1](../../contracts/office/pairing-v1.md) defines approval, proof claim,
+retry and revocation. Non-emulator activation defaults off. No Functions are
+deployed by building or testing; production IAM, endpoint abuse controls,
+retention and costs require separate review and authorization.
 
 See [the architecture](../../docs/office/architecture.md). Add functions only
 when a trusted operation cannot be safely implemented with reviewed rules and
@@ -40,6 +46,8 @@ State is ephemeral: there are no mounted data volumes or automatic imports.
 For the optional local sign-in UI and the opt-in `browser-tests` Docker target,
 follow [Local browser sign-in](../../DEVELOPMENT.md#local-browser-sign-in).
 The default image/Compose service does not install Chromium or start the app.
+It also does not start Functions. The integrated `browser-tests` target builds
+the service and starts its loopback-only Functions emulator on port 5001.
 Do not mount credentials, host config or repository roots into this service.
 The first image build downloads tools and emulator binaries; later runs use the
 cached image. Rebuild deliberately to update pinned tools, not on every test.

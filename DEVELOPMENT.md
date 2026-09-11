@@ -146,7 +146,7 @@ docker run --rm --init --shm-size=256m tmt-office-browser:local
 
 The image installs pinned Chromium, checks the app, runs DOM/session tests and
 builds preview, emulator and unconfigured cloud variants. The container starts
-disposable Auth/Firestore emulators and three strict-port preview servers, then
+disposable Auth/Firestore/Functions emulators and three strict-port preview servers, then
 Playwright. The cloud build must fail closed without operator configuration;
 it never contacts a real project during automated tests.
 It uses one worker, no retries, bounded waits and independent browser contexts.
@@ -160,8 +160,12 @@ SDK against Rules: immutable creation/retry, cross-user denial, self-grant denia
 shape validation, and browser grant/create/revocation. The separate agent-grant
 Rules suite adds custom-principal tokens, assigned UUID blocks, claim/capability
 isolation, malformed/expired grants and one-way owner revocation with unchanged
-cached tokens. This is not evidence of credential issuance, protected native
-storage or end-to-end pairing. Operator fixtures
+cached tokens. `pairing-service.spec.ts` adds actual HTTP approval/custom-token
+issuance, concurrent claims and live revocation. Direct service composition with
+an injected signer adds failure/recovery evidence against the same real database.
+This is not evidence of protected native storage or
+CLI-to-browser pairing. Service-only scenarios can run with `--network none`
+by overriding the image command to select that spec. Operator fixtures
 also independently inspect saved block layouts. Home-block scenarios cover
 revision races, exact retries, Rules/client conformance vectors, bounded list
 validation, owner/device isolation and browser placement/save/reopen/revocation.
@@ -178,6 +182,51 @@ credentials/volumes or published ports are used. A failed browser test must
 propagate through `emulators:exec`; do not count a skipped or empty suite as proof.
 The selected Office CI job runs this same target. Native tmux E2E remains
 separate. Remove the task-owned verification image when no longer needed.
+
+For focused service checks use `pnpm office:service:check`,
+`pnpm office:service:test` and `pnpm office:service:build`. `pnpm check` also runs
+the combined `@tmt/office type:check:e2e`; standalone `office:check` deliberately
+does not load service dependencies through E2E fixtures. The Docker browser
+target runs both package checks and this explicit E2E type check on Node 22.
+
+## Personal-office milestone acceptance
+
+The M1 acceptance target is a causal local flow: actual native CLI and Office
+companion -> browser owner approval -> scoped credential use -> durable resource
+change -> visible browser result. Use deterministic mock agents, isolated real
+tmux where relevant, Playwright Chromium and demo-project Auth/Firestore
+emulators. Extend the existing fixture owners as each feature ships, not a
+parallel mock implementation of TMT. Independent database observations must
+corroborate UI and command results. Separate green layer suites are not proof of
+this integrated flow; the current browser/Rules suite does not yet run native
+pairing or companion operations.
+
+Automated acceptance must not call a paid model, use provider/host credentials,
+contact production Firebase or require paid runners. Keep the native-only tmux
+suite network-disabled. Office integration keeps service traffic inside its
+isolated fixture; the browser popup's existing allowlisted Google script is an
+explicit network exception, not permission for cloud data or model calls.
+Use bounded readiness and polling, fail on empty/skipped acceptance, and verify
+child/socket/buffer/state cleanup. Run lifecycle-sensitive local suites twice.
+
+Cover approval, denial, expiry, duplicate/concurrent claims, wrong scope,
+revocation with cached credentials, uncertain writes, reconnect, temporary
+retirement and same-name replacement. Resource slices add revision conflicts,
+profile/layout/notebook independence, board disclosure and installed-guidance
+checks. Preserve real request/response and storage owners; no terminal-output
+completion fallback or second memory store.
+
+Run the complete applicable local gates before pushing the reviewed commit.
+Record commands, results, exact commit, limitations and cleanup in its PR/issue.
+Do not use repeated CI pushes for local debugging. Existing required CI gates
+remain authoritative until a reviewed cost-policy change provides replacement
+evidence and merge requirements; unselected jobs are not passing selected tests.
+Do not activate paid runners, model APIs, billing or production deployment.
+
+Real Google login, IAM, deployment and live-agent usability are separate owner-
+authorized pilot checks. Request owner assistance when those checks are actually
+ready. Emulator success does not prove production IAM or device credential
+protection, and a live-agent demo does not replace deterministic regression tests.
 
 ## Rust checks
 

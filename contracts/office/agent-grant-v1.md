@@ -32,7 +32,8 @@ owner tester admission and matching authenticated principal/installation/identit
 An ID token or locally cached approval alone never grants access. Unknown fields,
 versions, capabilities, malformed identifiers and timestamps fail closed.
 
-Grants are issued only by the future trusted pairing service. All client creates,
+Grants are issued only by the [trusted pairing service](pairing-v1.md), currently
+verified locally with emulators rather than deployed. All client creates,
 deletes and lists are denied. Only the admitted world owner can read a known
 grant or change `enabled: true` to `false`, without changing any other field.
 Owners cannot enlarge, renew or reactivate it through Firestore client writes.
