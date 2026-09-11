@@ -19,7 +19,14 @@ Console-managed tester gate controls direct client create/read of owner-only wor
 Firestore Rules enforce both gates, immutable fields and default-deny paths.
 This is not an invitation, presence or connected-agent implementation.
 
-Each admitted world has a single owner-only `home` block.
+Rules also implement the [agent grant boundary](../../contracts/office/agent-grant-v1.md):
+trusted per-agent principals can access only an assigned UUID block with matching
+installation/identity claims, live capability/lease and current owner admission.
+Only the owner can revoke a grant; clients cannot issue or enlarge one. This
+adds no issuer, native credentials or pairing UI. Retained UUID blocks use the
+existing layout validator; no parallel layout/ownership document is introduced.
+
+The current browser edits one owner-only `home` block per admitted world.
 `src/blocks/block-contract.ts` owns client values, catalog and footprint policy;
 `firebase-blocks.ts` implements its port using the existing initialized SDK.
 `block-state.ts` owns the server-confirmed projection and separate unsaved draft.
@@ -158,7 +165,11 @@ tests allow its script GETs on `apis.google.com`, keep all auth requests local,
 and reject other destinations. This is not a fully offline flow. Direct-SDK
 Rules scenarios additionally prove tester/owner isolation and immutable creation;
 the browser world scenario proves grant/create/read/revocation through the UI.
-They do not prove connector lifecycle, real Google login or remote collaboration.
+`agent-grant-rules.spec.ts` separately proves scoped custom-principal access,
+claim mismatches, malformed/expired grants, one-way revocation with cached tokens,
+retained blocks and capability isolation. Its privileged fixture documents and
+unsigned emulator-only custom tokens do not prove production credential issuance.
+These suites do not prove connector lifecycle, real Google login or remote collaboration.
 
 On tester revocation, subsequent server reads/writes are denied and the app's
 admission stream clears the view and detaches its world listener. Do not claim instantaneous

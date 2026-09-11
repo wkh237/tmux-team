@@ -29,6 +29,7 @@ write tester documents. Admission does not grant access to other owners' worlds.
 The Firebase Console operator uses IAM, not a client-side administrator role.
 
 The [home block v1](block-v1.md) contract opens only
-`worlds/{worldId}/blocks/home` to its approved world owner. Other blocks and
-`messages/{messageId}` remain denied until their feature contracts are
-implemented. World data does not authorize native agent execution.
+`worlds/{worldId}/blocks/home` to its approved world owner. The
+[agent grant v1](agent-grant-v1.md) boundary also permits scoped UUID blocks and
+owner revocation of trusted grants. Other blocks and `messages/{messageId}`
+remain denied. World data does not authorize native agent execution.
