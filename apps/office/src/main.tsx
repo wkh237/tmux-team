@@ -42,6 +42,7 @@ async function mount(): Promise<void> {
         session={runtime?.session}
         worlds={runtime?.worlds}
         blocks={runtime?.blocks}
+        pairing={runtime?.pairing}
         mode={runtime?.mode}
       />
     </StrictMode>

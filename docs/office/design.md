@@ -70,8 +70,8 @@ world subcollections, not unbounded arrays on the root. Those paths currently
 deny all client access except the owner-only `blocks/home` decoration slice
 specified in [block v1](../../contracts/office/block-v1.md) and scoped UUID blocks
 under [agent grant v1](../../contracts/office/agent-grant-v1.md). Grant enforcement
-is complemented by the local [pairing issuer](../../contracts/office/pairing-v1.md),
-not yet native/browser pairing. Invitations and device/work operations below remain
+is complemented by the local [pairing issuer and browser approval](../../contracts/office/pairing-v1.md),
+not yet native pairing. Invitations and device/work operations below remain
 future design; they do not justify a generic backend for ordinary world storage.
 The initial owner-only world does not implement visitor memberships or presence.
 

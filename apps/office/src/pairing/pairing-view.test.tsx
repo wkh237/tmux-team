@@ -1,0 +1,135 @@
+import { Buffer } from 'node:buffer';
+import { createMemoryHistory } from '@tanstack/react-router';
+import { act, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { expect, it, vi } from 'vitest';
+import { createSession } from '../auth/session.js';
+import type { SessionUser } from '../auth/session.js';
+import { createWorldState } from '../worlds/world-state.js';
+import { createOfficeRouter } from '../router.js';
+import { OfficeApp } from '../office-app.js';
+import type { ApprovedPairing, PairingRequest, PairingPort } from './pairing-contract.js';
+import vectors from '../../../../contracts/office/pairing-examples.json' with { type: 'json' };
+
+async function fixture(change: Record<string, unknown> = {}) {
+  const request = { ...vectors.valid[0], ...change } as PairingRequest;
+  const world = { id: request.worldId, name: 'Private studio', ownerUid: 'owner', createdAtMs: 1 };
+  let identity: (user: SessionUser | null) => void = () => {};
+  let admission: (value: boolean) => void = () => {};
+  const session = createSession({
+    observe: (changed) => {
+      identity = changed;
+      changed({ uid: 'owner', displayName: 'Owner' });
+      return () => {};
+    },
+    signIn: async () => {},
+    signOut: async () => identity(null),
+    dispose: async () => {},
+  });
+  const worlds = createWorldState(session, {
+    draft: () => {
+      throw new Error('No world creation in this scenario');
+    },
+    create: async () => {
+      throw new Error('No world creation in this scenario');
+    },
+    watchAdmission: (_uid, changed) => {
+      admission = changed;
+      changed(true);
+      return () => {};
+    },
+    watch: (_id, changed) => {
+      changed(world);
+      return () => {};
+    },
+  });
+  const approved: ApprovedPairing = {
+    ...request,
+    principalUid: 'office-agent:00000000-0000-4000-8000-000000000003',
+    blockId: '00000000-0000-4000-8000-000000000004',
+    expiresAt: 2_000_000_000_000,
+  };
+  const port: PairingPort = { approve: vi.fn(async () => approved), revoke: vi.fn(async () => {}) };
+  const fragment = `tmt-pair=${Buffer.from(JSON.stringify(request)).toString('base64url')}`;
+  const router = createOfficeRouter(
+    createMemoryHistory({ initialEntries: [`/worlds/${world.id}/pair#${fragment}`] })
+  );
+  const view = render(
+    <OfficeApp router={router} session={session} worlds={worlds} pairing={port} />
+  );
+  return {
+    port,
+    approved,
+    router,
+    request,
+    revokeAdmission: () => admission(false),
+    async dispose() {
+      view.unmount();
+      worlds.dispose();
+      await session.dispose();
+    },
+  };
+}
+
+it('requires explicit recognition, renders labels as text and never approves just by viewing', async () => {
+  const f = await fixture({ identityLabel: '<img src=x onerror=alert(1)>' });
+  try {
+    const user = userEvent.setup();
+    const approve = await screen.findByRole('button', { name: 'Approve pairing' });
+    expect((approve as HTMLButtonElement).disabled).toBe(true);
+    expect(f.port.approve).not.toHaveBeenCalled();
+    const region = screen.getByRole('region', { name: 'Agent pairing request' });
+    expect(region.querySelector('img')).toBeNull();
+    expect(region.textContent).toContain('<img src=x onerror=alert(1)>');
+    await user.click(screen.getByRole('checkbox'));
+    await user.click(approve);
+    await screen.findByText(/Approved\. Return to the requesting terminal/);
+    expect(f.port.approve).toHaveBeenCalledExactlyOnceWith(f.request, 'owner');
+    await user.click(screen.getByRole('button', { name: 'Revoke request' }));
+    await screen.findByText(/Request revoked\. Existing workspace content is retained/);
+    expect(f.port.revoke).toHaveBeenCalledExactlyOnceWith(f.request.pairingId, 'owner');
+  } finally {
+    await f.dispose();
+  }
+});
+
+it.each(['admission', 'route'] as const)(
+  'a %s change discards the request view and fences pending approval',
+  async (boundary) => {
+    const f = await fixture();
+    try {
+      let finish: (value: ApprovedPairing) => void = () => {};
+      vi.mocked(f.port.approve).mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          })
+      );
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole('checkbox'));
+      await user.click(screen.getByRole('button', { name: 'Approve pairing' }));
+      expect(f.port.approve).toHaveBeenCalledOnce();
+      await act(async () => {
+        if (boundary === 'admission') f.revokeAdmission();
+        else await f.router.navigate({ to: '/setup' });
+      });
+      expect(screen.queryByRole('region', { name: 'Agent pairing request' })).toBeNull();
+      await act(async () => finish(f.approved));
+      expect(screen.queryByText(/Approved\. Return/)).toBeNull();
+    } finally {
+      await f.dispose();
+    }
+  }
+);
+
+it('secret-bearing input fails before any approval operation', async () => {
+  const f = await fixture({ secret: 'must-not-be-accepted' });
+  try {
+    await screen.findByText(/Invalid pairing link/);
+    expect(screen.queryByRole('button', { name: 'Approve pairing' })).toBeNull();
+    expect(f.port.approve).not.toHaveBeenCalled();
+    expect(f.port.revoke).not.toHaveBeenCalled();
+  } finally {
+    await f.dispose();
+  }
+});

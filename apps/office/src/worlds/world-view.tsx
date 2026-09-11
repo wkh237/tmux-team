@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate } from '@tanstack/react-router';
 import type { ReactElement, ReactNode } from 'react';
 import type { WorldState } from './world-state.js';
 import { WORLD_ID_PATTERN } from './world-contract.js';
+import type { World } from './world-contract.js';
 import { BlockPanel } from '../blocks/block-view.js';
 
 export const WorldContext = createContext<WorldState | undefined>(undefined);
@@ -88,7 +89,15 @@ export function CreateWorld({ state }: { state: WorldState }): ReactElement {
   );
 }
 
-export function SelectedWorld({ state, id }: { state: WorldState; id: string }): ReactElement {
+export function SelectedWorld({
+  state,
+  id,
+  children,
+}: {
+  state: WorldState;
+  id: string;
+  children?: (world: World) => ReactNode;
+}): ReactElement {
   const { world, loading, error } = useSyncExternalStore(state.subscribe, state.getSnapshot);
   useEffect(() => {
     state.select(id);
@@ -111,7 +120,7 @@ export function SelectedWorld({ state, id }: { state: WorldState; id: string }):
       <p>
         World ID: <code>{world.id}</code>
       </p>
-      <BlockPanel key={world.id} worldId={world.id} />
+      {children ? children(world) : <BlockPanel key={world.id} worldId={world.id} />}
     </section>
   );
 }

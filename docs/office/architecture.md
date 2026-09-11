@@ -23,8 +23,8 @@ Rules also implement the [agent grant boundary](../../contracts/office/agent-gra
 trusted per-agent principals can access only an assigned UUID block with matching
 installation/identity claims, live capability/lease and current owner admission.
 Only the owner can revoke a grant; clients cannot issue or enlarge one. This
-does not provide native credentials or pairing UI. Retained UUID blocks use the
-existing layout validator; no parallel layout/ownership document is introduced.
+does not provide native credentials or assignment management. Retained UUID blocks
+use the existing layout validator; no parallel layout/ownership document is introduced.
 
 The current browser edits one owner-only `home` block per admitted world.
 `src/blocks/block-contract.ts` owns client values, catalog and footprint policy;
@@ -116,13 +116,35 @@ No public unauthenticated begin write, alternate block model or work queue exist
 
 The service defaults off outside the strictly configured demo emulators.
 Production activation requires separate ingress/abuse, retention, IAM and cost
-review; instance/concurrency limits are not a billing cap. Native secure storage,
-browser approval UI and the integrated CLI flow remain separate delivery gates.
+review; instance/concurrency limits are not a billing cap. Native secure storage
+and the integrated CLI flow remain separate delivery gates.
 Service unit checks use its own Vitest/Oxlint/Oxfmt configuration. The existing
 browser Docker owner adds Functions and the real-token pairing scenarios; its
 service-owned privileged fixture is test-only. Standalone SPA type checks exclude
 E2E imports; `type:check:e2e` explicitly checks the combined fixture with both
 packages installed. Browser production source never imports the Admin SDK.
+
+### Browser owner approval
+
+`src/pairing` adds explicit owner consent under `/worlds/$worldId/pair`, not an
+agent connection or general assignment manager. `pairing-contract` decodes the
+bounded public fragment and exact response echo; shared literal vectors under
+`contracts/office` verify conformance with the independently authoritative issuer.
+Browser platform base64 APIs and a fatal UTF-8 decoder own encoding primitives.
+
+`pairing-transport` owns only the bounded JSON approval/revocation POST to the
+operator-configured endpoint, with no redirects, cookies or implicit retries.
+The Firebase composition supplies the current token source; tokens stay out of
+view state. Preview has no pairing transport; cloud mode requires an explicit
+HTTPS `VITE_OFFICE_PAIRING_URL`, while emulator mode uses the fixed demo endpoint.
+The request fragment cannot select a service or an actor.
+
+`pairing-state` serializes actions for one mounted immutable request and records
+confirmed or uncertain results, not a second Firestore snapshot cache. The view
+requires explicit recognition before approval. Existing session/admission and
+selected-world owners gate the route; unmount fences late completions without
+claiming to cancel submitted writes. Skip-to-content focuses the main landmark
+without overwriting the request fragment. The browser cannot claim agent tokens.
 
 ## Frontend stack
 

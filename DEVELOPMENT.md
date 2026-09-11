@@ -183,6 +183,17 @@ propagate through `emulators:exec`; do not count a skipped or empty suite as pro
 The selected Office CI job runs this same target. Native tmux E2E remains
 separate. Remove the task-owned verification image when no longer needed.
 
+`pairing-browser.spec.ts` proves real browser consent -> issuer approval ->
+original-proof claim -> scoped block write -> cached-token denial after owner
+revocation, plus same-request reopening, non-owner denial, lost-response retry
+and logout during a pending confirmation. Inspect the actual approval POST body
+as well as durable state; URL-only capture is not proof of a secret-free body.
+The originating proof is a fixture, not a native CLI. DOM/state tests separately
+cover admission/route fencing and explicit consent. Browser and service decoders
+consume the same literal pairing corpus; browser encoding tests use an independent
+Node encoder. Review desktop/narrow screenshots rather than accepting their
+existence as visual proof.
+
 For focused service checks use `pnpm office:service:check`,
 `pnpm office:service:test` and `pnpm office:service:build`. `pnpm check` also runs
 the combined `@tmt/office type:check:e2e`; standalone `office:check` deliberately

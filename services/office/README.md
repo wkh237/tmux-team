@@ -9,8 +9,9 @@ not implied by this implementation. Unspecified paths remain denied.
 Rules also enforce [scoped agent grants](../../contracts/office/agent-grant-v1.md)
 for UUID blocks with live expiry, capability and owner-admission checks. The
 trusted issuer is implemented under `functions/` for emulator verification;
-native pairing and browser approval UI are not implemented. Do not manually enable
-anonymous authentication or create production agent grants to simulate pairing.
+the browser can explicitly approve/revoke, but native pairing is not implemented.
+Do not manually enable anonymous authentication or create production agent grants
+to simulate pairing.
 The current browser continues to edit only the owner's home block.
 
 [Pairing v1](../../contracts/office/pairing-v1.md) defines approval, proof claim,
@@ -48,6 +49,8 @@ follow [Local browser sign-in](../../DEVELOPMENT.md#local-browser-sign-in).
 The default image/Compose service does not install Chromium or start the app.
 It also does not start Functions. The integrated `browser-tests` target builds
 the service and starts its loopback-only Functions emulator on port 5001.
+Its browser scenarios exercise actual owner approval, scoped credential use and
+revocation. No native CLI pairing command is implied by a browser test link.
 Do not mount credentials, host config or repository roots into this service.
 The first image build downloads tools and emulator binaries; later runs use the
 cached image. Rebuild deliberately to update pinned tools, not on every test.
@@ -84,6 +87,16 @@ For a build use `pnpm --filter @tmt/office build --mode cloud`; configure the
 SPA host to rewrite `/worlds/*` to `index.html`. Default builds stay disconnected.
 This pilot currently uses the project's standard `PROJECT.firebaseapp.com`
 Auth domain; custom auth domains need a separately reviewed configuration change.
+
+Browser pairing additionally requires an explicitly reviewed/deployed trusted
+issuer and its HTTPS base URL in `VITE_OFFICE_PAIRING_URL`. Leaving it blank
+disables pairing without disabling ordinary world access. Do not activate or
+deploy the issuer merely to fill this setting; its production review gates remain
+in the pairing contract. The browser accepts only the versioned public link
+defined there, never a secret, token or endpoint supplied by a link. The owner
+must recognize the request and approve explicitly. A lost response keeps the same
+request for retry; **Revoke request** disables its access and retains content.
+Approval is not proof that the native agent has connected.
 
 Deploy the reviewed `firestore.rules` only after explicit authorization, using
 the exact intended project rather than a default alias. A user can then sign
