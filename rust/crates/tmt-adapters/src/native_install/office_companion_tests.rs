@@ -5,6 +5,54 @@ use crate::{native_install::Product, office_companion::probe_office_companion};
 use std::fs;
 
 #[test]
+fn verified_launch_releases_install_lock_before_waiting_for_the_companion() {
+    let fixture = office_fixture_with_payload(
+        br#"#!/bin/sh
+control="${0%/lib/tmt-office/releases/*}/probe-control"
+if [ -f "$control/block" ]; then
+  printf ready > "$control/ready"
+  while [ ! -f "$control/release" ]; do sleep 0.01; done
+fi
+printf 'TMT-OFFICE/1\n1.2.3\n'
+"#,
+    );
+    let prefix = fixture.directory.path.join("prefix");
+    let report = install_fixture(&fixture, &prefix, Product::Office).unwrap();
+    let active = &report.active_executable;
+    let control = prefix.join("probe-control");
+    fs::create_dir(&control).unwrap();
+    let marker = |suffix: &str| control.join(suffix);
+    let before = fs::read(active).unwrap();
+    fs::write(marker("block"), b"").unwrap();
+    std::thread::scope(|scope| {
+        let probe = scope.spawn(|| probe_office_companion(&report.executable));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while fs::read(marker("ready")).ok().as_deref() != Some(b"ready") {
+            if probe.is_finished() {
+                panic!(
+                    "probe exited before its controlled gate: {:?}",
+                    probe.join().unwrap()
+                );
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "companion did not start"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        // A ready child proves launch happened. Deactivation must acquire the
+        // real installer lock while that same child is still awaiting release.
+        let removed = crate::native_install::uninstall_office(&prefix);
+        fs::write(marker("release"), b"").unwrap();
+        assert!(removed.unwrap());
+        assert_eq!(probe.join().unwrap().unwrap(), "1.2.3");
+    });
+    assert!(!report.executable.exists());
+    assert!(!prefix.join("lib/tmt-office/current").exists());
+    assert_eq!(fs::read(active).unwrap(), before);
+}
+
+#[test]
 fn verified_probe_uses_the_installed_executable_and_preserves_its_receipt() {
     let fixture = office_fixture_with_payload(b"#!/bin/sh\nprintf 'TMT-OFFICE/1\\n1.2.3\\n'\n");
     let prefix = fixture.directory.path.join("prefix");

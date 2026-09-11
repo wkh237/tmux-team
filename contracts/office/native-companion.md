@@ -23,9 +23,12 @@ artifact during pre-activation validation.
 The fixed header identifies this explicit child response, never terminal scrollback.
 
 Only a verified owned release or staged candidate may be probed. The installer
-lock protects that selection during bounded execution; no PATH lookup or
-fallback to another executable is permitted. The existing subprocess owner
-handles deadline, output limits and cleanup. Handshake success says nothing about
+lock protects active-release verification and child launch, not the subsequent
+wait. The result describes the version selected at launch; concurrent upgrade
+or deactivation may change the current installation before completion. A staged
+candidate's pre-activation probe retains the publisher's existing lock scope.
+No PATH lookup or fallback to another executable is permitted. The existing
+subprocess owner handles deadline, output limits and cleanup. Handshake success says nothing about
 pairing, remote availability, granted capabilities or service startup.
 
 `tmt-core::office_protocol` owns request encoding and response validation, with
