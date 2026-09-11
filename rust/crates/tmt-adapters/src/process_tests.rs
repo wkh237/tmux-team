@@ -20,6 +20,100 @@ const POLL_INTERVAL: Duration = Duration::from_millis(10);
 const CLEANUP_WAIT: Duration = Duration::from_secs(2);
 
 #[test]
+fn started_command_retains_the_original_deadline() {
+    let directory = TestDirectory::new();
+    let pid_file = directory.path.join("pid");
+    let mut cleanup = PidCleanup {
+        path: pid_file.clone(),
+        armed: true,
+    };
+    let deadline = Instant::now() + Duration::from_millis(500);
+    let running = {
+        let args = shell_args(
+            "echo $$ > \"$1\"; read -r input; printf '%s' \"$input\"",
+            &[path_arg(&pid_file)],
+        );
+        UnixCommandRunner
+            .start(CommandRequest {
+                program: OsStr::new(SHELL),
+                args: &args,
+                input: b"private input\n",
+                deadline,
+                max_output_bytes: 64,
+            })
+            .unwrap()
+    };
+    let pid = wait_for_pid(&pid_file);
+    // Deliberately consume the original budget before wait. Starting a second
+    // timeout at wait would keep this already-expired child alive.
+    if let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        thread::sleep(remaining);
+    }
+    let error = running.wait().unwrap_err();
+    assert_eq!(error.kind, CommandFailure::Timeout);
+    assert!(!error.cleanup_failed());
+    assert_pid_gone(pid, &mut cleanup);
+}
+
+#[test]
+fn started_command_owns_arguments_and_input_until_wait() {
+    let running = {
+        let args = shell_args(
+            "read -r input; printf '%s:%s' \"$1\" \"$input\"",
+            &[OsString::from("literal !")],
+        );
+        let input = b"private input\n".to_vec();
+        UnixCommandRunner
+            .start(CommandRequest {
+                program: OsStr::new(SHELL),
+                args: &args,
+                input: &input,
+                deadline: Instant::now() + Duration::from_secs(2),
+                max_output_bytes: 64,
+            })
+            .unwrap()
+    };
+    let output = running.wait().unwrap();
+    assert_eq!(output.stdout, b"literal !:private input");
+    assert!(output.stderr.is_empty());
+}
+
+#[test]
+fn dropping_or_unwinding_before_wait_reaps_the_started_child() {
+    for unwind in [false, true] {
+        let directory = TestDirectory::new();
+        let pid_file = directory.path.join("pid");
+        let mut cleanup = PidCleanup {
+            path: pid_file.clone(),
+            armed: true,
+        };
+        let args = shell_args("echo $$ > \"$1\"; exec sleep 5", &[path_arg(&pid_file)]);
+        let running = UnixCommandRunner
+            .start(CommandRequest {
+                program: OsStr::new(SHELL),
+                args: &args,
+                input: &[],
+                deadline: Instant::now() + Duration::from_secs(3),
+                max_output_bytes: 64,
+            })
+            .unwrap();
+        let pid = wait_for_pid(&pid_file);
+        if unwind {
+            assert!(
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let _owned = running;
+                    panic!("controlled caller unwind");
+                }))
+                .is_err()
+            );
+        } else {
+            drop(running);
+        }
+        assert_pid_gone(pid, &mut cleanup);
+    }
+}
+
+#[test]
 fn nonzero_exit_preserves_bounded_protocol_output_without_formatting_it() {
     let args = shell_args(
         "printf 'private stdout'; printf 'private stderr' >&2; exit 1",

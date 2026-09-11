@@ -89,7 +89,8 @@ The optional `rust/crates/tmt-office` executable is independently versioned and
 currently implements only the internal compatibility probe. It depends on core,
 not the CLI, Firebase or SQLite. `tmt-core::office_protocol` owns the fixed typed
 handshake; `tmt-adapters::office_companion` verifies active installation ownership
-and composes the existing bounded subprocess runner under the installer lock.
+and starts the existing bounded subprocess under the installer lock, then waits
+outside that lock and validates the version selected at launch.
 Its contract is [native companion handshake](contracts/office/native-companion.md).
 The public `office` subtree composes installation and this local probe; pairing
 and background connection remain unimplemented.
@@ -232,6 +233,10 @@ remain owned by the existing request contract.
 
 `tmt-adapters::process` is the shared bounded subprocess owner. It enforces
 output caps, monotonic deadlines, process-group cleanup and wait/reap behavior.
+Its owned running-command handle separates launch from wait when a caller needs
+to release a selection lock; synchronous execution uses that same path. The
+original deadline and cleanup ownership survive the split. An abandoned handle
+stops and reaps its child without introducing a second runner or background task.
 `interrupt::Interrupt` owns invocation-local signal callbacks and descriptor
 cleanup. `tmux` uses explicit socket/server evidence, bounded command budgets,
 owned buffers and no ambient host fallback. A failed paste or Enter is an

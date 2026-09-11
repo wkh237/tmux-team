@@ -104,6 +104,16 @@ pub struct UnixCommandRunner;
 
 impl CommandRunner for UnixCommandRunner {
     fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+        self.start(request)?.wait()
+    }
+}
+
+impl UnixCommandRunner {
+    /// Spawn under a caller's short-lived ownership guard, then wait outside it.
+    pub(crate) fn start(
+        &self,
+        request: CommandRequest<'_>,
+    ) -> Result<RunningCommand, CommandError> {
         remaining(request.deadline)?;
         let job = Exec::cmd(request.program)
             .args(request.args.iter().cloned())
@@ -113,17 +123,32 @@ impl CommandRunner for UnixCommandRunner {
             .setpgid()
             .start()
             .map_err(|cause| CommandError::io(CommandFailure::Spawn, cause))?;
-        let mut owned = OwnedJob {
+        Ok(RunningCommand {
             job,
             finished: false,
-        };
-        match communicate(&mut owned.job, request.deadline, request.max_output_bytes) {
+            deadline: request.deadline,
+            max_output_bytes: request.max_output_bytes,
+        })
+    }
+}
+
+/// Owns the same bounded child from successful spawn through wait or abandonment.
+pub(crate) struct RunningCommand {
+    job: Job,
+    finished: bool,
+    deadline: Instant,
+    max_output_bytes: usize,
+}
+
+impl RunningCommand {
+    pub(crate) fn wait(mut self) -> Result<CommandOutput, CommandError> {
+        match communicate(&mut self.job, self.deadline, self.max_output_bytes) {
             Ok(output) => {
-                owned.finished = true;
+                self.finished = true;
                 Ok(output)
             }
             Err(mut error) => {
-                error.cleanup_error = owned.cleanup().err();
+                error.cleanup_error = self.cleanup().err();
                 Err(error)
             }
         }
@@ -217,12 +242,7 @@ impl Write for CappedOutput {
     }
 }
 
-struct OwnedJob {
-    job: Job,
-    finished: bool,
-}
-
-impl OwnedJob {
+impl RunningCommand {
     fn cleanup(&mut self) -> io::Result<()> {
         let signal = self.job.send_signal_group(Signal::SIGKILL as i32);
         let waited = self.job.wait_timeout(CLEANUP_TIMEOUT);
@@ -269,10 +289,10 @@ fn confirm_group_termination(
     }
 }
 
-impl Drop for OwnedJob {
+impl Drop for RunningCommand {
     fn drop(&mut self) {
         if !self.finished {
-            // Unwind fallback only. Operational paths call cleanup explicitly
+            // Abandonment/unwind fallback. Operational errors clean up explicitly
             // so they can preserve the primary error and expose cleanup failure.
             let _ = self.cleanup();
         }
