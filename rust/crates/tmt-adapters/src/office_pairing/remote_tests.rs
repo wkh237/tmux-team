@@ -25,6 +25,33 @@ fn scope() -> (OfficeDeployment, Approval) {
 
 const PRINCIPAL: &str = "office-agent:00000000-0000-4000-8000-000000000003";
 
+#[test]
+fn revocation_requires_an_exact_confirmed_receipt() {
+    let (_, approval) = scope();
+    let receipt = json!({"version":1,"pairingId":approval.pairing_id(),"revoked":true});
+    assert_eq!(
+        decode_revocation(receipt.to_string().as_bytes(), &approval),
+        Ok(())
+    );
+    for (key, value) in [
+        ("version", json!(2)),
+        ("pairingId", json!("0".repeat(64))),
+        ("revoked", json!(false)),
+        ("revoked", json!("true")),
+        ("token", json!("unexpected")),
+    ] {
+        let mut invalid = receipt.clone();
+        invalid[key] = value;
+        assert_eq!(
+            decode_revocation(invalid.to_string().as_bytes(), &approval),
+            Err(OfficeError::CredentialsInvalid)
+        );
+    }
+    let duplicate = receipt.to_string().replacen('{', "{\"revoked\":true,", 1);
+    assert!(decode_revocation(duplicate.as_bytes(), &approval).is_err());
+    assert!(decode_revocation(b"{}", &approval).is_err());
+}
+
 fn claims() -> Value {
     json!({"aud":"example-office","iss":"https://securetoken.google.com/example-office","sub":PRINCIPAL,
         "tmtOfficeAgent":true,"tmtInstallationId":"00000000-0000-4000-8000-000000000001",

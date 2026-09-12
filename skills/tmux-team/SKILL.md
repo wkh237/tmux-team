@@ -15,7 +15,7 @@ directory. Active presence also requires matching live tmux binding metadata.
 These instructions target the standalone Rust native alpha. Older npm/pnpm
 installations use TypeScript and do not implement native identity lifetimes,
 removal or self-update. Check `tmt --help` when the installation is uncertain;
-do not fall back to TypeScript on native state. Native schema 9 is forward-only
+do not fall back to TypeScript on native state. Native schema 10 is forward-only
 and TypeScript cannot reopen it. Switching installations does not migrate or
 delete old data. Stop old writers before switching.
 
@@ -25,7 +25,7 @@ tmux; there is no non-tmux recipient transport yet.
 
 Native talk supplies a compact `v2_` receipt; use it unchanged. Native reply
 also accepts retained legacy receipts, but TypeScript cannot consume native
-receipts or schema 9. Do not mix runtimes for an active exchange.
+receipts or current native schemas. Do not mix runtimes for an active exchange.
 
 `name`, retained alias `this`, and
 `add <pane-target> <name>` default to temporary identities; `-s`/`--save` saves
@@ -478,6 +478,16 @@ on failures. Disabled/missing grants, expired pending approvals and lost
 credentials cannot be repaired by silently creating another grant. Report those
 errors; never delete state to bypass revocation. Uninstall does not revoke
 remote grants. Do not use proposed connector or resource-edit commands.
+
+Retiring a paired identity queues Office cleanup by UUID. Pair/inspect attempt
+pending cleanup; ordinary `ls`, `rm` and `unbind` do not contact Office. Use
+`tmt office sync --json` (with the same installation `--prefix`, if customized)
+to retry without an active identity or tmux pane. Inspect `completed`, `failed`,
+`pending`, `failureCode` and exit status: local retirement is not proof of remote
+revocation. Locked credentials or uncertain results stay pending. Resolve the
+reported obstacle before retrying; do not loop or delete protected state.
+No invocation means no background delivery guarantee. Confirmed revocation
+retains block contents; a saved identity merely going offline is not retirement.
 
 ## Configuration safety
 

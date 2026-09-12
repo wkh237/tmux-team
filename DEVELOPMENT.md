@@ -201,14 +201,27 @@ then independently checks the issued grant, OS-store record, scoped Firestore
 read, token refresh, expired server/native lease renewal, simulated lost-response readback,
 unchanged resources, corruption, revocation and same-name replacement.
 The browser target therefore builds Rust and installs the root test-helper
-dependencies with scripts disabled; it does not execute the SQLite oracle or
-import native helpers into the SPA. The standalone app image stays independent.
+dependencies with scripts disabled; native helpers never enter the SPA. The
+standalone app image stays independent.
 `with-test-keyring.sh` owns a disposable D-Bus session and real Linux Secret Service
 with a fixture-only password and private container directories. The scenario
 deletes and verifies absence of its protected entry; container teardown removes
 the disposable store. No host Keychain, credentials or installed CLI is used.
 This is Linux credential-store evidence, not macOS runtime or real release-archive
 acceptance. Reuse the separate native artifact verifier for published artifacts.
+
+`native-hooks.spec.ts` adds the causal retirement path using a private real tmux
+server and the container's `sqlite3` tool as an independent state observer.
+Verify local retirement plus pending notification before any remote cleanup,
+then disabled pairing/grant, retained block and denial of a previously usable
+cached token. A missing session bus or vault entry must retain pending work.
+An unknown pending proof stays retryable and later cancels a known approval
+without claiming credentials or creating a grant. A test-only SQLite
+acknowledgment trigger separates remote/vault success from local completion;
+retry must consume the protected revoked receipt without restoring credentials.
+Neither hook registration unit tests nor service-only revocation proves this
+chain. Run the Office browser target and tmux lifecycle suite twice after changes
+to these cleanup boundaries, with verified private-server/vault cleanup.
 
 For focused service checks use `pnpm office:service:check`,
 `pnpm office:service:test` and `pnpm office:service:build`. `pnpm check` also runs

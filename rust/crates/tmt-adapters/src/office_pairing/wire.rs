@@ -103,6 +103,10 @@ impl Approval {
         &self.identity_id
     }
 
+    pub fn world_id(&self) -> &str {
+        &self.world_id
+    }
+
     pub fn read_only(&self) -> bool {
         self.capabilities.len() == 1
     }

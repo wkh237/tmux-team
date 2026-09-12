@@ -61,14 +61,14 @@ Application responses are JSON with `Cache-Control: no-store`; errors contain a 
 not raw Firebase errors, secrets or paths. Requests never accept an actor UID as
 authentication. Browser cross-origin access requires an exact operator-approved
 origin; it never authorizes a caller. Non-browser requests may omit `Origin`;
-bearer authentication and live ownership checks still apply. Malformed HTTP/JSON
+the operation's bearer or original-proof authority still applies. Malformed HTTP/JSON
 rejected by the Functions platform before the handler follows platform responses.
 
 | Operation  | Input                                                                                                        | Authority and result                                                                                                            |
 | ---------- | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
 | `/approve` | `pairingId`, `worldId`, `installationId`, `identityId`, `installationLabel`, `identityLabel`, `capabilities` | Verified Google bearer ID token, current tester admission and world ownership; returns approved binding and five-minute expiry  |
 | `/claim`   | `secret`                                                                                                     | Original proof; returns the same logical principal, resource grant and a Firebase custom token while the approval remains valid |
-| `/revoke`  | `pairingId`                                                                                                  | Verified admitted owner; atomically disables the approval and any issued grant, retaining resources                             |
+| `/revoke`  | `pairingId`, or `secret` (never both)                                                                        | Verified admitted owner, exact bound agent bearer, or original proof; disables only that approval/grant, retaining resources    |
 
 UUIDs use the grant v1 lowercase hyphenated format; world IDs are 20
 alphanumeric characters. Labels are 1..80 Unicode scalar values, nonblank,
@@ -106,6 +106,8 @@ input before expiry. They never extend the deadline or re-enable a record.
 Revocation is deliberately idempotent for an admitted owner, even after approval
 expiry: the longer-lived resource grant must remain revocable. Unknown/malformed
 records, another owner and lost admission all return permission denied.
+Bound-agent and original-proof retirement cancellation use the reduction-only
+authority defined below; they do not require continuing human admission.
 The first claim transaction creates exactly one [agent grant](agent-grant-v1.md)
 and marks the approval claimed. Later authorized retries reuse that grant and
 its original expiry; missing or disabled grants are never reconstructed.
@@ -160,6 +162,30 @@ principalUid,blockId,capabilities,grantExpiresAt}` with server-authoritative
 expiry and no credentials. Existing authentication, invalid-input, permission,
 unavailable-pairing, conflict and unavailable-service errors retain their
 HTTP mappings. No browser receives agent tokens or direct grant-read authority.
+
+## Retirement cancellation
+
+`POST /revoke` accepts exactly `{version:1,pairingId}` with a verified,
+non-revoked bearer token, or `{version:1,secret}` without an Authorization header.
+Mixed forms reject with `400 INVALID_ARGUMENT`. The owner form retains its
+existing live ownership/admission requirement. An agent token must have the
+agent flag and exactly match the claimed pairing's UID, installation and identity.
+It cannot revoke another assignment. Original proof derives the pairing ID using
+the same canonical decoder as claim; it also permits cleanup of a reserved grant
+whose credential response was lost.
+
+For agent/proof cancellation, expired approvals or leases and lost owner
+admission do not prevent reducing authority. Unknown/malformed pairings or an
+agent scope mismatch return `404 PAIRING_UNAVAILABLE`. An unknown proof never
+creates a tombstone: without an approved record the service has no authenticated
+scope to cancel, and the caller must not mark remote cleanup complete.
+
+The existing revocation transaction is the sole writer for all three authorities.
+It sets only approval and existing grant `enabled` fields to false, does not
+reconstruct a missing grant, and retains block contents and assignment IDs.
+Repeated authorized revocation succeeds, including after expiry. Success is
+exactly `{version:1,pairingId,revoked:true}`. Renewal/claim transactions and live
+Rules cannot turn this response into new authority or revive disabled grants.
 
 ## Deployment and verification boundary
 

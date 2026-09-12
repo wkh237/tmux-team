@@ -44,6 +44,19 @@ export interface AgentIdentity {
   identityId: string;
 }
 
+export type RevocationActor =
+  | { kind: 'owner'; uid: string }
+  | { kind: 'agent'; agent: AgentIdentity }
+  | { kind: 'proof' };
+
+function matchesAgent(pairing: Pairing, agent: AgentIdentity): boolean {
+  return (
+    pairing.principalUid === agent.uid &&
+    pairing.request.installationId === agent.installationId &&
+    pairing.request.identityId === agent.identityId
+  );
+}
+
 export interface RenewedBinding {
   version: 1;
   pairingId: string;
@@ -312,12 +325,7 @@ export function createPairingStore(db: Firestore, clock: () => number = Date.now
         validApproval(pairing, now, 'renewal');
         if (!pairing.claimed || !(await ownsWorld(tx, pairing.ownerUid, pairing.request.worldId)))
           unavailable();
-        if (
-          pairing.principalUid !== agent.uid ||
-          pairing.request.installationId !== agent.installationId ||
-          pairing.request.identityId !== agent.identityId
-        )
-          unavailable();
+        if (!matchesAgent(pairing, agent)) unavailable();
 
         const grant = await tx.get(grantRef(pairing));
         const currentGrantExpiresAt = validGrant(grant.data(), pairing, now, 'renewal');
@@ -338,17 +346,29 @@ export function createPairingStore(db: Firestore, clock: () => number = Date.now
       });
     },
 
-    async revoke(uid: string, id: string): Promise<void> {
+    async revoke(actor: RevocationActor, id: string): Promise<void> {
       await db.runTransaction(async (tx) => {
         const snapshot = await tx.get(pairingRef(id));
         let pairing: Pairing;
         try {
           pairing = decode(snapshot.data(), id);
         } catch {
-          throw new PairingError('PERMISSION_DENIED');
+          throw new PairingError(
+            actor.kind === 'owner' ? 'PERMISSION_DENIED' : 'PAIRING_UNAVAILABLE'
+          );
         }
-        if (pairing.ownerUid !== uid || !(await ownsWorld(tx, uid, pairing.request.worldId)))
-          throw new PairingError('PERMISSION_DENIED');
+        if (actor.kind === 'owner') {
+          if (
+            pairing.ownerUid !== actor.uid ||
+            !(await ownsWorld(tx, actor.uid, pairing.request.worldId))
+          )
+            throw new PairingError('PERMISSION_DENIED');
+        } else if (
+          actor.kind === 'agent' &&
+          (!pairing.claimed || !matchesAgent(pairing, actor.agent))
+        ) {
+          unavailable();
+        }
         const grant = await tx.get(grantRef(pairing));
         tx.update(pairingRef(id), { enabled: false });
         if (grant.exists) tx.update(grantRef(pairing), { enabled: false });

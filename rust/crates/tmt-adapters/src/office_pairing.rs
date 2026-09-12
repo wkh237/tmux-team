@@ -1,5 +1,6 @@
 //! Native approval/proof codec. Secret-bearing values deliberately have no Debug.
 
+mod hooks;
 mod invocation;
 mod local;
 mod record;

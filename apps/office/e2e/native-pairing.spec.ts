@@ -5,8 +5,8 @@ import { expect } from '@playwright/test';
 import { test, signIn } from './browser-session.js';
 import { setTester } from './firestore-fixture.js';
 import { createPairingEmulatorFixture } from '../../../services/office/functions/test/emulator-fixture.js';
-import { createArtifact } from '../../../test/support/native-artifact.js';
 import { runCli, withSandbox } from '../../../test/support/cli-process.js';
+import { installNativeOffice, protectedOfficeRecord } from './native-office-fixture.js';
 
 test('native pairing resumes its protected proof and a separate process uses the scoped credential', async ({
   openSession,
@@ -18,47 +18,10 @@ test('native pairing resumes its protected proof and a separate process uses the
       let scopeKey: string | undefined;
       const vault = async (operation: 'lookup' | 'store' | 'clear', input?: string) => {
         if (!scopeKey) throw new Error('The scenario has no protected scope yet.');
-        return runCli(
-          { ...sandbox, cli: { executable: '/usr/bin/secret-tool', args: [] } },
-          [
-            operation,
-            ...(operation === 'store' ? ['--label', 'Native pairing fixture'] : []),
-            'service',
-            'org.tmux-team.office.v1',
-            'username',
-            scopeKey,
-          ],
-          input === undefined ? {} : { stdin: input }
-        );
+        return protectedOfficeRecord(sandbox, scopeKey, operation, input);
       };
       try {
-        const companion = path.resolve('../../rust/target/debug/tmt-office');
-        const fixture = await createArtifact(
-          sandbox,
-          '0.1.0-alpha.1',
-          new Uint8Array(),
-          'office',
-          companion
-        );
-        const prefix = path.join(sandbox.root, 'office-prefix');
-        const installed = await runCli(
-          sandbox,
-          [
-            'office',
-            'install',
-            '--yes',
-            '--prefix',
-            prefix,
-            '--archive',
-            fixture.archive,
-            '--manifest',
-            fixture.manifest,
-            '--json',
-          ],
-          { deadlineMs: 20_000 }
-        );
-        expect(installed.status, installed.stdout).toBe(0);
-        expect(installed.stderr).toBe('');
+        const prefix = await installNativeOffice(sandbox);
         const created = await runCli(sandbox, ['identity', 'create', 'Alice', '--json']);
         expect(created.status, created.stdout).toBe(0);
         const worldId = admin.db.collection('worlds').doc().id;
@@ -354,6 +317,11 @@ test('native pairing resumes its protected proof and a separate process uses the
         const replacementRead = await office('inspect');
         expect(replacementRead.status).toBe(1);
         expect(JSON.parse(replacementRead.stdout).error.code).toBe('OFFICE_NOT_PAIRED');
+        expect(replacementRead.stderr).toBe('');
+        // The shared online boundary drains the old UUID before independently
+        // refusing resource access to its unpaired same-name replacement.
+        expect(JSON.parse((await vault('lookup')).stdout).phase).toEqual({ state: 'revoked' });
+        expect((await pairing.get()).data()!.enabled).toBe(false);
       } finally {
         if (scopeKey) {
           expect((await vault('clear')).status).toBe(0);

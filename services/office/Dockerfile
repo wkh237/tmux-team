@@ -26,7 +26,7 @@ CMD ["firebase", "emulators:start", "--only", "auth,firestore", "--project", "de
 # Opt-in browser proof reuses the emulator owner; no host credentials or volumes.
 FROM emulator-tools AS browser-tests
 USER root
-RUN apt-get update && apt-get install -y --no-install-recommends dbus gnome-keyring libglib2.0-bin libsecret-tools && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends dbus gnome-keyring libglib2.0-bin libsecret-tools sqlite3 tmux && rm -rf /var/lib/apt/lists/*
 RUN npm install --global pnpm@10.33.0 && mkdir -p /workspace/apps/office && chown -R node:node /workspace
 WORKDIR /workspace
 COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -36,7 +36,7 @@ USER node
 RUN pnpm office:install && test ! -e node_modules/better-sqlite3 && test ! -e /node_modules
 RUN cd services/office/functions && pnpm install --ignore-workspace --lockfile-dir "$PWD/../../.." --frozen-lockfile
 # Combined native/browser acceptance uses root-owned process/archive helpers.
-# The independent SQLite oracle is not built or executed by this browser image.
+# sqlite3 supplies the independent hook oracle; no native Node addon is built.
 RUN pnpm --filter tmux-team install --frozen-lockfile --ignore-scripts
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 USER root
@@ -45,6 +45,7 @@ USER node
 COPY --from=emulators --chown=node:node /home/node/office/ /home/node/office/
 COPY --chown=node:node apps/office apps/office
 COPY --chown=node:node contracts/office contracts/office
+COPY --chown=node:node test/e2e test/e2e
 COPY --chown=node:node test/support test/support
 COPY --from=native-office --chown=node:node /workspace/rust/target/release/tmt /workspace/rust/target/debug/tmt
 COPY --from=native-office --chown=node:node /workspace/rust/target/release/tmt-office /workspace/rust/target/debug/tmt-office

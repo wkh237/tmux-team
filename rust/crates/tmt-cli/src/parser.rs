@@ -151,11 +151,13 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         | ["office", "status"]
         | ["office", "pair"]
         | ["office", "inspect"]
+        | ["office", "sync"]
         | ["office", "install"]
         | ["office", "upgrade"]
         | ["office", "uninstall"] => Invocation::Office {
             prefix: text(m, "prefix"),
             operation: match path.last().copied() {
+                Some("sync") => OfficeOperation::Sync,
                 Some("inspect") => OfficeOperation::Inspect {
                     world: required(m, "world"),
                     identity: text(m, "identity"),

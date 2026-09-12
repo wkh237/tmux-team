@@ -141,10 +141,15 @@ export function parseRenewal(input: unknown): Renewal {
   };
 }
 
-export function parseRevocation(input: unknown): string {
+export type Revocation =
+  | { kind: 'pairing'; pairingId: string }
+  | { kind: 'proof'; pairingId: string };
+
+export function parseRevocation(input: unknown): Revocation {
   const value = object(input);
+  if (Object.hasOwn(value, 'secret')) return { kind: 'proof', pairingId: parseClaim(value) };
   exact(value, ['version', 'pairingId']);
   if (value.version !== 1 || !matches(value.pairingId, PAIRING_ID))
     throw new PairingError('INVALID_ARGUMENT');
-  return value.pairingId;
+  return { kind: 'pairing', pairingId: value.pairingId };
 }

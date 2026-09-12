@@ -30,7 +30,7 @@ Native `name` and `add` bindings are temporary by default. Add `-s`/`--save`
 to preserve an identity, and use `tmt rm <name>` to retire a temporary identity
 (`--force` is required for a saved identity). Switching from npm or pnpm is a
 fresh installation: stop old writers first; no configuration, database or
-historical exchange is migrated or deleted. Native schema 9 is forward-only,
+historical exchange is migrated or deleted. Native schema migrations are forward-only,
 so never use the old TypeScript writer on a native database.
 
 ## Name panes and inspect presence

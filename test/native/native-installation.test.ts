@@ -111,6 +111,7 @@ describe('native installation process contract', () => {
             deadlineMs: INSTALL_PROCESS_BUDGET_MS,
           });
         expectError(await office(['status']), 'OFFICE_NOT_INSTALLED');
+        expectError(await office(['sync']), 'OFFICE_NOT_INSTALLED');
         expectError(await office([]), 'OFFICE_NOT_INSTALLED');
         expectError(await office(['install']), 'OFFICE_CONSENT_REQUIRED');
         expectError(await office(['uninstall']), 'OFFICE_CONSENT_REQUIRED');
@@ -144,6 +145,17 @@ describe('native installation process contract', () => {
           version: '0.1.0-alpha.1',
         });
         expectError(await office([]), 'OFFICE_NOT_PAIRED');
+        const emptySync = await office(['sync']);
+        expect(emptySync.status, emptySync.stdout).toBe(0);
+        expect(emptySync.stderr).toBe('');
+        expect(parseWholeStdout(emptySync)).toEqual({
+          completed: 0,
+          failed: 0,
+          pending: 0,
+          failureCode: null,
+        });
+        expect(existsSync(sandbox.database)).toBe(false);
+        expect(existsSync(path.join(sandbox.globalDir, 'office'))).toBe(false);
         expect(parseWholeStdout(await office(args))).toMatchObject({ changed: false });
         const payload = readFileSync(path.join(prefix, 'bin/tmt-office'));
         const releases = path.join(prefix, 'lib/tmt-office/releases');

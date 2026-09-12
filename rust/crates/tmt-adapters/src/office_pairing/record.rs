@@ -1,4 +1,4 @@
-//! One protected binding record. No second disk index or secret-file fallback.
+//! One protected binding record; lifecycle hooks hold only its opaque scope key.
 
 use super::{
     AgentCredential, Approval, Claim, OfficeError, Proof, vault::RECORD_LIMIT, wire::valid_uuid,
@@ -31,6 +31,7 @@ pub struct PairingRecord {
     deny_unknown_fields
 )]
 enum Phase {
+    Revoked {},
     Pending {
         secret: String,
         next_claim_at: u64,
@@ -44,6 +45,48 @@ enum Phase {
 }
 
 impl PairingRecord {
+    pub(super) fn has_credentials(&self) -> bool {
+        matches!(self.phase, Phase::Paired { .. })
+    }
+    /// A hook can locate a retired identity's record without resolving its old
+    /// display name. The consumer verifies the derived scope key before use.
+    pub(super) fn hook_target(bytes: &[u8]) -> Result<WorldTarget, OfficeError> {
+        if bytes.len() > RECORD_LIMIT {
+            return Err(OfficeError::CredentialsInvalid);
+        }
+        let value: Self =
+            serde_json::from_slice(bytes).map_err(|_| OfficeError::CredentialsInvalid)?;
+        WorldTarget::parse(
+            &format!("{}/worlds/{}", value.origin, value.approval.world_id()),
+            value.mode,
+        )
+        .map_err(|_| OfficeError::CredentialsInvalid)
+    }
+
+    pub(super) fn revoke(
+        &mut self,
+        target: &WorldTarget,
+        deadline: std::time::Instant,
+    ) -> Result<(), OfficeError> {
+        let deployment = self.deployment(target)?;
+        match &self.phase {
+            Phase::Pending { secret, .. } => super::remote::cancel_pairing(
+                &deployment,
+                &Proof::decode(secret)?,
+                &self.approval,
+                deadline,
+            )?,
+            Phase::Paired { credential, .. } => {
+                credential.revoke(&deployment, &self.approval, deadline)?;
+            }
+            Phase::Revoked {} => return Ok(()),
+        }
+        // Confirmed cancellation removes live secrets, but preserves a durable
+        // receipt for retry if the SQLite acknowledgment fails afterwards.
+        self.phase = Phase::Revoked {};
+        Ok(())
+    }
+
     pub fn refresh_if_needed(
         &mut self,
         target: &WorldTarget,
@@ -69,7 +112,7 @@ impl PairingRecord {
                 )?;
                 Ok(true)
             }
-            Phase::Pending { .. } => Err(OfficeError::NotPaired),
+            Phase::Pending { .. } | Phase::Revoked {} => Err(OfficeError::NotPaired),
         }
     }
 
@@ -107,7 +150,7 @@ impl PairingRecord {
                 *grant_expires_at = expiry;
                 Ok(changed)
             }
-            Phase::Pending { .. } => Err(OfficeError::NotPaired),
+            Phase::Pending { .. } | Phase::Revoked {} => Err(OfficeError::NotPaired),
         }
     }
 
@@ -129,7 +172,7 @@ impl PairingRecord {
                 }
                 credential.inspect_block(&self.deployment(target)?, block_id, deadline)
             }
-            Phase::Pending { .. } => Err(OfficeError::NotPaired),
+            Phase::Pending { .. } | Phase::Revoked {} => Err(OfficeError::NotPaired),
         }
     }
 
@@ -186,6 +229,7 @@ impl PairingRecord {
         value.approval.approval_url(target)?;
         let deployment = value.deployment(target)?;
         match &value.phase {
+            Phase::Revoked {} => {}
             Phase::Pending {
                 secret,
                 next_claim_at,
@@ -254,7 +298,7 @@ impl PairingRecord {
                     .ok_or(OfficeError::CredentialsInvalid)?;
                 Proof::decode(secret)
             }
-            Phase::Paired { .. } => Err(OfficeError::CredentialsInvalid),
+            Phase::Paired { .. } | Phase::Revoked {} => Err(OfficeError::CredentialsInvalid),
         }
     }
 
@@ -285,6 +329,7 @@ impl PairingRecord {
 
     pub fn local_state(&self, now_ms: u64) -> &'static str {
         match &self.phase {
+            Phase::Revoked {} => "revoked",
             Phase::Pending { .. } if now_ms < self.expires_at => "pending",
             Phase::Paired {
                 grant_expires_at, ..

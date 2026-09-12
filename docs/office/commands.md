@@ -59,6 +59,20 @@ renews a near-expiry or expired lease through the issuer, preserving the same
 resource and permissions without daily browser approval. Local status does not
 renew. Revoked or missing grants cannot be renewed; expired pending approvals
 and lost credentials still need recovery work. Unpair remains planned.
+Identity retirement queues cleanup locally. Pair/inspect attempt queued Office
+cleanup; to retry explicitly without an active identity or pane, run:
+
+```sh
+tmt office sync --json
+```
+
+Use the same `--prefix` as installation. The result reports `completed`, `failed`,
+`pending` and `failureCode`; exit 0 means no remaining work or failures in that
+batch. Locked credentials or uncertain remote results stay pending. Closing a
+pane or running `ls` does not itself contact the service. There is no background
+delivery guarantee; resolve the obstacle and retry sync before claiming remote
+cleanup. Revocation retains block contents. Saved identities going offline are
+not retired and do not enqueue this cleanup.
 The [native pairing contract](../../contracts/office/native-pairing.md) owns exact
 scope, output, errors and emulator restrictions.
 

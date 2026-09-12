@@ -4,7 +4,7 @@ This internal local protocol is separate from the proposed remote work-handoff
 schema. It grants no Office access and does not replace pairing.
 
 The core-owned `OfficeInvocation` has exact operations `probe`, `pair-begin`,
-`pair-poll`, `pair-status` and `inspect`. Its argument vector is
+`pair-poll`, `pair-status`, `inspect` and `sync`. Its argument vector is
 `__tmt-office`, `1`, `<operation>`. Unknown versions, operations,
 extra arguments and non-UTF-8 arguments fail with exit 1, empty stdout and a brief
 stderr diagnostic. There is no arbitrary argv forwarding or shell evaluation.
@@ -43,7 +43,7 @@ separately checks actual Office archives; neither constitutes public publication
 
 ## Pairing operations
 
-Non-probe operations consume one bounded JSON object on stdin (4096 bytes):
+Pairing and inspect operations consume one bounded JSON object on stdin (4096 bytes):
 `world`, `identityId`, `emulator` and `readOnly`, with no unknown or duplicate
 fields. Selectors contain no credentials. The adapter accepts at most 4096 bytes
 per output stream and uses the existing subprocess deadline/cleanup owner.
@@ -59,3 +59,11 @@ adapters stay in the Office feature, not the CLI or core. See
 [native pairing](native-pairing.md) for scope, deadlines and server authority.
 Future operations require a reviewed typed contract before implementation;
 the probe response is never a generic payload or remote authentication.
+
+`sync` consumes exactly `{}`; it requires no active identity or world selector.
+It returns exactly `completed`, `failed`, `pending` (unsigned counts) and
+`failureCode` (a known Office code for failed attempts, otherwise null), or the
+same known `error` result. At most 16 attempts are made within the existing
+25-second operation budget. It uses the same verified child, limits and cleanup
+owner as pairing. An older companion rejects this additive operation; the host
+does not infer successful cleanup from an unsupported response.

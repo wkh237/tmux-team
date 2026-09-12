@@ -15,7 +15,7 @@ and verification commands in [Development](DEVELOPMENT.md).
   Local receipts correlate recorded requests and endpoints; they are not remote
   authentication. [Request/response](REQUEST-RESPONSE.md) owns the wire and
   attention contracts.
-- Native schema 9 is forward-only from supported historical schemas. Old
+- Native schema migrations are forward-only from supported historical schemas. Old
   TypeScript/schema-8 writers must stop before migration and cannot reopen
   native state. Binary rollback does not imply database downgrade.
 - The native installer does not migrate or delete application data. Existing

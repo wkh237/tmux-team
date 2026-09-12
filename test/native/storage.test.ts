@@ -49,17 +49,55 @@ function table(snapshot: ReturnType<typeof storageSnapshot>, name: string) {
   return found!;
 }
 
-function expectNativeSchema9(
+function expectNativeSchema10(
   reference: ReturnType<typeof storageSnapshot>,
   migrated: ReturnType<typeof storageSnapshot>
 ): void {
   expect(migrated.migrations.slice(0, 8)).toEqual(reference.migrations);
-  expect(migrated.migrations).toHaveLength(9);
+  expect(migrated.migrations).toHaveLength(10);
   expect(migrated.migrations[8]).toEqual({
     version: 9,
     name: 'add identity lifetimes and reusable retired names',
   });
-  expect(migrated.tables.map(({ name }) => name)).toEqual(reference.tables.map(({ name }) => name));
+  expect(migrated.migrations[9]).toEqual({
+    version: 10,
+    name: 'add durable identity retirement hooks',
+  });
+  expect(migrated.tables.map(({ name }) => name)).toEqual(
+    [...reference.tables.map(({ name }) => name), 'identity_hooks'].sort()
+  );
+  const hooks = table(migrated, 'identity_hooks');
+  expect(hooks.rows).toEqual([]);
+  expect(hooks.columns).toEqual([
+    { cid: 0, name: 'consumer', type: 'TEXT', notnull: 1, dflt_value: null, pk: 1 },
+    { cid: 1, name: 'identity_id', type: 'TEXT', notnull: 1, dflt_value: null, pk: 2 },
+    { cid: 2, name: 'reference', type: 'TEXT', notnull: 1, dflt_value: null, pk: 3 },
+    { cid: 3, name: 'state', type: 'TEXT', notnull: 1, dflt_value: null, pk: 0 },
+    { cid: 4, name: 'attempt_count', type: 'INTEGER', notnull: 1, dflt_value: '0', pk: 0 },
+  ]);
+  expect(hooks.foreignKeys).toEqual([
+    {
+      id: 0,
+      seq: 0,
+      table: 'identities',
+      from: 'identity_id',
+      to: 'id',
+      on_update: 'NO ACTION',
+      on_delete: 'NO ACTION',
+      match: 'NONE',
+    },
+  ]);
+  expect(hooks.indexes).toHaveLength(3);
+  const queueIndex = hooks.indexes.find((index) => index.name === 'identity_hooks_pending');
+  expect(queueIndex).toMatchObject({ unique: 0, partial: 0, origin: 'c' });
+  expect(
+    queueIndex?.columns.filter((column) => column.key === 1).map((column) => column.name)
+  ).toEqual(['consumer', 'state', 'attempt_count', 'identity_id', 'reference']);
+  const retirementIndex = hooks.indexes.find((index) => index.name === 'identity_hooks_retirement');
+  expect(retirementIndex).toMatchObject({ unique: 0, partial: 0, origin: 'c' });
+  expect(
+    retirementIndex?.columns.filter((column) => column.key === 1).map((column) => column.name)
+  ).toEqual(['identity_id', 'state']);
 
   const unchangedTables = reference.tables
     .filter(({ name }) => name !== '_migrations' && name !== 'identities')
@@ -77,6 +115,7 @@ function expectNativeSchema9(
   expect(newHistory.rows).toEqual([
     ...oldHistory.rows,
     { version: 9, name: migrated.migrations[8]!.name },
+    { version: 10, name: migrated.migrations[9]!.name },
   ]);
 
   const oldIdentities = table(reference, 'identities');
@@ -113,7 +152,7 @@ function expectNativeSchema9(
 
 describe('native SQLite lifecycle compatibility', () => {
   it.each(Array.from({ length: 9 }, (_, version) => version))(
-    'upgrades closed TypeScript schema %i to schema 9 without changing durable data',
+    'upgrades closed TypeScript schema %i to schema 10 without changing durable data',
     async (version) => {
       await withSandbox(async (sandbox) => {
         const reference = path.join(sandbox.root, 'reference', 'state.db');
@@ -126,7 +165,7 @@ describe('native SQLite lifecycle compatibility', () => {
         expect(parseWholeStdout(result)).toEqual({
           path: sandbox.database,
           open: true,
-          schemaVersion: 9,
+          schemaVersion: 10,
           journalMode: 'wal',
           foreignKeys: true,
           busyTimeoutMs: 5000,
@@ -134,7 +173,7 @@ describe('native SQLite lifecycle compatibility', () => {
           fts5: true,
         });
         const migrated = storageSnapshot(sandbox.database);
-        expectNativeSchema9(storageSnapshot(reference), migrated);
+        expectNativeSchema10(storageSnapshot(reference), migrated);
         if (version >= 5) {
           const responses = migrated.tables.find(
             (table) => table.name === 'request_responses'
@@ -165,7 +204,7 @@ describe('native SQLite lifecycle compatibility', () => {
           );
         }
         const timestamps = migrationTimestamps(sandbox.database);
-        expect(timestamps).toHaveLength(9);
+        expect(timestamps).toHaveLength(10);
         expect(timestamps.slice(0, version)).toEqual(originalTimestamps);
         for (const timestamp of timestamps) {
           expect(timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -191,10 +230,66 @@ describe('native SQLite lifecycle compatibility', () => {
         expect(result.status).toBe('fulfilled');
         if (result.status === 'fulfilled') {
           expect(result.value.status, result.value.stdout).toBe(0);
-          expect(parseWholeStdout(result.value).schemaVersion).toBe(9);
+          expect(parseWholeStdout(result.value).schemaVersion).toBe(10);
         }
       }
-      expectNativeSchema9(storageSnapshot(reference), storageSnapshot(sandbox.database));
+      expectNativeSchema10(storageSnapshot(reference), storageSnapshot(sandbox.database));
+    });
+  });
+
+  it('enforces retirement subscription uniqueness, foreign keys and delivery state bounds', async () => {
+    await withSandbox(async (sandbox) => {
+      expect((await runStorage(sandbox)).status).toBe(0);
+      const database = new Database(sandbox.database);
+      try {
+        database.pragma('foreign_keys = ON');
+        database.exec(
+          "INSERT INTO identities (id, name, canonical_name, created_at, updated_at) VALUES ('hook-id', 'Agent', 'agent', 'created', 'updated')"
+        );
+        const insert = database.prepare(
+          'INSERT INTO identity_hooks (consumer, identity_id, reference, state, attempt_count) VALUES (?, ?, ?, ?, ?)'
+        );
+        insert.run('office', 'hook-id', 'scope', 'registered', 0);
+        expect(() => insert.run('office', 'hook-id', 'scope', 'pending', 0)).toThrow(/UNIQUE/);
+        expect(() => insert.run('office', 'missing', 'scope', 'registered', 0)).toThrow(
+          /FOREIGN KEY/
+        );
+        for (const state of ['unknown', '']) {
+          expect(() => insert.run('office', 'hook-id', 'other', state, 0)).toThrow(/CHECK/);
+        }
+        for (const attempt of [-1, 0.5]) {
+          expect(() => insert.run('office', 'hook-id', 'other', 'pending', attempt)).toThrow(
+            /CHECK/
+          );
+        }
+        expect(() => insert.run('', 'hook-id', 'other', 'registered', 0)).toThrow(/CHECK/);
+        expect(() => insert.run('a'.repeat(65), 'hook-id', 'other', 'registered', 0)).toThrow(
+          /CHECK/
+        );
+        expect(() => insert.run('office', 'hook-id', '', 'registered', 0)).toThrow(/CHECK/);
+        expect(() => insert.run('office', 'hook-id', 'a'.repeat(257), 'registered', 0)).toThrow(
+          /CHECK/
+        );
+        // Different consumers and references remain separate subscriptions.
+        insert.run('another', 'hook-id', 'scope', 'pending', 1);
+        insert.run('office', 'hook-id', 'other', 'delivered', 2);
+        expect(
+          database
+            .prepare(
+              'SELECT consumer, reference, state, attempt_count FROM identity_hooks ORDER BY consumer, reference'
+            )
+            .all()
+        ).toEqual([
+          { consumer: 'another', reference: 'scope', state: 'pending', attempt_count: 1 },
+          { consumer: 'office', reference: 'other', state: 'delivered', attempt_count: 2 },
+          { consumer: 'office', reference: 'scope', state: 'registered', attempt_count: 0 },
+        ]);
+        expect(() => database.exec("DELETE FROM identities WHERE id = 'hook-id'")).toThrow(
+          /FOREIGN KEY/
+        );
+      } finally {
+        database.close();
+      }
     });
   });
 
@@ -342,7 +437,7 @@ describe('native SQLite lifecycle compatibility', () => {
         repair.close();
       }
       expect((await runStorage(sandbox)).status).toBe(0);
-      expect(parseWholeStdout(await runStorage(sandbox))).toMatchObject({ schemaVersion: 9 });
+      expect(parseWholeStdout(await runStorage(sandbox))).toMatchObject({ schemaVersion: 10 });
     });
   });
 
@@ -566,14 +661,14 @@ describe('native SQLite lifecycle compatibility', () => {
         if (kind === 'future') {
           const upgraded = await runStorage(sandbox);
           expect(upgraded.status).toBe(0);
-          expect(parseWholeStdout(upgraded)).toMatchObject({ schemaVersion: 9 });
+          expect(parseWholeStdout(upgraded)).toMatchObject({ schemaVersion: 10 });
         }
         const writer = new Database(sandbox.database);
         try {
           if (kind === 'renamed')
             writer.exec("UPDATE _migrations SET name = 'unknown' WHERE version = 2");
           else if (kind === 'gap') writer.exec('DELETE FROM _migrations WHERE version = 2');
-          else writer.exec("INSERT INTO _migrations VALUES (10, 'future', 'timestamp')");
+          else writer.exec("INSERT INTO _migrations VALUES (11, 'future', 'timestamp')");
         } finally {
           writer.close();
         }
@@ -631,7 +726,7 @@ describe('native SQLite lifecycle compatibility', () => {
       }
       expect(storageSnapshot(sandbox.database)).toEqual(before);
       expect((await runStorage(sandbox)).status).toBe(0);
-      expectNativeSchema9(storageSnapshot(reference), storageSnapshot(sandbox.database));
+      expectNativeSchema10(storageSnapshot(reference), storageSnapshot(sandbox.database));
     });
   }, 15_000);
 });

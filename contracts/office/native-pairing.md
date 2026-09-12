@@ -1,6 +1,6 @@
 # Native pairing v1
 
-Implementation contract for #222 and renewal slice #227. Source builds implement deployment discovery,
+Implementation contract for native pairing, renewal and retirement hooks. Source builds implement deployment discovery,
 pairing and protected credential use; no public Office release is published.
 [Approval and claim](pairing-v1.md) owns remote proof/consent semantics.
 
@@ -74,8 +74,8 @@ return or interpret layout contents. Missing pairing fails `OFFICE_NOT_PAIRED`.
 
 A stable installation UUID is independent of release receipts and binary prefixes:
 one logical installation per ConfigPaths root. Only that public UUID and scope
-locks live in its `office/` directory; there is no disk binding index or second
-identity registry. Missing or corrupt metadata is not automatically regenerated
+locks live in its `office/` directory. SQLite stores opaque lifecycle hook
+references, not another binding/credential registry. Missing or corrupt metadata is not automatically regenerated
 inside an existing installation. One protected record per origin/world/mode/
 installation/identity UUID pins the complete descriptor, immutable approval and
 pending proof/deadline/cadence or paired credential/resource lease, validated
@@ -104,8 +104,8 @@ Office failures use the existing envelope and exit 1:
 `OFFICE_INTERRUPTED`, exit 130. Existing identity/grammar errors retain their
 owners. An unavailable claim cannot distinguish absent from denied approval.
 
-Reassignment, lost-credential recovery and temporary retirement/offline
-revocation remain #209 requirements. Token refresh never extends a grant lease.
+Reassignment and lost-credential recovery remain #209 requirements. Retirement
+delivery is defined below; token refresh never extends a grant lease.
 Actual native/browser/isolated-vault evidence is required by the
 [local-first acceptance contract](../../DEVELOPMENT.md#personal-office-milestone-acceptance).
 
@@ -128,3 +128,57 @@ recovered lease has itself expired, resource use still fails expired; a later
 invocation can renew using the recovered expiry. Each invocation is bounded,
 not an automatic retry loop. Denied, malformed or uncertain renewal never
 authorizes resource use or creates a replacement pairing.
+
+## Identity retirement hooks
+
+Core identity UUID/lifetime remains authoritative. Confirmed temporary pane loss,
+explicit unbind of a temporary identity and explicit removal use the same
+retirement transaction. Saved detachment is not retirement; uncertain pane
+evidence must not authorize it. No command-specific Office cleanup is added to
+these paths.
+
+Before exposing a new approval link, Office saves the protected scope, registers
+its opaque scope key for consumer `tmt-office`, and rechecks the active UUID.
+Accessing an existing scope for pair/inspect also registers it. Registration and
+retirement serialize in SQLite: active subscriptions are `registered`, retired
+ones are `pending`; retirement and enqueue commit or roll back together.
+Repeated registration preserves `delivered` receipts. A replacement with the
+same display name has a new UUID and inherits neither scope nor hooks.
+
+`pair` and `inspect` first attempt pending cleanup at the shared Office boundary.
+`tmt office sync [--prefix <folder>] [--json]` explicitly consumes notifications
+without an active identity, tmux, world selector or new approval. Local `status`
+and ordinary identity commands never perform this remote work. Without an Office
+invocation there is no background delivery guarantee; closing a pane is not
+proof that the remote grant has already been disabled.
+
+Delivery attempts at most 16 records within 25 seconds, least-attempted first.
+Attempts are recorded before external effects so inaccessible scopes cannot
+permanently starve other records. Each consumer uses the existing scope lock,
+loads the protected record, validates its derived scope against the hook, and
+calls the pinned issuer's `/revoke`. Pending scopes use their original proof;
+paired scopes use their bound agent token, refreshing Auth only if needed for
+this authority-reducing operation. No resource renewal or access is permitted
+for a retired UUID.
+
+Only an exact confirmed revocation response permits replacing the protected
+phase with `revoked`, without proof or tokens. Exact vault readback precedes
+SQLite acknowledgment. A crash between remote confirmation, vault publication
+and acknowledgment can replay revocation; the issuer is idempotent, and a
+protected terminal receipt permits acknowledgment without credentials. No SQL
+transaction is held during vault or network work. Missing/locked/corrupt state,
+unknown pending approval, denial and uncertainty remain pending, never silently
+deleted or reported as revoked. Resources and historical identity data remain.
+
+Explicit sync returns `{completed,failed,pending,failureCode}`; `failureCode` is
+null when no attempt failed. Exit 0 requires no failures or pending work; exit 1
+also covers partial batches. An initialization failure uses the normal error
+envelope. Pair/inspect warn on unresolved cleanup, then independently validate
+their requested scope; they cannot use an unrelated cleanup failure as authority.
+Retry sync after resolving the reported obstacle, not in an unbounded loop.
+
+Existing pre-hook vault entries enroll on their next scoped pair/inspect access.
+The OS vault has no portable enumeration contract: unknown scopes retired before
+enrollment cannot be reconstructed or claimed as cleaned. There is no generic
+plugin runtime, daemon, automatic migration of secrets or credential-deletion
+shortcut in this mechanism.

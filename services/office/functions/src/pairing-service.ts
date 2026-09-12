@@ -25,15 +25,13 @@ export function createPairingService(store: PairingStore, auth: PairingAuthentic
     }
   }
 
-  async function human(authorization: string | undefined): Promise<string> {
-    const token = await verified(authorization);
-    if (token.firebase.sign_in_provider !== 'google.com' || token.email_verified !== true)
+  function human(token: DecodedIdToken): string {
+    if (token.firebase?.sign_in_provider !== 'google.com' || token.email_verified !== true)
       throw new PairingError('PERMISSION_DENIED');
     return token.uid;
   }
 
-  async function agent(authorization: string | undefined): Promise<AgentIdentity> {
-    const token = await verified(authorization);
+  function agent(token: DecodedIdToken): AgentIdentity {
     if (
       token.tmtOfficeAgent !== true ||
       typeof token.tmtInstallationId !== 'string' ||
@@ -52,7 +50,7 @@ export function createPairingService(store: PairingStore, auth: PairingAuthentic
   return {
     async approve(input: unknown, authorization?: string) {
       const request = parseApproval(input);
-      return store.approve(await human(authorization), request);
+      return store.approve(human(await verified(authorization)), request);
     },
     async claim(input: unknown) {
       const id = parseClaim(input);
@@ -73,16 +71,27 @@ export function createPairingService(store: PairingStore, auth: PairingAuthentic
     async renew(input: unknown, authorization?: string) {
       const renewal = parseRenewal(input);
       const binding = await store.renew(
-        await agent(authorization),
+        agent(await verified(authorization)),
         renewal.pairingId,
         renewal.grantExpiresAt
       );
       return binding;
     },
     async revoke(input: unknown, authorization?: string) {
-      const id = parseRevocation(input);
-      await store.revoke(await human(authorization), id);
-      return { version: 1, pairingId: id, revoked: true };
+      const request = parseRevocation(input);
+      if (request.kind === 'proof') {
+        if (authorization !== undefined) throw new PairingError('INVALID_ARGUMENT');
+        await store.revoke({ kind: 'proof' }, request.pairingId);
+      } else {
+        const token = await verified(authorization);
+        await store.revoke(
+          token.tmtOfficeAgent === true
+            ? { kind: 'agent', agent: agent(token) }
+            : { kind: 'owner', uid: human(token) },
+          request.pairingId
+        );
+      }
+      return { version: 1, pairingId: request.pairingId, revoked: true };
     },
   };
 }

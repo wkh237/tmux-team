@@ -79,6 +79,7 @@ pub enum Invocation {
 pub enum OfficeOperation {
     Open,
     Status,
+    Sync,
     Inspect {
         world: String,
         identity: Option<String>,

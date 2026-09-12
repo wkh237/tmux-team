@@ -13,12 +13,30 @@ use std::{
 use tmt_adapters::{
     config::ConfigPaths,
     interrupt::Interrupt,
-    office_companion::{PairingCall, PairingReply, invoke_office_pairing},
+    office_companion::{PairingCall, PairingReply, invoke_office_pairing, invoke_office_sync},
     storage::Storage,
 };
 use tmt_core::office_protocol::{OfficeError, OfficeInvocation};
 
 pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> Result<u8, Failure> {
+    if matches!(operation, OfficeOperation::Sync) {
+        return sync(executable, mode);
+    }
+    let interrupt = Interrupt::install().map_err(unavailable)?;
+    // The Office boundary alone consumes its hooks. Ordinary identity commands
+    // commit notifications without loading a companion or waiting for a network.
+    if matches!(
+        operation,
+        OfficeOperation::Pair { .. } | OfficeOperation::Inspect { .. }
+    ) {
+        match invoke_office_sync(executable, Instant::now() + Duration::from_secs(30)) {
+            Ok(Ok(report)) if report.pending == 0 => {},
+            _ => writeln!(io::stderr().lock(), "Office retirement cleanup remains unconfirmed. Run tmt office sync to retry; the requested operation is checked separately.").map_err(unavailable)?,
+        }
+        if interrupt.is_interrupted() {
+            return Err(interrupted());
+        }
+    }
     let inspect = matches!(&operation, OfficeOperation::Inspect { .. });
     let (world, identity, emulator, read_only, timeout, pair) = match operation {
         OfficeOperation::Pair {
@@ -57,7 +75,6 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
         emulator,
         read_only,
     };
-    let interrupt = Interrupt::install().map_err(unavailable)?;
     let deadline = Instant::now() + Duration::from_secs(timeout);
     let mut operation = if pair {
         OfficeInvocation::PairBegin
@@ -132,6 +149,37 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
             .wait_until(deadline.min(Instant::now() + Duration::from_secs(5)))
             .map_err(unavailable)?;
     }
+}
+
+fn sync(executable: &Path, mode: OutputMode) -> Result<u8, Failure> {
+    let interrupt = Interrupt::install().map_err(unavailable)?;
+    let result = invoke_office_sync(executable, Instant::now() + Duration::from_secs(30));
+    if interrupt.is_interrupted() {
+        return Err(interrupted());
+    }
+    let report = result.map_err(unavailable)?.map_err(pairing_error)?;
+    let value = serde_json::json!({"completed":report.completed,"failed":report.failed,"pending":report.pending,"failureCode":report.failure.map(|error| error.code())});
+    writeln!(
+        io::stdout().lock(),
+        "{}",
+        if mode.json {
+            value.to_string()
+        } else {
+            format!(
+                "Office retirement hooks: {} completed, {} failed, {} pending.{}",
+                report.completed,
+                report.failed,
+                report.pending,
+                if report.pending > 0 {
+                    " Run tmt office sync to retry; remote cleanup is not yet complete."
+                } else {
+                    ""
+                }
+            )
+        }
+    )
+    .map_err(unavailable)?;
+    Ok(u8::from(report.pending > 0 || report.failed > 0))
 }
 
 fn pairing_error(error: OfficeError) -> Failure {

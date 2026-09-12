@@ -25,7 +25,10 @@ describe('pairing input contract', () => {
     expect(parseApproval({ ...approval, capabilities: ['layout.read'] }).capabilities).toEqual([
       'layout.read',
     ]);
-    expect(parseRevocation({ version: 1, pairingId: approval.pairingId })).toBe(approval.pairingId);
+    expect(parseRevocation({ version: 1, pairingId: approval.pairingId })).toEqual({
+      kind: 'pairing',
+      pairingId: approval.pairingId,
+    });
     expect(parseRenewal({ version: 1, pairingId: approval.pairingId, grantExpiresAt: 1 })).toEqual({
       version: 1,
       pairingId: approval.pairingId,

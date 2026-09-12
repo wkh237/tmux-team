@@ -127,6 +127,30 @@ fn office_prefix_is_scoped_to_its_subtree_and_file_inputs_are_paired() {
 }
 
 #[test]
+fn office_sync_is_install_scoped_not_active_identity_scoped() {
+    use crate::invocation::OfficeOperation;
+    assert_eq!(
+        parsed(&["office", "sync", "--prefix", "/office", "--json"]).invocation,
+        Invocation::Office {
+            prefix: Some("/office".into()),
+            operation: OfficeOperation::Sync
+        }
+    );
+    for input in [
+        vec!["office", "sync", "--identity", "Alice"],
+        vec![
+            "office",
+            "sync",
+            "--world",
+            "https://office.example/worlds/abcdefghijklmnopqrst",
+        ],
+        vec!["office", "sync", "--emulator"],
+    ] {
+        assert_eq!(parse_error(&input).code, "USAGE_ERROR");
+    }
+}
+
+#[test]
 fn native_upgrade_alias_and_selection_share_one_typed_contract() {
     for command in ["upgrade", "update"] {
         let invocation = parsed(&[
