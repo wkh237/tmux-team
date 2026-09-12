@@ -103,6 +103,10 @@ export function PairingForm({ state, request }: { state: PairingState; request: 
         </dd>
       </dl>
       <p>No notebook, message board, local files or command execution access is granted.</p>
+      <p>
+        This identity may renew its access in leases of up to 24 hours until you revoke it. Renewal
+        keeps the same block and permissions; it does not require daily approval.
+      </p>
       {error && <p role="alert">{error}</p>}
       {approved && (
         <p role="status">

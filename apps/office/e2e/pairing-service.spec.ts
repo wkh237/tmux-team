@@ -133,6 +133,91 @@ test('HTTP approval and proof claim produce an actually usable scoped credential
   });
 });
 
+test('authenticated renewal converges across concurrent callers and never revives revoked authority', async () => {
+  await withPairing(async ({ fixture, db, auth, world, secret, request, token }) => {
+    expect((await post('approve', request, token)).status).toBe(200);
+    const claimed = await post('claim', { version: 1, secret });
+    expect(claimed.status).toBe(200);
+    const principal = field(claimed.body, 'principalUid');
+    const blockId = field(claimed.body, 'blockId');
+    const agent = await fixture.client(false, 'device');
+    await signInWithCustomToken(agent.auth, field(claimed.body, 'customToken'));
+    const agentToken = await agent.auth.currentUser!.getIdToken();
+    const grant = db.collection('worlds').doc(world.id).collection('agentGrants').doc(principal);
+    const original = (await grant.get()).data()!;
+    const expiredAt = Date.now() - 1000;
+    await grant.update({ createdAt: new Date(expiredAt - 1000), expiresAt: new Date(expiredAt) });
+    const renewal = { version: 1, pairingId: request.pairingId, grantExpiresAt: expiredAt };
+    expect((await post('renew', renewal)).status).toBe(401);
+    expect((await post('renew', renewal, token)).status).toBe(403);
+    const wrong = await fixture.client(false, 'device');
+    await signInWithCustomToken(
+      wrong.auth,
+      await auth.createCustomToken('office-agent:00000000-0000-4000-8000-000000000099', {
+        tmtOfficeAgent: true,
+        tmtInstallationId: request.installationId,
+        tmtIdentityId: request.identityId,
+      })
+    );
+    expect((await post('renew', renewal, await wrong.auth.currentUser!.getIdToken())).status).toBe(
+      404
+    );
+    expect((await grant.get()).data()!.expiresAt.toMillis()).toBe(expiredAt);
+    const results = await Promise.all([
+      post('renew', renewal, agentToken),
+      post('renew', renewal, agentToken),
+    ]);
+    expect(results[0].status).toBe(200);
+    expect(results[1]).toEqual(results[0]);
+    const renewed = (await grant.get()).data()!;
+    expect(results[0].body).toEqual({
+      version: 1,
+      pairingId: request.pairingId,
+      worldId: world.id,
+      installationId: request.installationId,
+      identityId: request.identityId,
+      principalUid: principal,
+      blockId,
+      capabilities: request.capabilities,
+      grantExpiresAt: renewed.expiresAt.toMillis(),
+    });
+    expect(renewed).toEqual({
+      ...original,
+      createdAt: renewed.createdAt,
+      expiresAt: renewed.expiresAt,
+    });
+    expect(renewed.expiresAt.toMillis() - renewed.createdAt.toMillis()).toBe(24 * 60 * 60_000);
+    expect(await post('renew', renewal, agentToken)).toEqual(results[0]);
+    expect((await grant.get()).data()).toEqual(renewed);
+
+    // Real competing transactions must leave revocation terminal in either
+    // ordering. A successful renewal response is not subsequent access authority.
+    await grant.delete();
+    expect((await post('renew', renewal, agentToken)).status).toBe(404);
+    expect((await grant.get()).exists).toBe(false);
+    // Restore only through the privileged test oracle, then make a real lease
+    // mutation compete with revoke (not a no-op read of a long-lived lease).
+    const raceExpiry = Date.now() + 1000;
+    await grant.set({
+      ...renewed,
+      createdAt: new Date(raceExpiry - 1000),
+      expiresAt: new Date(raceExpiry),
+    });
+    const current = { ...renewal, grantExpiresAt: raceExpiry };
+    const [raced, revoked] = await Promise.all([
+      post('renew', current, agentToken),
+      post('revoke', { version: 1, pairingId: request.pairingId }, token),
+    ]);
+    expect([200, 404]).toContain(raced.status);
+    expect(revoked.status).toBe(200);
+    expect((await grant.get()).data()!.enabled).toBe(false);
+    expect((await post('renew', current, agentToken)).status).toBe(404);
+    await expect(
+      getDocFromServer(doc(agent.db, 'worlds', world.id, 'blocks', blockId))
+    ).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+});
+
 test('HTTP auth, input and proof failures cannot allocate credentials or cross owner scope', async () => {
   await withPairing(async ({ fixture, db, request, secret, token, owner }) => {
     expect((await post('approve', request)).status).toBe(401);

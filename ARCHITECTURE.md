@@ -103,7 +103,10 @@ Its contract is [native companion handshake](contracts/office/native-companion.m
 The public `office` subtree composes installation, identity resolution and bounded
 pairing observation, never credentials or HTTP. `office_pairing` separates wire
 values, remote Auth/resource access, vault access, local installation metadata,
-record transitions and one-shot composition. `office_http` shares bounded JSON
+record transitions and one-shot composition. Resource access refreshes Auth and
+performs bounded lease renewal separately; only an exact authenticated issuer
+readback can replace the local expiry. No timer or background process renews
+grants, and local status stays network-free. `office_http` shares bounded JSON
 transport with deployment discovery. Existing ConfigPaths, identity storage,
 file locks and process owners remain authoritative. One protected scope record
 owns pending proof or credentials; no SQLite binding index mirrors it. OS random

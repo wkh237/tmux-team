@@ -1,6 +1,13 @@
 import type { DecodedIdToken } from 'firebase-admin/auth';
-import { PairingError, parseApproval, parseClaim, parseRevocation } from './pairing-contract.js';
-import type { PairingStore } from './pairing-store.js';
+import {
+  PairingError,
+  UUID,
+  parseApproval,
+  parseClaim,
+  parseRenewal,
+  parseRevocation,
+} from './pairing-contract.js';
+import type { AgentIdentity, PairingStore } from './pairing-store.js';
 
 export interface PairingAuthentication {
   verifyIdToken(token: string, checkRevoked: boolean): Promise<DecodedIdToken>;
@@ -8,18 +15,38 @@ export interface PairingAuthentication {
 }
 
 export function createPairingService(store: PairingStore, auth: PairingAuthentication) {
-  async function human(authorization: string | undefined): Promise<string> {
+  async function verified(authorization: string | undefined): Promise<DecodedIdToken> {
     if (!authorization || authorization.length > 8192 || !/^Bearer \S+$/.test(authorization))
       throw new PairingError('UNAUTHENTICATED');
-    let token: DecodedIdToken;
     try {
-      token = await auth.verifyIdToken(authorization.slice(7), true);
+      return await auth.verifyIdToken(authorization.slice(7), true);
     } catch {
       throw new PairingError('UNAUTHENTICATED');
     }
+  }
+
+  async function human(authorization: string | undefined): Promise<string> {
+    const token = await verified(authorization);
     if (token.firebase.sign_in_provider !== 'google.com' || token.email_verified !== true)
       throw new PairingError('PERMISSION_DENIED');
     return token.uid;
+  }
+
+  async function agent(authorization: string | undefined): Promise<AgentIdentity> {
+    const token = await verified(authorization);
+    if (
+      token.tmtOfficeAgent !== true ||
+      typeof token.tmtInstallationId !== 'string' ||
+      !UUID.test(token.tmtInstallationId) ||
+      typeof token.tmtIdentityId !== 'string' ||
+      !UUID.test(token.tmtIdentityId)
+    )
+      throw new PairingError('PERMISSION_DENIED');
+    return {
+      uid: token.uid,
+      installationId: token.tmtInstallationId,
+      identityId: token.tmtIdentityId,
+    };
   }
 
   return {
@@ -42,6 +69,15 @@ export function createPairingService(store: PairingStore, auth: PairingAuthentic
       }
       await store.confirmClaim(id);
       return { ...binding, customToken };
+    },
+    async renew(input: unknown, authorization?: string) {
+      const renewal = parseRenewal(input);
+      const binding = await store.renew(
+        await agent(authorization),
+        renewal.pairingId,
+        renewal.grantExpiresAt
+      );
+      return binding;
     },
     async revoke(input: unknown, authorization?: string) {
       const id = parseRevocation(input);

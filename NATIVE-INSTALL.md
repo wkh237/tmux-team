@@ -3,9 +3,10 @@
 For an optional `tmt-office` archive, use an installed native CLI:
 `tmt office install --yes --archive <archive.tar.gz> --manifest <dist-manifest.json>`.
 Then run `tmt office status`. Add the same `--prefix <folder>` to both commands
-for a custom installation. Office is independently versioned and currently only
-provides a local compatibility probe; installation does not pair, open a world
-or start a service. No public Office release is available yet.
+for a custom installation. Office is independently versioned. Source builds
+support compatibility probes, explicit pairing and renewable scoped access;
+installation alone does not pair, open a world or start a service.
+No public Office release is available yet.
 
 The remaining instructions apply to the core `tmt` archive.
 

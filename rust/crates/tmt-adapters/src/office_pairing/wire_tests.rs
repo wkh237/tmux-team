@@ -24,6 +24,60 @@ fn claim() -> Value {
 }
 
 #[test]
+fn renewal_readback_preserves_scope_and_rejects_rollback_or_ambiguous_json() {
+    let mut value = claim();
+    let fields = value.as_object_mut().unwrap();
+    for key in [
+        "installationLabel",
+        "identityLabel",
+        "expiresAt",
+        "customToken",
+    ] {
+        fields.remove(key);
+    }
+    let principal = value["principalUid"].as_str().unwrap().to_owned();
+    let block = value["blockId"].as_str().unwrap().to_owned();
+    let decode = |bytes: &[u8]| Renewal::decode(bytes, &expected(), &principal, &block, 1000);
+    assert_eq!(
+        decode(&serde_json::to_vec(&value).unwrap()).unwrap(),
+        86_401_000
+    );
+    for (key, invalid) in [
+        ("version", json!(2)),
+        ("pairingId", json!("0".repeat(64))),
+        ("worldId", json!("abcdefghijklmnopqrst")),
+        (
+            "installationId",
+            json!("00000000-0000-4000-8000-000000000009"),
+        ),
+        ("identityId", json!("00000000-0000-4000-8000-000000000009")),
+        (
+            "principalUid",
+            json!("office-agent:00000000-0000-4000-8000-000000000009"),
+        ),
+        ("blockId", json!("00000000-0000-4000-8000-000000000009")),
+        ("capabilities", json!(["layout.read", "notebook.write"])),
+        ("grantExpiresAt", json!(999)),
+        ("grantExpiresAt", json!(MAX_TIMESTAMP + 1)),
+        ("customToken", json!("unexpected-token")),
+    ] {
+        let mut changed = value.clone();
+        changed[key] = invalid;
+        assert!(
+            decode(&serde_json::to_vec(&changed).unwrap()).is_err(),
+            "{key}"
+        );
+    }
+    let text = serde_json::to_string(&value).unwrap();
+    assert!(decode(text.replacen('{', "{\"version\":1,", 1).as_bytes()).is_err());
+    assert!(decode(&vec![b' '; RESPONSE_LIMIT + 1]).is_err());
+    // A stale request may read back another caller's already-expired lease;
+    // the record persists it, but resource use still requires a live lease.
+    value["grantExpiresAt"] = json!(1000);
+    assert_eq!(decode(&serde_json::to_vec(&value).unwrap()).unwrap(), 1000);
+}
+
+#[test]
 fn native_decoder_conforms_to_independent_browser_and_service_literals() {
     let corpus = examples();
     for raw in corpus["invalidJson"].as_array().unwrap() {

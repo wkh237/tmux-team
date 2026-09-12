@@ -1,6 +1,6 @@
 # Native pairing v1
 
-Implementation contract for #222. Source builds implement deployment discovery,
+Implementation contract for #222 and renewal slice #227. Source builds implement deployment discovery,
 pairing and protected credential use; no public Office release is published.
 [Approval and claim](pairing-v1.md) owns remote proof/consent semantics.
 
@@ -86,13 +86,13 @@ the user Keychain. Each write requires exact readback before reporting success.
 The per-scope lock serializes mutation; local status reads one protected snapshot
 without creating locks. OS storage and metadata are not one atomic transaction.
 Uncertain claim or publication retains the original scope for retry. Expired
-pending records and grants fail closed without silently requesting another grant;
-explicit renewal/recovery remains part of #209. Do not delete local state as a
+pending approvals fail closed without silently requesting another grant;
+paired resource access can renew its existing lease as described below. Do not delete local state as a
 substitute for server revocation.
 
 Auth exchange and refresh use fixed Firebase endpoints. ID-token payload checks
 detect inconsistent scope but are not signature verification or authorization;
-Firestore Rules enforce every resource request. Token refresh preserves the
+Firestore Rules enforce every resource request. Token refresh alone preserves the
 original resource assignment and grant expiry. Identity names resolve once to an
 active UUID and are rechecked before protected publication and resource use.
 
@@ -104,7 +104,27 @@ Office failures use the existing envelope and exit 1:
 `OFFICE_INTERRUPTED`, exit 130. Existing identity/grammar errors retain their
 owners. An unavailable claim cannot distinguish absent from denied approval.
 
-Renewal preserving resources, reassignment and temporary retirement/offline
+Reassignment, lost-credential recovery and temporary retirement/offline
 revocation remain #209 requirements. Token refresh never extends a grant lease.
 Actual native/browser/isolated-vault evidence is required by the
 [local-first acceptance contract](../../DEVELOPMENT.md#personal-office-milestone-acceptance).
+
+## Invocation-owned renewal
+
+`inspect` refreshes Auth when necessary, then renews a paired lease with five
+minutes or less remaining (including expiry) through the authenticated issuer
+operation in [pairing v1](pairing-v1.md#lease-renewal). There is no scheduler,
+new approval link or daily browser prompt. Local `status` never renews or makes
+a network request. `pair` retains its existing acquisition behavior.
+
+The native request supplies the protected record's exact last grant expiry.
+Readback must match version, pairing, world, installation, identity, principal,
+block and capabilities, and cannot roll the expiry backward. Unknown/duplicate
+fields reject. The service owns lease bounds; native never computes a new expiry.
+Only the validated server value is written back through the existing protected
+record and readback owner. A lost response retains the old lease for retry;
+another caller's newer lease is recovered without extending it again. If that
+recovered lease has itself expired, resource use still fails expired; a later
+invocation can renew using the recovered expiry. Each invocation is bounded,
+not an automatic retry loop. Denied, malformed or uncertain renewal never
+authorizes resource use or creates a replacement pairing.

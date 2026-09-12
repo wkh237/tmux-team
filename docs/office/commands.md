@@ -54,8 +54,11 @@ World-qualified `status` reports local retained state, not live authority.
 `inspect` checks server access and reports only whether the assigned block exists;
 it does not expose layouts or list other agents. Revocation can therefore leave
 local status `credential` while inspect fails `OFFICE_REMOTE_DENIED`. A same-name
-replacement has a different UUID and cannot inherit the pairing. Expiry never
-silently creates a replacement grant; renewal and unpair remain planned.
+replacement has a different UUID and cannot inherit the pairing. `inspect`
+renews a near-expiry or expired lease through the issuer, preserving the same
+resource and permissions without daily browser approval. Local status does not
+renew. Revoked or missing grants cannot be renewed; expired pending approvals
+and lost credentials still need recovery work. Unpair remains planned.
 The [native pairing contract](../../contracts/office/native-pairing.md) owns exact
 scope, output, errors and emulator restrictions.
 

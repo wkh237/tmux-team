@@ -198,7 +198,8 @@ existence as visual proof.
 synthetic verified archive, using the existing `test/support` process and artifact
 owners. It resumes a protected proof across CLI processes after Chromium consent,
 then independently checks the issued grant, OS-store record, scoped Firestore
-read, token refresh, expiry, corruption, revocation and same-name replacement.
+read, token refresh, expired server/native lease renewal, simulated lost-response readback,
+unchanged resources, corruption, revocation and same-name replacement.
 The browser target therefore builds Rust and installs the root test-helper
 dependencies with scripts disabled; it does not execute the SQLite oracle or
 import native helpers into the SPA. The standalone app image stays independent.

@@ -1,7 +1,7 @@
 # Agent resource grant v1
 
-Implemented Rules boundary for future pairing, not a shipped credential issuer,
-assignment UI or native command. Automated evidence uses isolated Auth/Firestore
+Implemented Rules boundary with a locally verified pairing/renewal issuer,
+not a public distribution or assignment UI. Automated evidence uses isolated Auth/Firestore
 emulators. No production activation or human credential sharing is implied.
 
 ## Principal and document
@@ -15,17 +15,17 @@ Display names, folders and pane IDs are neither credentials nor lookup keys.
 
 `worlds/{worldId}/agentGrants/{principalUid}` contains exactly:
 
-| Field            | Value                                                                        |
-| ---------------- | ---------------------------------------------------------------------------- |
-| `version`        | Integer `1`                                                                  |
-| `ownerUid`       | String matching the immutable world's human owner                            |
-| `installationId` | Lowercase hyphenated UUID of the originating installation                    |
-| `identityId`     | Existing local identity UUID, lowercase and hyphenated                       |
-| `blockId`        | Independent lowercase hyphenated UUID, never `home`                          |
-| `capabilities`   | Exactly `['layout.read']` or `['layout.read', 'layout.write']` in that order |
-| `enabled`        | Boolean; only `true` grants access                                           |
-| `createdAt`      | Firestore timestamp, not later than the server request time                  |
-| `expiresAt`      | Firestore timestamp, after creation and at most 24 hours later               |
+| Field            | Value                                                                            |
+| ---------------- | -------------------------------------------------------------------------------- |
+| `version`        | Integer `1`                                                                      |
+| `ownerUid`       | String matching the immutable world's human owner                                |
+| `installationId` | Lowercase hyphenated UUID of the originating installation                        |
+| `identityId`     | Existing local identity UUID, lowercase and hyphenated                           |
+| `blockId`        | Independent lowercase hyphenated UUID, never `home`                              |
+| `capabilities`   | Exactly `['layout.read']` or `['layout.read', 'layout.write']` in that order     |
+| `enabled`        | Boolean; only `true` grants access                                               |
+| `createdAt`      | Current lease start as a Firestore timestamp, not later than server request time |
+| `expiresAt`      | Firestore timestamp, after creation and at most 24 hours later                   |
 
 Access requires `createdAt <= request.time < expiresAt`, valid schema, current
 owner tester admission and matching authenticated principal/installation/identity.
@@ -71,9 +71,9 @@ by these Rules:
   token; no anonymous-provider enablement or browser-minted credentials.
 - Use a 24-hour default and maximum resource lease. Renewal must recheck current
   owner admission, the exact approved binding and its non-revoked state. Token
-  refresh alone cannot extend a lease or reactivate a revoked grant. Whether
-  native renewal is automatic belongs to the credential-lifecycle slice, not
-  a mandatory daily human prompt implied by these Rules.
+  refresh alone cannot extend a lease or reactivate a revoked grant. Native
+  renewal is defined by the [native pairing contract](native-pairing.md#invocation-owned-renewal):
+  scoped access renews near expiry without a daily human prompt.
   Re-pairing after revocation creates a new principal.
   The issuer must enforce these transitions itself: Admin writes bypass Rules.
 - Store agent refresh credentials through a native protected-store adapter,

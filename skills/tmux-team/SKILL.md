@@ -467,9 +467,16 @@ after an observer timeout; do not replace the identity or delete pairing state.
 World-qualified status is local retained state, not live authorization. Inspect
 checks server access and returns `blockExists`; it does not read layouts or list
 agents. A revoked grant can still have local status `credential`. Same-name
-replacement never inherits the old identity UUID's pairing. Expired pairing or
-grants require recovery/renewal that is not implemented yet; stop and report the
-error rather than silently creating another grant. Uninstall does not revoke
+replacement never inherits the old identity UUID's pairing. `inspect` renews a
+paired lease with five minutes or less remaining, including expiry, after
+server authentication and authority checks. Renewal preserves the assigned block
+and capabilities; owner consent permits it until revoked, without daily browser
+approval. Local status never renews. A lost response can be retried without
+extending an already-renewed lease again. If an expired newer lease is recovered,
+the current inspect fails expired; a later invocation can renew it. Do not loop
+on failures. Disabled/missing grants, expired pending approvals and lost
+credentials cannot be repaired by silently creating another grant. Report those
+errors; never delete state to bypass revocation. Uninstall does not revoke
 remote grants. Do not use proposed connector or resource-edit commands.
 
 ## Configuration safety

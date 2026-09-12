@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 const APPROVAL_MS: u64 = 300_000;
 const CLAIM_INTERVAL_MS: u64 = 5000;
+const RENEWAL_WINDOW_MS: u64 = 300_000;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -53,13 +54,9 @@ impl PairingRecord {
         match &mut self.phase {
             Phase::Paired {
                 principal_uid,
-                grant_expires_at,
                 credential,
                 ..
             } => {
-                if now_ms >= *grant_expires_at {
-                    return Err(OfficeError::PairingExpired);
-                }
                 if credential.token_expires_at() > now_ms.saturating_add(30_000) {
                     return Ok(false);
                 }
@@ -71,6 +68,44 @@ impl PairingRecord {
                     deadline,
                 )?;
                 Ok(true)
+            }
+            Phase::Pending { .. } => Err(OfficeError::NotPaired),
+        }
+    }
+
+    pub fn renew_if_needed(
+        &mut self,
+        target: &WorldTarget,
+        now_ms: u64,
+        deadline: std::time::Instant,
+    ) -> Result<bool, OfficeError> {
+        let deployment = self.deployment(target)?;
+        match &mut self.phase {
+            Phase::Paired {
+                principal_uid,
+                block_id,
+                grant_expires_at,
+                credential,
+            } => {
+                if *grant_expires_at > now_ms.saturating_add(RENEWAL_WINDOW_MS) {
+                    return Ok(false);
+                }
+                let bytes = credential.renew_grant(
+                    &deployment,
+                    &self.approval,
+                    deadline,
+                    *grant_expires_at,
+                )?;
+                let expiry = super::wire::Renewal::decode(
+                    &bytes,
+                    &self.approval,
+                    principal_uid,
+                    block_id,
+                    *grant_expires_at,
+                )?;
+                let changed = expiry != *grant_expires_at;
+                *grant_expires_at = expiry;
+                Ok(changed)
             }
             Phase::Pending { .. } => Err(OfficeError::NotPaired),
         }

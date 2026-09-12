@@ -81,6 +81,9 @@ it('requires explicit recognition, renders labels as text and never approves jus
     const region = screen.getByRole('region', { name: 'Agent pairing request' });
     expect(region.querySelector('img')).toBeNull();
     expect(region.textContent).toContain('<img src=x onerror=alert(1)>');
+    expect(region.textContent).toContain(
+      'renew its access in leases of up to 24 hours until you revoke it'
+    );
     await user.click(screen.getByRole('checkbox'));
     await user.click(approve);
     await screen.findByText(/Approved\. Return to the requesting terminal/);

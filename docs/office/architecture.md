@@ -92,7 +92,8 @@ There is no work connector, deployed service or shared browser runtime package y
 The independently versioned native `tmt-office` companion currently implements
 the [typed local protocol](../../contracts/office/native-companion.md), including
 pairing, local status and an authorized assigned-block existence check.
-Its optional adapter feature owns discovery, Auth exchange/refresh and protected
+Its optional adapter feature owns discovery, Auth exchange/refresh, invocation-owned
+resource-lease renewal and protected
 scope records. It has no public distribution. The CLI's explicit `office`
 subtree installs, inspects, updates and deactivates it through existing native
 owners; other CLI operations do not execute or probe it. Shared native protocol
@@ -110,8 +111,9 @@ database client is introduced. Its [pairing contract](../../contracts/office/pai
 owns the wire format and recovery policy.
 
 `pairing-contract` owns bounded value decoding; `pairing-store` owns transactional
-approval/grant state and live owner admission. `pairing-service` composes human
-authentication and external signing, with a final authority recheck before token
+approval/grant state, compare-expiry lease renewal and live owner admission.
+`pairing-service` verifies human approval/revocation or bound-agent renewal
+authentication and composes external signing, with a final authority recheck before token
 delivery. `pairing-http` maps transport/error results; `index` alone initializes
 SDKs and exposes the function. Admin bypasses Rules, so server validation is an
 independent trust boundary, not a substitute for downstream Rules enforcement.

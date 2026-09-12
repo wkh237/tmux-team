@@ -28,7 +28,7 @@ pub fn claim_pairing(
         &serde_json::json!({"version":1,"secret":proof.secret()}).to_string(),
         "application/json",
         deadline,
-        true,
+        PostPurpose::Claim,
     )?;
     Claim::decode(&bytes, approval, now_ms)
 }
@@ -72,6 +72,26 @@ struct TokenBinding {
 }
 
 impl AgentCredential {
+    pub fn renew_grant(
+        &self,
+        deployment: &OfficeDeployment,
+        approval: &Approval,
+        deadline: Instant,
+        expected_expiry: u64,
+    ) -> Result<Vec<u8>, OfficeError> {
+        if !valid_token(&self.id_token) {
+            return Err(OfficeError::CredentialsInvalid);
+        }
+        post(
+            deployment,
+            &deployment.renewal_url(),
+            &serde_json::json!({"version":1,"pairingId":approval.pairing_id(),"grantExpiresAt":expected_expiry}).to_string(),
+            "application/json",
+            deadline,
+            PostPurpose::Renewal(&self.id_token),
+        )
+    }
+
     pub fn inspect_block(
         &self,
         deployment: &OfficeDeployment,
@@ -136,7 +156,7 @@ impl AgentCredential {
             &serde_json::json!({"token":claim.custom_token,"returnSecureToken":true}).to_string(),
             "application/json",
             deadline,
-            false,
+            PostPurpose::Auth,
         )?;
         let response: Exchanged =
             serde_json::from_slice(&bytes).map_err(|_| OfficeError::CredentialsInvalid)?;
@@ -174,7 +194,7 @@ impl AgentCredential {
             &body,
             "application/x-www-form-urlencoded",
             deadline,
-            false,
+            PostPurpose::Auth,
         )?;
         let response: Refreshed =
             serde_json::from_slice(&bytes).map_err(|_| OfficeError::CredentialsInvalid)?;
@@ -260,21 +280,31 @@ fn auth_url(deployment: &OfficeDeployment, operation: &str) -> String {
     format!("{base}/{operation}?key={}", deployment.api_key())
 }
 
+enum PostPurpose<'a> {
+    Auth,
+    Claim,
+    Renewal(&'a str),
+}
+
 fn post(
     deployment: &OfficeDeployment,
     url: &str,
     body: &str,
     content_type: &str,
     deadline: Instant,
-    claim: bool,
+    purpose: PostPurpose<'_>,
 ) -> Result<Vec<u8>, OfficeError> {
     let agent = office_http::agent(deployment.target().mode(), deadline)
         .map_err(|_| OfficeError::RemoteUncertain)?;
-    let mut response = agent
+    let mut request = agent
         .post(url)
         .header("Content-Type", content_type)
         .header("Accept", "application/json")
-        .header("Cache-Control", "no-store")
+        .header("Cache-Control", "no-store");
+    if let PostPurpose::Renewal(token) = purpose {
+        request = request.header("Authorization", &format!("Bearer {token}"));
+    }
+    let mut response = request
         .send(body)
         .map_err(|_| OfficeError::RemoteUncertain)?;
     match response.status().as_u16() {
@@ -285,8 +315,10 @@ fn post(
                 OfficeError::RemoteUncertain
             }
         }),
-        404 | 429 if claim => Err(OfficeError::PairingPending),
-        400 | 401 | 403 if !claim => Err(OfficeError::RemoteDenied),
+        404 | 429 if matches!(purpose, PostPurpose::Claim) => Err(OfficeError::PairingPending),
+        400 | 401 | 403 | 404 | 409 if !matches!(purpose, PostPurpose::Claim) => {
+            Err(OfficeError::RemoteDenied)
+        }
         300..=399 => Err(OfficeError::CredentialsInvalid),
         _ => Err(OfficeError::RemoteUncertain),
     }
