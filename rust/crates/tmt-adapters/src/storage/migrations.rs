@@ -53,6 +53,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "add identity lifetimes and reusable retired names",
         sql: include_str!("schema/009.sql"),
     },
+    Migration {
+        name: "add durable identity retirement hooks",
+        sql: include_str!("schema/010.sql"),
+    },
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

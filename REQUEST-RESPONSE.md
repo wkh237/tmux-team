@@ -159,10 +159,10 @@ key-order and duplicate-key-last-value behavior. Retained finals remain sufficie
 for retry after attempt removal; expiry and conflicts never renew them. Tests
 execute original TS-generated v1 receipts against migrated frozen schema-8
 fixtures, including in-flight and orphan finals. This proves service handoff,
-not simultaneous TS/schema-8 access to native/schema-9 state.
+not simultaneous TS/schema-8 access to current native state.
 
 Both receipt versions work without tmux or current config. Old schema-8 inputs
-may migrate through native reply; simultaneous old writers after schema-9
+may migrate through native reply; simultaneous old writers after native
 migration are unsupported.
 
 ## Talk completion

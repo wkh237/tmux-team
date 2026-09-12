@@ -4,6 +4,15 @@ use semver::Version;
 
 pub const OFFICE_PROTOCOL_VERSION: &str = "1";
 pub const OFFICE_PROTOCOL_OUTPUT_LIMIT: usize = 1024;
+pub const OFFICE_HOOK_BATCH_LIMIT: usize = 16;
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct OfficeSyncReport {
+    pub completed: u64,
+    pub failed: u64,
+    pub pending: u64,
+    pub failure: Option<OfficeError>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OfficeError {
@@ -61,6 +70,7 @@ pub enum OfficeInvocation {
     PairPoll,
     PairStatus,
     Inspect,
+    Sync,
 }
 
 impl OfficeInvocation {
@@ -71,6 +81,7 @@ impl OfficeInvocation {
             Self::PairPoll => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "pair-poll"],
             Self::PairStatus => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "pair-status"],
             Self::Inspect => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "inspect"],
+            Self::Sync => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "sync"],
         }
     }
 
@@ -81,6 +92,7 @@ impl OfficeInvocation {
             Self::PairPoll,
             Self::PairStatus,
             Self::Inspect,
+            Self::Sync,
         ]
         .into_iter()
         .find(|operation| arguments == operation.arguments())
@@ -139,6 +151,7 @@ mod tests {
             ("pair-poll", OfficeInvocation::PairPoll),
             ("pair-status", OfficeInvocation::PairStatus),
             ("inspect", OfficeInvocation::Inspect),
+            ("sync", OfficeInvocation::Sync),
         ] {
             assert_eq!(operation.arguments(), ["__tmt-office", "1", name]);
             assert_eq!(

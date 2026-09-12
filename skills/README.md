@@ -9,7 +9,7 @@ or separate slash-command package is required. All providers use the same bundle
 The native runtime needs no Node.js, Rust toolchain or source checkout; tmux is
 still required for pane operations. Native bindings are temporary by default:
 use `-s`/`--save` to keep one, and `tmt rm <name>` to retire a temporary identity
-(`--force` is required for a saved identity). Native schema 9 is forward-only;
+(`--force` is required for a saved identity). Native schema migrations are forward-only;
 do not use the legacy TypeScript runtime on a native database.
 
 ## Install

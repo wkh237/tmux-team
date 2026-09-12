@@ -126,7 +126,7 @@ describe('native role and preamble process contracts', () => {
       let identities: unknown[];
       try {
         writer.exec(
-          "INSERT INTO _migrations VALUES (10, 'future migration', '2026-01-01T00:00:00.000Z')"
+          "INSERT INTO _migrations VALUES (11, 'future migration', '2026-01-01T00:00:00.000Z')"
         );
         history = writer.prepare('SELECT * FROM _migrations ORDER BY version').all();
         identities = writer.prepare('SELECT * FROM identities ORDER BY id').all();

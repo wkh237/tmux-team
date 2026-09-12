@@ -212,7 +212,8 @@ fn run(
     match operation {
         OfficeOperation::Pair { .. }
         | OfficeOperation::PairStatus { .. }
-        | OfficeOperation::Inspect { .. } => {
+        | OfficeOperation::Inspect { .. }
+        | OfficeOperation::Sync => {
             if !installed(&executable)? {
                 return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
             }

@@ -89,9 +89,20 @@ impl OfficeInstallation {
         operation: impl FnOnce(&str) -> Result<T, OfficeError>,
     ) -> Result<T, OfficeError> {
         let key = self.scope_key(target, identity_id)?;
+        self.with_key(&key, || operation(&key))
+    }
+
+    pub(super) fn with_key<T>(
+        &self,
+        key: &str,
+        operation: impl FnOnce() -> Result<T, OfficeError>,
+    ) -> Result<T, OfficeError> {
+        if !crate::content_digest::is_sha256(key) {
+            return Err(OfficeError::CredentialsInvalid);
+        }
         let _lock = file_lock::exclusive(&self.directory.join(format!("{key}.lock")))
             .map_err(unavailable)?;
-        operation(&key)
+        operation()
     }
 
     pub fn scope_key(

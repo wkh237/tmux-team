@@ -22,7 +22,9 @@ This is not an invitation, presence or connected-agent implementation.
 Rules also implement the [agent grant boundary](../../contracts/office/agent-grant-v1.md):
 trusted per-agent principals can access only an assigned UUID block with matching
 installation/identity claims, live capability/lease and current owner admission.
-Only the owner can revoke a grant; clients cannot issue or enlarge one. This
+Direct client grant writes are owner-only revocation; clients cannot issue or
+enlarge one. The trusted issuer also accepts scoped agent/proof retirement
+cancellation through its [pairing contract](../../contracts/office/pairing-v1.md#retirement-cancellation). This
 does not provide assignment management. Native credential consumption is owned
 by the optional companion described below. Retained UUID blocks
 use the existing layout validator; no parallel layout/ownership document is introduced.
@@ -93,7 +95,7 @@ The independently versioned native `tmt-office` companion currently implements
 the [typed local protocol](../../contracts/office/native-companion.md), including
 pairing, local status and an authorized assigned-block existence check.
 Its optional adapter feature owns discovery, Auth exchange/refresh, invocation-owned
-resource-lease renewal and protected
+resource-lease renewal, identity retirement hook consumption and protected
 scope records. It has no public distribution. The CLI's explicit `office`
 subtree installs, inspects, updates and deactivates it through existing native
 owners; other CLI operations do not execute or probe it. Shared native protocol
@@ -112,7 +114,8 @@ owns the wire format and recovery policy.
 
 `pairing-contract` owns bounded value decoding; `pairing-store` owns transactional
 approval/grant state, compare-expiry lease renewal and live owner admission.
-`pairing-service` verifies human approval/revocation or bound-agent renewal
+`pairing-service` verifies human approval/revocation, bound-agent renewal or
+reduction-only agent/proof cancellation
 authentication and composes external signing, with a final authority recheck before token
 delivery. `pairing-http` maps transport/error results; `index` alone initializes
 SDKs and exposes the function. Admin bypasses Rules, so server validation is an

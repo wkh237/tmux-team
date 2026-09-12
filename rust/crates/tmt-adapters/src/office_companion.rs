@@ -11,7 +11,8 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_core::office_protocol::{
-    OFFICE_PROTOCOL_OUTPUT_LIMIT, OfficeError, OfficeInvocation, decode_office_probe,
+    OFFICE_HOOK_BATCH_LIMIT, OFFICE_PROTOCOL_OUTPUT_LIMIT, OfficeError, OfficeInvocation,
+    OfficeSyncReport, decode_office_probe,
 };
 
 pub struct PairingCall<'a> {
@@ -36,7 +37,7 @@ pub fn invoke_office_pairing(
     call: &PairingCall<'_>,
     deadline: Instant,
 ) -> io::Result<PairingReply> {
-    if operation == OfficeInvocation::Probe {
+    if matches!(operation, OfficeInvocation::Probe | OfficeInvocation::Sync) {
         return Err(invalid_pairing());
     }
     let input = serde_json::to_vec(
@@ -45,13 +46,31 @@ pub fn invoke_office_pairing(
     if input.len() > 4096 {
         return Err(invalid_pairing());
     }
+    let bytes = invoke_json(executable, operation, &input, deadline)?;
+    decode_pairing_reply(&bytes, call.world)
+}
+
+pub fn invoke_office_sync(
+    executable: &Path,
+    deadline: Instant,
+) -> io::Result<Result<OfficeSyncReport, OfficeError>> {
+    let bytes = invoke_json(executable, OfficeInvocation::Sync, b"{}", deadline)?;
+    decode_sync_reply(&bytes)
+}
+
+fn invoke_json(
+    executable: &Path,
+    operation: OfficeInvocation,
+    input: &[u8],
+    deadline: Instant,
+) -> io::Result<Vec<u8>> {
     let args = operation.arguments().map(OsString::from);
     let running = native_install::with_active_product(Product::Office, executable, |installed| {
         UnixCommandRunner
             .start(CommandRequest {
                 program: installed.active_executable.as_os_str(),
                 args: &args,
-                input: &input,
+                input,
                 deadline,
                 max_output_bytes: 4096,
             })
@@ -61,7 +80,50 @@ pub fn invoke_office_pairing(
     if !output.stderr.is_empty() {
         return Err(invalid_pairing());
     }
-    decode_pairing_reply(&output.stdout, call.world)
+    Ok(output.stdout)
+}
+
+fn decode_sync_reply(bytes: &[u8]) -> io::Result<Result<OfficeSyncReport, OfficeError>> {
+    if bytes.len() > 4096 {
+        return Err(invalid_pairing());
+    }
+    let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| invalid_pairing())?;
+    let object = value.as_object().ok_or_else(invalid_pairing)?;
+    if object.len() == 1
+        && let Some(error) = value["error"].as_str().and_then(OfficeError::parse)
+    {
+        return Ok(Err(error));
+    }
+    if object.len() != 4
+        || !["completed", "failed", "pending", "failureCode"]
+            .iter()
+            .all(|key| object.contains_key(*key))
+    {
+        return Err(invalid_pairing());
+    }
+    let completed = value["completed"].as_u64().ok_or_else(invalid_pairing)?;
+    let failed = value["failed"].as_u64().ok_or_else(invalid_pairing)?;
+    let pending = value["pending"].as_u64().ok_or_else(invalid_pairing)?;
+    let failure = match &value["failureCode"] {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(code) => {
+            Some(OfficeError::parse(code).ok_or_else(invalid_pairing)?)
+        }
+        _ => return Err(invalid_pairing()),
+    };
+    if completed
+        .checked_add(failed)
+        .is_none_or(|count| count > OFFICE_HOOK_BATCH_LIMIT as u64)
+        || (failed == 0) != failure.is_none()
+    {
+        return Err(invalid_pairing());
+    }
+    Ok(Ok(OfficeSyncReport {
+        completed,
+        failed,
+        pending,
+        failure,
+    }))
 }
 
 fn decode_pairing_reply(bytes: &[u8], world: &str) -> io::Result<PairingReply> {
@@ -77,7 +139,7 @@ fn decode_pairing_reply(bytes: &[u8], world: &str) -> io::Result<PairingReply> {
         if let Some(error) = value["error"].as_str().and_then(OfficeError::parse) {
             return Ok(PairingReply::Error(error));
         }
-        if let Some(state @ ("unpaired" | "pending" | "credential" | "expired")) =
+        if let Some(state @ ("unpaired" | "pending" | "credential" | "expired" | "revoked")) =
             value["state"].as_str()
         {
             return Ok(PairingReply::State(state.into()));
@@ -154,6 +216,44 @@ fn finish_probe(running: RunningCommand, expected_version: &semver::Version) -> 
 #[cfg(test)]
 mod pairing_tests {
     use super::*;
+
+    #[test]
+    fn sync_reports_are_bounded_and_expose_only_public_delivery_state() {
+        let report = serde_json::json!({"completed":1,"failed":1,"pending":2,"failureCode":"OFFICE_REMOTE_UNCERTAIN"});
+        assert_eq!(
+            decode_sync_reply(report.to_string().as_bytes())
+                .unwrap()
+                .unwrap(),
+            OfficeSyncReport {
+                completed: 1,
+                failed: 1,
+                pending: 2,
+                failure: Some(OfficeError::RemoteUncertain),
+            }
+        );
+        for (key, value) in [
+            ("completed", serde_json::json!(-1)),
+            ("completed", serde_json::json!(16)),
+            ("pending", serde_json::json!("2")),
+            ("failed", serde_json::json!(0)),
+            ("failureCode", serde_json::Value::Null),
+            ("failureCode", serde_json::json!("private diagnostic")),
+            ("refreshToken", serde_json::json!("private")),
+        ] {
+            let mut invalid = report.clone();
+            invalid[key] = value;
+            assert!(
+                decode_sync_reply(invalid.to_string().as_bytes()).is_err(),
+                "{key}"
+            );
+        }
+        assert_eq!(
+            decode_sync_reply(br#"{"error":"OFFICE_CREDENTIALS_UNAVAILABLE"}"#).unwrap(),
+            Err(OfficeError::CredentialsUnavailable)
+        );
+        assert!(decode_sync_reply(br#"{"completed":0}"#).is_err());
+        assert!(decode_sync_reply(&vec![b' '; 4097]).is_err());
+    }
 
     #[test]
     fn pairing_response_accepts_only_public_fields_and_the_selected_world() {

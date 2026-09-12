@@ -270,6 +270,10 @@ fn office(name: &'static str, about: &'static str) -> Command {
 
 fn office_commands() -> Command {
     office("office", "Manage the optional Office companion")
+        .subcommand(office(
+            "sync",
+            "Deliver pending identity retirement hooks to Office",
+        ))
         .subcommand(office_scope(
             office(
                 "inspect",

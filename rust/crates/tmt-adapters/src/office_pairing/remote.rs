@@ -33,6 +33,42 @@ pub fn claim_pairing(
     Claim::decode(&bytes, approval, now_ms)
 }
 
+pub(super) fn cancel_pairing(
+    deployment: &OfficeDeployment,
+    proof: &Proof,
+    approval: &Approval,
+    deadline: Instant,
+) -> Result<(), OfficeError> {
+    if proof.challenge() != approval.pairing_id() {
+        return Err(OfficeError::CredentialsInvalid);
+    }
+    let bytes = post(
+        deployment,
+        &deployment.revocation_url(),
+        &serde_json::json!({"version":1,"secret":proof.secret()}).to_string(),
+        "application/json",
+        deadline,
+        PostPurpose::Revocation(None),
+    )?;
+    decode_revocation(&bytes, approval)
+}
+
+fn decode_revocation(bytes: &[u8], approval: &Approval) -> Result<(), OfficeError> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct Revoked {
+        version: u8,
+        pairing_id: String,
+        revoked: bool,
+    }
+    let value: Revoked =
+        serde_json::from_slice(bytes).map_err(|_| OfficeError::CredentialsInvalid)?;
+    if value.version != 1 || value.pairing_id != approval.pairing_id() || !value.revoked {
+        return Err(OfficeError::CredentialsInvalid);
+    }
+    Ok(())
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentCredential {
@@ -72,6 +108,26 @@ struct TokenBinding {
 }
 
 impl AgentCredential {
+    pub(super) fn revoke(
+        &self,
+        deployment: &OfficeDeployment,
+        approval: &Approval,
+        deadline: Instant,
+    ) -> Result<(), OfficeError> {
+        if !valid_token(&self.id_token) {
+            return Err(OfficeError::CredentialsInvalid);
+        }
+        let bytes = post(
+            deployment,
+            &deployment.revocation_url(),
+            &serde_json::json!({"version":1,"pairingId":approval.pairing_id()}).to_string(),
+            "application/json",
+            deadline,
+            PostPurpose::Revocation(Some(&self.id_token)),
+        )?;
+        decode_revocation(&bytes, approval)
+    }
+
     pub fn renew_grant(
         &self,
         deployment: &OfficeDeployment,
@@ -284,6 +340,7 @@ enum PostPurpose<'a> {
     Auth,
     Claim,
     Renewal(&'a str),
+    Revocation(Option<&'a str>),
 }
 
 fn post(
@@ -301,7 +358,7 @@ fn post(
         .header("Content-Type", content_type)
         .header("Accept", "application/json")
         .header("Cache-Control", "no-store");
-    if let PostPurpose::Renewal(token) = purpose {
+    if let PostPurpose::Renewal(token) | PostPurpose::Revocation(Some(token)) = purpose {
         request = request.header("Authorization", &format!("Bearer {token}"));
     }
     let mut response = request

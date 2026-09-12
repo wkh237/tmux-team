@@ -199,7 +199,8 @@ impl BindingRecords for BindingRows<'_> {
                 )
                 .map_err(|error| classify(error, "Remove identity preamble"))?;
         }
-        self.0
+        let changed = self
+            .0
             .execute(
                 "UPDATE identities
                  SET retired_at_ms = CAST(strftime('%s','now') AS INTEGER) * 1000
@@ -208,6 +209,9 @@ impl BindingRecords for BindingRows<'_> {
                 [&identity.id],
             )
             .map_err(|error| classify(error, "Retire identity"))?;
+        if changed == 1 {
+            super::identity_hooks::enqueue_retirement(self.0, &identity.id)?;
+        }
         Ok(())
     }
 }

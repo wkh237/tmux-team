@@ -1,6 +1,7 @@
 mod bindings;
 mod errors;
 mod identities;
+mod identity_hooks;
 mod migrations;
 mod profiles;
 mod requests;

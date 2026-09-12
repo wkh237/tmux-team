@@ -18,6 +18,39 @@ fn fixture() -> (WorldTarget, PairingRecord) {
 }
 
 #[test]
+fn revoked_receipt_has_no_secret_and_can_resume_without_remote_authority() {
+    let (target, mut record) = fixture();
+    let secret = record.reserve_claim(1000).unwrap().secret();
+    // Remote confirmation is exercised by the emulator test; this assertion
+    // isolates the durable terminal representation and its retry behavior.
+    record.phase = Phase::Revoked {};
+    let bytes = record.encode().unwrap();
+    assert!(!String::from_utf8_lossy(&bytes).contains(&secret));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["phase"],
+        json!({"state":"revoked"})
+    );
+    let mut resumed = PairingRecord::decode(&bytes, &target, INSTALLATION, IDENTITY).unwrap();
+    assert_eq!(resumed.local_state(u64::MAX), "revoked");
+    assert!(!resumed.has_credentials());
+    // An elapsed deadline proves a terminal retry needs no network exchange.
+    resumed.revoke(&target, std::time::Instant::now()).unwrap();
+    assert_eq!(resumed.encode().unwrap(), bytes);
+    assert_eq!(PairingRecord::hook_target(&bytes).unwrap(), target);
+    let mut invalid: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    invalid["phase"]["secret"] = json!(secret);
+    assert!(
+        PairingRecord::decode(
+            &serde_json::to_vec(&invalid).unwrap(),
+            &target,
+            INSTALLATION,
+            IDENTITY
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn protected_record_round_trip_preserves_proof_deadline_and_full_deployment() {
     let (target, mut original) = fixture();
     let proof = original.reserve_claim(1000).unwrap();

@@ -133,7 +133,7 @@ test('HTTP approval and proof claim produce an actually usable scoped credential
   });
 });
 
-test('authenticated renewal converges across concurrent callers and never revives revoked authority', async () => {
+test('authenticated renewal converges across concurrent callers and never revives self-revoked authority', async () => {
   await withPairing(async ({ fixture, db, auth, world, secret, request, token }) => {
     expect((await post('approve', request, token)).status).toBe(200);
     const claimed = await post('claim', { version: 1, secret });
@@ -143,6 +143,16 @@ test('authenticated renewal converges across concurrent callers and never revive
     const agent = await fixture.client(false, 'device');
     await signInWithCustomToken(agent.auth, field(claimed.body, 'customToken'));
     const agentToken = await agent.auth.currentUser!.getIdToken();
+    const target = doc(agent.db, 'worlds', world.id, 'blocks', blockId);
+    await setDoc(target, {
+      version: 1,
+      revision: 1,
+      objects: ['d000'],
+      updatedAt: serverTimestamp(),
+    });
+    const block = db.collection('worlds').doc(world.id).collection('blocks').doc(blockId);
+    const stored = (await block.get()).data();
+    expect((await getDocFromServer(target)).data()?.objects).toEqual(['d000']);
     const grant = db.collection('worlds').doc(world.id).collection('agentGrants').doc(principal);
     const original = (await grant.get()).data()!;
     const expiredAt = Date.now() - 1000;
@@ -206,17 +216,165 @@ test('authenticated renewal converges across concurrent callers and never revive
     const current = { ...renewal, grantExpiresAt: raceExpiry };
     const [raced, revoked] = await Promise.all([
       post('renew', current, agentToken),
-      post('revoke', { version: 1, pairingId: request.pairingId }, token),
+      post('revoke', { version: 1, pairingId: request.pairingId }, agentToken),
     ]);
     expect([200, 404]).toContain(raced.status);
     expect(revoked.status).toBe(200);
     expect((await grant.get()).data()!.enabled).toBe(false);
+    expect(
+      (await db.collection('officePairings').doc(request.pairingId).get()).data()?.enabled
+    ).toBe(false);
+    expect((await block.get()).data()).toEqual(stored);
     expect((await post('renew', current, agentToken)).status).toBe(404);
     await expect(
       getDocFromServer(doc(agent.db, 'worlds', world.id, 'blocks', blockId))
     ).rejects.toMatchObject({ code: 'permission-denied' });
   });
 });
+
+test('only the exact issued agent can relinquish its claimed scope after admission loss', async () => {
+  await withPairing(async ({ fixture, db, auth, owner, world, secret, request, token }) => {
+    expect((await post('approve', request, token)).status).toBe(200);
+    const claimed = await post('claim', { version: 1, secret });
+    expect(claimed.status).toBe(200);
+    const principalUid = field(claimed.body, 'principalUid');
+    const record = db.collection('officePairings').doc(request.pairingId);
+    const grant = db.collection('worlds').doc(world.id).collection('agentGrants').doc(principalUid);
+    const beforePairing = (await record.get()).data();
+    const beforeGrant = (await grant.get()).data();
+    const agent = await fixture.client(false, 'device');
+    await signInWithCustomToken(agent.auth, field(claimed.body, 'customToken'));
+    const agentToken = await agent.auth.currentUser!.getIdToken();
+    const target = doc(agent.db, 'worlds', world.id, 'blocks', field(claimed.body, 'blockId'));
+    await setDoc(target, {
+      version: 1,
+      revision: 1,
+      objects: ['d000'],
+      updatedAt: serverTimestamp(),
+    });
+    const block = db
+      .collection('worlds')
+      .doc(world.id)
+      .collection('blocks')
+      .doc(field(claimed.body, 'blockId'));
+    const stored = (await block.get()).data();
+    expect((await getDocFromServer(target)).data()?.objects).toEqual(['d000']);
+    for (const mismatch of [
+      {
+        uid: `office-agent:${crypto.randomUUID()}`,
+        installationId: request.installationId,
+        identityId: request.identityId,
+      },
+      { uid: principalUid, installationId: crypto.randomUUID(), identityId: request.identityId },
+      {
+        uid: principalUid,
+        installationId: request.installationId,
+        identityId: crypto.randomUUID(),
+      },
+    ]) {
+      const wrong = await fixture.client(false, 'device');
+      await signInWithCustomToken(
+        wrong.auth,
+        await auth.createCustomToken(mismatch.uid, {
+          tmtOfficeAgent: true,
+          tmtInstallationId: mismatch.installationId,
+          tmtIdentityId: mismatch.identityId,
+        })
+      );
+      expect(
+        await post(
+          'revoke',
+          { version: 1, pairingId: request.pairingId },
+          await wrong.auth.currentUser!.getIdToken()
+        )
+      ).toEqual({ status: 404, body: { error: { code: 'PAIRING_UNAVAILABLE' } } });
+      expect((await record.get()).data()).toEqual(beforePairing);
+      expect((await grant.get()).data()).toEqual(beforeGrant);
+    }
+    await setTester(owner.uid, false);
+    expect((await post('revoke', { version: 1, pairingId: request.pairingId }, token)).status).toBe(
+      403
+    );
+    const expected = {
+      status: 200,
+      body: { version: 1, pairingId: request.pairingId, revoked: true },
+    };
+    expect(await post('revoke', { version: 1, pairingId: request.pairingId }, agentToken)).toEqual(
+      expected
+    );
+    expect(await post('revoke', { version: 1, pairingId: request.pairingId }, agentToken)).toEqual(
+      expected
+    );
+    expect((await record.get()).data()).toEqual({ ...beforePairing, enabled: false });
+    expect((await grant.get()).data()).toEqual({ ...beforeGrant, enabled: false });
+    // Restore admission to prove the retained disabled grant itself denies use.
+    await setTester(owner.uid, true);
+    await expect(getDocFromServer(target)).rejects.toMatchObject({ code: 'permission-denied' });
+    expect(
+      (
+        await post(
+          'renew',
+          { version: 1, pairingId: request.pairingId, grantExpiresAt: claimed.body.grantExpiresAt },
+          agentToken
+        )
+      ).status
+    ).toBe(404);
+    expect((await block.get()).data()).toEqual(stored);
+  });
+});
+
+for (const claimed of [false, true]) {
+  test(`original proof cancels an expired ${claimed ? 'reserved claim' : 'unclaimed approval'} without reconstructing authority`, async () => {
+    await withPairing(async ({ db, owner, secret, request, token }) => {
+      const proof = { version: 1, secret };
+      const record = db.collection('officePairings').doc(request.pairingId);
+      expect(await post('revoke', proof)).toEqual({
+        status: 404,
+        body: { error: { code: 'PAIRING_UNAVAILABLE' } },
+      });
+      expect((await record.get()).exists).toBe(false);
+      expect((await post('approve', request, token)).status).toBe(200);
+      if (claimed) {
+        // Reserve without signing/delivery: the original proof must also clean
+        // up an issued grant whose credential response was never received.
+        await createPairingStore(db).reserveClaim(request.pairingId);
+      }
+      const expiredAt = Date.now() - 1000;
+      await record.update({
+        createdAt: new Date(expiredAt - APPROVAL_MS),
+        expiresAt: new Date(expiredAt),
+      });
+      const beforePairing = (await record.get()).data()!;
+      const grant = db
+        .collection('worlds')
+        .doc(request.worldId)
+        .collection('agentGrants')
+        .doc(beforePairing.principalUid);
+      const beforeGrant = (await grant.get()).data();
+      await setTester(owner.uid, false);
+      for (const [input, header] of [
+        [{ ...proof, pairingId: request.pairingId }, undefined],
+        [proof, token],
+      ] as const) {
+        expect((await post('revoke', input, header)).status).toBe(400);
+        expect((await record.get()).data()).toEqual(beforePairing);
+        expect((await grant.get()).data()).toEqual(beforeGrant);
+      }
+      const expected = {
+        status: 200,
+        body: { version: 1, pairingId: request.pairingId, revoked: true },
+      };
+      expect(await post('revoke', proof)).toEqual(expected);
+      expect(await post('revoke', proof)).toEqual(expected);
+      expect((await record.get()).data()).toEqual({ ...beforePairing, enabled: false });
+      expect((await grant.get()).exists).toBe(claimed);
+      if (claimed) expect((await grant.get()).data()).toEqual({ ...beforeGrant, enabled: false });
+      await setTester(owner.uid, true);
+      expect((await post('claim', proof)).status).toBe(404);
+      expect((await post('approve', request, token)).status).toBe(404);
+    });
+  });
+}
 
 test('HTTP auth, input and proof failures cannot allocate credentials or cross owner scope', async () => {
   await withPairing(async ({ fixture, db, request, secret, token, owner }) => {
@@ -277,13 +435,15 @@ test('expired approval remains revocable and a missing issued grant is never rec
     });
     expect((await grant.get()).exists).toBe(false);
     now += APPROVAL_MS;
-    await store.revoke(owner.uid, request.pairingId);
-    await store.revoke(owner.uid, request.pairingId);
+    await store.revoke({ kind: 'owner', uid: owner.uid }, request.pairingId);
+    await store.revoke({ kind: 'owner', uid: owner.uid }, request.pairingId);
     expect(
       (await db.collection('officePairings').doc(request.pairingId).get()).data()?.enabled
     ).toBe(false);
     expect((await grant.get()).exists).toBe(false);
-    await expect(store.revoke(owner.uid, '0'.repeat(64))).rejects.toMatchObject({
+    await expect(
+      store.revoke({ kind: 'owner', uid: owner.uid }, '0'.repeat(64))
+    ).rejects.toMatchObject({
       code: 'PERMISSION_DENIED',
     });
     const later = await store.approve(owner.uid, { ...input, pairingId: '1'.repeat(64) });
@@ -292,7 +452,7 @@ test('expired approval remains revocable and a missing issued grant is never rec
     const before = (await retained.get()).data();
     expect(before?.enabled).toBe(true);
     now += APPROVAL_MS;
-    await store.revoke(owner.uid, later.pairingId);
+    await store.revoke({ kind: 'owner', uid: owner.uid }, later.pairingId);
     expect((await retained.get()).data()).toEqual({ ...before, enabled: false });
   });
 });
@@ -381,7 +541,7 @@ test('signer failure and lost-response retries preserve one principal and the or
     expect((await grants.doc(approved.principalUid).get()).data()?.expiresAt.toMillis()).toBe(
       shortenedExpiry
     );
-    await store.revoke(owner.uid, request.pairingId);
+    await store.revoke({ kind: 'owner', uid: owner.uid }, request.pairingId);
     now += CLAIM_INTERVAL_MS;
     await expect(service.claim({ version: 1, secret })).rejects.toMatchObject({
       code: 'PAIRING_UNAVAILABLE',
@@ -397,7 +557,7 @@ test('approval expiry and revocation during signing prevent credential delivery'
       verifyIdToken: (value, revoked) => auth.verifyIdToken(value, revoked),
       createCustomToken: async (uid, claims) => {
         const credential = await auth.createCustomToken(uid, claims);
-        await store.revoke(owner.uid, request.pairingId);
+        await store.revoke({ kind: 'owner', uid: owner.uid }, request.pairingId);
         return credential;
       },
     });

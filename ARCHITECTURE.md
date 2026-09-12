@@ -88,7 +88,7 @@ module remapping or incomplete discovery. It is a syntactic guard and never
 replaces review of behavior or effects.
 
 The optional `rust/crates/tmt-office` executable is independently versioned and
-exposes the compatibility probe and typed one-shot pairing/status/inspect operations.
+exposes the compatibility probe and typed one-shot pairing/status/inspect/sync operations.
 It depends on core and the existing adapters, not the CLI. Its adapter `office`
 feature owns validated deployment decoding, bounded HTTP, protected pairing
 records and explicit platform credential stores; ordinary CLI builds do not enable
@@ -109,9 +109,23 @@ readback can replace the local expiry. No timer or background process renews
 grants, and local status stays network-free. `office_http` shares bounded JSON
 transport with deployment discovery. Existing ConfigPaths, identity storage,
 file locks and process owners remain authoritative. One protected scope record
-owns pending proof or credentials; no SQLite binding index mirrors it. OS random
+owns pending proof or credentials; SQLite hooks contain only its opaque scope
+reference, never a duplicate credential or grant. OS random
 bytes create proofs; explicit Keychain/Secret Service backends fail closed.
 Background connection and resource editing remain unimplemented.
+
+Identity retirement remains the existing binding transaction's responsibility.
+`tmt-core::identity_hooks` owns typed subscriptions and delivery state;
+`storage::identity_hooks` registers subscriptions and atomically queues retirement
+notifications from that same transaction. It has no Office dependency. Consumers
+run after commit: `office_pairing::hooks` uses the existing protected-record and
+per-scope lock owners to revoke, retain a secret-free receipt, then acknowledge.
+No SQL transaction spans remote work. Office pair/inspect and explicit `office
+sync` consume bounded batches; ordinary identity commands only enqueue locally.
+No background or punctual remote cleanup is implied. The
+[native pairing lifecycle contract](contracts/office/native-pairing.md#identity-retirement-hooks)
+owns delivery order, retries and compatibility limitations. This is a retirement
+hook, not an arbitrary executable event bus.
 
 Workspace quality checks cover the unified feature graph. Native process
 fixtures build products separately to retain ordinary CLI feature isolation;
@@ -206,7 +220,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 9, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 10, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
@@ -215,6 +229,9 @@ promotes existing identities to saved without changing UUIDs; unsupported custom
 identity-table definitions are rejected rather than silently rebuilt. Old
 schema-8 writers cannot share the migrated database. Frozen inputs retain their
 own provenance in `test/fixtures/storage-history`, not in this architecture map.
+Schema 10 adds identity hook subscriptions and terminal delivery receipts;
+registration after retirement queues immediately, and delivered subscriptions
+cannot be resurrected by registration retries.
 
 `tmt-core::request::RequestService` owns preparation, delivery-state
 transitions, exact final submission, waiter release, attention revisions and

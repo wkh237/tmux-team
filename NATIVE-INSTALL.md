@@ -18,7 +18,7 @@ where required. A sender can run outside tmux; recipients still need live panes.
 Use the installer asset from a published release; the README
 supplies the verified version URL when one is available.
 
-Native schema 9 is forward-only: the TypeScript runtime cannot reopen it.
+Native schema migrations are forward-only: the TypeScript runtime cannot reopen native state.
 Installing or replacing a native binary does not migrate, delete or downgrade
 application data. Stop older TMT writers before switching, and do not run the
 native runtime against a database that the TypeScript runtime still uses.
@@ -156,4 +156,4 @@ makes recoverable backups; bootstrap never silently forces. Skill failure return
 nonzero after binary installation, without claiming rollback. Reload the agent
 or ask it to read the complete `tmt learn --skill`. No historical-session
 continuity or SQLite downgrade is promised; never use the old TypeScript writer
-on a schema-9 database.
+on a native database.
