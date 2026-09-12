@@ -33,8 +33,9 @@ An ID token or locally cached approval alone never grants access. Unknown fields
 versions, capabilities, malformed identifiers and timestamps fail closed.
 
 Grants are issued only by the [trusted pairing service](pairing-v1.md), currently
-verified locally with emulators rather than deployed. All client creates,
-deletes and lists are denied. Only the admitted world owner can read a known
+verified locally with emulators rather than deployed. All client creates and
+deletes are denied. Owner-only lists require an explicit limit from 1 to 20;
+agents and foreign owners cannot enumerate. Only the admitted world owner can read a known
 grant or change `enabled: true` to `false`, without changing any other field.
 Owners cannot enlarge, renew or reactivate it through Firestore client writes.
 They may also disable a malformed record as fail-closed recovery. Agents cannot
@@ -52,8 +53,23 @@ Neither owner nor agent can delete a block; clearing uses an empty layout.
 
 Layout authority confers no world-root, notebook, profile, board, message, work
 dispatch or general Firestore access. Those capabilities need separately reviewed
-contracts. Presentation cannot grant permission. The browser still edits only
-`home`; this boundary does not claim an agent-block UI already exists.
+contracts. Presentation cannot grant permission. The browser owner can select
+a grant's UUID block through the same editor as `home`. A revoked grant is not
+proof that a block is unassigned; retained content remains owner-managed.
+
+## Owner inventory
+
+The browser reads one server-confirmed page of 20 grant documents ordered by
+document ID, with an exclusive last-ID cursor. Refresh restarts at the first
+page; it does not accumulate an unbounded cache. A full page may have an empty
+next page. Concurrent insertions before a cursor appear only after refresh;
+pages are not a point-in-time snapshot of the collection. No grant polling or
+per-entry subscriptions are installed. Invalid records make the page unavailable.
+
+Labels reflect the last fetch and the browser clock, not online presence or
+fresh server authorization. Expired enabled leases may renew; revoked records
+remain visible. The inventory does not change grants, recover credentials,
+reassign resources or enumerate blocks without surviving grant references.
 
 Revocation denies subsequent server operations even with the same cached token.
 It neither erases retained blocks nor recalls already disclosed content. Expiry

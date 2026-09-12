@@ -13,9 +13,10 @@ import { connectFirestoreEmulator, initializeFirestore, terminate } from 'fireba
 const projectId = 'demo-tmt-office';
 const documents = `http://127.0.0.1:8080/v1/projects/${projectId}/databases/(default)/documents`;
 
-export async function readBlockDocument(worldId: string): Promise<unknown> {
+export async function readBlockDocument(worldId: string, blockId = 'home'): Promise<unknown> {
   expect(worldId).toMatch(/^[a-zA-Z0-9]{20}$/);
-  const response = await fetch(`${documents}/worlds/${worldId}/blocks/home`, {
+  expect(blockId).toMatch(/^(home|[0-9a-f-]{36})$/);
+  const response = await fetch(`${documents}/worlds/${worldId}/blocks/${blockId}`, {
     headers: { authorization: 'Bearer owner' },
     signal: AbortSignal.timeout(10_000),
   });
@@ -81,6 +82,16 @@ export async function writeAgentGrantFields(
     `worlds/${worldId}/agentGrants/${encodeURIComponent(principalUid)}`,
     fields
   );
+}
+
+export async function writeBlockFields(
+  worldId: string,
+  blockId: string,
+  fields: Record<string, unknown>
+): Promise<void> {
+  expect(worldId).toMatch(/^[a-zA-Z0-9]{20}$/);
+  expect(blockId).toMatch(/^[0-9a-f-]{36}$/);
+  await writeOperatorDocument(`worlds/${worldId}/blocks/${blockId}`, fields);
 }
 
 async function writeOperatorDocument(path: string, fields: Record<string, unknown>): Promise<void> {

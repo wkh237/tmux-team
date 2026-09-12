@@ -242,6 +242,13 @@ and token expiry must not stand in for that value.
 
 ## Personal-office milestone acceptance
 
+`retained-spaces.spec.ts` proves owner discovery of a revoked grant, opening and
+editing its retained UUID block through the shared editor, independent stored
+state, unchanged home layout, reopening and admission loss. The grant Rules
+suite independently checks bounded owner pagination and denies unbounded,
+oversized, foreign-owner, agent and revoked-admission queries. Owner editing
+does not prove native block mutation, reassignment or credential recovery.
+
 The M1 acceptance target is a causal local flow: actual native CLI and Office
 companion -> browser owner approval -> scoped credential use -> durable resource
 change -> visible browser result. Use deterministic mock agents, isolated real

@@ -7,8 +7,17 @@ import { BlockScene } from './block-scene.js';
 import './block.css';
 
 export const BlockContext = createContext<BlockPort | undefined>(undefined);
-export function BlockPanel({ worldId }: { worldId: string }) {
-  const port = useContext(BlockContext);
+export function BlockPanel({
+  worldId,
+  blockPort,
+  label,
+}: {
+  worldId: string;
+  blockPort?: BlockPort;
+  label?: string;
+}) {
+  const defaultPort = useContext(BlockContext);
+  const port = blockPort ?? defaultPort;
   const [state, setState] = useState<BlockState>();
   useEffect(() => {
     if (!port) return;
@@ -16,9 +25,15 @@ export function BlockPanel({ worldId }: { worldId: string }) {
     setState(next);
     return () => next.dispose();
   }, [port, worldId]);
-  return state ? <BlockEditor state={state} /> : null;
+  return state ? <BlockEditor state={state} label={label} /> : null;
 }
-export function BlockEditor({ state }: { state: BlockState }) {
+export function BlockEditor({
+  state,
+  label = 'YOUR SPACE / HOME BLOCK',
+}: {
+  state: BlockState;
+  label?: string;
+}) {
   const { remote, draft, ready, busy, error } = useSyncExternalStore(
     state.subscribe,
     state.getSnapshot
@@ -40,7 +55,7 @@ export function BlockEditor({ state }: { state: BlockState }) {
     <section className="block-editor" aria-label="Office block editor">
       <div className="block-heading">
         <div>
-          <p className="eyebrow">YOUR SPACE / HOME BLOCK</p>
+          <p className="eyebrow">{label}</p>
           <h2>Make room for your team.</h2>
         </div>
         <span role="status">

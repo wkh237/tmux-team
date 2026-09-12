@@ -315,6 +315,15 @@ test('retirement delivers Office hooks and recovers after vault and acknowledgme
             expect(await hook()).toEqual([{ state: 'delivered', attempt_count: 4 }]);
             expect((await grant.get()).data()).toEqual({ ...savedGrant, enabled: false });
             expect((await block.get()).data()).toEqual(savedBlock);
+            await page.getByRole('link', { name: 'Office', exact: true }).click();
+            await page.getByLabel('World ID', { exact: true }).fill(worldId);
+            await page.getByRole('button', { name: 'Open world', exact: true }).click();
+            await expect(page.getByText(/^Revoked · Lease expires/)).toBeVisible();
+            await page
+              .getByRole('button', { name: `Open block ${remote.blockId}`, exact: true })
+              .click();
+            await expect(page.getByRole('button', { name: 'Desk 1', exact: true })).toBeVisible();
+            expect((await block.get()).data()).toEqual(savedBlock);
           } finally {
             expect((await vault('clear')).status).toBe(0);
             expect((await vault('lookup')).status).toBe(1);

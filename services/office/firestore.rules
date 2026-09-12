@@ -110,12 +110,14 @@ service cloud.firestore {
 
       match /agentGrants/{principalUid} {
         allow get: if ownsWorld();
+        allow list: if ownsWorld() && request.query.limit != null
+          && request.query.limit > 0 && request.query.limit <= 20;
         // Issuance/renewal is a trusted service operation, not a client write.
         // An owner may only revoke; no edits can reactivate or enlarge a grant.
         allow update: if ownsWorld() && resource.data.enabled == true
           && request.resource.data.enabled == false
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['enabled']);
-        allow create, list, delete: if false;
+        allow create, delete: if false;
       }
 
       match /blocks/{blockId} {
