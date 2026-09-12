@@ -26,11 +26,19 @@ export interface Approval {
   capabilities: ['layout.read'] | ['layout.read', 'layout.write'];
 }
 
+export interface Renewal {
+  version: 1;
+  pairingId: string;
+  grantExpiresAt: number;
+}
+
 export const APPROVAL_MS = 5 * 60_000;
 export const GRANT_MS = 24 * 60 * 60_000;
+export const RENEWAL_WINDOW_MS = 5 * 60_000;
 export const CLAIM_INTERVAL_MS = 5000;
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const PAIRING_ID = /^[0-9a-f]{64}$/;
+export const MAX_TIMESTAMP_MS = 8_640_000_000_000_000;
 
 export function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -45,6 +53,15 @@ export function exact(value: Record<string, unknown>, keys: string[]): void {
 
 function matches(value: unknown, pattern: RegExp): value is string {
   return typeof value === 'string' && pattern.test(value);
+}
+
+export function isTimestampMillis(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isSafeInteger(value) &&
+    value > 0 &&
+    value <= MAX_TIMESTAMP_MS
+  );
 }
 
 function label(value: unknown): value is string {
@@ -106,6 +123,22 @@ export function parseClaim(input: unknown): string {
   if (bytes.length !== 32 || bytes.toString('base64url') !== value.secret)
     throw new PairingError('INVALID_ARGUMENT');
   return createHash('sha256').update(bytes).digest('hex');
+}
+
+export function parseRenewal(input: unknown): Renewal {
+  const value = object(input);
+  exact(value, ['version', 'pairingId', 'grantExpiresAt']);
+  if (
+    value.version !== 1 ||
+    !matches(value.pairingId, PAIRING_ID) ||
+    !isTimestampMillis(value.grantExpiresAt)
+  )
+    throw new PairingError('INVALID_ARGUMENT');
+  return {
+    version: 1,
+    pairingId: value.pairingId,
+    grantExpiresAt: value.grantExpiresAt,
+  };
 }
 
 export function parseRevocation(input: unknown): string {

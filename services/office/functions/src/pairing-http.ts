@@ -44,6 +44,8 @@ export function createPairingHandler(
           return { status: 200, body: await service.approve(request.body, request.authorization) };
         case '/claim':
           return { status: 200, body: await service.claim(request.body) };
+        case '/renew':
+          return { status: 200, body: await service.renew(request.body, request.authorization) };
         case '/revoke':
           return { status: 200, body: await service.revoke(request.body, request.authorization) };
         default:

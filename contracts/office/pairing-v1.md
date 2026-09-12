@@ -126,6 +126,41 @@ The service keeps expired/disabled records as tombstones in this slice: no TTL
 or cleanup silently permits reuse of a pairing ID. Bounded retention and public
 endpoint abuse controls must be reviewed before production activation.
 
+## Lease renewal
+
+Owner approval permits the selected agent to renew the same resource lease until
+revoked; the browser discloses this before consent. Each lease is at most 24 hours.
+The consumer is defined in [native pairing](native-pairing.md#invocation-owned-renewal).
+No background process or fresh daily human approval is required.
+
+`POST /renew` accepts exactly `{version:1, pairingId, grantExpiresAt}`. The expiry
+is the positive representable integer timestamp last observed by the caller,
+not a requested extension. Authentication is a verified, non-revoked Firebase
+agent ID token in the bearer header, never the original claim secret, an
+unverified JWT payload or a human token. Its UID, agent flag, installation and
+identity claims must match the stored pairing and grant.
+
+The transaction rechecks current owner admission, enabled/claimed pairing,
+original approval shape, matching resource scope and a complete enabled grant.
+The five-minute approval window remains closed: renewal does not call claim,
+mint another principal, reconstruct a missing grant or reactivate a disabled one.
+An expired resource lease can renew; expiry is not revocation.
+
+When the expected expiry matches the current lease and it has at most five
+minutes remaining, replace only the lease timestamps with server `now` and
+`now + 24h`. A still-long-lived lease is returned unchanged. A lower expected
+expiry returns the existing newer lease unchanged, even if it too has expired;
+a higher expected expiry conflicts. This comparison makes lost-response retries
+and concurrent requests converge without another extension. Transactions
+serialize renewal against revocation; a committed renewal never undoes a later
+revocation. Rules remain authoritative for subsequent resource access.
+
+Success is exactly `{version:1,pairingId,worldId,installationId,identityId,
+principalUid,blockId,capabilities,grantExpiresAt}` with server-authoritative
+expiry and no credentials. Existing authentication, invalid-input, permission,
+unavailable-pairing, conflict and unavailable-service errors retain their
+HTTP mappings. No browser receives agent tokens or direct grant-read authority.
+
 ## Deployment and verification boundary
 
 This slice is locally verified against Auth/Firestore emulators. Functions are

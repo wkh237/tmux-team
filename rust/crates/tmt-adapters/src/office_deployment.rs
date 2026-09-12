@@ -194,6 +194,10 @@ impl OfficeDeployment {
     pub fn claim_url(&self) -> String {
         format!("{}/claim", self.pairing_url)
     }
+
+    pub fn renewal_url(&self) -> String {
+        format!("{}/renew", self.pairing_url)
+    }
 }
 
 fn canonical_url(value: &str) -> Result<Url, InvalidDeployment> {

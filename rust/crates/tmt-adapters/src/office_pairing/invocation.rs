@@ -67,6 +67,11 @@ fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> 
                     entry.write(&record.encode()?)?;
                 }
                 active_identity(&paths, &identity.id)?;
+                if record.renew_if_needed(&target, now_ms()?, deadline)? {
+                    active_identity(&paths, &identity.id)?;
+                    entry.write(&record.encode()?)?;
+                }
+                active_identity(&paths, &identity.id)?;
                 let exists = record.inspect(&target, now_ms()?, deadline)?;
                 Ok(json!({"blockExists":exists}))
             }

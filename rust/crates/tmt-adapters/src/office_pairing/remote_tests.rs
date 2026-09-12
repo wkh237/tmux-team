@@ -83,7 +83,11 @@ fn post_fixture(
             "{\"version\":1}",
             "application/json",
             Instant::now() + Duration::from_secs(2),
-            claim,
+            if claim {
+                PostPurpose::Claim
+            } else {
+                PostPurpose::Auth
+            },
         )
     })
 }
@@ -98,6 +102,7 @@ fn bounded_post_statuses_preserve_claim_auth_and_uncertain_meanings() {
         (400, false, OfficeError::RemoteDenied),
         (401, false, OfficeError::RemoteDenied),
         (403, false, OfficeError::RemoteDenied),
+        (409, false, OfficeError::RemoteDenied),
         (503, false, OfficeError::RemoteUncertain),
         (302, false, OfficeError::CredentialsInvalid),
     ] {

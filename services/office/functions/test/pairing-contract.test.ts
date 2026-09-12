@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { parseApproval, parseClaim, parseRevocation } from '../src/pairing-contract.js';
+import {
+  parseApproval,
+  parseClaim,
+  parseRenewal,
+  parseRevocation,
+} from '../src/pairing-contract.js';
 import { serviceEnvironment } from '../src/firebase-environment.js';
 
 const approval = {
@@ -21,6 +26,14 @@ describe('pairing input contract', () => {
       'layout.read',
     ]);
     expect(parseRevocation({ version: 1, pairingId: approval.pairingId })).toBe(approval.pairingId);
+    expect(parseRenewal({ version: 1, pairingId: approval.pairingId, grantExpiresAt: 1 })).toEqual({
+      version: 1,
+      pairingId: approval.pairingId,
+      grantExpiresAt: 1,
+    });
+    expect(() =>
+      parseRenewal({ version: 1, pairingId: approval.pairingId, grantExpiresAt: 1, extra: true })
+    ).toThrow('INVALID_ARGUMENT');
   });
   it.each([
     { ownerUid: 'self-grant' },
@@ -49,6 +62,14 @@ describe('pairing input contract', () => {
     for (const value of [null, [], Object.create(approval)])
       expect(() => parseApproval(value)).toThrow('INVALID_ARGUMENT');
   });
+  it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER, 8_640_000_000_000_001])(
+    'rejects an invalid renewal expiry %s',
+    (grantExpiresAt) => {
+      expect(() =>
+        parseRenewal({ version: 1, pairingId: approval.pairingId, grantExpiresAt })
+      ).toThrow('INVALID_ARGUMENT');
+    }
+  );
   it('hashes original proof bytes and rejects noncanonical or oversized secrets', () => {
     const bytes = Buffer.alloc(32, 1);
     const secret = bytes.toString('base64url');

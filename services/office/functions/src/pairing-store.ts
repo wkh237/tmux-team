@@ -5,6 +5,9 @@ import {
   APPROVAL_MS,
   CLAIM_INTERVAL_MS,
   GRANT_MS,
+  isTimestampMillis,
+  MAX_TIMESTAMP_MS,
+  RENEWAL_WINDOW_MS,
   UUID,
   PairingError,
   exact,
@@ -32,6 +35,24 @@ export interface ApprovedBinding extends Approval {
 }
 
 export interface ClaimedBinding extends ApprovedBinding {
+  grantExpiresAt: number;
+}
+
+export interface AgentIdentity {
+  uid: string;
+  installationId: string;
+  identityId: string;
+}
+
+export interface RenewedBinding {
+  version: 1;
+  pairingId: string;
+  worldId: string;
+  installationId: string;
+  identityId: string;
+  principalUid: string;
+  blockId: string;
+  capabilities: Approval['capabilities'];
   grantExpiresAt: number;
 }
 
@@ -86,12 +107,22 @@ function decode(input: unknown, id: string): Pairing {
   }
 }
 
-function active(pairing: Pairing, now: number): void {
+function timestampMillis(value: Timestamp): number {
+  if (value.nanoseconds % 1_000_000 !== 0) unavailable();
+  const millis = value.toMillis();
+  if (!isTimestampMillis(millis)) unavailable();
+  return millis;
+}
+
+function validApproval(pairing: Pairing, now: number, temporal: 'active' | 'renewal'): void {
+  const createdAt = timestampMillis(pairing.createdAt);
+  const expiresAt = timestampMillis(pairing.expiresAt);
+  timestampMillis(pairing.nextClaimAt);
   if (
     !pairing.enabled ||
-    pairing.createdAt.toMillis() > now ||
-    pairing.expiresAt.toMillis() <= now ||
-    pairing.expiresAt.toMillis() - pairing.createdAt.toMillis() !== APPROVAL_MS
+    createdAt > now ||
+    expiresAt - createdAt !== APPROVAL_MS ||
+    (temporal === 'active' && expiresAt <= now)
   )
     unavailable();
 }
@@ -109,7 +140,12 @@ function sameRequest(left: Approval, right: Approval): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function validGrant(input: unknown, pairing: Pairing, now: number): number {
+function validGrant(
+  input: unknown,
+  pairing: Pairing,
+  now: number,
+  temporal: 'active' | 'renewal' = 'active'
+): number {
   try {
     const value = object(input);
     exact(value, [
@@ -123,6 +159,10 @@ function validGrant(input: unknown, pairing: Pairing, now: number): number {
       'createdAt',
       'expiresAt',
     ]);
+    const createdAt =
+      value.createdAt instanceof Timestamp ? timestampMillis(value.createdAt) : unavailable();
+    const expiresAt =
+      value.expiresAt instanceof Timestamp ? timestampMillis(value.expiresAt) : unavailable();
     if (
       value.version !== 1 ||
       value.ownerUid !== pairing.ownerUid ||
@@ -131,18 +171,30 @@ function validGrant(input: unknown, pairing: Pairing, now: number): number {
       value.blockId !== pairing.blockId ||
       JSON.stringify(value.capabilities) !== JSON.stringify(pairing.request.capabilities) ||
       value.enabled !== true ||
-      !(value.createdAt instanceof Timestamp) ||
-      !(value.expiresAt instanceof Timestamp) ||
-      value.createdAt.toMillis() > now ||
-      value.expiresAt.toMillis() <= now ||
-      value.expiresAt.toMillis() <= value.createdAt.toMillis() ||
-      value.expiresAt.toMillis() - value.createdAt.toMillis() > GRANT_MS
+      createdAt > now ||
+      (temporal === 'active' && expiresAt <= now) ||
+      expiresAt <= createdAt ||
+      expiresAt - createdAt > GRANT_MS
     )
       unavailable();
-    return value.expiresAt.toMillis();
+    return expiresAt;
   } catch {
     unavailable();
   }
+}
+
+function renewed(pairing: Pairing, grantExpiresAt: number): RenewedBinding {
+  return {
+    version: 1,
+    pairingId: pairing.request.pairingId,
+    worldId: pairing.request.worldId,
+    installationId: pairing.request.installationId,
+    identityId: pairing.request.identityId,
+    principalUid: pairing.principalUid,
+    blockId: pairing.blockId,
+    capabilities: pairing.request.capabilities,
+    grantExpiresAt,
+  };
 }
 
 export function createPairingStore(db: Firestore, clock: () => number = Date.now) {
@@ -169,7 +221,7 @@ export function createPairingStore(db: Firestore, clock: () => number = Date.now
 
   async function current(tx: Transaction, id: string, now: number): Promise<Pairing> {
     const pairing = decode((await tx.get(pairingRef(id))).data(), id);
-    active(pairing, now);
+    validApproval(pairing, now, 'active');
     if (!(await ownsWorld(tx, pairing.ownerUid, pairing.request.worldId))) unavailable();
     return pairing;
   }
@@ -188,7 +240,7 @@ export function createPairingStore(db: Firestore, clock: () => number = Date.now
           const pairing = decode(existing.data(), request.pairingId);
           if (pairing.ownerUid !== uid || !sameRequest(pairing.request, request))
             throw new PairingError('PAIRING_CONFLICT');
-          active(pairing, now);
+          validApproval(pairing, now, 'active');
           if (pairing.claimed) validGrant((await tx.get(grantRef(pairing))).data(), pairing, now);
           return view(pairing);
         }
@@ -245,6 +297,44 @@ export function createPairingStore(db: Firestore, clock: () => number = Date.now
         const pairing = await current(tx, id, now);
         if (!pairing.claimed) unavailable();
         validGrant((await tx.get(grantRef(pairing))).data(), pairing, now);
+      });
+    },
+
+    async renew(
+      agent: AgentIdentity,
+      id: string,
+      expectedGrantExpiresAt: number
+    ): Promise<RenewedBinding> {
+      return db.runTransaction(async (tx) => {
+        const now = clock();
+        if (!isTimestampMillis(now) || !isTimestampMillis(expectedGrantExpiresAt)) unavailable();
+        const pairing = decode((await tx.get(pairingRef(id))).data(), id);
+        validApproval(pairing, now, 'renewal');
+        if (!pairing.claimed || !(await ownsWorld(tx, pairing.ownerUid, pairing.request.worldId)))
+          unavailable();
+        if (
+          pairing.principalUid !== agent.uid ||
+          pairing.request.installationId !== agent.installationId ||
+          pairing.request.identityId !== agent.identityId
+        )
+          unavailable();
+
+        const grant = await tx.get(grantRef(pairing));
+        const currentGrantExpiresAt = validGrant(grant.data(), pairing, now, 'renewal');
+        if (expectedGrantExpiresAt > currentGrantExpiresAt)
+          throw new PairingError('PAIRING_CONFLICT');
+        const withinRenewalWindow =
+          currentGrantExpiresAt <= now || currentGrantExpiresAt - now <= RENEWAL_WINDOW_MS;
+        if (expectedGrantExpiresAt < currentGrantExpiresAt || !withinRenewalWindow)
+          return renewed(pairing, currentGrantExpiresAt);
+
+        if (now > MAX_TIMESTAMP_MS - GRANT_MS) unavailable();
+        const grantExpiresAt = now + GRANT_MS;
+        tx.update(grant.ref, {
+          createdAt: Timestamp.fromMillis(now),
+          expiresAt: Timestamp.fromMillis(grantExpiresAt),
+        });
+        return renewed(pairing, grantExpiresAt);
       });
     },
 

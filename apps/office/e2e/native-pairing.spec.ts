@@ -227,17 +227,69 @@ test('native pairing resumes its protected proof and a separate process uses the
         expired.phase.grantExpiresAt = Date.now() - 1;
         expect((await vault('store', JSON.stringify(expired))).status).toBe(0);
         const expiredResult = await office('inspect');
-        expect(expiredResult.status).toBe(1);
-        expect(JSON.parse(expiredResult.stdout).error.code).toBe('OFFICE_PAIRING_EXPIRED');
+        expect(expiredResult.status, expiredResult.stdout).toBe(0);
+        const recovered = JSON.parse((await vault('lookup')).stdout);
+        expect(recovered.phase.grantExpiresAt).toBe(savedGrant.expiresAt.toMillis());
+        expect((await grant.get()).data()!.expiresAt.toMillis()).toBe(
+          savedGrant.expiresAt.toMillis()
+        );
+
+        // Expire the actual server lease as well as its native copy. Readback
+        // of a still-live server lease above is not renewal evidence.
+        const pastExpiry = Date.now() - 1;
+        await grant.update({
+          createdAt: new Date(pastExpiry - 1000),
+          expiresAt: new Date(pastExpiry),
+        });
+        recovered.phase.grantExpiresAt = pastExpiry;
+        recovered.phase.credential.tokenExpiresAt = 0;
+        expect((await vault('store', JSON.stringify(recovered))).status).toBe(0);
+        const block = grant.parent.parent!.collection('blocks').doc(String(remote.blockId));
+        const beforeRenewalBlock = (await block.get()).data();
+        const renewed = await office('inspect');
+        expect(renewed.status, renewed.stdout).toBe(0);
+        expect(JSON.parse(renewed.stdout).blockExists).toBe(true);
+        const renewedGrant = (await grant.get()).data()!;
+        const renewedRecord = JSON.parse((await vault('lookup')).stdout);
+        secrets.push(
+          afterRefresh.phase.credential.idToken,
+          afterRefresh.phase.credential.refreshToken,
+          renewedRecord.phase.credential.idToken,
+          renewedRecord.phase.credential.refreshToken
+        );
+        expect(renewedGrant.expiresAt.toMillis()).toBeGreaterThan(Date.now());
+        expect(renewedGrant.expiresAt.toMillis() - renewedGrant.createdAt.toMillis()).toBe(
+          24 * 60 * 60_000
+        );
+        expect(renewedRecord.phase.grantExpiresAt).toBe(renewedGrant.expiresAt.toMillis());
+        expect(renewedRecord.phase.principalUid).toBe(remote.principalUid);
+        expect(renewedRecord.phase.blockId).toBe(remote.blockId);
+        expect(renewedGrant.capabilities).toEqual(savedGrant.capabilities);
+        expect((await block.get()).data()).toEqual(beforeRenewalBlock);
+
+        // Simulate a lost renewal response by restoring only the old local
+        // record. Retry must learn the same lease, never extend it again.
+        expect((await vault('store', JSON.stringify(recovered))).status).toBe(0);
+        expect((await office('inspect')).status).toBe(0);
+        expect((await grant.get()).data()).toEqual(renewedGrant);
+        const invalidRefresh = structuredClone(renewedRecord);
+        invalidRefresh.phase.credential.tokenExpiresAt = 0;
+        invalidRefresh.phase.credential.refreshToken = 'invalid-refresh-token';
+        expect((await vault('store', JSON.stringify(invalidRefresh))).status).toBe(0);
+        const refreshDenied = await office('inspect');
+        expect(refreshDenied.status).toBe(1);
+        expect(JSON.parse(refreshDenied.stdout).error.code).toBe('OFFICE_REMOTE_DENIED');
+        expect((await grant.get()).data()).toEqual(renewedGrant);
         const mismatched = structuredClone(afterRefresh);
         mismatched.approval.identityId = '00000000-0000-4000-8000-000000000009';
         expect((await vault('store', JSON.stringify(mismatched))).status).toBe(0);
         const invalid = await office('status');
         expect(invalid.status).toBe(1);
         expect(JSON.parse(invalid.stdout).error.code).toBe('OFFICE_CREDENTIALS_INVALID');
-        expect((await vault('store', JSON.stringify(afterRefresh))).status).toBe(0);
+        expect((await vault('store', JSON.stringify(renewedRecord))).status).toBe(0);
 
         await grant.update({ enabled: false });
+        const revokedGrant = (await grant.get()).data();
         const denied = await office('inspect');
         expect(denied.status).toBe(1);
         expect(JSON.parse(denied.stdout).error.code).toBe('OFFICE_REMOTE_DENIED');
@@ -247,6 +299,13 @@ test('native pairing resumes its protected proof and a separate process uses the
           state: 'credential',
           serverAuthorizationChecked: false,
         });
+        expect((await vault('store', JSON.stringify(recovered))).status).toBe(0);
+        const deniedRenewal = await office('inspect');
+        expect(deniedRenewal.status).toBe(1);
+        expect(JSON.parse(deniedRenewal.stdout).error.code).toBe('OFFICE_REMOTE_DENIED');
+        expect((await grant.get()).data()!.enabled).toBe(false);
+        expect((await grant.get()).data()).toEqual(revokedGrant);
+        expect(JSON.parse((await vault('lookup')).stdout).phase.grantExpiresAt).toBe(pastExpiry);
         expect((await pairing.get()).data()?.principalUid).toBe(remote.principalUid);
         expect(
           readFileSync(path.join(sandbox.globalDir, 'office', 'installation-id'), 'utf8')
@@ -256,7 +315,16 @@ test('native pairing resumes its protected proof and a separate process uses the
             (name) => name === 'installation-id' || name.endsWith('.lock')
           )
         ).toBe(true);
-        for (const result of [unpaired, resumed, missingBlock, existingBlock, denied, offline]) {
+        for (const result of [
+          unpaired,
+          resumed,
+          missingBlock,
+          existingBlock,
+          renewed,
+          deniedRenewal,
+          denied,
+          offline,
+        ]) {
           expect(
             result.stdout.includes('refreshToken') ||
               result.stdout.includes('idToken') ||

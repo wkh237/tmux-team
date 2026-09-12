@@ -107,7 +107,8 @@ failure handling, or `tmt help` for command options.
 ## Development
 
 Office is an optional work in progress. Its CLI installation/status commands are
-implemented, but pairing and a public Office release are not available yet. See
+implemented; source builds also support pairing and scoped access with renewable
+leases. No public Office release is available yet. See
 [Office commands](docs/office/commands.md); ordinary TMT use does not require it.
 
 Contributor-only requirements and checks are in [development](DEVELOPMENT.md).

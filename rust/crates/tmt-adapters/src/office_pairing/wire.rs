@@ -168,6 +168,51 @@ pub struct Claim {
     pub(super) custom_token: String,
 }
 
+/// An authenticated lease readback, not a new approval or credential.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(super) struct Renewal {
+    version: u8,
+    pairing_id: String,
+    world_id: String,
+    installation_id: String,
+    identity_id: String,
+    principal_uid: String,
+    block_id: String,
+    capabilities: Vec<String>,
+    grant_expires_at: u64,
+}
+
+impl Renewal {
+    pub fn decode(
+        bytes: &[u8],
+        approval: &Approval,
+        principal: &str,
+        block: &str,
+        expected_expiry: u64,
+    ) -> Result<u64, OfficeError> {
+        if bytes.len() > RESPONSE_LIMIT {
+            return Err(OfficeError::CredentialsInvalid);
+        }
+        let value: Self =
+            serde_json::from_slice(bytes).map_err(|_| OfficeError::CredentialsInvalid)?;
+        if value.version != 1
+            || value.pairing_id != approval.pairing_id
+            || value.world_id != approval.world_id
+            || value.installation_id != approval.installation_id
+            || value.identity_id != approval.identity_id
+            || value.capabilities != approval.capabilities
+            || value.principal_uid != principal
+            || value.block_id != block
+            || value.grant_expires_at < expected_expiry
+            || value.grant_expires_at > MAX_TIMESTAMP
+        {
+            return Err(OfficeError::CredentialsInvalid);
+        }
+        Ok(value.grant_expires_at)
+    }
+}
+
 impl Claim {
     pub fn decode(bytes: &[u8], expected: &Approval, now_ms: u64) -> Result<Self, OfficeError> {
         if bytes.len() > RESPONSE_LIMIT {
