@@ -27,10 +27,12 @@ function readBlock(value: Record<string, unknown>): Block {
     updatedAtMs: value.updatedAt.toMillis(),
   };
 }
-export function createBlockPort(db: Firestore): BlockPort {
+export function createBlockPort(db: Firestore, blockId = 'home'): BlockPort {
+  if (!/^(home|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.test(blockId))
+    throw new Error('Invalid block ID.');
   function reference(worldId: string) {
     if (!validWorldId(worldId)) throw new Error('Invalid world ID.');
-    return doc(db, 'worlds', worldId, 'blocks', 'home');
+    return doc(db, 'worlds', worldId, 'blocks', blockId);
   }
   return {
     watch(worldId, changed, failed) {

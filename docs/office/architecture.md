@@ -29,7 +29,7 @@ does not provide assignment management. Native credential consumption is owned
 by the optional companion described below. Retained UUID blocks
 use the existing layout validator; no parallel layout/ownership document is introduced.
 
-The current browser edits one owner-only `home` block per admitted world.
+The browser owner edits `home` or a UUID block selected from its grant inventory.
 `src/blocks/block-contract.ts` owns client values, catalog and footprint policy;
 `firebase-blocks.ts` implements its port using the existing initialized SDK.
 `block-state.ts` owns the server-confirmed projection and separate unsaved draft.
@@ -43,7 +43,8 @@ route/admission loss. Late observations and saves cannot restore disposed data.
 selection and controls. No canvas engine, generic scene framework, new global
 store or remote-state copy is introduced. Pointer selection/tile placement and
 equivalent numeric/keyboard controls edit locally; explicit Save uses the
-revision-checked Firestore transaction. Agent assignment and commands are not implemented. The contract and shared validation vectors live in `contracts/office`.
+revision-checked Firestore transaction. Agent reassignment and native block mutation
+commands are not implemented. The contract and shared validation vectors live in `contracts/office`.
 Save confirmation and conflict inspection use one-shot transaction reads in the
 same adapter, independent of watch-channel recovery. Watch snapshots remain
 the ongoing projection, not an acknowledgment channel for explicit saves.
@@ -103,6 +104,23 @@ values remain in the existing core.
 Create each only with its first concrete consumer and reviewed contract.
 Do not relocate established Rust, test, script or canonical skill paths simply
 to make the tree symmetric.
+
+### Owner retained spaces
+
+`src/spaces` owns a bounded one-page projection of existing `agentGrants`, not
+a new assignment store. Its Firebase adapter performs server-only, document-ID
+ordered queries; Rules allow at most 20 documents to the admitted world owner.
+The mounted world owns its disposable page state. Refresh clears stale data,
+late results are fenced after disposal, and no per-grant listener is created.
+Read failures do not imply an empty collection or revoked authority.
+
+The space view selects a target-bound `BlockPort` from the existing blocks adapter.
+The same editor/state/codec handles home and UUID blocks; switching targets remounts
+the editor and discards unsaved drafts. Submitted writes may still complete against
+their original target, but cannot repopulate another editor. Layout mutations do
+not edit grants, profiles or notebooks. Expiry labels are observations, never
+presence or permission decisions. See the [grant contract](../../contracts/office/agent-grant-v1.md#owner-inventory)
+for paging consistency and limitations.
 
 ### Trusted pairing issuer
 

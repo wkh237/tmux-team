@@ -8,8 +8,14 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
+  query,
+  limit,
+  orderBy,
+  documentId,
+  startAfter,
 } from 'firebase/firestore';
 import { createWorldPort } from '../src/worlds/firebase-worlds.js';
+import { createSpacePort } from '../src/spaces/firebase-spaces.js';
 import { createFirestoreFixture, setTester, writeAgentGrantFields } from './firestore-fixture.js';
 
 async function withAssignment(
@@ -76,6 +82,87 @@ const layout = (revision: number, objects: string[] = ['d000']) => ({
 });
 const denied = (operation: Promise<unknown>) =>
   expect(operation).rejects.toMatchObject({ code: 'permission-denied' });
+
+test('the owner inventory adapter pages real grants and opens an absent UUID block without touching home', async () => {
+  const fixture = await createFirestoreFixture();
+  try {
+    const owner = await fixture.client(true);
+    const worlds = createWorldPort(owner.db);
+    const world = worlds.draft('Inventory adapter');
+    await worlds.create(world, owner.uid);
+    const blockId = crypto.randomUUID();
+    for (let i = 0; i < 21; i++)
+      await writeAgentGrantFields(
+        world.id,
+        `office-agent:00000000-0000-4000-8000-${i.toString().padStart(12, '0')}`,
+        {
+          version: { integerValue: '1' },
+          ownerUid: { stringValue: owner.uid },
+          installationId: { stringValue: crypto.randomUUID() },
+          identityId: { stringValue: crypto.randomUUID() },
+          blockId: { stringValue: blockId },
+          capabilities: { arrayValue: { values: [{ stringValue: 'layout.read' }] } },
+          enabled: { booleanValue: false },
+          createdAt: { timestampValue: new Date(1000).toISOString() },
+          expiresAt: { timestampValue: new Date(2000).toISOString() },
+        }
+      );
+    const port = createSpacePort(owner.db);
+    const first = await port.list(world.id, owner.uid);
+    expect(first.entries).toHaveLength(20);
+    expect(first.next).toBe('office-agent:00000000-0000-4000-8000-000000000019');
+    const second = await port.list(world.id, owner.uid, first.next!);
+    expect(second.entries).toHaveLength(1);
+    expect(second.entries[0].principalUid).toBe(
+      'office-agent:00000000-0000-4000-8000-000000000020'
+    );
+    expect(second.next).toBeNull();
+    const target = port.block(blockId);
+    const result = await target.apply(world.id, 0, [{ asset: 'desk', x: 0, y: 0, rotation: 0 }]);
+    expect(result.revision).toBe(1);
+    expect(
+      (await getDocFromServer(doc(owner.db, 'worlds', world.id, 'blocks', blockId))).data()?.objects
+    ).toEqual(['d000']);
+    expect(
+      (await getDocFromServer(doc(owner.db, 'worlds', world.id, 'blocks', 'home'))).exists()
+    ).toBe(false);
+    expect(() => port.block('../home')).toThrow();
+    await expect(port.list(world.id, owner.uid, '../grant')).rejects.toThrow();
+  } finally {
+    await fixture.dispose();
+  }
+});
+
+test('only the admitted owner can enumerate bounded grant pages, including revoked history', async () => {
+  await withAssignment(async ({ fixture, owner, agent, world, fields }) => {
+    for (let i = 0; i < 21; i++)
+      await writeAgentGrantFields(
+        world.id,
+        `office-agent:00000000-0000-4000-8000-${i.toString().padStart(12, '0')}`,
+        { ...fields, enabled: { booleanValue: false } }
+      );
+    const grants = collection(owner.db, 'worlds', world.id, 'agentGrants');
+    const first = await getDocsFromServer(query(grants, orderBy(documentId()), limit(20)));
+    const second = await getDocsFromServer(
+      query(grants, orderBy(documentId()), startAfter(first.docs.at(-1)!.id), limit(20))
+    );
+    expect(first.size).toBe(20);
+    expect(second.size).toBe(2);
+    expect(new Set([...first.docs, ...second.docs].map((row) => row.id)).size).toBe(22);
+    expect(
+      [...first.docs, ...second.docs].filter((row) => row.data().enabled === false)
+    ).toHaveLength(21);
+    await denied(getDocsFromServer(grants));
+    await denied(getDocsFromServer(query(grants, limit(21))));
+    const foreign = await fixture.client(true);
+    for (const actor of [agent, foreign])
+      await denied(
+        getDocsFromServer(query(collection(actor.db, 'worlds', world.id, 'agentGrants'), limit(20)))
+      );
+    await setTester(owner.uid, false);
+    await denied(getDocsFromServer(query(grants, limit(20))));
+  });
+});
 
 test('an assigned principal edits only its block with the existing bounded revision contract', async () => {
   await withAssignment(

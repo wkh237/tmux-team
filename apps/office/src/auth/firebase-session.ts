@@ -21,6 +21,7 @@ import { createWorldPort } from '../worlds/firebase-worlds.js';
 import { createWorldState } from '../worlds/world-state.js';
 import { createBlockPort } from '../blocks/firebase-blocks.js';
 import { createPairingPort } from '../pairing/pairing-transport.js';
+import { createSpacePort } from '../spaces/firebase-spaces.js';
 
 /** One composition root for both explicit environments, outside React rendering. */
 export function startOfficeRuntime(
@@ -60,6 +61,7 @@ export function startOfficeRuntime(
     session,
     worlds,
     blocks: createBlockPort(db),
+    spaces: createSpacePort(db),
     pairing: pairingUrl ? createPairingPort(auth, pairingUrl) : undefined,
     mode,
     dispose: async () => {

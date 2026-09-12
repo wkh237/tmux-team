@@ -31,6 +31,19 @@ requires explicit consent and removes verified activation links only. Release
 files and unrelated data remain. A partial removal reports an invalid
 installation; repeat explicit uninstall to finish before reinstalling.
 
+## Owner space review (web)
+
+In an admitted private world, **Agent spaces** lists existing resource grants.
+Use **Refresh spaces** for the first page and **Next spaces** to advance. These
+records are not online status; lease labels reflect the last fetch. Revocation
+retains content, and an expired enabled lease may later renew.
+
+Choose **Open block** to inspect or edit the referenced space using the existing
+layout editor. **Open home block** returns to your own layout. Switching spaces
+discards unsaved edits; already submitted writes may still complete on their
+original target. An absent layout is shown as **No saved layout yet**, not as
+deleted content. Reassignment and credential recovery are not available here.
+
 ## Native pairing (source builds)
 
 Pairing requires an installed compatible companion and an unlocked OS credential

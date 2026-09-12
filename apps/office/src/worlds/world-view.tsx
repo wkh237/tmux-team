@@ -4,7 +4,7 @@ import type { ReactElement, ReactNode } from 'react';
 import type { WorldState } from './world-state.js';
 import { WORLD_ID_PATTERN } from './world-contract.js';
 import type { World } from './world-contract.js';
-import { BlockPanel } from '../blocks/block-view.js';
+import { OfficeSpaces } from '../spaces/space-view.js';
 
 export const WorldContext = createContext<WorldState | undefined>(undefined);
 
@@ -120,7 +120,7 @@ export function SelectedWorld({
       <p>
         World ID: <code>{world.id}</code>
       </p>
-      {children ? children(world) : <BlockPanel key={world.id} worldId={world.id} />}
+      {children ? children(world) : <OfficeSpaces key={world.id} world={world} />}
     </section>
   );
 }

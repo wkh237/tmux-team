@@ -11,6 +11,8 @@ import { BlockContext } from './blocks/block-view.js';
 import type { BlockPort } from './blocks/block-contract.js';
 import { PairingContext } from './pairing/pairing-view.js';
 import type { PairingPort } from './pairing/pairing-contract.js';
+import { SpaceContext } from './spaces/space-view.js';
+import type { SpacePort } from './spaces/space-contract.js';
 
 export function OfficeApp({
   router,
@@ -18,6 +20,7 @@ export function OfficeApp({
   worlds,
   blocks,
   pairing,
+  spaces,
   mode = 'emulator',
 }: {
   router: ReturnType<typeof createOfficeRouter>;
@@ -25,6 +28,7 @@ export function OfficeApp({
   worlds?: WorldState;
   blocks?: BlockPort;
   pairing?: PairingPort;
+  spaces?: SpacePort;
   mode?: string;
 }): ReactElement {
   // A mounted app owns its UI state; tests and future embedded views cannot leak it.
@@ -36,7 +40,9 @@ export function OfficeApp({
           <WorldContext value={worlds}>
             <BlockContext value={blocks}>
               <PairingContext value={pairing}>
-                <RouterProvider router={router} />
+                <SpaceContext value={spaces}>
+                  <RouterProvider router={router} />
+                </SpaceContext>
               </PairingContext>
             </BlockContext>
           </WorldContext>
