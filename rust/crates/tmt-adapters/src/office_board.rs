@@ -16,7 +16,7 @@ use crate::{
 };
 
 pub const BOARD_WIRE_LIMIT: usize = 65_536;
-pub const BOARD_OUTPUT_LIMIT: usize = 512 * 1024;
+pub const BOARD_OUTPUT_LIMIT: usize = office_board::SERIALIZED_RESPONSE_MAX_BYTES;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -95,14 +95,15 @@ struct CategoriesInput {
 }
 
 pub fn execute(operation: OfficeInvocation, input: &[u8]) -> Vec<u8> {
-    if let Err(code) = validate_wire(operation, input) {
-        return serde_json::to_vec(&json!({"error":code.code()})).unwrap();
-    }
+    let prepared = match prepare(operation, input) {
+        Ok(prepared) => prepared,
+        Err(code) => return serde_json::to_vec(&json!({"error":code.code()})).unwrap(),
+    };
     let paths = match ConfigPaths::discover() {
         Ok(paths) => paths,
         Err(_) => return br#"{"error":"STORAGE_ERROR"}"#.to_vec(),
     };
-    execute_at(operation, input, &paths.database)
+    encode_result(execute_prepared(prepared, &paths.database))
 }
 
 pub fn execute_at(
@@ -110,67 +111,141 @@ pub fn execute_at(
     input: &[u8],
     database: &std::path::Path,
 ) -> Vec<u8> {
-    if let Err(code) = validate_wire(operation, input) {
-        return serde_json::to_vec(&json!({"error":code.code()})).unwrap();
-    }
-    let value = execute_inner(operation, input, database)
-        .unwrap_or_else(|code| json!({"error":code.code()}));
+    let result =
+        prepare(operation, input).and_then(|prepared| execute_prepared(prepared, database));
+    encode_result(result)
+}
+
+fn encode_result(result: Result<Value, BoardErrorCode>) -> Vec<u8> {
+    let value = result.unwrap_or_else(|code| json!({"error":code.code()}));
     serde_json::to_vec(&value).unwrap_or_else(|_| br#"{"error":"STORAGE_ERROR"}"#.to_vec())
 }
 
-fn validate_wire(operation: OfficeInvocation, input: &[u8]) -> Result<(), BoardErrorCode> {
+enum DecodedBoardCall {
+    Post {
+        category: Category,
+        actor: DecodedBoardActor,
+        title: String,
+        body: String,
+        operation_id: String,
+    },
+    Reply {
+        thread_id: String,
+        actor: DecodedBoardActor,
+        body: String,
+        operation_id: String,
+    },
+    Edit {
+        entry_id: String,
+        actor: DecodedBoardActor,
+        title: Option<String>,
+        body: Option<String>,
+        expected_revision: u64,
+        operation_id: String,
+    },
+    Delete {
+        entry_id: String,
+        actor: DecodedBoardActor,
+        moderate: bool,
+        expected_revision: u64,
+        operation_id: String,
+    },
+    List(ListRequest),
+    Show(ShowRequest),
+    Categories(CategoryListRequest),
+}
+
+enum DecodedBoardActor {
+    Owner,
+    Identity { identity_id: String, name: String },
+}
+
+fn prepare(operation: OfficeInvocation, input: &[u8]) -> Result<DecodedBoardCall, BoardErrorCode> {
     if input.len() > BOARD_WIRE_LIMIT {
         return Err(BoardErrorCode::Invalid);
     }
-    let op = |v: Option<String>| v.unwrap_or_else(|| "00000000-0000-4000-8000-000000000000".into());
     match operation {
         OfficeInvocation::BoardPost => {
             let v: PostInput = decode(input)?;
-            office_board::validate_post::<std::convert::Infallible>(&PostRequest {
-                category: category(v.category)?,
-                actor: pre_actor(v.actor)?,
+            let category = category(v.category)?;
+            let actor = prepared_actor(v.actor)?;
+            let operation_id = operation_id(v.operation_id)?;
+            office_board::validate_post_fields::<std::convert::Infallible>(
+                &category,
+                &v.title,
+                &v.body,
+                &operation_id,
+            )
+            .map_err(|e| e.code)?;
+            Ok(DecodedBoardCall::Post {
+                category,
+                actor,
                 title: v.title,
                 body: v.body,
-                operation_id: op(v.operation_id),
+                operation_id,
             })
-            .map_err(|e| e.code)
         }
         OfficeInvocation::BoardReply => {
             let v: ReplyInput = decode(input)?;
-            office_board::validate_reply::<std::convert::Infallible>(&ReplyRequest {
+            let actor = prepared_actor(v.actor)?;
+            let operation_id = operation_id(v.operation_id)?;
+            office_board::validate_reply_fields::<std::convert::Infallible>(
+                &v.thread_id,
+                &v.body,
+                &operation_id,
+            )
+            .map_err(|e| e.code)?;
+            Ok(DecodedBoardCall::Reply {
                 thread_id: v.thread_id,
-                actor: pre_actor(v.actor)?,
+                actor,
                 body: v.body,
-                operation_id: op(v.operation_id),
+                operation_id,
             })
-            .map_err(|e| e.code)
         }
         OfficeInvocation::BoardEdit => {
             let v: EditInput = decode(input)?;
-            office_board::validate_edit::<std::convert::Infallible>(&EditRequest {
+            let actor = prepared_actor(v.actor)?;
+            let operation_id = operation_id(v.operation_id)?;
+            office_board::validate_edit_fields::<std::convert::Infallible>(
+                &v.entry_id,
+                v.title.as_deref(),
+                v.body.as_deref(),
+                v.if_revision,
+                &operation_id,
+            )
+            .map_err(|e| e.code)?;
+            Ok(DecodedBoardCall::Edit {
                 entry_id: v.entry_id,
-                actor: pre_actor(v.actor)?,
+                actor,
                 title: v.title,
                 body: v.body,
                 expected_revision: v.if_revision,
-                operation_id: op(v.operation_id),
+                operation_id,
             })
-            .map_err(|e| e.code)
         }
         OfficeInvocation::BoardDelete => {
             let v: DeleteInput = decode(input)?;
-            office_board::validate_delete::<std::convert::Infallible>(&DeleteRequest {
+            let actor = prepared_actor(v.actor)?;
+            let operation_id = operation_id(v.operation_id)?;
+            office_board::validate_delete_fields::<std::convert::Infallible>(
+                &v.entry_id,
+                v.moderate,
+                matches!(&actor, DecodedBoardActor::Owner),
+                v.if_revision,
+                &operation_id,
+            )
+            .map_err(|e| e.code)?;
+            Ok(DecodedBoardCall::Delete {
                 entry_id: v.entry_id,
-                actor: pre_actor(v.actor)?,
+                actor,
                 moderate: v.moderate,
                 expected_revision: v.if_revision,
-                operation_id: op(v.operation_id),
+                operation_id,
             })
-            .map_err(|e| e.code)
         }
         OfficeInvocation::BoardList => {
             let v: ListInput = decode(input)?;
-            office_board::validate_list::<std::convert::Infallible>(&ListRequest {
+            let request = ListRequest {
                 category: category(v.category)?,
                 view: match v.view.as_deref().unwrap_or("recent") {
                     "recent" => ListView::Recent,
@@ -181,149 +256,142 @@ fn validate_wire(operation: OfficeInvocation, input: &[u8]) -> Result<(), BoardE
                 since_ms: v.since_ms,
                 limit: v.limit.unwrap_or(office_board::DEFAULT_PAGE_SIZE),
                 cursor: v.cursor,
-            })
-            .map_err(|e| e.code)
+            };
+            office_board::validate_list::<std::convert::Infallible>(&request)
+                .map_err(|e| e.code)?;
+            Ok(DecodedBoardCall::List(request))
         }
         OfficeInvocation::BoardShow => {
             let v: ShowInput = decode(input)?;
-            office_board::validate_show::<std::convert::Infallible>(&ShowRequest {
+            let request = ShowRequest {
                 thread_id: v.thread_id,
                 reply_limit: v.reply_limit.unwrap_or(office_board::DEFAULT_PAGE_SIZE),
                 reply_cursor: v.reply_cursor,
-            })
-            .map_err(|e| e.code)
+            };
+            office_board::validate_show::<std::convert::Infallible>(&request)
+                .map_err(|e| e.code)?;
+            Ok(DecodedBoardCall::Show(request))
         }
         OfficeInvocation::BoardCategories => {
             let v: CategoriesInput = decode(input)?;
-            office_board::validate_category_list::<std::convert::Infallible>(&CategoryListRequest {
+            let request = CategoryListRequest {
                 limit: v.limit.unwrap_or(office_board::DEFAULT_PAGE_SIZE),
                 cursor: v.cursor,
-            })
-            .map_err(|e| e.code)
+            };
+            office_board::validate_category_list::<std::convert::Infallible>(&request)
+                .map_err(|e| e.code)?;
+            Ok(DecodedBoardCall::Categories(request))
         }
         _ => Err(BoardErrorCode::Invalid),
     }
 }
-fn pre_actor(value: ActorInput) -> Result<Actor, BoardErrorCode> {
+fn prepared_actor(value: ActorInput) -> Result<DecodedBoardActor, BoardErrorCode> {
     match value {
         ActorInput {
             kind,
             identity_id: None,
             name: None,
-        } if kind == "owner" => Ok(Actor::Owner {
-            world_id: "00000000-0000-4000-8000-000000000000".into(),
-        }),
+        } if kind == "owner" => Ok(DecodedBoardActor::Owner),
         ActorInput {
             kind,
             identity_id: Some(identity_id),
             name: Some(name),
-        } if kind == "identity" => Ok(Actor::Identity { identity_id, name }),
+        } if kind == "identity" => {
+            office_board::validate_identity_actor::<std::convert::Infallible>(&identity_id, &name)
+                .map_err(|e| e.code)?;
+            Ok(DecodedBoardActor::Identity { identity_id, name })
+        }
         _ => Err(BoardErrorCode::Invalid),
     }
 }
 
-fn execute_inner(
-    operation: OfficeInvocation,
-    input: &[u8],
+fn execute_prepared(
+    prepared: DecodedBoardCall,
     database: &std::path::Path,
 ) -> Result<Value, BoardErrorCode> {
-    if input.len() > BOARD_WIRE_LIMIT {
-        return Err(BoardErrorCode::Invalid);
-    }
     let mut storage = Storage::open(database).map_err(|_| BoardErrorCode::Storage)?;
-    let result = (|| match operation {
-        OfficeInvocation::BoardPost => {
-            let input: PostInput = decode(input)?;
+    let result = (|| match prepared {
+        DecodedBoardCall::Post {
+            category,
+            actor,
+            title,
+            body,
+            operation_id,
+        } => {
             let request = PostRequest {
-                category: category(input.category)?,
-                actor: actor(&mut storage, input.actor)?,
-                title: input.title,
-                body: input.body,
-                operation_id: operation_id(input.operation_id)?,
+                category,
+                actor: resolve_actor(&mut storage, actor)?,
+                title,
+                body,
+                operation_id,
             };
             office_board::create_thread(&mut storage, &request)
                 .map(create_value)
                 .map_err(|e| e.code)
         }
-        OfficeInvocation::BoardReply => {
-            let input: ReplyInput = decode(input)?;
+        DecodedBoardCall::Reply {
+            thread_id,
+            actor,
+            body,
+            operation_id,
+        } => {
             let request = ReplyRequest {
-                thread_id: input.thread_id,
-                actor: actor(&mut storage, input.actor)?,
-                body: input.body,
-                operation_id: operation_id(input.operation_id)?,
+                thread_id,
+                actor: resolve_actor(&mut storage, actor)?,
+                body,
+                operation_id,
             };
             office_board::reply(&mut storage, &request)
                 .map(create_value)
                 .map_err(|e| e.code)
         }
-        OfficeInvocation::BoardEdit => {
-            let input: EditInput = decode(input)?;
+        DecodedBoardCall::Edit {
+            entry_id,
+            actor,
+            title,
+            body,
+            expected_revision,
+            operation_id,
+        } => {
             let request = EditRequest {
-                entry_id: input.entry_id,
-                actor: actor(&mut storage, input.actor)?,
-                title: input.title,
-                body: input.body,
-                expected_revision: input.if_revision,
-                operation_id: operation_id(input.operation_id)?,
+                entry_id,
+                actor: resolve_actor(&mut storage, actor)?,
+                title,
+                body,
+                expected_revision,
+                operation_id,
             };
             office_board::edit(&mut storage, &request)
                 .map(edit_value)
                 .map_err(|e| e.code)
         }
-        OfficeInvocation::BoardDelete => {
-            let input: DeleteInput = decode(input)?;
+        DecodedBoardCall::Delete {
+            entry_id,
+            actor,
+            moderate,
+            expected_revision,
+            operation_id,
+        } => {
             let request = DeleteRequest {
-                entry_id: input.entry_id,
-                actor: actor(&mut storage, input.actor)?,
-                moderate: input.moderate,
-                expected_revision: input.if_revision,
-                operation_id: operation_id(input.operation_id)?,
+                entry_id,
+                actor: resolve_actor(&mut storage, actor)?,
+                moderate,
+                expected_revision,
+                operation_id,
             };
             office_board::delete(&mut storage, &request)
                 .map(delete_value)
                 .map_err(|e| e.code)
         }
-        OfficeInvocation::BoardList => {
-            let input: ListInput = decode(input)?;
-            let request = ListRequest {
-                category: category(input.category)?,
-                view: match input.view.as_deref().unwrap_or("recent") {
-                    "recent" => ListView::Recent,
-                    "updated" => ListView::Updated,
-                    _ => return Err(BoardErrorCode::Invalid),
-                },
-                author: author_filter(input.author)?,
-                since_ms: input.since_ms,
-                limit: input.limit.unwrap_or(office_board::DEFAULT_PAGE_SIZE),
-                cursor: input.cursor,
-            };
-            office_board::list(&storage, &request)
-                .map(list_value)
-                .map_err(|e| e.code)
-        }
-        OfficeInvocation::BoardShow => {
-            let input: ShowInput = decode(input)?;
-            let request = ShowRequest {
-                thread_id: input.thread_id,
-                reply_limit: input.reply_limit.unwrap_or(office_board::DEFAULT_PAGE_SIZE),
-                reply_cursor: input.reply_cursor,
-            };
-            office_board::show(&storage, &request)
-                .map(show_value)
-                .map_err(|e| e.code)
-        }
-        OfficeInvocation::BoardCategories => {
-            let input: CategoriesInput = decode(input)?;
-            let request = CategoryListRequest {
-                limit: input.limit.unwrap_or(office_board::DEFAULT_PAGE_SIZE),
-                cursor: input.cursor,
-            };
-            office_board::categories(&storage, &request)
-                .map(categories_value)
-                .map_err(|e| e.code)
-        }
-        _ => Err(BoardErrorCode::Invalid),
+        DecodedBoardCall::List(request) => office_board::list(&storage, &request)
+            .map(list_value)
+            .map_err(|e| e.code),
+        DecodedBoardCall::Show(request) => office_board::show(&storage, &request)
+            .map(show_value)
+            .map_err(|e| e.code),
+        DecodedBoardCall::Categories(request) => office_board::categories(&storage, &request)
+            .map(categories_value)
+            .map_err(|e| e.code),
     })();
     let close = storage.close().map_err(|_| BoardErrorCode::Storage);
     match (result, close) {
@@ -360,22 +428,12 @@ fn category(value: CategoryInput) -> Result<Category, BoardErrorCode> {
         _ => Err(BoardErrorCode::Invalid),
     }
 }
-fn actor(storage: &mut Storage, value: ActorInput) -> Result<Actor, BoardErrorCode> {
-    match value {
-        ActorInput {
-            kind,
-            identity_id: Some(id),
-            name: Some(name),
-        } if kind == "identity" => Ok(Actor::Identity {
-            identity_id: id,
-            name,
-        }),
-        ActorInput {
-            kind,
-            identity_id: None,
-            name: None,
-        } if kind == "owner" => local_owner_actor(storage).map_err(|_| BoardErrorCode::Storage),
-        _ => Err(BoardErrorCode::Invalid),
+fn resolve_actor(storage: &mut Storage, actor: DecodedBoardActor) -> Result<Actor, BoardErrorCode> {
+    match actor {
+        DecodedBoardActor::Identity { identity_id, name } => {
+            Ok(Actor::Identity { identity_id, name })
+        }
+        DecodedBoardActor::Owner => local_owner_actor(storage).map_err(|_| BoardErrorCode::Storage),
     }
 }
 fn author_filter(value: Option<ActorInput>) -> Result<Option<AuthorFilter>, BoardErrorCode> {
@@ -439,13 +497,28 @@ fn delete_value(v: office_board::DeleteReceipt) -> Value {
     json!({"entryId":v.entry_id,"revision":v.revision,"deleted":v.deleted,"changed":v.changed,"moderated":v.moderated,"operationId":v.operation_id})
 }
 fn list_value(v: office_board::ListResult) -> Value {
-    json!({"threads":v.threads.iter().map(|t|{let mut e=entry_value(&t.entry);if let Value::Object(ref mut o)=e{o.remove("body");o.insert("replyCount".into(),json!(t.reply_count));o.insert("activitySequence".into(),json!(t.activity_sequence));}e}).collect::<Vec<_>>(),"nextCursor":v.next_cursor,"boardRevision":v.board_revision})
+    let threads = v
+        .threads
+        .iter()
+        .map(|thread| {
+            let mut entry = entry_value(&thread.entry);
+            if let Value::Object(ref mut object) = entry {
+                object.remove("body");
+                object.insert("replyCount".into(), json!(thread.reply_count));
+                object.insert("activitySequence".into(), json!(thread.activity_sequence));
+            }
+            entry
+        })
+        .collect::<Vec<_>>();
+    json!({"threads":threads,"nextCursor":v.next_cursor,"boardRevision":v.board_revision})
 }
 fn show_value(v: office_board::ShowResult) -> Value {
-    json!({"thread":entry_value(&v.thread),"replies":v.replies.iter().map(entry_value).collect::<Vec<_>>(),"nextCursor":v.next_cursor,"boardRevision":v.board_revision})
+    let replies = v.replies.iter().map(entry_value).collect::<Vec<_>>();
+    json!({"thread":entry_value(&v.thread),"replies":replies,"nextCursor":v.next_cursor,"boardRevision":v.board_revision})
 }
 fn categories_value(v: office_board::CategoryListResult) -> Value {
-    json!({"categories":v.categories.iter().map(category_value).collect::<Vec<_>>(),"nextCursor":v.next_cursor,"boardRevision":v.board_revision})
+    let categories = v.categories.iter().map(category_value).collect::<Vec<_>>();
+    json!({"categories":categories,"nextCursor":v.next_cursor,"boardRevision":v.board_revision})
 }
 
 #[cfg(test)]

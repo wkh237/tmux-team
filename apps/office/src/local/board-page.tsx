@@ -28,8 +28,13 @@ function timeLabel(milliseconds: number): string {
   }).format(new Date(milliseconds));
 }
 
-function operationId(value: { current: string | undefined }): string {
-  value.current ??= crypto.randomUUID();
+interface PendingIntent<T> {
+  operationId: string;
+  input: T;
+}
+
+function pendingIntent<T>(value: { current: PendingIntent<T> | undefined }, input: T) {
+  value.current ??= { operationId: crypto.randomUUID(), input };
   return value.current;
 }
 
@@ -57,9 +62,13 @@ export function LocalBoardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const refreshGeneration = useRef(0);
+  const categoryContinuation = useRef<string | undefined>(undefined);
+  const threadContinuation = useRef<string | undefined>(undefined);
   const selectedCategoryKey = categoryKey(category);
 
   async function loadMoreCategories(activeRuntime: LocalRuntime, cursor: string) {
+    if (categoryContinuation.current === cursor) return;
+    categoryContinuation.current = cursor;
     const generation = refreshGeneration.current;
     try {
       const page = await activeRuntime.board.categories({ limit: 20, cursor });
@@ -70,10 +79,14 @@ export function LocalBoardPage() {
       if (generation !== refreshGeneration.current) return;
       setCategoryCursor(null);
       setError(message(caught));
+    } finally {
+      if (categoryContinuation.current === cursor) categoryContinuation.current = undefined;
     }
   }
 
   async function loadMoreThreads(activeRuntime: LocalRuntime, cursor: string) {
+    if (threadContinuation.current === cursor) return;
+    threadContinuation.current = cursor;
     const generation = refreshGeneration.current;
     try {
       const page = await activeRuntime.board.list({ category, view, limit: 20, cursor });
@@ -84,6 +97,8 @@ export function LocalBoardPage() {
       if (generation !== refreshGeneration.current) return;
       setThreadCursor(null);
       setError(message(caught));
+    } finally {
+      if (threadContinuation.current === cursor) threadContinuation.current = undefined;
     }
   }
 
@@ -100,7 +115,13 @@ export function LocalBoardPage() {
         activeRuntime.board.list({ category: requestedCategory, view: requestedView, limit: 20 }),
       ]);
       if (generation !== refreshGeneration.current) return;
-      setCategories(categoryPage.categories);
+      setCategories((_current) => {
+        const merged = [...categoryPage.categories];
+        if (!merged.some((item) => categoryKey(item) === categoryKey(requestedCategory))) {
+          merged.push(requestedCategory);
+        }
+        return merged;
+      });
       setCategoryCursor(categoryPage.nextCursor);
       setThreads(threadPage.threads);
       setThreadCursor(threadPage.nextCursor);
@@ -125,7 +146,6 @@ export function LocalBoardPage() {
 
   useEffect(() => {
     let active = true;
-    setDetail(undefined);
     if (!runtime || !selected) return;
     void runtime.board
       .show({ threadId: selected, replyLimit: 20 })
@@ -139,6 +159,8 @@ export function LocalBoardPage() {
       active = false;
     };
   }, [runtime, selected, detailVersion]);
+
+  const visibleDetail = detail?.thread.id === selected ? detail : undefined;
 
   if (!runtime) return <p role="alert">This build does not provide the local Office runtime.</p>;
   return (
@@ -199,73 +221,70 @@ export function LocalBoardPage() {
           {error}
         </p>
       )}
-      {loading ? (
-        <p role="status">Loading the board…</p>
-      ) : (
-        <div className="board-layout">
-          <aside className="board-index" aria-label="Discussion threads">
-            <NewThreadForm
+      {loading && <p role="status">Loading the board…</p>}
+      <div className="board-layout" aria-busy={loading}>
+        <aside className="board-index" aria-label="Discussion threads">
+          <NewThreadForm
+            runtime={runtime}
+            category={category}
+            completed={(id) => void refresh(runtime).then(() => setSelected(id))}
+          />
+          <h2>Threads</h2>
+          {threads.length === 0 ? (
+            <p className="board-empty">No posts in this category yet.</p>
+          ) : (
+            <ol className="board-thread-list">
+              {threads.map((thread) => (
+                <li key={thread.id}>
+                  <button
+                    type="button"
+                    aria-current={selected === thread.id ? 'true' : undefined}
+                    onClick={() => setSelected(thread.id)}
+                  >
+                    <strong>{thread.deleted ? 'Deleted post' : thread.title}</strong>
+                    <span>
+                      {authorLabel(thread)} · {thread.replyCount} replies
+                    </span>
+                    <span>{timeLabel(thread.updatedAtMs)}</span>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          )}
+          {threadCursor && (
+            <button
+              type="button"
+              className="board-secondary board-more"
+              onClick={() => void loadMoreThreads(runtime, threadCursor)}
+            >
+              More threads
+            </button>
+          )}
+        </aside>
+        <section
+          className="board-conversation"
+          id="board-conversation"
+          aria-label="Selected discussion"
+        >
+          {selected && !visibleDetail ? (
+            <p role="status">Loading this discussion…</p>
+          ) : visibleDetail ? (
+            <ThreadView
               runtime={runtime}
-              category={category}
-              completed={(id) => void refresh(runtime).then(() => setSelected(id))}
+              page={visibleDetail}
+              changed={() => {
+                void refresh(runtime);
+              }}
+              setError={setError}
             />
-            <h2>Threads</h2>
-            {threads.length === 0 ? (
-              <p className="board-empty">No posts in this category yet.</p>
-            ) : (
-              <ol className="board-thread-list">
-                {threads.map((thread) => (
-                  <li key={thread.id}>
-                    <button
-                      type="button"
-                      aria-current={selected === thread.id ? 'true' : undefined}
-                      onClick={() => setSelected(thread.id)}
-                    >
-                      <strong>{thread.deleted ? 'Deleted post' : thread.title}</strong>
-                      <span>
-                        {authorLabel(thread)} · {thread.replyCount} replies
-                      </span>
-                      <span>{timeLabel(thread.updatedAtMs)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ol>
-            )}
-            {threadCursor && (
-              <button
-                type="button"
-                className="board-secondary board-more"
-                onClick={() => void loadMoreThreads(runtime, threadCursor)}
-              >
-                More threads
-              </button>
-            )}
-          </aside>
-          <section
-            className="board-conversation"
-            id="board-conversation"
-            aria-label="Selected discussion"
-          >
-            {selected && !detail ? (
-              <p role="status">Loading this discussion…</p>
-            ) : detail ? (
-              <ThreadView
-                runtime={runtime}
-                page={detail}
-                changed={() => {
-                  void refresh(runtime);
-                }}
-                setError={setError}
-              />
-            ) : (
-              <div className="board-empty board-empty-detail">
-                <h2>Start the conversation</h2>
-                <p>Create the first post for {categoryLabel(category)}.</p>
-              </div>
-            )}
-          </section>
-        </div>
-      )}
+          ) : (
+            <div className="board-empty board-empty-detail">
+              <h2>Start the conversation</h2>
+              <p>Create the first post for {categoryLabel(category)}.</p>
+            </div>
+          )}
+        </section>
+      </div>
     </section>
   );
 }
@@ -284,10 +303,9 @@ function NewThreadForm({
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const operation = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    operation.current = undefined;
-  }, [category]);
+  const operation = useRef<
+    PendingIntent<{ category: BoardCategory; title: string; body: string }> | undefined
+  >(undefined);
   if (!open)
     return (
       <button type="button" className="board-primary board-new" onClick={() => setOpen(true)}>
@@ -301,8 +319,9 @@ function NewThreadForm({
         event.preventDefault();
         setBusy(true);
         setError(undefined);
+        const pending = pendingIntent(operation, { category, title, body });
         void runtime.board
-          .post({ category, title, body, operationId: operationId(operation) })
+          .post({ ...pending.input, operationId: pending.operationId })
           .then((receipt) => {
             operation.current = undefined;
             setTitle('');
@@ -310,7 +329,10 @@ function NewThreadForm({
             setOpen(false);
             completed(receipt.threadId);
           })
-          .catch((caught) => setError(message(caught)))
+          .catch((caught) => {
+            if (caught instanceof LocalHttpError) operation.current = undefined;
+            setError(message(caught));
+          })
           .finally(() => setBusy(false));
       }}
     >
@@ -350,7 +372,20 @@ function NewThreadForm({
           disabled={busy}
           onClick={() => setOpen(false)}
         >
-          Cancel
+          Close draft
+        </button>
+        <button
+          type="button"
+          className="board-danger"
+          disabled={busy}
+          onClick={() => {
+            operation.current = undefined;
+            setTitle('');
+            setBody('');
+            setOpen(false);
+          }}
+        >
+          Discard draft
         </button>
       </div>
     </form>
@@ -370,6 +405,12 @@ function ThreadView({
 }) {
   const [replies, setReplies] = useState(page.replies);
   const [nextCursor, setNextCursor] = useState(page.nextCursor);
+  const replyContinuation = useRef<string | undefined>(undefined);
+  const currentPage = useRef(page);
+  if (currentPage.current !== page) {
+    currentPage.current = page;
+    replyContinuation.current = undefined;
+  }
   useEffect(() => {
     setReplies(page.replies);
     setNextCursor(page.nextCursor);
@@ -390,18 +431,27 @@ function ThreadView({
           <button
             type="button"
             className="board-secondary"
-            onClick={() =>
+            onClick={() => {
+              const cursor = nextCursor;
+              if (!cursor || replyContinuation.current === cursor) return;
+              replyContinuation.current = cursor;
+              const requestedPage = page;
               void runtime.board
-                .show({ threadId: page.thread.id, replyLimit: 20, replyCursor: nextCursor })
+                .show({ threadId: page.thread.id, replyLimit: 20, replyCursor: cursor })
                 .then((next) => {
+                  if (currentPage.current !== requestedPage) return;
                   setReplies((current) => [...current, ...next.replies]);
                   setNextCursor(next.nextCursor);
                 })
                 .catch((caught) => {
+                  if (currentPage.current !== requestedPage) return;
                   setNextCursor(null);
                   setError(message(caught));
                 })
-            }
+                .finally(() => {
+                  if (replyContinuation.current === cursor) replyContinuation.current = undefined;
+                });
+            }}
           >
             More replies
           </button>
@@ -428,8 +478,23 @@ function EntryCard({
   const [body, setBody] = useState(entry.body ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const editOperation = useRef<string | undefined>(undefined);
-  const deleteOperation = useRef<string | undefined>(undefined);
+  const editOperation = useRef<
+    | PendingIntent<{
+        entryId: string;
+        title?: string;
+        body: string;
+        ifRevision: number;
+      }>
+    | undefined
+  >(undefined);
+  const deleteOperation = useRef<
+    | PendingIntent<{
+        entryId: string;
+        ifRevision: number;
+        moderate: boolean;
+      }>
+    | undefined
+  >(undefined);
   const owner = entry.author.kind === 'owner';
   const root = entry.id === entry.threadId;
   useEffect(() => {
@@ -453,20 +518,23 @@ function EntryCard({
             event.preventDefault();
             setBusy(true);
             setError(undefined);
+            const pending = pendingIntent(editOperation, {
+              entryId: entry.id,
+              ...(root ? { title } : {}),
+              body,
+              ifRevision: entry.revision,
+            });
             void runtime.board
-              .edit({
-                entryId: entry.id,
-                ...(root ? { title } : {}),
-                body,
-                ifRevision: entry.revision,
-                operationId: operationId(editOperation),
-              })
+              .edit({ ...pending.input, operationId: pending.operationId })
               .then(() => {
                 editOperation.current = undefined;
                 setEditing(false);
                 changed();
               })
-              .catch((caught) => setError(message(caught)))
+              .catch((caught) => {
+                if (caught instanceof LocalHttpError) editOperation.current = undefined;
+                setError(message(caught));
+              })
               .finally(() => setBusy(false));
           }}
         >
@@ -507,7 +575,7 @@ function EntryCard({
               type="button"
               onClick={() => setEditing(false)}
             >
-              Cancel
+              Discard edit
             </button>
           </div>
         </form>
@@ -537,18 +605,21 @@ function EntryCard({
                   return;
                 setBusy(true);
                 setError(undefined);
+                const pending = pendingIntent(deleteOperation, {
+                  entryId: entry.id,
+                  ifRevision: entry.revision,
+                  moderate,
+                });
                 void runtime.board
-                  .delete({
-                    entryId: entry.id,
-                    ifRevision: entry.revision,
-                    moderate,
-                    operationId: operationId(deleteOperation),
-                  })
+                  .delete({ ...pending.input, operationId: pending.operationId })
                   .then(() => {
                     deleteOperation.current = undefined;
                     changed();
                   })
-                  .catch((caught) => setError(message(caught)))
+                  .catch((caught) => {
+                    if (caught instanceof LocalHttpError) deleteOperation.current = undefined;
+                    setError(message(caught));
+                  })
                   .finally(() => setBusy(false));
               }}
             >
@@ -582,7 +653,9 @@ function ReplyForm({
   const [body, setBody] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const operation = useRef<string | undefined>(undefined);
+  const operation = useRef<PendingIntent<{ threadId: string; body: string }> | undefined>(
+    undefined
+  );
   return (
     <form
       className="board-compose board-reply-form"
@@ -590,14 +663,18 @@ function ReplyForm({
         event.preventDefault();
         setBusy(true);
         setError(undefined);
+        const pending = pendingIntent(operation, { threadId, body });
         void runtime.board
-          .reply({ threadId, body, operationId: operationId(operation) })
+          .reply({ ...pending.input, operationId: pending.operationId })
           .then(() => {
             operation.current = undefined;
             setBody('');
             completed();
           })
-          .catch((caught) => setError(message(caught)))
+          .catch((caught) => {
+            if (caught instanceof LocalHttpError) operation.current = undefined;
+            setError(message(caught));
+          })
           .finally(() => setBusy(false));
       }}
     >

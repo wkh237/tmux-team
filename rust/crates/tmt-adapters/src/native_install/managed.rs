@@ -18,6 +18,12 @@ pub struct ManagedInstallation {
     pub(super) id: Uuid,
 }
 
+impl ManagedInstallation {
+    pub(crate) fn release_id(&self) -> Uuid {
+        self.id
+    }
+}
+
 pub fn inspect(executable: &Path) -> io::Result<ManagedInstallation> {
     inspect_product(Product::Cli, executable)
 }

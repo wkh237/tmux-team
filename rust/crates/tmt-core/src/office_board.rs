@@ -2,6 +2,7 @@
 
 use std::{error::Error, fmt};
 
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 pub const TITLE_MAX_BYTES: usize = 160;
@@ -11,6 +12,9 @@ pub const REPLY_LIMIT: u64 = 1_000;
 pub const DEFAULT_PAGE_SIZE: u32 = 20;
 pub const MAX_PAGE_SIZE: u32 = 50;
 pub const CURSOR_MAX_BYTES: usize = 4_096;
+/// Covers the largest legal show page after conservative JSON escaping and
+/// envelope overhead while retaining the domain's existing content/page caps.
+pub const SERIALIZED_RESPONSE_MAX_BYTES: usize = 2 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Category {
@@ -194,13 +198,13 @@ pub struct Cursor {
 impl Cursor {
     pub fn encode(&self) -> String {
         format!(
-            "1.{}.{}.{}.{}.{}.{}",
-            hex(&self.operation),
+            "2.{}.{}.{}.{}.{}.{}",
+            base64url_encode(&self.operation),
             self.board_revision,
             self.page_size,
-            hex(&self.binding),
+            binding_fingerprint(&self.binding),
             self.sequence,
-            hex(&self.key)
+            base64url_encode(&self.key)
         )
     }
 
@@ -208,22 +212,22 @@ impl Cursor {
         if value.is_empty() || value.len() > CURSOR_MAX_BYTES {
             return Err(BoardError::policy(BoardErrorCode::CursorInvalid));
         }
-        let parts = value.split('.').collect::<Vec<_>>();
-        if parts.len() != 7 || parts[0] != "1" {
+        let parts = value.splitn(7, '.').collect::<Vec<_>>();
+        if parts.len() != 7 || parts[0] != "2" || !is_lower_hex_digest(parts[4]) {
             return Err(BoardError::policy(BoardErrorCode::CursorInvalid));
         }
-        let operation = unhex(parts[1])?;
+        let operation = base64url_decode(parts[1])?;
         let board_revision = parts[2]
             .parse()
             .map_err(|_| BoardError::policy(BoardErrorCode::CursorInvalid))?;
         let page_size = parts[3]
             .parse()
             .map_err(|_| BoardError::policy(BoardErrorCode::CursorInvalid))?;
-        let binding = unhex(parts[4])?;
+        let binding = parts[4].to_owned();
         let sequence = parts[5]
             .parse()
             .map_err(|_| BoardError::policy(BoardErrorCode::CursorInvalid))?;
-        let key = unhex(parts[6])?;
+        let key = base64url_decode(parts[6])?;
         Ok(Self {
             operation,
             board_revision,
@@ -233,6 +237,76 @@ impl Cursor {
             key,
         })
     }
+}
+
+pub fn binding_fingerprint(value: &str) -> String {
+    Sha256::digest(value.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn is_lower_hex_digest(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+const BASE64URL: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+fn base64url_encode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut encoded = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let bits = (u32::from(chunk[0]) << 16)
+            | (chunk.get(1).copied().map_or(0, u32::from) << 8)
+            | chunk.get(2).copied().map_or(0, u32::from);
+        encoded.push(BASE64URL[((bits >> 18) & 63) as usize] as char);
+        encoded.push(BASE64URL[((bits >> 12) & 63) as usize] as char);
+        if chunk.len() > 1 {
+            encoded.push(BASE64URL[((bits >> 6) & 63) as usize] as char);
+        }
+        if chunk.len() > 2 {
+            encoded.push(BASE64URL[(bits & 63) as usize] as char);
+        }
+    }
+    encoded
+}
+
+fn base64url_decode(value: &str) -> Result<String, BoardError<std::convert::Infallible>> {
+    if value.len() % 4 == 1 {
+        return Err(BoardError::policy(BoardErrorCode::CursorInvalid));
+    }
+    let mut bytes = Vec::with_capacity(value.len() * 3 / 4);
+    let mut buffer = 0_u32;
+    let mut available = 0_u8;
+    for byte in value.bytes() {
+        let digit = BASE64URL
+            .iter()
+            .position(|candidate| *candidate == byte)
+            .ok_or_else(|| BoardError::policy(BoardErrorCode::CursorInvalid))?;
+        buffer = (buffer << 6) | digit as u32;
+        available += 6;
+        if available >= 8 {
+            available -= 8;
+            bytes.push((buffer >> available) as u8);
+            buffer &= (1_u32 << available) - 1;
+        }
+    }
+    if buffer != 0 {
+        return Err(BoardError::policy(BoardErrorCode::CursorInvalid));
+    }
+    let decoded =
+        String::from_utf8(bytes).map_err(|_| BoardError::policy(BoardErrorCode::CursorInvalid))?;
+    if base64url_encode(&decoded) != value {
+        return Err(BoardError::policy(BoardErrorCode::CursorInvalid));
+    }
+    Ok(decoded)
+}
+
+pub fn new_operation_id() -> String {
+    Uuid::new_v4().to_string()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -356,43 +430,95 @@ pub fn categories<R: OfficeBoardRepository>(
 
 pub fn validate_post<E>(request: &PostRequest) -> Result<(), BoardError<E>> {
     validate_actor(&request.actor)?;
-    validate_category(&request.category)?;
-    validate_title(&request.title)?;
-    validate_body(&request.body, ROOT_BODY_MAX_BYTES)?;
-    validate_operation_id(&request.operation_id)
+    validate_post_fields(
+        &request.category,
+        &request.title,
+        &request.body,
+        &request.operation_id,
+    )
+}
+
+pub fn validate_post_fields<E>(
+    category: &Category,
+    title: &str,
+    body: &str,
+    operation_id: &str,
+) -> Result<(), BoardError<E>> {
+    validate_category(category)?;
+    validate_title(title)?;
+    validate_body(body, ROOT_BODY_MAX_BYTES)?;
+    validate_operation_id(operation_id)
 }
 
 pub fn validate_reply<E>(request: &ReplyRequest) -> Result<(), BoardError<E>> {
-    validate_uuid(&request.thread_id)?;
     validate_actor(&request.actor)?;
-    validate_body(&request.body, REPLY_BODY_MAX_BYTES)?;
-    validate_operation_id(&request.operation_id)
+    validate_reply_fields(&request.thread_id, &request.body, &request.operation_id)
+}
+
+pub fn validate_reply_fields<E>(
+    thread_id: &str,
+    body: &str,
+    operation_id: &str,
+) -> Result<(), BoardError<E>> {
+    validate_uuid(thread_id)?;
+    validate_body(body, REPLY_BODY_MAX_BYTES)?;
+    validate_operation_id(operation_id)
 }
 
 pub fn validate_edit<E>(request: &EditRequest) -> Result<(), BoardError<E>> {
-    validate_uuid(&request.entry_id)?;
     validate_actor(&request.actor)?;
-    if request.expected_revision == 0 || (request.title.is_none() && request.body.is_none()) {
+    validate_edit_fields(
+        &request.entry_id,
+        request.title.as_deref(),
+        request.body.as_deref(),
+        request.expected_revision,
+        &request.operation_id,
+    )
+}
+
+pub fn validate_edit_fields<E>(
+    entry_id: &str,
+    title: Option<&str>,
+    body: Option<&str>,
+    expected_revision: u64,
+    operation_id: &str,
+) -> Result<(), BoardError<E>> {
+    validate_uuid(entry_id)?;
+    if expected_revision == 0 || (title.is_none() && body.is_none()) {
         return Err(BoardError::policy(BoardErrorCode::Invalid));
     }
-    if let Some(title) = &request.title {
+    if let Some(title) = title {
         validate_title(title)?;
     }
-    if let Some(body) = &request.body {
+    if let Some(body) = body {
         validate_body(body, ROOT_BODY_MAX_BYTES)?;
     }
-    validate_operation_id(&request.operation_id)
+    validate_operation_id(operation_id)
 }
 
 pub fn validate_delete<E>(request: &DeleteRequest) -> Result<(), BoardError<E>> {
-    validate_uuid(&request.entry_id)?;
     validate_actor(&request.actor)?;
-    if request.expected_revision == 0
-        || (request.moderate && !matches!(request.actor, Actor::Owner { .. }))
-    {
+    validate_delete_fields(
+        &request.entry_id,
+        request.moderate,
+        matches!(request.actor, Actor::Owner { .. }),
+        request.expected_revision,
+        &request.operation_id,
+    )
+}
+
+pub fn validate_delete_fields<E>(
+    entry_id: &str,
+    moderate: bool,
+    owner: bool,
+    expected_revision: u64,
+    operation_id: &str,
+) -> Result<(), BoardError<E>> {
+    validate_uuid(entry_id)?;
+    if expected_revision == 0 || (moderate && !owner) {
         return Err(BoardError::policy(BoardErrorCode::Invalid));
     }
-    validate_operation_id(&request.operation_id)
+    validate_operation_id(operation_id)
 }
 
 pub fn validate_list<E>(request: &ListRequest) -> Result<(), BoardError<E>> {
@@ -536,27 +662,11 @@ fn validate_actor<E>(actor: &Actor) -> Result<(), BoardError<E>> {
     }
 }
 
-fn hex(value: &str) -> String {
-    value
-        .as_bytes()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
-fn unhex(value: &str) -> Result<String, BoardError<std::convert::Infallible>> {
-    if !value.len().is_multiple_of(2) {
-        return Err(BoardError::policy(BoardErrorCode::CursorInvalid));
-    }
-    let bytes = value
-        .as_bytes()
-        .chunks_exact(2)
-        .map(|pair| {
-            let text = std::str::from_utf8(pair).map_err(|_| ())?;
-            u8::from_str_radix(text, 16).map_err(|_| ())
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| BoardError::policy(BoardErrorCode::CursorInvalid))?;
-    String::from_utf8(bytes).map_err(|_| BoardError::policy(BoardErrorCode::CursorInvalid))
+pub fn validate_identity_actor<E>(identity_id: &str, name: &str) -> Result<(), BoardError<E>> {
+    validate_actor(&Actor::Identity {
+        identity_id: identity_id.into(),
+        name: name.into(),
+    })
 }
 
 #[cfg(test)]
@@ -609,10 +719,43 @@ mod tests {
             sequence: 9,
             key: "33333333-3333-4333-8333-333333333333".into(),
         };
-        assert_eq!(Cursor::parse(&cursor.encode()).unwrap(), cursor);
-        for value in ["", "2.00.0.1.00.0.00", "1.gg.0.1.00.0.00"] {
+        let parsed = Cursor::parse(&cursor.encode()).unwrap();
+        assert_eq!(parsed.operation, cursor.operation);
+        assert_eq!(parsed.board_revision, cursor.board_revision);
+        assert_eq!(parsed.page_size, cursor.page_size);
+        assert_eq!(parsed.binding, binding_fingerprint(&cursor.binding));
+        assert_eq!(parsed.sequence, cursor.sequence);
+        assert_eq!(parsed.key, cursor.key);
+        for value in ["", "1.00.0.1.00.0.00", "2.gg.0.1.00.0.00"] {
             assert!(Cursor::parse(value).is_err());
         }
+        let mut padded = cursor
+            .encode()
+            .split('.')
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        padded[1].push('=');
+        assert!(Cursor::parse(&padded.join(".")).is_err());
+        let mut invalid_alphabet = cursor
+            .encode()
+            .split('.')
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        invalid_alphabet[6] = "*".into();
+        assert!(Cursor::parse(&invalid_alphabet.join(".")).is_err());
+
+        let maximum_repository = format!("h/{}", "r".repeat(2046));
+        let maximum = Cursor {
+            operation: "categories-é".into(),
+            binding: maximum_repository.clone(),
+            key: maximum_repository.clone(),
+            ..cursor
+        };
+        let encoded = maximum.encode();
+        assert!(encoded.len() < CURSOR_MAX_BYTES);
+        let parsed = Cursor::parse(&encoded).unwrap();
+        assert_eq!(parsed.operation, "categories-é");
+        assert_eq!(parsed.key, maximum_repository);
         assert!(Cursor::parse(&"x".repeat(CURSOR_MAX_BYTES + 1)).is_err());
     }
 
@@ -652,6 +795,19 @@ mod tests {
             .unwrap_err()
             .code,
             BoardErrorCode::Invalid
+        );
+    }
+
+    #[test]
+    fn serialized_response_budget_covers_the_largest_escaped_show_page() {
+        let content = ROOT_BODY_MAX_BYTES
+            + usize::try_from(MAX_PAGE_SIZE).unwrap() * REPLY_BODY_MAX_BYTES
+            + TITLE_MAX_BYTES;
+        let repeated_metadata = (usize::try_from(MAX_PAGE_SIZE).unwrap() + 1) * (2048 + 256);
+        let conservative_json_escaping = 2 * (content + repeated_metadata);
+        let envelope_and_fixed_fields = 64 * 1024;
+        assert!(
+            conservative_json_escaping + envelope_and_fixed_fields < SERIALIZED_RESPONSE_MAX_BYTES
         );
     }
 }

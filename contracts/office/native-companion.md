@@ -41,13 +41,20 @@ no board operation launch. Old CLIs continue to use only the unchanged probe;
 new CLIs fail closed against old companions. Capability support is not inferred
 from package semver.
 
-Board requests use bounded JSON up to 64 KiB and responses up to 512 KiB so a
-maximum reply page can carry its validated exact text. The companion JSON adapter
+Board requests use bounded JSON up to 64 KiB. Board responses use a shared 2 MiB
+ceiling, derived conservatively from the maximum legal root plus 50-reply page
+after JSON escaping and envelope overhead, while content and page limits remain
+unchanged. This keeps the companion transport bounded without rejecting legal
+maximum pages. The companion JSON adapter
 maps them to the single `office_board` domain/repository owner; it does not create
 a second board policy or allow an unverified executable.
 
 Only a verified owned release or staged candidate may be probed. The installer
-lock protects active-release verification and child launch, not the subsequent
+lock covers each verified child launch, and board dispatch rechecks that the
+same pinned release which answered the capability probe is still active. An
+install switch or uninstall between those launches fails closed with no board
+mutation dispatch or automatic retry. The lock protects active-release
+verification and child launch, not the subsequent
 wait. The result describes the version selected at launch; concurrent upgrade
 or deactivation may change the current installation before completion. A staged
 candidate's pre-activation probe retains the publisher's existing lock scope.

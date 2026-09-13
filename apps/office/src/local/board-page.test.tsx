@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BlockPort } from '../blocks/block-contract.js';
@@ -103,6 +103,16 @@ function mount(active: LocalRuntime) {
   );
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((accept, decline) => {
+    resolve = accept;
+    reject = decline;
+  });
+  return { promise, resolve, reject };
+}
+
 describe('local Office board', () => {
   beforeEach(() => {
     vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(operationId);
@@ -171,11 +181,192 @@ describe('local Office board', () => {
     await userEvent.type(screen.getAllByLabelText('Message')[0]!, 'Same body');
     await userEvent.click(screen.getByRole('button', { name: 'Post as owner' }));
     expect((await screen.findByRole('alert')).textContent).toContain('draft is still here');
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh board' }));
+    await waitFor(() => expect(screen.queryByText('Loading the board…')).toBeNull());
+    expect(screen.getByDisplayValue('Retry me')).toBeTruthy();
+    expect(screen.getByDisplayValue('Same body')).toBeTruthy();
     await userEvent.click(screen.getByRole('button', { name: 'Post as owner' }));
     await waitFor(() => expect(active.board.post).toHaveBeenCalledTimes(2));
     expect(vi.mocked(active.board.post).mock.calls.map(([input]) => input.operationId)).toEqual([
       operationId,
       operationId,
     ]);
+  });
+
+  it('keeps post, reply, and edit drafts mounted across failed and successful refreshes', async () => {
+    const active = runtime();
+    mount(active);
+    await screen.findByRole('heading', { name: 'Current work' });
+    await userEvent.click(screen.getByRole('button', { name: 'New post' }));
+    await userEvent.type(screen.getAllByLabelText('Title')[0]!, 'Post draft');
+    await userEvent.type(screen.getAllByLabelText('Message')[0]!, 'Post body draft');
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const editForm = screen.getByRole('button', { name: 'Save edit' }).closest('form')!;
+    const editTitle = within(editForm).getByLabelText('Title');
+    const editBody = within(editForm).getByLabelText('Message');
+    await userEvent.clear(editTitle);
+    await userEvent.type(editTitle, 'Edit draft');
+    await userEvent.clear(editBody);
+    await userEvent.type(editBody, 'Edit body draft');
+    const replyForm = screen.getByRole('button', { name: 'Reply as owner' }).closest('form')!;
+    await userEvent.type(within(replyForm).getByLabelText('Message'), 'Reply draft');
+
+    vi.mocked(active.board.categories).mockRejectedValueOnce(new TypeError('offline'));
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh board' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('draft is still here');
+    expect(screen.getByDisplayValue('Post draft')).toBeTruthy();
+    expect(screen.getByDisplayValue('Edit draft')).toBeTruthy();
+    expect(screen.getByDisplayValue('Reply draft')).toBeTruthy();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh board' }));
+    await waitFor(() => expect(screen.queryByText('Loading the board…')).toBeNull());
+    expect(screen.getByDisplayValue('Post body draft')).toBeTruthy();
+    expect(screen.getByDisplayValue('Edit body draft')).toBeTruthy();
+    expect(screen.getByDisplayValue('Reply draft')).toBeTruthy();
+  });
+
+  it('retries a lost edit with its original operation ID and revision after refresh', async () => {
+    const active = runtime();
+    vi.mocked(active.board.edit)
+      .mockRejectedValueOnce(new TypeError('lost response'))
+      .mockResolvedValueOnce({ entryId: threadId, revision: 2, changed: true, operationId });
+    mount(active);
+    await screen.findByRole('heading', { name: 'Current work' });
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const form = screen.getByRole('button', { name: 'Save edit' }).closest('form')!;
+    await userEvent.clear(within(form).getByLabelText('Title'));
+    await userEvent.type(within(form).getByLabelText('Title'), 'Retried edit');
+    await userEvent.click(screen.getByRole('button', { name: 'Save edit' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('draft is still here');
+
+    vi.mocked(active.board.show).mockResolvedValue({
+      thread: { ...thread, revision: 2, title: 'Concurrent title' },
+      replies: [reply],
+      nextCursor: null,
+      boardRevision: 3,
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh board' }));
+    await waitFor(() => expect(screen.queryByText('Loading the board…')).toBeNull());
+    expect(screen.getByDisplayValue('Retried edit')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Save edit' }));
+    await waitFor(() => expect(active.board.edit).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(active.board.edit).mock.calls.map(([input]) => input)).toEqual([
+      expect.objectContaining({ operationId, ifRevision: 1, title: 'Retried edit' }),
+      expect.objectContaining({ operationId, ifRevision: 1, title: 'Retried edit' }),
+    ]);
+  });
+
+  it('retains a selected second-page category after its category refresh', async () => {
+    const repository = { kind: 'repository', repositoryId: 'github.com/Org/Repo' } as const;
+    const active = runtime();
+    vi.mocked(active.board.categories)
+      .mockResolvedValueOnce({
+        categories: [category],
+        nextCursor: 'categories-2',
+        boardRevision: 2,
+      })
+      .mockResolvedValueOnce({ categories: [repository], nextCursor: null, boardRevision: 2 })
+      .mockResolvedValue({ categories: [category], nextCursor: 'categories-2', boardRevision: 2 });
+    vi.mocked(active.board.list).mockImplementation(async (input) => ({
+      threads:
+        input.category.kind === 'general'
+          ? [{ ...thread, body: undefined, replyCount: 1, activitySequence: 2 }]
+          : [],
+      nextCursor: null,
+      boardRevision: 2,
+    }));
+    mount(active);
+    await screen.findByRole('heading', { name: 'Current work' });
+    await userEvent.click(screen.getByRole('button', { name: 'More categories' }));
+    await screen.findByRole('option', { name: repository.repositoryId });
+    await userEvent.selectOptions(
+      screen.getByLabelText('Category'),
+      `repository:${repository.repositoryId}`
+    );
+    await waitFor(() =>
+      expect(active.board.list).toHaveBeenCalledWith(
+        expect.objectContaining({ category: repository })
+      )
+    );
+    expect((screen.getByLabelText('Category') as HTMLSelectElement).value).toBe(
+      `repository:${repository.repositoryId}`
+    );
+    expect(screen.getByRole('option', { name: repository.repositoryId })).toBeTruthy();
+  });
+
+  it('single-flights continuations and ignores their results after refresh', async () => {
+    const active = runtime();
+    const { body: _initialBody, ...initialThread } = thread;
+    const categoriesPage = deferred<Awaited<ReturnType<LocalRuntime['board']['categories']>>>();
+    const threadsPage = deferred<Awaited<ReturnType<LocalRuntime['board']['list']>>>();
+    const repliesPage = deferred<Awaited<ReturnType<LocalRuntime['board']['show']>>>();
+    vi.mocked(active.board.categories).mockImplementation(async (input) =>
+      input?.cursor
+        ? categoriesPage.promise
+        : { categories: [category], nextCursor: 'categories-2', boardRevision: 2 }
+    );
+    vi.mocked(active.board.list).mockImplementation(async (input) =>
+      input.cursor
+        ? threadsPage.promise
+        : {
+            threads: [{ ...initialThread, replyCount: 1, activitySequence: 2 }],
+            nextCursor: 'threads-2',
+            boardRevision: 2,
+          }
+    );
+    vi.mocked(active.board.show).mockImplementation(async (input) =>
+      input.replyCursor
+        ? repliesPage.promise
+        : { thread, replies: [reply], nextCursor: 'replies-2', boardRevision: 2 }
+    );
+    mount(active);
+    await screen.findByRole('heading', { name: 'Current work' });
+    await userEvent.click(screen.getByRole('button', { name: 'More categories' }));
+    await userEvent.click(screen.getByRole('button', { name: 'More categories' }));
+    await userEvent.click(screen.getByRole('button', { name: 'More threads' }));
+    await userEvent.click(screen.getByRole('button', { name: 'More threads' }));
+    await userEvent.click(screen.getByRole('button', { name: 'More replies' }));
+    await userEvent.click(screen.getByRole('button', { name: 'More replies' }));
+    expect(
+      vi.mocked(active.board.categories).mock.calls.filter(([input]) => input?.cursor)
+    ).toHaveLength(1);
+    expect(vi.mocked(active.board.list).mock.calls.filter(([input]) => input.cursor)).toHaveLength(
+      1
+    );
+    expect(
+      vi.mocked(active.board.show).mock.calls.filter(([input]) => input.replyCursor)
+    ).toHaveLength(1);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh board' }));
+    await waitFor(() => expect(screen.queryByText('Loading the board…')).toBeNull());
+    const staleCategory = { kind: 'repository', repositoryId: 'github.com/Old/Category' } as const;
+    categoriesPage.resolve({ categories: [staleCategory], nextCursor: null, boardRevision: 2 });
+    const { body: _body, ...staleThread } = thread;
+    threadsPage.resolve({
+      threads: [
+        {
+          ...staleThread,
+          id: replyId,
+          threadId: replyId,
+          title: 'Stale thread',
+          replyCount: 0,
+          activitySequence: 3,
+        },
+      ],
+      nextCursor: null,
+      boardRevision: 2,
+    });
+    repliesPage.resolve({
+      thread,
+      replies: [{ ...reply, id: '55555555-5555-4555-8555-555555555555', body: 'Stale reply' }],
+      nextCursor: null,
+      boardRevision: 2,
+    });
+    await Promise.resolve();
+    await waitFor(() => {
+      expect(screen.queryByRole('option', { name: staleCategory.repositoryId })).toBeNull();
+      expect(screen.queryByText('Stale thread')).toBeNull();
+      expect(screen.queryByText('Stale reply')).toBeNull();
+    });
   });
 });

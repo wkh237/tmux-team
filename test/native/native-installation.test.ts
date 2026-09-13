@@ -181,6 +181,101 @@ describe('native installation process contract', () => {
   );
 
   it(
+    'runs combined edits and worst-case board pages through the installed companion',
+    { timeout: 120_000 },
+    async () => {
+      await withSandbox(async (sandbox) => {
+        const prefix = installPrefix(sandbox);
+        const fixture = await createArtifact(sandbox, '0.1.0-alpha.2', new Uint8Array(), 'office');
+        const office = (args: string[], outputLimitBytes = 1024 * 1024) =>
+          runCli(sandbox, ['office', '--prefix', prefix, ...args, '--json'], {
+            deadlineMs: 30_000,
+            outputLimitBytes,
+          });
+        const installed = await office([
+          'install',
+          '--yes',
+          '--archive',
+          fixture.archive,
+          '--manifest',
+          fixture.manifest,
+        ]);
+        expect(installed.status, installed.stdout + installed.stderr).toBe(0);
+        expect((await runCli(sandbox, ['identity', 'create', 'Alice', '--json'])).status).toBe(0);
+        const created = parseWholeStdout(
+          await office([
+            'board',
+            'post',
+            '--general',
+            '--identity',
+            'Alice',
+            '--title',
+            'before',
+            '--body',
+            'before',
+          ])
+        ) as { entryId: string };
+        const edited = await office([
+          'board',
+          'edit',
+          created.entryId,
+          '--identity',
+          'Alice',
+          '--title',
+          'after title',
+          '--body',
+          'after body',
+          '--if-revision',
+          '1',
+        ]);
+        expect(edited.status, edited.stdout + edited.stderr).toBe(0);
+        const shown = parseWholeStdout(await office(['board', 'show', created.entryId])) as {
+          thread: { title: string; body: string };
+        };
+        expect(shown.thread).toMatchObject({ title: 'after title', body: 'after body' });
+
+        const worst = parseWholeStdout(
+          await office([
+            'board',
+            'post',
+            '--general',
+            '--identity',
+            'Alice',
+            '--title',
+            'worst',
+            '--body',
+            '\t'.repeat(16_384),
+          ])
+        ) as { threadId: string };
+        for (let index = 0; index < 50; index += 1) {
+          const reply = await office([
+            'board',
+            'reply',
+            worst.threadId,
+            '--identity',
+            'Alice',
+            '--body',
+            '\t'.repeat(8_192),
+          ]);
+          expect(reply.status, `reply ${index}: ${reply.stdout}${reply.stderr}`).toBe(0);
+        }
+        const page = await office(
+          ['board', 'show', worst.threadId, '--reply-limit', '50'],
+          2 * 1024 * 1024
+        );
+        expect(page.status, page.stdout + page.stderr).toBe(0);
+        const document = parseWholeStdout(page) as {
+          thread: { body: string };
+          replies: { body: string }[];
+        };
+        expect(document.thread.body).toHaveLength(16_384);
+        expect(document.replies).toHaveLength(50);
+        expect(document.replies.every((reply) => reply.body.length === 8_192)).toBe(true);
+      });
+    }
+  );
+
+  it(
     'installs Office explicitly without changing CLI bytes, receipts or application state',
     { timeout: 60_000 },
     async () => {

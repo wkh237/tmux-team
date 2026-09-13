@@ -113,26 +113,44 @@ pub fn invoke_office_board(
     {
         return Err(invalid_pairing());
     }
-    let selected =
+    let capability_launch =
         native_install::with_active_product(Product::Office, executable, |installed| {
-            Ok::<_, io::Error>(installed.active_executable.clone())
-        })??;
-    let capability_bytes = invoke_selected(
-        &selected,
-        OfficeInvocation::Capabilities,
-        &[],
-        deadline,
-        OFFICE_PROTOCOL_OUTPUT_LIMIT,
-    )
-    .map_err(|error| io::Error::new(io::ErrorKind::Unsupported, error))?;
+            start_selected(
+                &installed.active_executable,
+                OfficeInvocation::Capabilities,
+                &[],
+                deadline,
+                OFFICE_PROTOCOL_OUTPUT_LIMIT,
+            )
+            .map(|running| (running, installed.release_id()))
+        })
+        .map_err(unsupported_office)?;
+    let (capability_process, pinned_release) = capability_launch.map_err(unsupported_office)?;
+    let capability_bytes = finish_selected(capability_process)
+        .map_err(|error| io::Error::new(io::ErrorKind::Unsupported, error))?;
     require_board_capability(&capability_bytes, || ())?;
-    let bytes = invoke_selected(
-        &selected,
-        operation,
-        input,
-        deadline,
-        crate::office_board::BOARD_OUTPUT_LIMIT,
-    )?;
+    let board_launch = native_install::with_active_product(
+        Product::Office,
+        executable,
+        |installed| {
+            if installed.release_id() != pinned_release {
+                return Err(io::Error::new(
+                    io::ErrorKind::Unsupported,
+                    "Office release changed after capability verification; refusing board dispatch.",
+                ));
+            }
+            start_selected(
+                &installed.active_executable,
+                operation,
+                input,
+                deadline,
+                crate::office_board::BOARD_OUTPUT_LIMIT,
+            )
+        },
+    )
+    .map_err(unsupported_office)?;
+    let board_process = board_launch.map_err(unsupported_office)?;
+    let bytes = finish_selected(board_process)?;
     let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| invalid_pairing())?;
     if value.as_object().is_some_and(|object| object.len() == 1)
         && let Some(code) = value["error"].as_str()
@@ -526,15 +544,15 @@ fn invoke_json_bounded(
     Ok(output.stdout)
 }
 
-fn invoke_selected(
+fn start_selected(
     executable: &Path,
     operation: OfficeInvocation,
     input: &[u8],
     deadline: Instant,
     max_output_bytes: usize,
-) -> io::Result<Vec<u8>> {
+) -> io::Result<RunningCommand> {
     let args = operation.arguments().map(OsString::from);
-    let output = UnixCommandRunner
+    UnixCommandRunner
         .start(CommandRequest {
             program: executable.as_os_str(),
             args: &args,
@@ -542,13 +560,19 @@ fn invoke_selected(
             deadline,
             max_output_bytes,
         })
-        .map_err(io::Error::other)?
-        .wait()
-        .map_err(io::Error::other)?;
+        .map_err(io::Error::other)
+}
+
+fn finish_selected(running: RunningCommand) -> io::Result<Vec<u8>> {
+    let output = running.wait().map_err(io::Error::other)?;
     if !output.stderr.is_empty() {
         return Err(invalid_pairing());
     }
     Ok(output.stdout)
+}
+
+fn unsupported_office(error: io::Error) -> io::Error {
+    io::Error::new(io::ErrorKind::Unsupported, error)
 }
 
 fn decode_sync_reply(bytes: &[u8]) -> io::Result<Result<OfficeSyncReport, OfficeError>> {

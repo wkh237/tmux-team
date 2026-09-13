@@ -28,28 +28,36 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
             1,
         ));
     };
-    let (invocation, input, mutation) = match operation {
+    let (invocation, input, mutation_id) = match operation {
         OfficeBoardOperation::Post {
             category,
             actor,
             title,
             body,
             operation_id,
-        } => (
-            OfficeInvocation::BoardPost,
-            json!({"category":category_value(category)?,"actor":actor_value(actor)?,"title":title,"body":body_value(body)?,"operationId":operation_id}),
-            true,
-        ),
+        } => {
+            let operation_id =
+                operation_id.unwrap_or_else(tmt_core::office_board::new_operation_id);
+            (
+                OfficeInvocation::BoardPost,
+                json!({"category":category_value(category)?,"actor":actor_value(actor)?,"title":title,"body":body_value(body)?,"operationId":operation_id.clone()}),
+                Some(operation_id),
+            )
+        }
         OfficeBoardOperation::Reply {
             thread_id,
             actor,
             body,
             operation_id,
-        } => (
-            OfficeInvocation::BoardReply,
-            json!({"threadId":thread_id,"actor":actor_value(actor)?,"body":body_value(body)?,"operationId":operation_id}),
-            true,
-        ),
+        } => {
+            let operation_id =
+                operation_id.unwrap_or_else(tmt_core::office_board::new_operation_id);
+            (
+                OfficeInvocation::BoardReply,
+                json!({"threadId":thread_id,"actor":actor_value(actor)?,"body":body_value(body)?,"operationId":operation_id.clone()}),
+                Some(operation_id),
+            )
+        }
         OfficeBoardOperation::Edit {
             entry_id,
             actor,
@@ -65,10 +73,12 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
                     1,
                 ));
             }
+            let operation_id =
+                operation_id.unwrap_or_else(tmt_core::office_board::new_operation_id);
             (
                 OfficeInvocation::BoardEdit,
-                json!({"entryId":entry_id,"actor":actor_value(actor)?,"title":title,"body":body.map(body_value).transpose()?,"ifRevision":if_revision,"operationId":operation_id}),
-                true,
+                json!({"entryId":entry_id,"actor":actor_value(actor)?,"title":title,"body":body.map(body_value).transpose()?,"ifRevision":if_revision,"operationId":operation_id.clone()}),
+                Some(operation_id),
             )
         }
         OfficeBoardOperation::Delete {
@@ -77,11 +87,15 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
             moderate,
             if_revision,
             operation_id,
-        } => (
-            OfficeInvocation::BoardDelete,
-            json!({"entryId":entry_id,"actor":actor_value(actor)?,"moderate":moderate,"ifRevision":if_revision,"operationId":operation_id}),
-            true,
-        ),
+        } => {
+            let operation_id =
+                operation_id.unwrap_or_else(tmt_core::office_board::new_operation_id);
+            (
+                OfficeInvocation::BoardDelete,
+                json!({"entryId":entry_id,"actor":actor_value(actor)?,"moderate":moderate,"ifRevision":if_revision,"operationId":operation_id.clone()}),
+                Some(operation_id),
+            )
+        }
         OfficeBoardOperation::List {
             category,
             view,
@@ -93,7 +107,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
         } => (
             OfficeInvocation::BoardList,
             json!({"category":category_value(category)?,"view":view,"author":if owner{Some(json!({"kind":"owner"}))}else{author_id.map(|id|json!({"kind":"identity","identityId":id}))},"sinceMs":since.map(|v|parse_rfc3339(&v)).transpose()?,"limit":limit,"cursor":cursor}),
-            false,
+            None,
         ),
         OfficeBoardOperation::Show {
             thread_id,
@@ -102,7 +116,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
         } => (
             OfficeInvocation::BoardShow,
             json!({"threadId":thread_id,"replyLimit":reply_limit,"replyCursor":reply_cursor}),
-            false,
+            None,
         ),
     };
     let bytes = serde_json::to_vec(&input).map_err(io_failure)?;
@@ -120,10 +134,12 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
                 1,
             )
             .caused_by(error)
-        } else if mutation {
+        } else if let Some(operation_id) = mutation_id.as_deref() {
             Failure::new(
                 "OFFICE_LOCAL_UNCERTAIN",
-                "Office did not confirm the board mutation. Retry with the same operation ID.",
+                format!(
+                    "Office did not confirm the board mutation. Retry with --operation-id {operation_id}."
+                ),
                 1,
             )
             .caused_by(error)
@@ -176,17 +192,30 @@ fn category_value(category: BoardCategorySelection) -> Result<Value, Failure> {
 }
 fn write_plain(value: &Value) -> Result<(), Failure> {
     let mut stdout = io::stdout().lock();
+    write_plain_to(&mut stdout, value).map_err(io_failure)
+}
+
+fn write_plain_to(output: &mut impl Write, value: &Value) -> io::Result<()> {
     if let Some(id) = value.get("entryId").and_then(Value::as_str) {
-        return writeln!(
-            stdout,
-            "{id} revision {}",
-            value.get("revision").and_then(Value::as_u64).unwrap_or(0)
-        )
-        .map_err(io_failure);
+        write!(
+            output,
+            "{id} revision {} operation {}",
+            value.get("revision").and_then(Value::as_u64).unwrap_or(0),
+            value
+                .get("operationId")
+                .and_then(Value::as_str)
+                .unwrap_or("-")
+        )?;
+        for key in ["created", "changed", "deleted", "moderated"] {
+            if let Some(flag) = value.get(key).and_then(Value::as_bool) {
+                write!(output, " {key}={flag}")?;
+            }
+        }
+        return writeln!(output);
     }
     if let Some(threads) = value.get("threads").and_then(Value::as_array) {
         return crate::output::table::write(
-            &mut stdout,
+            output,
             ["ID", "AUTHOR", "REVISION", "REPLIES", "TITLE"],
             threads.iter().map(|thread| {
                 [
@@ -197,8 +226,7 @@ fn write_plain(value: &Value) -> Result<(), Failure> {
                     text_field(thread, "title"),
                 ]
             }),
-        )
-        .map_err(io_failure);
+        );
     }
     if let Some(thread) = value.get("thread") {
         let replies = value
@@ -206,29 +234,35 @@ fn write_plain(value: &Value) -> Result<(), Failure> {
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        let rows = std::iter::once(thread).chain(replies.iter()).map(|entry| {
-            [
-                text_field(entry, "id"),
-                if entry.get("id") == entry.get("threadId") {
-                    "thread".into()
-                } else {
-                    "reply".into()
-                },
-                author_label(entry),
-                number_field(entry, "revision"),
-                text_field(entry, "title"),
-                text_field(entry, "body"),
-            ]
-        });
-        return crate::output::table::write(
-            &mut stdout,
-            ["ID", "KIND", "AUTHOR", "REVISION", "TITLE", "BODY"],
-            rows,
-        )
-        .map_err(io_failure);
+        write_entry(output, "thread", thread)?;
+        for reply in &replies {
+            writeln!(output)?;
+            write_entry(output, "reply", reply)?;
+        }
+        return Ok(());
     }
-    serde_json::to_writer_pretty(&mut stdout, value).map_err(io_failure)?;
-    writeln!(stdout).map_err(io_failure)
+    serde_json::to_writer_pretty(&mut *output, value)?;
+    writeln!(output)
+}
+
+fn write_entry(output: &mut impl Write, kind: &str, entry: &Value) -> io::Result<()> {
+    writeln!(
+        output,
+        "{kind} {} · {} · revision {}",
+        text_field(entry, "id"),
+        author_label(entry),
+        number_field(entry, "revision")
+    )?;
+    if entry.get("deleted").and_then(Value::as_bool) == Some(true) {
+        return writeln!(output, "[deleted]");
+    }
+    if let Some(title) = entry.get("title").and_then(Value::as_str) {
+        writeln!(output, "title: {title}")?;
+    }
+    if let Some(body) = entry.get("body").and_then(Value::as_str) {
+        writeln!(output, "{body}")?;
+    }
+    Ok(())
 }
 fn text_field(value: &Value, key: &str) -> String {
     value
@@ -405,7 +439,8 @@ fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_rfc3339;
+    use super::{parse_rfc3339, write_plain_to};
+    use serde_json::json;
 
     #[test]
     fn rfc3339_requires_canonical_field_widths_and_nonempty_fraction() {
@@ -429,5 +464,33 @@ mod tests {
         ] {
             assert!(parse_rfc3339(value).is_err(), "expected rejection: {value}");
         }
+    }
+
+    #[test]
+    fn plain_receipts_include_operation_id_and_show_preserves_multiline_content() {
+        let mut output = Vec::new();
+        write_plain_to(
+            &mut output,
+            &json!({"entryId":"entry","revision":2,"operationId":"op","changed":true,"deleted":false}),
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "entry revision 2 operation op changed=true deleted=false\n"
+        );
+
+        let mut output = Vec::new();
+        write_plain_to(
+            &mut output,
+            &json!({
+                "thread":{"id":"thread","author":{"kind":"identity","name":"Alice"},"revision":2,"deleted":false,"title":"Subject","body":"first\nsecond"},
+                "replies":[{"id":"reply","author":{"kind":"owner"},"revision":3,"deleted":true}]
+            }),
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "thread thread · Alice · revision 2\ntitle: Subject\nfirst\nsecond\n\nreply reply · owner · revision 3\n[deleted]\n"
+        );
     }
 }

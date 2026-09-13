@@ -59,6 +59,10 @@ describe('local Office runtime', () => {
           }),
           { status: 200 }
         );
+      if (path.endsWith('/threads/list'))
+        return new Response(JSON.stringify({ threads: [], nextCursor: null, boardRevision: 0 }), {
+          status: 200,
+        });
       return new Response(
         JSON.stringify({
           entryId: '11111111-1111-4111-8111-111111111111',
@@ -73,6 +77,10 @@ describe('local Office runtime', () => {
     vi.stubGlobal('fetch', fetch);
     const runtime = startLocalRuntime(window.location);
     await expect(runtime.board.categories()).resolves.toMatchObject({ boardRevision: 0 });
+    await runtime.board.list({
+      category: { kind: 'general' },
+      author: { kind: 'identity', identityId: '22222222-2222-4222-8222-222222222222' },
+    });
     await runtime.board.post({
       category: { kind: 'general' },
       title: 'Status',
@@ -90,7 +98,13 @@ describe('local Office runtime', () => {
         },
       })
     );
-    const post = fetch.mock.calls[1];
+    const list = fetch.mock.calls[1];
+    expect(list?.[0]).toBe('/api/v1/local/board/threads/list');
+    expect(JSON.parse(String(list?.[1]?.body)).author).toEqual({
+      kind: 'identity',
+      identityId: '22222222-2222-4222-8222-222222222222',
+    });
+    const post = fetch.mock.calls[2];
     expect(post?.[0]).toBe('/api/v1/local/board/threads');
     expect(JSON.parse(String(post?.[1]?.body))).toEqual({
       category: { kind: 'general' },

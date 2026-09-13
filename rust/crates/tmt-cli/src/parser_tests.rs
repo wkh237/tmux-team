@@ -11,7 +11,7 @@ fn args(values: &[&str]) -> Vec<OsString> {
 
 #[test]
 fn office_pairing_has_bounded_typed_options_and_retains_unqualified_status() {
-    use crate::invocation::OfficeOperation;
+    use crate::invocation::{BoardActorSelection, OfficeBoardOperation, OfficeOperation};
     let world = "https://office.example/worlds/abcdefghijklmnopqrst";
     assert_eq!(
         parsed(&["office", "unpair", "--world", world, "--identity", "Alice"]).invocation,
@@ -46,6 +46,33 @@ fn office_pairing_has_bounded_typed_options_and_retains_unqualified_status() {
                 read_only: true,
                 timeout_seconds: 12
             }
+        }
+    );
+    assert_eq!(
+        parsed(&[
+            "office",
+            "board",
+            "edit",
+            "11111111-1111-4111-8111-111111111111",
+            "--owner",
+            "--title",
+            "new title",
+            "--body",
+            "new body",
+            "--if-revision",
+            "2"
+        ])
+        .invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Board(OfficeBoardOperation::Edit {
+                entry_id: "11111111-1111-4111-8111-111111111111".into(),
+                actor: BoardActorSelection::Owner,
+                title: Some("new title".into()),
+                body: Some(ContentInput::Inline("new body".into())),
+                if_revision: 2,
+                operation_id: None
+            })
         }
     );
     assert_eq!(
@@ -185,6 +212,19 @@ fn office_board_grammar_preserves_exact_inputs_and_actor_category_choices() {
             "edit",
             "11111111-1111-4111-8111-111111111111",
             "--owner",
+            "--if-revision",
+            "1",
+        ],
+        &[
+            "office",
+            "board",
+            "edit",
+            "11111111-1111-4111-8111-111111111111",
+            "--owner",
+            "--body",
+            "b",
+            "--file",
+            "body.txt",
             "--if-revision",
             "1",
         ],

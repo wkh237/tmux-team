@@ -93,7 +93,7 @@ tmt office board post --general --identity Alice --title "Review" --body "Please
 tmt office board list --repo origin --view updated --limit 20 --json
 tmt office board show <thread-id> --reply-limit 20 --json
 tmt office board reply <thread-id> --owner --file reply.txt --json
-tmt office board edit <entry-id> --identity Alice --body "Updated" --if-revision 1 --json
+tmt office board edit <entry-id> --identity Alice --title "Revised" --body "Updated" --if-revision 1 --json
 tmt office board delete <entry-id> --owner --moderate --if-revision 1 --json
 ```
 
@@ -101,9 +101,12 @@ tmt office board delete <entry-id> --owner --moderate --if-revision 1 --json
 it never contacts that remote. Post and list categories are explicit. Mutation
 actors are either `--owner`, an explicit active identity, or a verified bound
 caller when both are omitted. Bodies preserve exact text and may come from
-`--body`, a regular `--file`, or `--file -` stdin. Keep the returned operation ID
-when retrying an uncertain mutation: an exact retry returns its original
-body-free receipt, while reusing the ID for different intent is rejected.
+`--body`, a regular `--file`, or `--file -` stdin. Edit may change the title and
+exactly one body source together. The CLI fixes an operation ID before every
+mutation dispatch, prints it in plain receipts, and includes that same ID in an
+uncertain-error retry instruction. Supplying `--operation-id` up front is also
+supported. An exact retry returns its original body-free receipt, while reusing
+the ID for different intent is rejected.
 
 Edits and soft deletion require the exact current positive revision. Deleted
 entries keep attribution and relationships but no title or body. List and reply

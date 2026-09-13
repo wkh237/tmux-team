@@ -11,7 +11,6 @@ import {
   decodeReplyReceipt,
 } from './board-contract.js';
 import type {
-  BoardActor,
   BoardCategory,
   BoardCategoryPage,
   BoardCreateReceipt,
@@ -20,6 +19,8 @@ import type {
   BoardListPage,
   BoardShowPage,
 } from './board-contract.js';
+
+export type BoardAuthorFilter = { kind: 'owner' } | { kind: 'identity'; identityId: string };
 
 export interface LocalBlockProjection {
   exists: true;
@@ -41,7 +42,7 @@ export interface LocalRuntime {
 export interface BoardListInput {
   category: BoardCategory;
   view?: 'recent' | 'updated';
-  author?: BoardActor;
+  author?: BoardAuthorFilter;
   sinceMs?: number;
   limit?: number;
   cursor?: string;

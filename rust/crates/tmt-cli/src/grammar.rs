@@ -503,6 +503,7 @@ fn office_board_commands() -> Command {
             .group(
                 clap::ArgGroup::new("board-edit-fields")
                     .args(["title", "body", "file"])
+                    .multiple(true)
                     .required(true),
             ),
         )))

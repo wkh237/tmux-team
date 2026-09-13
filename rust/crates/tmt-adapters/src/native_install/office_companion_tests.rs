@@ -70,6 +70,113 @@ esac
 }
 
 #[test]
+fn uninstall_between_capability_and_board_launch_never_dispatches_mutation() {
+    let fixture = office_fixture_with_payload(
+        br#"#!/bin/sh
+control="${0%/lib/tmt-office/releases/*}/board-race"
+case "$3" in
+probe) printf 'TMT-OFFICE/1\n1.2.3\n' ;;
+capabilities)
+  mkdir -p "$control"
+  printf ready > "$control/ready"
+  while [ ! -f "$control/release" ]; do sleep 0.01; done
+  printf 'TMT-OFFICE-CAPABILITIES/1\noffice_board_v1\n'
+  ;;
+board-post) printf called > "$control/dispatched" ;;
+*) exit 1 ;;
+esac
+"#,
+    );
+    let prefix = fixture.directory.path.join("prefix");
+    let report = install_fixture(&fixture, &prefix, Product::Office).unwrap();
+    let control = prefix.join("board-race");
+    std::thread::scope(|scope| {
+        let invocation = scope.spawn(|| {
+            invoke_office_board(
+                &report.executable,
+                tmt_core::office_protocol::OfficeInvocation::BoardPost,
+                b"{}",
+                std::time::Instant::now() + std::time::Duration::from_secs(5),
+            )
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while fs::read(control.join("ready")).ok().as_deref() != Some(b"ready") {
+            assert!(!invocation.is_finished(), "capability process exited early");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "capability did not start"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(crate::native_install::uninstall_office(&prefix).unwrap());
+        fs::write(control.join("release"), b"").unwrap();
+        assert_eq!(
+            invocation.join().unwrap().unwrap_err().kind(),
+            std::io::ErrorKind::Unsupported
+        );
+    });
+    assert!(!control.join("dispatched").exists());
+}
+
+#[test]
+fn active_release_switch_after_capability_never_dispatches_on_either_release() {
+    let old = office_fixture_with_payload(
+        br#"#!/bin/sh
+control="${0%/lib/tmt-office/releases/*}/board-race"
+case "$3" in
+probe) printf 'TMT-OFFICE/1\n1.2.3\n' ;;
+capabilities)
+  mkdir -p "$control"
+  printf ready > "$control/ready"
+  while [ ! -f "$control/release" ]; do sleep 0.01; done
+  printf 'TMT-OFFICE-CAPABILITIES/1\noffice_board_v1\n'
+  ;;
+board-post) printf old > "$control/dispatched" ;;
+*) exit 1 ;;
+esac
+"#,
+    );
+    let prefix = old.directory.path.join("prefix");
+    let old_report = install_fixture(&old, &prefix, Product::Office).unwrap();
+    let control = prefix.join("board-race");
+    std::thread::scope(|scope| {
+        let invocation = scope.spawn(|| {
+            invoke_office_board(
+                &old_report.executable,
+                tmt_core::office_protocol::OfficeInvocation::BoardPost,
+                b"{}",
+                std::time::Instant::now() + std::time::Duration::from_secs(5),
+            )
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while fs::read(control.join("ready")).ok().as_deref() != Some(b"ready") {
+            assert!(!invocation.is_finished(), "capability process exited early");
+            assert!(
+                std::time::Instant::now() < deadline,
+                "capability did not start"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let replacement = office_fixture_with_payload(
+            b"#!/bin/sh\ncase \"$3\" in probe) printf 'TMT-OFFICE/1\\n1.2.4\\n' ;; board-post) printf called > \"${0%/lib/tmt-office/releases/*}/board-race/dispatched\" ;; *) exit 1 ;; esac\n",
+        );
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(&replacement.manifest).unwrap()).unwrap();
+        manifest["releases"][0]["app_version"] = serde_json::json!("1.2.4");
+        fs::write(
+            &replacement.manifest,
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        install_fixture(&replacement, &prefix, Product::Office).unwrap();
+        fs::write(control.join("release"), b"").unwrap();
+        let error = invocation.join().unwrap().unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::Unsupported);
+    });
+    assert!(!control.join("dispatched").exists());
+}
+
+#[test]
 fn verified_launch_releases_install_lock_before_waiting_for_the_companion() {
     let fixture = office_fixture_with_payload(
         br#"#!/bin/sh
