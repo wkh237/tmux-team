@@ -166,16 +166,18 @@ fn office_sync_is_install_scoped_not_active_identity_scoped() {
 
 #[test]
 fn office_block_commands_are_typed_and_scoped() {
-    use crate::invocation::{OfficeBlockOperation, OfficeOperation};
+    use crate::invocation::{OfficeBlockOperation, OfficeBlockTarget, OfficeOperation};
     let world = "https://office.example/worlds/abcdefghijklmnopqrst";
     assert_eq!(
         parsed(&["office", "block", "show", "--world", world]).invocation,
         Invocation::Office {
             prefix: None,
             operation: OfficeOperation::Block {
-                world: world.into(),
+                target: OfficeBlockTarget::Remote {
+                    world: world.into(),
+                    emulator: false
+                },
                 identity: None,
-                emulator: false,
                 operation: OfficeBlockOperation::Show { block_id: None },
             },
         }
@@ -197,9 +199,11 @@ fn office_block_commands_are_typed_and_scoped() {
         Invocation::Office {
             prefix: None,
             operation: OfficeOperation::Block {
-                world: world.into(),
+                target: OfficeBlockTarget::Remote {
+                    world: world.into(),
+                    emulator: true
+                },
                 identity: Some("Alice".into()),
-                emulator: true,
                 operation: OfficeBlockOperation::Show {
                     block_id: Some("block-123".into()),
                 },
@@ -223,9 +227,11 @@ fn office_block_commands_are_typed_and_scoped() {
         Invocation::Office {
             prefix: None,
             operation: OfficeOperation::Block {
-                world: world.into(),
+                target: OfficeBlockTarget::Remote {
+                    world: world.into(),
+                    emulator: false
+                },
                 identity: None,
-                emulator: false,
                 operation: OfficeBlockOperation::Apply {
                     block_id: Some("block-123".into()),
                     file: "layout.json".into(),
@@ -252,9 +258,11 @@ fn office_block_commands_are_typed_and_scoped() {
         Invocation::Office {
             prefix: None,
             operation: OfficeOperation::Block {
-                world: world.into(),
+                target: OfficeBlockTarget::Remote {
+                    world: world.into(),
+                    emulator: false
+                },
                 identity: None,
-                emulator: false,
                 operation: OfficeBlockOperation::Apply {
                     block_id: None,
                     file: "layout.json".into(),
@@ -314,6 +322,43 @@ fn office_block_commands_are_typed_and_scoped() {
             "--file",
             "layout.json",
         ],
+    ] {
+        assert_eq!(
+            parse_error(&input).code,
+            "USAGE_ERROR",
+            "arguments: {input:?}"
+        );
+    }
+
+    assert_eq!(
+        parsed(&["office", "block", "show", "--local", "--identity", "Alice"]).invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Block {
+                target: OfficeBlockTarget::Local,
+                identity: Some("Alice".into()),
+                operation: OfficeBlockOperation::Show { block_id: None },
+            },
+        }
+    );
+    assert_eq!(
+        parsed(&["office", "start", "--port", "18457"]).invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Start { port: Some(18457) },
+        }
+    );
+    assert_eq!(
+        parsed(&["office", "stop"]).invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Stop
+        }
+    );
+    for input in [
+        vec!["office", "block", "show", "--local", "--world", world],
+        vec!["office", "block", "show", "block-123", "--local"],
+        vec!["office", "block", "show", "--local", "--emulator"],
     ] {
         assert_eq!(
             parse_error(&input).code,

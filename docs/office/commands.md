@@ -24,13 +24,62 @@ and the shared native archive verifier. Explicit offline installation uses
 Without a published candidate, online installation fails rather than claiming
 success. `tmt upgrade` continues to update only the CLI and its managed skills.
 
-`status --json` returns `installed`, `version`, `protocolVersion` and `executable`
-after local ownership/integrity and handshake verification. It never checks cloud
+`status --json` returns `installed`, `version`, `protocolVersion`, `executable`
+and token-free local service status after local ownership/integrity and handshake
+verification. It never checks cloud
 availability. Plain `tmt office` currently reports `OFFICE_NOT_PAIRED` after a
 successful probe; automatic world opening is not implemented. Uninstall
 requires explicit consent and removes verified activation links only. Release
 files and unrelated data remain. A partial removal reports an invalid
 installation; repeat explicit uninstall to finish before reinstalling.
+
+## Source candidate: offline local office
+
+The following local service is implemented and tested in this source tree but is not
+available in the currently published CLI/Office pair. A coordinated release must ship
+the compatible CLI before the Office companion: opening the shared database with the
+new companion applies migration 011, which an older schema-10 CLI rejects. Do not
+publish the Office candidate independently.
+
+The installed companion can serve its embedded Office UI and installation-owned
+SQLite state without pairing, Firebase or network access:
+
+```sh
+tmt office start
+tmt office block show --local --identity Alice --json
+tmt office block apply --local --identity Alice --file layout.json --if-revision 0 --json
+tmt office stop
+```
+
+`start` prints a loopback session URL and never opens a browser. It has no identity
+selector. The service binds only `127.0.0.1`; the fragment token is removed from the
+address after startup and kept only in that tab's memory. Repeating `start` reuses the
+running service and token so existing tabs continue working. `stop` is an idempotent,
+authenticated graceful stop. A companion upgrade never replaces a running process:
+`status` reports `restartNeeded`, and `start` returns `OFFICE_RESTART_REQUIRED` until
+you explicitly stop and start it. An optional `--port <number>` requests a fixed
+loopback port; it conflicts with a running service on another port.
+
+Local block commands are one-shot SQLite operations and work while the browser service
+is stopped. `show` of an active identity without a block succeeds with `exists:false`,
+revision 0 and empty objects; first apply creates a stable block UUID at revision 1.
+Later applies require the revision returned by the previous read. Retired identities'
+blocks are retained but hidden, and a new same-name identity receives a distinct UUID
+and block. `--local` is explicit and cannot be combined with `--world`, `--emulator`
+or a positional block ID. Omitting `--world` does not imply local mode. This slice does
+not publish, import or adopt remote Office data.
+
+With `--json`, successful start returns `running:true`, `changed`, `reused`, `url`
+and `version`; stop returns `running:false` and `changed`. Local block success returns
+`exists`, `identityId`, `identityName`, nullable `blockId`, `revision`, `objects` and
+`updatedAtMs`. Plain block output is the same object as readable indented JSON. Success
+exits 0. Usage, installation, I/O and service lifecycle failures exit 1; existing
+identity resolution retains its documented not-found exit. `OFFICE_PORT_UNAVAILABLE`
+means the requested port could not bind, `OFFICE_SERVICE_CONFLICT` means a healthy
+service owns another port, `OFFICE_RESTART_REQUIRED` requires explicit stop/start, and
+`OFFICE_SERVICE_UNCERTAIN` refuses to signal a process whose receipt cannot be
+authenticated. A local apply launch failure is `OFFICE_LOCAL_UNCERTAIN`: reread before
+retrying because the commit outcome is not assumed.
 
 ## Owner space review (web)
 

@@ -9,6 +9,8 @@ locally tested trusted issuer. Native pairing and the agent-block UI remain
 separate work; the browser currently edits only the owner's home block.
 The [native pairing contract](native-pairing.md) defines deployment discovery and
 the in-progress command/credential boundary, not shipped command guidance.
+The [local Office service v1](local-service-v1.md) defines the source-candidate optional
+loopback service, browser session and shared SQLite authority; it is not remote pairing.
 
 The separately versioned [private world document v1](private-world.md) is the
 direct-Firestore contract. It uses native Firestore timestamps and Rules,

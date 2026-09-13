@@ -52,7 +52,7 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
     fs.readFileSync(values.license),
     'Native archive license differs from the selected source'
   );
-  verifyNativeRuntime({
+  await verifyNativeRuntime({
     executable: path.join(artifactRoot, values.product === 'cli' ? 'tmt' : 'tmt-office'),
     product: values.product,
     target: metadata.target,

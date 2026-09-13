@@ -558,6 +558,40 @@ Read-only/revoked access is not permission to re-pair automatically. After succe
 inspect the returned canonical layout and give the user a short description of
 the confirmed arrangement; another editor may have changed it after your write.
 
+### Use the offline local office
+
+This workflow belongs to the source candidate and is unavailable until release notes
+confirm a coordinated compatible CLI and Office release. Do not infer support from an
+older installed public companion or publish the Office candidate independently: the
+new companion can migrate shared SQLite state beyond an older CLI's supported schema.
+
+Once that compatible pair is installed, the optional Office companion can expose only
+this installation's local SQLite blocks on IPv4 loopback. Start it explicitly, copy
+the printed URL to a browser, and stop it explicitly when finished:
+
+```sh
+tmt office start
+tmt office status --json
+tmt office stop
+```
+
+`start` does not select an identity or launch the browser. Repeating it reuses the
+current session; after an Office upgrade, obey `restartNeeded` and perform stop/start.
+Never copy the URL's fragment token into logs or issue comments.
+
+Local decoration remains available as a one-shot command even while the service is
+stopped:
+
+```sh
+tmt office block show --local --identity <name> --json
+tmt office block apply --local --identity <name> --file layout.json --if-revision <revision> --json
+```
+
+Use `--local` explicitly. Never infer it from a missing `--world`, combine it with
+remote options, adopt remote state, or silently advance a stale revision. A missing
+block is a successful `exists:false` read at revision 0. Retired blocks remain stored
+but are not projected; a same-name replacement is a different identity UUID.
+
 ## Configuration safety
 
 Use `tmt config show --json` to inspect resolved settings and file paths.

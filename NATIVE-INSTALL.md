@@ -5,8 +5,14 @@ For an optional `tmt-office` archive, use an installed native CLI:
 Then run `tmt office status`. Add the same `--prefix <folder>` to both commands
 for a custom installation. Office is independently versioned. The public
 companion and source builds support compatibility probes, explicit pairing and
-renewable scoped access. Installation alone does not pair, open a world or start
-a service.
+renewable scoped access. Installation alone does not pair, open a world or start a
+service. This source tree adds `tmt office start` and `stop` for a loopback-only
+embedded local UI; those commands are not in the currently published CLI/Office pair.
+Do not advertise or publish the Office candidate independently: its migration 011 can
+make a schema-10 CLI reject the shared database, so the compatible CLI must be upgraded
+first and both artifacts must be coordinated. The four-file Office archive inventory
+is unchanged because generated SPA assets are compiled into `tmt-office`, not installed
+as mutable files.
 The public alpha companion is acquired through the CLI's verified immutable
 release path. No hosted Office service or production Firebase deployment is
 provided.

@@ -19,7 +19,7 @@ for (const name of ['executable', 'target', 'version', 'skill']) {
 
 const executable = path.resolve(values.executable);
 const skill = fs.readFileSync(values.skill, 'utf8');
-verifyNativeRuntime({
+await verifyNativeRuntime({
   executable,
   target: values.target,
   version: values.version,

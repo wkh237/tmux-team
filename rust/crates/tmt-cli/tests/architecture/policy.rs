@@ -42,7 +42,16 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "signal-hook",
             "sha2",
         ],
-        "tmt-office" => &["tmt-core", "tmt-adapters"],
+        "tmt-office" => &[
+            "tmt-core",
+            "tmt-adapters",
+            "base64",
+            "getrandom",
+            "httparse",
+            "serde",
+            "serde_json",
+            "uuid",
+        ],
         "tmt-cli" => &[
             "unicode-width",
             "tmt-core",

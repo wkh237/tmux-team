@@ -43,6 +43,8 @@ pub fn invoke_office_pairing(
             | OfficeInvocation::Sync
             | OfficeInvocation::BlockShow
             | OfficeInvocation::BlockApply
+            | OfficeInvocation::LocalBlockShow
+            | OfficeInvocation::LocalBlockApply
     ) {
         return Err(invalid_pairing());
     }
@@ -54,6 +56,94 @@ pub fn invoke_office_pairing(
     }
     let bytes = invoke_json(executable, operation, &input, deadline)?;
     decode_pairing_reply(&bytes, call.world)
+}
+
+pub fn invoke_local_office_block(
+    executable: &Path,
+    identity_id: &str,
+    edit: Option<(&tmt_core::office_block::BlockLayout, u64)>,
+    deadline: Instant,
+) -> io::Result<Result<serde_json::Value, OfficeError>> {
+    let mut input = serde_json::json!({"identityId": identity_id});
+    let operation = if let Some((layout, revision)) = edit {
+        if revision >= tmt_core::office_block::MAX_REVISION {
+            return Ok(Err(OfficeError::LayoutInvalid));
+        }
+        input["layout"] = crate::office_block::layout_value(layout);
+        input["expectedRevision"] = serde_json::json!(revision);
+        OfficeInvocation::LocalBlockApply
+    } else {
+        OfficeInvocation::LocalBlockShow
+    };
+    let input = serde_json::to_vec(&input)?;
+    let bytes = match invoke_json(executable, operation, &input, deadline) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+            return Ok(Err(OfficeError::Busy));
+        }
+        Err(error) => return Err(error),
+    };
+    decode_local_block_reply(&bytes, identity_id)
+}
+
+fn decode_local_block_reply(
+    bytes: &[u8],
+    identity_id: &str,
+) -> io::Result<Result<serde_json::Value, OfficeError>> {
+    if bytes.len() > 4096 {
+        return Err(invalid_pairing());
+    }
+    let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| invalid_pairing())?;
+    let object = value.as_object().ok_or_else(invalid_pairing)?;
+    if object.len() == 1
+        && let Some(error) = value["error"].as_str().and_then(OfficeError::parse)
+    {
+        return Ok(Err(error));
+    }
+    if object.len() != 7
+        || ![
+            "exists",
+            "identityId",
+            "identityName",
+            "blockId",
+            "revision",
+            "objects",
+            "updatedAtMs",
+        ]
+        .iter()
+        .all(|key| object.contains_key(*key))
+        || value["identityId"].as_str() != Some(identity_id)
+        || value["identityName"].as_str().is_none_or(str::is_empty)
+        || value["revision"].as_u64().is_none()
+        || value["updatedAtMs"].as_u64().is_none()
+    {
+        return Err(invalid_pairing());
+    }
+    let exists = value["exists"].as_bool().ok_or_else(invalid_pairing)?;
+    let block_id = value["blockId"].as_str();
+    let valid_block_id = block_id.is_some_and(|id| {
+        uuid::Uuid::parse_str(id)
+            .ok()
+            .is_some_and(|parsed| parsed.to_string() == id)
+    });
+    if (exists
+        && (!valid_block_id
+            || value["revision"]
+                .as_u64()
+                .is_none_or(|revision| revision == 0)
+            || value["updatedAtMs"]
+                .as_u64()
+                .is_none_or(|updated| updated == 0)))
+        || (!exists
+            && (!value["blockId"].is_null()
+                || value["revision"].as_u64() != Some(0)
+                || value["updatedAtMs"].as_u64() != Some(0)))
+    {
+        return Err(invalid_pairing());
+    }
+    let layout = serde_json::to_vec(&serde_json::json!({"objects": value["objects"]}))?;
+    crate::office_block::decode_layout(&layout).map_err(|_| invalid_pairing())?;
+    Ok(Ok(value))
 }
 
 pub fn invoke_office_block(
@@ -278,6 +368,48 @@ fn finish_probe(running: RunningCommand, expected_version: &semver::Version) -> 
 #[cfg(test)]
 mod pairing_tests {
     use super::*;
+
+    #[test]
+    fn local_block_replies_are_exact_and_distinguish_missing_from_existing() {
+        let identity_id = "11111111-1111-4111-8111-111111111111";
+        let block_id = "22222222-2222-4222-8222-222222222222";
+        let existing = serde_json::json!({
+            "exists": true,
+            "identityId": identity_id,
+            "identityName": "Alice",
+            "blockId": block_id,
+            "revision": 1,
+            "objects": [],
+            "updatedAtMs": 1
+        });
+        assert!(
+            decode_local_block_reply(existing.to_string().as_bytes(), identity_id)
+                .unwrap()
+                .is_ok()
+        );
+        let missing = serde_json::json!({
+            "exists": false,
+            "identityId": identity_id,
+            "identityName": "Alice",
+            "blockId": null,
+            "revision": 0,
+            "objects": [],
+            "updatedAtMs": 0
+        });
+        assert!(
+            decode_local_block_reply(missing.to_string().as_bytes(), identity_id)
+                .unwrap()
+                .is_ok()
+        );
+        for invalid in [
+            serde_json::json!({"exists":true,"identityId":identity_id,"identityName":"Alice","blockId":block_id,"revision":0,"objects":[],"updatedAtMs":1}),
+            serde_json::json!({"exists":false,"identityId":identity_id,"identityName":"Alice","blockId":17,"revision":0,"objects":[],"updatedAtMs":0}),
+            serde_json::json!({"exists":false,"identityId":identity_id,"identityName":"","blockId":null,"revision":0,"objects":[],"updatedAtMs":0}),
+            serde_json::json!({"exists":false,"identityId":identity_id,"identityName":"Alice","blockId":null,"revision":0,"objects":[],"updatedAtMs":0,"token":"private"}),
+        ] {
+            assert!(decode_local_block_reply(invalid.to_string().as_bytes(), identity_id).is_err());
+        }
+    }
 
     #[test]
     fn block_replies_are_bounded_typed_and_match_explicit_targets() {

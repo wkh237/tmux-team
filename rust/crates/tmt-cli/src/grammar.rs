@@ -278,6 +278,14 @@ fn office(name: &'static str, about: &'static str) -> Command {
 
 fn office_commands() -> Command {
     office("office", "Manage the optional Office companion")
+        .subcommand(
+            office("start", "Start or reuse the local Office service").arg(
+                Arg::new("port")
+                    .long("port")
+                    .value_parser(clap::value_parser!(u16).range(1..)),
+            ),
+        )
+        .subcommand(office("stop", "Stop the local Office service"))
         .subcommand(office_scope(
             office("unpair", "Revoke the selected identity's Office pairing"),
             true,
@@ -288,12 +296,11 @@ fn office_commands() -> Command {
         ))
         .subcommand(
             office("block", "Read or edit an Office block")
-                .subcommand(office_scope(
+                .subcommand(office_block_scope(
                     office("show", "Show the selected Office block")
                         .arg(operand("block-id", false)),
-                    true,
                 ))
-                .subcommand(office_scope(
+                .subcommand(office_block_scope(
                     office("apply", "Apply a complete layout to an Office block")
                         .arg(operand("block-id", false))
                         .arg(Arg::new("file").long("file").required(true))
@@ -306,7 +313,6 @@ fn office_commands() -> Command {
                                         .range(0..tmt_core::office_block::MAX_REVISION),
                                 ),
                         ),
-                    true,
                 )),
         )
         .subcommand(office_scope(
@@ -362,6 +368,29 @@ fn office_commands() -> Command {
                 "Deactivate Office without deleting retained data",
             )
             .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue)),
+        )
+}
+
+fn office_block_scope(command: Command) -> Command {
+    command
+        .arg(Arg::new("world").long("world").conflicts_with("local"))
+        .arg(
+            Arg::new("local")
+                .long("local")
+                .conflicts_with_all(["world", "emulator", "block-id"])
+                .action(ArgAction::SetTrue),
+        )
+        .arg(option("identity"))
+        .arg(
+            Arg::new("emulator")
+                .long("emulator")
+                .requires("world")
+                .action(ArgAction::SetTrue),
+        )
+        .group(
+            clap::ArgGroup::new("office-block-target")
+                .args(["world", "local"])
+                .required(true),
         )
 }
 

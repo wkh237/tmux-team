@@ -17,7 +17,7 @@ const { nativeHostTarget, verifyNativeRuntime } = (await import(
     skill: string;
     profileContent: string;
     subject: string;
-  }) => void;
+  }) => Promise<void>;
 };
 
 describe('native runtime proof boundary', () => {
@@ -83,7 +83,7 @@ describe('native runtime proof boundary', () => {
       const marker = path.join(sandbox.root, 'executed');
       writeFileSync(executable, `#!/bin/sh\n: > ${JSON.stringify(marker)}\n`, { mode: 0o755 });
       chmodSync(executable, 0o755);
-      expect(() =>
+      await expect(
         verifyNativeRuntime({
           executable,
           target: nativeHostTarget(),
@@ -92,7 +92,7 @@ describe('native runtime proof boundary', () => {
           profileContent: 'proof',
           subject: 'Native executable',
         })
-      ).toThrow(
+      ).rejects.toThrow(
         process.platform === 'darwin'
           ? 'Mach-O dependency inventory is empty'
           : 'Native executable linkage inspection failed'

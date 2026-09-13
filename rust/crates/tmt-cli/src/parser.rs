@@ -85,6 +85,7 @@ fn validate_options(command: &Command, chain: &[&ArgMatches], root: bool) -> Res
                 crate::grammar::root_allowed(id.as_str())
             } else {
                 command.get_arguments().any(|arg| arg.get_id() == id)
+                    || command.get_groups().any(|group| group.get_id() == id)
             };
             // Parent subcommand IDs are not options.
             if !allowed && matches.subcommand_name() != Some(id.as_str()) {
@@ -149,6 +150,8 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         },
         ["office"]
         | ["office", "status"]
+        | ["office", "start"]
+        | ["office", "stop"]
         | ["office", "pair"]
         | ["office", "unpair"]
         | ["office", "inspect"]
@@ -162,17 +165,15 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             operation: match path.last().copied() {
                 Some("sync") => OfficeOperation::Sync,
                 Some("show") if path.get(1) == Some(&"block") => OfficeOperation::Block {
-                    world: required(m, "world"),
+                    target: office_block_target(m),
                     identity: text(m, "identity"),
-                    emulator: flag(m, "emulator"),
                     operation: OfficeBlockOperation::Show {
                         block_id: text(m, "block-id"),
                     },
                 },
                 Some("apply") if path.get(1) == Some(&"block") => OfficeOperation::Block {
-                    world: required(m, "world"),
+                    target: office_block_target(m),
                     identity: text(m, "identity"),
-                    emulator: flag(m, "emulator"),
                     operation: OfficeBlockOperation::Apply {
                         block_id: text(m, "block-id"),
                         file: required(m, "file"),
@@ -222,6 +223,10 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 Some("uninstall") => OfficeOperation::Uninstall {
                     yes: flag(m, "yes"),
                 },
+                Some("start") => OfficeOperation::Start {
+                    port: m.get_one::<u16>("port").copied(),
+                },
+                Some("stop") => OfficeOperation::Stop,
                 _ => OfficeOperation::Open,
             },
         },
@@ -400,6 +405,17 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         }
         _ => unreachable!("grammar and typed translation must agree"),
     })
+}
+
+fn office_block_target(matches: &ArgMatches) -> OfficeBlockTarget {
+    if flag(matches, "local") {
+        OfficeBlockTarget::Local
+    } else {
+        OfficeBlockTarget::Remote {
+            world: required(matches, "world"),
+            emulator: flag(matches, "emulator"),
+        }
+    }
 }
 
 fn content(matches: &ArgMatches, inline: &str, stdin: bool) -> Result<ContentInput, String> {

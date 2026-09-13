@@ -111,6 +111,7 @@ struct Modules {
     directory: PathBuf,
     children: Vec<PathBuf>,
     errors: Vec<String>,
+    allow_generated_asset_include: bool,
 }
 
 impl<'ast> Visit<'ast> for Modules {
@@ -137,7 +138,7 @@ impl<'ast> Visit<'ast> for Modules {
     }
 
     fn visit_macro(&mut self, node: &'ast syn::Macro) {
-        if node.path.is_ident("include") {
+        if node.path.is_ident("include") && !self.allow_generated_asset_include {
             self.errors
                 .push("source include! requires explicit collector support".into());
         }
@@ -220,6 +221,10 @@ pub fn collect(package: &str, root: &Path) -> Result<Vec<Source>, String> {
             directory: module_dir,
             children: Vec::new(),
             errors: Vec::new(),
+            // tmt-office/build.rs is the bounded inventory owner for this
+            // generated const table. Production dependencies remain visible
+            // in local_assets.rs and the build script itself.
+            allow_generated_asset_include: package == "tmt-office" && file == "local_assets.rs",
         };
         modules.visit_file(&syntax);
         if !modules.errors.is_empty() {

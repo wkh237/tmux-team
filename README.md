@@ -120,9 +120,13 @@ and failure handling, or `tmt help` for command options.
 ## Development
 
 Office is an optional work in progress. An independently versioned public alpha
-companion is available through `tmt office install --yes`. It supports local
-installation/status, pairing and agent block decoration with scoped, renewable
-access, but no hosted Office service is provided. See
+companion is available through `tmt office install --yes` for pairing and remote
+agent block decoration with scoped, renewable access. This source tree additionally
+implements offline local block editing through `tmt office start`, but it is not in
+the currently published CLI/Office pair and must be released together before public
+installer guidance may claim it. The local UI is loopback-only, uses the same SQLite
+repository as one-shot `--local` commands and needs no Node or Firebase at runtime;
+no hosted Office service is provided. See
 [Office commands](docs/office/commands.md); ordinary TMT use does not require it.
 
 Contributor-only requirements and checks are in [development](DEVELOPMENT.md).

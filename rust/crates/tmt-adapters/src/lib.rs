@@ -22,7 +22,11 @@ pub mod office_deployment;
 #[cfg(feature = "office")]
 mod office_http;
 #[cfg(feature = "office")]
+pub mod office_local;
+#[cfg(feature = "office")]
 pub mod office_pairing;
+#[cfg(unix)]
+pub mod office_service;
 #[cfg(unix)]
 pub mod process;
 #[cfg(unix)]

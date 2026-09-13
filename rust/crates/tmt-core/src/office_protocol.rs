@@ -26,6 +26,7 @@ pub enum OfficeError {
     RemoteUncertain,
     LayoutInvalid,
     RevisionConflict,
+    IdentityInactive,
     Busy,
 }
 
@@ -42,6 +43,7 @@ impl OfficeError {
             Self::RemoteUncertain => "OFFICE_REMOTE_UNCERTAIN",
             Self::LayoutInvalid => "OFFICE_LAYOUT_INVALID",
             Self::RevisionConflict => "OFFICE_REVISION_CONFLICT",
+            Self::IdentityInactive => "OFFICE_IDENTITY_INACTIVE",
             Self::Busy => "OFFICE_BUSY",
         }
     }
@@ -58,6 +60,7 @@ impl OfficeError {
             Self::RemoteUncertain,
             Self::LayoutInvalid,
             Self::RevisionConflict,
+            Self::IdentityInactive,
             Self::Busy,
         ]
         .into_iter()
@@ -83,6 +86,8 @@ pub enum OfficeInvocation {
     Sync,
     BlockShow,
     BlockApply,
+    LocalBlockShow,
+    LocalBlockApply,
 }
 
 impl OfficeInvocation {
@@ -97,6 +102,8 @@ impl OfficeInvocation {
             Self::Sync => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "sync"],
             Self::BlockShow => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "block-show"],
             Self::BlockApply => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "block-apply"],
+            Self::LocalBlockShow => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "local-block-show"],
+            Self::LocalBlockApply => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "local-block-apply"],
         }
     }
 
@@ -111,6 +118,8 @@ impl OfficeInvocation {
             Self::Sync,
             Self::BlockShow,
             Self::BlockApply,
+            Self::LocalBlockShow,
+            Self::LocalBlockApply,
         ]
         .into_iter()
         .find(|operation| arguments == operation.arguments())
