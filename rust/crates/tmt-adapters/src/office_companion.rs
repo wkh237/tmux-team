@@ -37,7 +37,13 @@ pub fn invoke_office_pairing(
     call: &PairingCall<'_>,
     deadline: Instant,
 ) -> io::Result<PairingReply> {
-    if matches!(operation, OfficeInvocation::Probe | OfficeInvocation::Sync) {
+    if matches!(
+        operation,
+        OfficeInvocation::Probe
+            | OfficeInvocation::Sync
+            | OfficeInvocation::BlockShow
+            | OfficeInvocation::BlockApply
+    ) {
         return Err(invalid_pairing());
     }
     let input = serde_json::to_vec(
@@ -48,6 +54,62 @@ pub fn invoke_office_pairing(
     }
     let bytes = invoke_json(executable, operation, &input, deadline)?;
     decode_pairing_reply(&bytes, call.world)
+}
+
+pub fn invoke_office_block(
+    executable: &Path,
+    call: &PairingCall<'_>,
+    block_id: Option<&str>,
+    edit: Option<(&tmt_core::office_block::BlockLayout, u64)>,
+    deadline: Instant,
+) -> io::Result<Result<crate::office_block::BlockSnapshot, OfficeError>> {
+    let mut input = serde_json::json!({"world":call.world,"identityId":call.identity_id,"emulator":call.emulator,"readOnly":false,"blockId":block_id});
+    let operation = if let Some((layout, revision)) = edit {
+        if revision >= tmt_core::office_block::MAX_REVISION {
+            return Ok(Err(OfficeError::LayoutInvalid));
+        }
+        input["layout"] = crate::office_block::layout_value(layout);
+        input["expectedRevision"] = serde_json::json!(revision);
+        OfficeInvocation::BlockApply
+    } else {
+        OfficeInvocation::BlockShow
+    };
+    let input = serde_json::to_vec(&input)?;
+    if input.len() > 4096 {
+        return Err(invalid_pairing());
+    }
+    let bytes = match invoke_json(executable, operation, &input, deadline) {
+        Ok(bytes) => bytes,
+        // The installer lock failed before the child was launched. Command
+        // failures after launch are wrapped as Other by invoke_json and must
+        // remain uncertain; never advertise a possibly committed write as busy.
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+            return Ok(Err(OfficeError::Busy));
+        }
+        Err(error) => return Err(error),
+    };
+    decode_block_reply(&bytes, block_id)
+}
+
+fn decode_block_reply(
+    bytes: &[u8],
+    block_id: Option<&str>,
+) -> io::Result<Result<crate::office_block::BlockSnapshot, OfficeError>> {
+    if bytes.len() > 4096 {
+        return Err(invalid_pairing());
+    }
+    let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| invalid_pairing())?;
+    if value.as_object().is_some_and(|object| object.len() == 1)
+        && let Some(error) = value["error"].as_str().and_then(OfficeError::parse)
+    {
+        return Ok(Err(error));
+    }
+    let snapshot =
+        crate::office_block::BlockSnapshot::decode(bytes).map_err(|_| invalid_pairing())?;
+    if block_id.is_some_and(|id| id != snapshot.block_id) {
+        return Err(invalid_pairing());
+    }
+    Ok(Ok(snapshot))
 }
 
 pub fn invoke_office_sync(
@@ -216,6 +278,35 @@ fn finish_probe(running: RunningCommand, expected_version: &semver::Version) -> 
 #[cfg(test)]
 mod pairing_tests {
     use super::*;
+
+    #[test]
+    fn block_replies_are_bounded_typed_and_match_explicit_targets() {
+        let id = "11111111-1111-4111-8111-111111111111";
+        let value = serde_json::json!({"blockId":id,"revision":0,"objects":[]});
+        let bytes = serde_json::to_vec(&value).unwrap();
+        assert_eq!(
+            decode_block_reply(&bytes, Some(id))
+                .unwrap()
+                .unwrap()
+                .revision,
+            0
+        );
+        assert!(decode_block_reply(&bytes, Some("22222222-2222-4222-8222-222222222222")).is_err());
+        assert_eq!(
+            decode_block_reply(br#"{"error":"OFFICE_REVISION_CONFLICT"}"#, None).unwrap(),
+            Err(OfficeError::RevisionConflict)
+        );
+        for invalid in [
+            serde_json::json!({"blockId":id,"revision":0,"objects":[{"asset":"desk","x":0,"y":0,"rotation":0}]}),
+            serde_json::json!({"blockId":id,"revision":1,"objects":[],"token":"unexpected"}),
+            serde_json::json!({"blockId":id,"revision":1,"objects":["d000"]}),
+            serde_json::json!({"error":"UNKNOWN"}),
+            serde_json::json!({"state":"credential"}),
+        ] {
+            assert!(decode_block_reply(&serde_json::to_vec(&invalid).unwrap(), None).is_err());
+        }
+        assert!(decode_block_reply(&vec![b' '; 4097], None).is_err());
+    }
 
     #[test]
     fn sync_reports_are_bounded_and_expose_only_public_delivery_state() {

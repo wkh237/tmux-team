@@ -47,8 +47,10 @@ check in Rules. Curated SVG primitives are repository code, not stored markup.
 Firestore's `objects` field stores that same ordered list as four-character
 ASCII tokens, not maps: asset (`d`, `c`, `p`, `r`), rotation (`0`..`3`), X and Y
 as one lowercase base-32 digit each (`0`..`9`, `a`..`v`). For example `d1us`
-is a desk rotated once at (30, 28). `block-contract.ts` owns the only codec;
-the browser and future command inputs retain readable named fields. There is
+is a desk rotated once at (30, 28). `block-contract.ts` implements the browser
+codec; `tmt-core::office_block` implements the pure native codec against the same
+literal conformance vectors and this contract. Native adapters own readable JSON
+and Firestore envelopes; command inputs retain readable named fields. There is
 no second stored layout or cache. Unknown tokens/fields reject, never truncate.
 
 Encoding permits one bounded regex per slot to enforce asset-specific rotated
@@ -69,6 +71,14 @@ as saved. Pointer placement and form/keyboard edits cause no remote writes.
 Save performs a transaction read, at most one document write, then one server
 read; transaction retries and Rules-dependent reads may add reads. Reset takes
 the latest server-confirmed layout and discards the local draft explicitly.
+
+Native show performs one authorized document read. Apply reads, conditionally
+commits at most one write using the observed server update time (or `exists:false`
+for creation), then reads canonical state. An exact retry needs only the read.
+Failed preconditions may require another read to distinguish a conflict from an
+identical concurrent retry. No automatic write retry or revision rebasing occurs.
+Authentication refresh, eligible lease renewal and pending retirement cleanup
+can add separate operations; ordinary layout reads do not enumerate the world.
 
 Leaving the world or losing admission disposes the editor, its listener and
 private draft; late callbacks cannot repopulate it. Reload still signs out under

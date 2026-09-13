@@ -8,6 +8,7 @@ pub mod identity_hooks;
 pub mod limits;
 pub mod names;
 pub mod native_install;
+pub mod office_block;
 pub mod office_protocol;
 pub mod profile;
 pub mod request;
@@ -17,5 +18,7 @@ pub mod skill_provider;
 
 #[cfg(test)]
 mod identity_tests;
+#[cfg(test)]
+mod office_block_tests;
 #[cfg(test)]
 mod settings_tests;

@@ -1842,6 +1842,7 @@ dependencies = [
  "icu_locale_core",
  "icu_normalizer",
  "semver",
+ "serde_json",
  "sha2",
  "uuid",
 ]

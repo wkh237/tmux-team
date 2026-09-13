@@ -278,6 +278,29 @@ fn office_commands() -> Command {
             "sync",
             "Deliver pending identity retirement hooks to Office",
         ))
+        .subcommand(
+            office("block", "Read or edit an Office block")
+                .subcommand(office_scope(
+                    office("show", "Show the selected Office block")
+                        .arg(operand("block-id", false)),
+                    true,
+                ))
+                .subcommand(office_scope(
+                    office("apply", "Apply a complete layout to an Office block")
+                        .arg(operand("block-id", false))
+                        .arg(Arg::new("file").long("file").required(true))
+                        .arg(
+                            Arg::new("if-revision")
+                                .long("if-revision")
+                                .required(true)
+                                .value_parser(
+                                    clap::value_parser!(u64)
+                                        .range(0..tmt_core::office_block::MAX_REVISION),
+                                ),
+                        ),
+                    true,
+                )),
+        )
         .subcommand(office_scope(
             office(
                 "inspect",

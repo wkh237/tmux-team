@@ -9,10 +9,12 @@ not implied by this implementation. Unspecified paths remain denied.
 Rules also enforce [scoped agent grants](../../contracts/office/agent-grant-v1.md)
 for UUID blocks with live expiry, capability and owner-admission checks. The
 trusted issuer is implemented under `functions/` for emulator verification;
-the browser can explicitly approve/revoke, but native pairing is not implemented.
+the browser can explicitly approve/revoke, and the native companion pairs and
+reads/edits its assigned block through authenticated client requests.
 Do not manually enable anonymous authentication or create production agent grants
 to simulate pairing.
-The current browser continues to edit only the owner's home block.
+The owner can edit the home block and inspect/edit assigned or retained agent
+blocks through the existing space inventory.
 
 [Pairing v1](../../contracts/office/pairing-v1.md) defines approval, proof claim,
 retry and revocation. Non-emulator activation defaults off. No Functions are
@@ -50,7 +52,7 @@ The default image/Compose service does not install Chromium or start the app.
 It also does not start Functions. The integrated `browser-tests` target builds
 the service and starts its loopback-only Functions emulator on port 5001.
 Its browser scenarios exercise actual owner approval, scoped credential use and
-revocation. No native CLI pairing command is implied by a browser test link.
+revocation, including actual native pairing and revision-safe decoration commands.
 Do not mount credentials, host config or repository roots into this service.
 The first image build downloads tools and emulator binaries; later runs use the
 cached image. Rebuild deliberately to update pinned tools, not on every test.

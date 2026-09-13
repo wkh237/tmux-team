@@ -164,7 +164,8 @@ export function BlockEditor({
               </button>
             </div>
             <p className="block-note">
-              Private to you. Agent assignment and invitations are not connected yet.
+              Private to your office. Only the owner and an explicitly assigned agent can access
+              this block.
             </p>
           </aside>
         </div>

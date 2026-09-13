@@ -142,8 +142,12 @@ fn read_id(directory: &std::path::Path) -> Result<Option<String>, OfficeError> {
     Ok(Some(id))
 }
 
-fn unavailable(_: io::Error) -> OfficeError {
-    OfficeError::CredentialsUnavailable
+fn unavailable(error: io::Error) -> OfficeError {
+    if error.kind() == io::ErrorKind::WouldBlock {
+        OfficeError::Busy
+    } else {
+        OfficeError::CredentialsUnavailable
+    }
 }
 
 #[cfg(test)]
@@ -242,7 +246,7 @@ mod tests {
             .with_scope(&target, identity, |key| {
                 assert_eq!(
                     installation.with_scope(&target, identity, |_| Ok(())),
-                    Err(OfficeError::CredentialsUnavailable)
+                    Err(OfficeError::Busy)
                 );
                 Ok(key.to_string())
             })

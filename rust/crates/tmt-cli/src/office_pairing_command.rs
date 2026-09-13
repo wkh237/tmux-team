@@ -18,6 +18,24 @@ use tmt_adapters::{
 };
 use tmt_core::office_protocol::{OfficeError, OfficeInvocation};
 
+pub(crate) fn resolve_identity(
+    selector: Option<&str>,
+) -> Result<tmt_core::identity::Identity, Failure> {
+    let selector = identity_context::required(selector)?;
+    let paths = ConfigPaths::discover().map_err(unavailable)?;
+    let mut storage = Storage::open(paths.database).map_err(unavailable)?;
+    let identity = identity_context::resolve(&mut storage, selector)?;
+    storage.close().map_err(unavailable)?;
+    Ok(identity)
+}
+
+pub(crate) fn sync_before_operation(executable: &Path) -> Result<(), Failure> {
+    match invoke_office_sync(executable, Instant::now() + Duration::from_secs(30)) {
+        Ok(Ok(report)) if report.pending == 0 => Ok(()),
+        _ => writeln!(io::stderr().lock(), "Office retirement cleanup remains unconfirmed. Run tmt office sync to retry; the requested operation is checked separately.").map_err(unavailable),
+    }
+}
+
 pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> Result<u8, Failure> {
     if matches!(operation, OfficeOperation::Sync) {
         return sync(executable, mode);
@@ -29,10 +47,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
         operation,
         OfficeOperation::Pair { .. } | OfficeOperation::Inspect { .. }
     ) {
-        match invoke_office_sync(executable, Instant::now() + Duration::from_secs(30)) {
-            Ok(Ok(report)) if report.pending == 0 => {},
-            _ => writeln!(io::stderr().lock(), "Office retirement cleanup remains unconfirmed. Run tmt office sync to retry; the requested operation is checked separately.").map_err(unavailable)?,
-        }
+        sync_before_operation(executable)?;
         if interrupt.is_interrupted() {
             return Err(interrupted());
         }
@@ -70,11 +85,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
             ));
         }
     };
-    let selector = identity_context::required(identity.as_deref())?;
-    let paths = ConfigPaths::discover().map_err(unavailable)?;
-    let mut storage = Storage::open(paths.database).map_err(unavailable)?;
-    let identity = identity_context::resolve(&mut storage, selector)?;
-    storage.close().map_err(unavailable)?;
+    let identity = resolve_identity(identity.as_deref())?;
     let call = PairingCall {
         world: &world,
         identity_id: &identity.id,
@@ -215,7 +226,7 @@ fn sync(executable: &Path, mode: OutputMode) -> Result<u8, Failure> {
     Ok(u8::from(report.pending > 0 || report.failed > 0))
 }
 
-fn pairing_error(error: OfficeError) -> Failure {
+pub(crate) fn pairing_error(error: OfficeError) -> Failure {
     let message = match error {
         OfficeError::PairingPending => {
             "Pairing is not yet confirmed. Retry the same command within the original approval window."
@@ -227,6 +238,15 @@ fn pairing_error(error: OfficeError) -> Failure {
             "The retained pairing or grant has expired. No new pairing was created."
         }
         OfficeError::NotPaired => "This active identity has no Office pairing.",
+        OfficeError::Busy => {
+            "Another Office operation holds the local lock. This operation did not start; retry the same command after it finishes."
+        }
+        OfficeError::LayoutInvalid => {
+            "The Office block layout is invalid or exceeds the supported bounds. No change was made."
+        }
+        OfficeError::RevisionConflict => {
+            "The Office block changed after it was read. Read the current layout and reconcile your draft before submitting a new revision. No layout was changed by this attempt."
+        }
         _ => {
             "Office could not validate the operation. Retained pairing state was not intentionally deleted."
         }
@@ -243,7 +263,7 @@ fn unavailable(error: impl std::error::Error + 'static) -> Failure {
     .caused_by(error)
 }
 
-fn interrupted() -> Failure {
+pub(crate) fn interrupted() -> Failure {
     Failure::new(
         "OFFICE_INTERRUPTED",
         "Office pairing interrupted. Retry the same command to inspect or resume retained state.",

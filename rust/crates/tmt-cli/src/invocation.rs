@@ -80,6 +80,12 @@ pub enum OfficeOperation {
     Open,
     Status,
     Sync,
+    Block {
+        world: String,
+        identity: Option<String>,
+        emulator: bool,
+        operation: OfficeBlockOperation,
+    },
     Unpair {
         world: String,
         identity: Option<String>,
@@ -113,6 +119,18 @@ pub enum OfficeOperation {
     },
     Uninstall {
         yes: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum OfficeBlockOperation {
+    Show {
+        block_id: Option<String>,
+    },
+    Apply {
+        block_id: Option<String>,
+        file: String,
+        if_revision: u64,
     },
 }
 

@@ -184,6 +184,35 @@ impl PairingRecord {
         }
     }
 
+    pub(super) fn block(
+        &self,
+        target: &WorldTarget,
+        now_ms: u64,
+        requested_id: Option<&str>,
+        edit: Option<(&tmt_core::office_block::BlockLayout, u64)>,
+        deadline: std::time::Instant,
+    ) -> Result<crate::office_block::BlockSnapshot, OfficeError> {
+        match &self.phase {
+            Phase::Paired {
+                grant_expires_at,
+                block_id,
+                credential,
+                ..
+            } => {
+                if now_ms >= *grant_expires_at {
+                    return Err(OfficeError::PairingExpired);
+                }
+                if requested_id.is_some_and(|id| id != block_id)
+                    || (edit.is_some() && self.approval.read_only())
+                {
+                    return Err(OfficeError::RemoteDenied);
+                }
+                credential.block(&self.deployment(target)?, block_id, edit, deadline)
+            }
+            Phase::Pending { .. } | Phase::Revoked {} => Err(OfficeError::NotPaired),
+        }
+    }
+
     pub fn pending(
         deployment: &OfficeDeployment,
         approval: Approval,

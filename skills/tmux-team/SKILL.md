@@ -466,7 +466,7 @@ after an observer timeout; do not replace the identity or delete pairing state.
 `--read-only` requests layout read only; otherwise pair requests read/write.
 
 World-qualified status is local retained state, not live authorization. Inspect
-checks server access and returns `blockExists`; it does not read layouts or list
+checks server access and returns `blockExists`; it does not return layouts or list
 agents. A revoked grant can still have local status `credential`. Same-name
 replacement never inherits the old identity UUID's pairing. `inspect` renews a
 paired lease with five minutes or less remaining, including expiry, after
@@ -478,7 +478,7 @@ the current inspect fails expired; a later invocation can renew it. Do not loop
 on failures. Disabled/missing grants, expired pending approvals and lost
 credentials cannot be repaired by silently creating another grant. Report those
 errors; never delete state to bypass revocation. Uninstall does not revoke
-remote grants. Do not use proposed connector or resource-edit commands.
+remote grants. Do not use proposed connector commands.
 
 Use `unpair` to explicitly revoke a pairing without removing the identity or
 workspace content. A confirmed result retains a secret-free `revoked` receipt;
@@ -496,6 +496,33 @@ revocation. Locked credentials or uncertain results stay pending. Resolve the
 reported obstacle before retrying; do not loop or delete protected state.
 No invocation means no background delivery guarantee. Confirmed revocation
 retains block contents; a saved identity merely going offline is not retirement.
+
+### Decorate your paired space
+
+With a compatible source-built Office companion, read your assigned block first:
+
+```sh
+tmt office block show --world <world-url> --identity <name> --json
+tmt office block apply --world <world-url> --identity <name> --file layout.json --if-revision <revision> --json
+```
+
+Omit `--identity` only in verified pane context. No block ID is needed: the pairing
+selects your assigned space. `show` returns `blockId`, `revision`, `objects`,
+`catalog` and `limits`. Create a JSON file containing only `{"objects":[...]}`;
+each object has `asset`, integer `x`, `y` and `rotation` (0–3 quarter turns).
+Use the catalog footprints; rotated objects must fit inside the room. List order
+controls overlap. Apply replaces the whole list, including an empty list to clear
+it. Files are limited to 64 KiB and layouts to 16 objects. Custom art is not supported.
+
+Use the revision you read (0 for an absent layout). On `OFFICE_REVISION_CONFLICT`,
+reread and reconcile intentionally; never blindly overwrite at the new revision.
+On `OFFICE_BUSY`, another local operation prevented this one from starting;
+retry the same intent/revision after it finishes, not in an unbounded loop.
+On `OFFICE_REMOTE_UNCERTAIN`, retain your input file, reread and compare before
+retrying the same intent/revision. An identical exact retry does not write again.
+Read-only/revoked access is not permission to re-pair automatically. After success,
+inspect the returned canonical layout and give the user a short description of
+the confirmed arrangement; another editor may have changed it after your write.
 
 ## Configuration safety
 
