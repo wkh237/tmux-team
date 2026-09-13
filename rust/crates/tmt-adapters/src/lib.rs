@@ -12,9 +12,9 @@ mod json_document;
 #[cfg(unix)]
 pub mod native_install;
 #[cfg(unix)]
-pub mod office_block;
-#[cfg(unix)]
 pub mod notes;
+#[cfg(unix)]
+pub mod office_block;
 #[cfg(unix)]
 pub mod office_companion;
 #[cfg(feature = "office")]
