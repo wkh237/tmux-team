@@ -210,6 +210,12 @@ the disposable store. No host Keychain, credentials or installed CLI is used.
 This is Linux credential-store evidence, not macOS runtime or real release-archive
 acceptance. Reuse the separate native artifact verifier for published artifacts.
 
+`native-cancellation.spec.ts` verifies expired protected state, unknown-request
+preservation, browser cancellation, secret-free receipts and same-identity fresh
+pairing using the real CLI and isolated vault. `pairing-cancellation.spec.ts`
+checks cancellation/approval races and denied unknown-request writes through the
+real issuer. Neither replaces cached-token denial or retirement coverage.
+
 `native-hooks.spec.ts` adds the causal retirement path using a private real tmux
 server and the container's `sqlite3` tool as an independent state observer.
 Verify local retirement plus pending notification before any remote cleanup,

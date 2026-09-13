@@ -40,7 +40,8 @@ export interface AgentIdentity {
 export type RevocationActor =
   | { kind: 'owner'; uid: string }
   | { kind: 'agent'; agent: AgentIdentity }
-  | { kind: 'proof' };
+  | { kind: 'proof' }
+  | { kind: 'ownerApproval'; uid: string; request: Approval };
 
 function matchesAgent(pairing: Pairing, agent: AgentIdentity): boolean {
   return (
@@ -386,22 +387,52 @@ export function createPairingStore(db: Firestore, clock: () => number = Date.now
     },
 
     async revoke(actor: RevocationActor, id: string): Promise<void> {
+      const tombstonePrincipalUid =
+        actor.kind === 'ownerApproval' ? `office-agent:${randomUUID()}` : undefined;
+      const tombstoneBlockId = actor.kind === 'ownerApproval' ? randomUUID() : undefined;
       await db.runTransaction(async (tx) => {
+        const now = clock();
         const snapshot = await tx.get(pairingRef(id));
+        if (actor.kind === 'ownerApproval' && !snapshot.exists) {
+          if (
+            actor.request.pairingId !== id ||
+            !isTimestampMillis(now) ||
+            now > MAX_TIMESTAMP_MS - APPROVAL_MS
+          )
+            unavailable();
+          if (!(await ownsWorld(tx, actor.uid, actor.request.worldId)))
+            throw new PairingError('PERMISSION_DENIED');
+          tx.create(pairingRef(id), {
+            request: actor.request,
+            ownerUid: actor.uid,
+            principalUid: tombstonePrincipalUid!,
+            blockId: tombstoneBlockId!,
+            createdAt: Timestamp.fromMillis(now),
+            expiresAt: Timestamp.fromMillis(now + APPROVAL_MS),
+            enabled: false,
+            claimed: false,
+            nextClaimAt: Timestamp.fromMillis(now),
+          });
+          return;
+        }
         let pairing: Pairing;
         try {
           pairing = decodePairing(snapshot.data(), id);
         } catch {
           throw new PairingError(
-            actor.kind === 'owner' ? 'PERMISSION_DENIED' : 'PAIRING_UNAVAILABLE'
+            actor.kind === 'owner' || actor.kind === 'ownerApproval'
+              ? 'PERMISSION_DENIED'
+              : 'PAIRING_UNAVAILABLE'
           );
         }
-        if (actor.kind === 'owner') {
+        if (actor.kind === 'owner' || actor.kind === 'ownerApproval') {
           if (
             pairing.ownerUid !== actor.uid ||
             !(await ownsWorld(tx, actor.uid, pairing.request.worldId))
           )
             throw new PairingError('PERMISSION_DENIED');
+          if (actor.kind === 'ownerApproval' && !sameRequest(pairing.request, actor.request))
+            throw new PairingError('PAIRING_CONFLICT');
         } else if (
           actor.kind === 'agent' &&
           (!pairing.claimed || !matchesAgent(pairing, actor.agent))

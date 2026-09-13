@@ -1,4 +1,4 @@
-import { PairingActionError } from './pairing-contract.js';
+import { PairingActionError, snapshotPairingRequest } from './pairing-contract.js';
 import type {
   ApprovedPairing,
   PairingRequest,
@@ -9,6 +9,7 @@ import type {
 interface PairingSnapshot {
   busy: boolean;
   attempted: boolean;
+  revocationAttempted: boolean;
   approved: ApprovedPairing | null;
   revoked: boolean;
   error: string | null;
@@ -17,9 +18,11 @@ interface PairingSnapshot {
 
 /** One mounted request owns actions; disposal fences results, not remote writes. */
 export function createPairingState(port: PairingPort, request: PairingRequest, ownerUid: string) {
+  const originalRequest = snapshotPairingRequest(request);
   let snapshot: PairingSnapshot = {
     busy: false,
     attempted: false,
+    revocationAttempted: false,
     approved: null,
     revoked: false,
     error: null,
@@ -32,9 +35,19 @@ export function createPairingState(port: PairingPort, request: PairingRequest, o
     snapshot = { ...snapshot, ...change };
     for (const listener of listeners) listener();
   }
-  async function act(action: () => Promise<Partial<PairingSnapshot>>) {
-    if (disposed || snapshot.busy || snapshot.revoked) return;
-    publish({ busy: true, attempted: true, error: null });
+  async function act(action: () => Promise<Partial<PairingSnapshot>>, kind: 'approve' | 'revoke') {
+    if (
+      disposed ||
+      snapshot.busy ||
+      snapshot.revoked ||
+      (kind === 'approve' && snapshot.revocationAttempted)
+    )
+      return;
+    publish({
+      busy: true,
+      error: null,
+      ...(kind === 'approve' ? { attempted: true } : { revocationAttempted: true }),
+    });
     try {
       publish(await action());
     } catch (error) {
@@ -58,26 +71,30 @@ export function createPairingState(port: PairingPort, request: PairingRequest, o
       };
     },
     selectReplacement(replacement: PairingReplacement | null) {
-      if (disposed || snapshot.attempted) return;
+      if (disposed || snapshot.attempted || snapshot.revocationAttempted) return;
       publish({ replacement: replacement ? { ...replacement } : null });
     },
     approve: () =>
-      act(async () => ({
-        approved: snapshot.replacement
-          ? await port.approve(request, ownerUid, snapshot.replacement)
-          : await port.approve(request, ownerUid),
-      })),
+      act(
+        async () => ({
+          approved: snapshot.replacement
+            ? await port.approve(originalRequest, ownerUid, snapshot.replacement)
+            : await port.approve(originalRequest, ownerUid),
+        }),
+        'approve'
+      ),
     revoke: () =>
       act(async () => {
-        await port.revoke(request.pairingId, ownerUid);
+        await port.revoke(originalRequest, ownerUid);
         return { approved: null, revoked: true };
-      }),
+      }, 'revoke'),
     dispose() {
       disposed = true;
       listeners.clear();
       snapshot = {
         busy: false,
         attempted: false,
+        revocationAttempted: false,
         approved: null,
         revoked: false,
         error: null,

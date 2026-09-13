@@ -45,6 +45,14 @@ enum Phase {
 }
 
 impl PairingRecord {
+    pub(super) fn is_pending(&self) -> bool {
+        matches!(self.phase, Phase::Pending { .. })
+    }
+
+    pub(super) fn is_revoked(&self) -> bool {
+        matches!(self.phase, Phase::Revoked {})
+    }
+
     pub(super) fn has_credentials(&self) -> bool {
         matches!(self.phase, Phase::Paired { .. })
     }

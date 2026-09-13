@@ -26,7 +26,11 @@ export function createPairingService(store: PairingStore, auth: PairingAuthentic
   }
 
   function human(token: DecodedIdToken): string {
-    if (token.firebase?.sign_in_provider !== 'google.com' || token.email_verified !== true)
+    if (
+      token.tmtOfficeAgent === true ||
+      token.firebase?.sign_in_provider !== 'google.com' ||
+      token.email_verified !== true
+    )
       throw new PairingError('PERMISSION_DENIED');
     return token.uid;
   }
@@ -86,6 +90,15 @@ export function createPairingService(store: PairingStore, auth: PairingAuthentic
       if (request.kind === 'proof') {
         if (authorization !== undefined) throw new PairingError('INVALID_ARGUMENT');
         await store.revoke({ kind: 'proof' }, request.pairingId);
+      } else if (request.kind === 'ownerApproval') {
+        await store.revoke(
+          {
+            kind: 'ownerApproval',
+            uid: human(await verified(authorization)),
+            request: request.request,
+          },
+          request.request.pairingId
+        );
       } else {
         const token = await verified(authorization);
         await store.revoke(
@@ -95,7 +108,11 @@ export function createPairingService(store: PairingStore, auth: PairingAuthentic
           request.pairingId
         );
       }
-      return { version: 1, pairingId: request.pairingId, revoked: true };
+      return {
+        version: 1,
+        pairingId: request.kind === 'ownerApproval' ? request.request.pairingId : request.pairingId,
+        revoked: true,
+      };
     },
   };
 }

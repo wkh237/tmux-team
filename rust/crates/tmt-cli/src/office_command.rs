@@ -212,6 +212,7 @@ fn run(
     match operation {
         OfficeOperation::Pair { .. }
         | OfficeOperation::PairStatus { .. }
+        | OfficeOperation::Unpair { .. }
         | OfficeOperation::Inspect { .. }
         | OfficeOperation::Sync => {
             if !installed(&executable)? {

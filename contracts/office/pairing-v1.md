@@ -18,8 +18,8 @@ approval requests. The current owner's ID token is sent only in the
 HTTP is allowed only for the demo emulator).
 
 There is no unauthenticated durable "begin" write. The admitted human owner must
-approve the exact installation/identity/world and layout capability selection
-before the service creates a pairing record. Display labels are untrusted
+approve or explicitly cancel the exact public request before the service creates
+a pairing record; cancellation creates only a disabled tombstone. Display labels are untrusted
 presentation, not evidence of local identity or authority. The native client must
 also compare the claimed binding with its own expected values before storing
 credentials. A comparison code or copied link alone does not prove possession.
@@ -197,6 +197,15 @@ unavailable-pairing, conflict and unavailable-service errors retain their
 HTTP mappings. No browser receives agent tokens or direct grant-read authority.
 
 ## Retirement cancellation
+
+Owner cancellation also accepts exactly `{version:1,publicApproval:<approval input>}`.
+It requires an admitted human world owner, never an agent bearer. Existing records
+must match that owner and exact request. For an unknown request, the same revoke
+transaction creates a disabled, unclaimed pairing with ordinary generated IDs
+and timestamps, but no grant, token or resource. Those IDs are inert placeholders,
+not issued assignments. Repeated cancellation is idempotent; late approval/claim
+cannot revive the record. Existing source-transfer receipts and resources remain
+unchanged. Viewing the link or logging in never cancels it automatically.
 
 `POST /revoke` accepts exactly `{version:1,pairingId}` with a verified,
 non-revoked bearer token, or `{version:1,secret}` without an Authorization header.

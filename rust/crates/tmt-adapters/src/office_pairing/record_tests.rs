@@ -20,6 +20,8 @@ fn fixture() -> (WorldTarget, PairingRecord) {
 #[test]
 fn revoked_receipt_has_no_secret_and_can_resume_without_remote_authority() {
     let (target, mut record) = fixture();
+    assert!(record.is_pending());
+    assert!(!record.is_revoked());
     let secret = record.reserve_claim(1000).unwrap().secret();
     // Remote confirmation is exercised by the emulator test; this assertion
     // isolates the durable terminal representation and its retry behavior.
@@ -32,6 +34,8 @@ fn revoked_receipt_has_no_secret_and_can_resume_without_remote_authority() {
     );
     let mut resumed = PairingRecord::decode(&bytes, &target, INSTALLATION, IDENTITY).unwrap();
     assert_eq!(resumed.local_state(u64::MAX), "revoked");
+    assert!(resumed.is_revoked());
+    assert!(!resumed.is_pending());
     assert!(!resumed.has_credentials());
     // An elapsed deadline proves a terminal retry needs no network exchange.
     resumed.revoke(&target, std::time::Instant::now()).unwrap();

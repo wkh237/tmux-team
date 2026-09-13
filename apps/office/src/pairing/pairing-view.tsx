@@ -74,7 +74,7 @@ export function PairingForm({
   request: PairingRequest;
   ownerUid: string;
 }) {
-  const { busy, attempted, approved, revoked, error } = useSyncExternalStore(
+  const { busy, attempted, revocationAttempted, approved, revoked, error } = useSyncExternalStore(
     state.subscribe,
     state.getSnapshot
   );
@@ -127,8 +127,12 @@ export function PairingForm({
           . This does not mean the agent is connected.
         </p>
       )}
-      {revoked && <p role="status">Request revoked. Existing workspace content is retained.</p>}
-      {!approved && !revoked && (
+      {revoked && (
+        <p role="status">
+          Request {attempted ? 'revoked' : 'cancelled'}. Existing workspace content is retained.
+        </p>
+      )}
+      {!approved && !revoked && !revocationAttempted && (
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -149,9 +153,13 @@ export function PairingForm({
           </button>
         </form>
       )}
-      {attempted && !revoked && (
-        <button disabled={busy} onClick={() => void state.revoke()}>
-          Revoke request
+      {!revoked && (
+        <button type="button" disabled={busy} onClick={() => void state.revoke()}>
+          {attempted || approved
+            ? 'Revoke request'
+            : revocationAttempted
+              ? 'Retry cancel request'
+              : 'Cancel request'}
         </button>
       )}
     </section>

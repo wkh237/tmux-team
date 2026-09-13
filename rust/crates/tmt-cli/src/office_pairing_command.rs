@@ -38,6 +38,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
         }
     }
     let inspect = matches!(&operation, OfficeOperation::Inspect { .. });
+    let unpair = matches!(&operation, OfficeOperation::Unpair { .. });
     let (world, identity, emulator, read_only, timeout, pair) = match operation {
         OfficeOperation::Pair {
             world,
@@ -52,6 +53,11 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
             emulator,
         } => (world, identity, emulator, false, 30, false),
         OfficeOperation::Inspect {
+            world,
+            identity,
+            emulator,
+        } => (world, identity, emulator, false, 30, false),
+        OfficeOperation::Unpair {
             world,
             identity,
             emulator,
@@ -78,6 +84,8 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
     let deadline = Instant::now() + Duration::from_secs(timeout);
     let mut operation = if pair {
         OfficeInvocation::PairBegin
+    } else if unpair {
+        OfficeInvocation::Unpair
     } else if inspect {
         OfficeInvocation::Inspect
     } else {
@@ -101,6 +109,29 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
         }
         let reply = result.map_err(|_| Failure::new("OFFICE_REMOTE_UNCERTAIN", "Office did not confirm the operation. Retry the same pairing; no new approval was requested.", 1))?;
         match reply {
+            PairingReply::Pending(link) if unpair => {
+                writeln!(io::stderr().lock(), "{link}").map_err(unavailable)?;
+                return Err(Failure::new(
+                    "OFFICE_OWNER_CANCELLATION_REQUIRED",
+                    "Cancellation is unconfirmed. Ask the owner to cancel this request using the link, then retry unpair. Retained credentials were not removed.",
+                    1,
+                ));
+            }
+            PairingReply::State(state) if unpair && state == "revoked" => {
+                let value =
+                    serde_json::json!({"state":"revoked","identityId":identity.id,"world":world});
+                writeln!(
+                    io::stdout().lock(),
+                    "{}",
+                    if mode.json {
+                        value.to_string()
+                    } else {
+                        "Office pairing revoked. Workspace content is retained.".into()
+                    }
+                )
+                .map_err(unavailable)?;
+                return Ok(0);
+            }
             PairingReply::Inspected(exists) if inspect => {
                 let value = serde_json::json!({"blockExists":exists,"identityId":identity.id,"world":world,"serverAuthorizationChecked":true});
                 writeln!(
@@ -132,7 +163,9 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
                     .map_err(unavailable)?;
                 }
             }
-            PairingReply::State(state) if !inspect && (!pair || state == "credential") => {
+            PairingReply::State(state)
+                if !inspect && !unpair && (!pair || state == "credential") =>
+            {
                 let value = serde_json::json!({"state":state,"identityId":identity.id,"world":world,"serverAuthorizationChecked":false});
                 writeln!(io::stdout().lock(), "{}", if mode.json { value.to_string() } else { format!("Office pairing: {state}. Server authorization is checked when accessing a resource.") }).map_err(unavailable)?;
                 return Ok(0);

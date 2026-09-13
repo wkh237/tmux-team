@@ -30,6 +30,10 @@ describe('pairing input contract', () => {
       kind: 'pairing',
       pairingId: approval.pairingId,
     });
+    expect(parseRevocation({ version: 1, publicApproval: approval })).toEqual({
+      kind: 'ownerApproval',
+      request: approval,
+    });
     expect(parseRenewal({ version: 1, pairingId: approval.pairingId, grantExpiresAt: 1 })).toEqual({
       version: 1,
       pairingId: approval.pairingId,
@@ -75,6 +79,14 @@ describe('pairing input contract', () => {
     { capabilities: ['layout.read', 'layout.read'] },
   ])('rejects altered binding %j', (change) => {
     expect(() => parseApproval({ ...approval, ...change })).toThrow('INVALID_ARGUMENT');
+  });
+  it.each([
+    { version: 2, publicApproval: approval },
+    { version: 1, publicApproval: { ...approval, capabilities: ['layout.write'] } },
+    { version: 1, publicApproval: approval, pairingId: approval.pairingId },
+    { version: 1, publicApproval: approval, secret: 'invalid' },
+  ])('rejects altered public approval revocations %j', (input) => {
+    expect(() => parseRevocation(input)).toThrow('INVALID_ARGUMENT');
   });
   it('rejects every omitted field, null, arrays and inherited fields', () => {
     for (const field of Object.keys(approval)) {

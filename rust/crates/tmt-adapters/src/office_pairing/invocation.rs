@@ -76,6 +76,25 @@ fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> 
             active_identity(&paths, &identity.id)?;
         }
         match operation {
+            OfficeInvocation::Unpair => {
+                let mut record = existing.ok_or(OfficeError::NotPaired)?;
+                if record.has_credentials()
+                    && record.refresh_if_needed(&target, now_ms()?, deadline)?
+                {
+                    entry.write(&record.encode()?)?;
+                }
+                match record.revoke(&target, deadline) {
+                    Err(OfficeError::RemoteDenied) if record.is_pending() => {
+                        // Unknown or denied pending approval is not confirmed cleanup.
+                        return Ok(
+                            json!({"state":"pending","approvalUrl":record.approval().approval_url(&target)?}),
+                        );
+                    }
+                    result => result?,
+                }
+                entry.write(&record.encode()?)?;
+                Ok(json!({"state":"revoked"}))
+            }
             OfficeInvocation::Inspect => {
                 let mut record = existing.ok_or(OfficeError::NotPaired)?;
                 if record.refresh_if_needed(&target, now_ms()?, deadline)? {
@@ -99,13 +118,13 @@ fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> 
             }
             OfficeInvocation::PairBegin => {
                 let record = match existing {
-                    Some(record) => {
+                    Some(record) if !record.is_revoked() => {
                         if record.approval().read_only() != request.read_only {
                             return Err(OfficeError::CredentialsInvalid);
                         }
                         record
                     }
-                    None => {
+                    _ => {
                         let deployment = OfficeDeployment::discover(target.clone(), deadline)
                             .map_err(|error| {
                                 if error.kind() == std::io::ErrorKind::InvalidData {

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { readdirSync } from 'node:fs';
 import { expect } from '@playwright/test';
 import { createArtifact } from '../../../test/support/native-artifact.js';
 import { runCli, type Sandbox } from '../../../test/support/cli-process.js';
@@ -51,4 +52,22 @@ export function protectedOfficeRecord(
     ],
     input === undefined ? {} : { stdin: input }
   );
+}
+
+export function officeScopeKeys(sandbox: Sandbox): string[] {
+  try {
+    return readdirSync(path.join(sandbox.globalDir, 'office'))
+      .filter((name) => /^[0-9a-f]{64}\.lock$/.test(name))
+      .map((name) => name.slice(0, -'.lock'.length));
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw error;
+  }
+}
+
+export async function clearOfficeScopes(sandbox: Sandbox): Promise<void> {
+  for (const key of officeScopeKeys(sandbox)) {
+    expect((await protectedOfficeRecord(sandbox, key, 'clear')).status).toBe(0);
+    expect((await protectedOfficeRecord(sandbox, key, 'lookup')).status).toBe(1);
+  }
 }

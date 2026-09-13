@@ -55,6 +55,7 @@ and oversized headers/bodies before use.
 tmt office pair --world <url> [--identity <name>] [--read-only] [--timeout <seconds>]
 tmt office status --world <url> [--identity <name>]
 tmt office inspect --world <url> [--identity <name>]
+tmt office unpair --world <url> [--identity <name>]
 ```
 
 These retain existing Office prefix/output conventions. Names resolve through the
@@ -66,7 +67,7 @@ Pair requests layout read/write unless `--read-only`. Timeout is integer seconds
 poll floor. Human mode prints the public approval URL before polling. JSON mode
 puts that URL on stderr and one final object on stdout. No secret enters output
 or argv. Unqualified status retains installation-only behavior; world-qualified
-status is local-only and returns `unpaired`, `pending`, `credential` or `expired`,
+status is local-only and returns `unpaired`, `pending`, `credential`, `expired` or `revoked`,
 with `serverAuthorizationChecked: false`. Inspect performs a server-authorized
 read of the assigned block, not a world-wide index. Its result is
 `blockExists: true|false` with `serverAuthorizationChecked: true`; it does not
@@ -104,10 +105,31 @@ Office failures use the existing envelope and exit 1:
 `OFFICE_INTERRUPTED`, exit 130. Existing identity/grammar errors retain their
 owners. An unavailable claim cannot distinguish absent from denied approval.
 
-Reassignment and lost-credential recovery remain #209 requirements. Retirement
+Retained-block reassignment is supported during owner approval. Lost-credential
+repair remains separate work, not an implicit M1 acceptance gate. Retirement
 delivery is defined below; token refresh never extends a grant lease.
 Actual native/browser/isolated-vault evidence is required by the
 [local-first acceptance contract](../../DEVELOPMENT.md#personal-office-milestone-acceptance).
+
+## Explicit cancellation and reuse
+
+`unpair` uses the existing protected scope lock and revocation writer. Pending
+records use original proof; paired records refresh Auth if necessary and use
+their bound agent token, without renewing the resource lease. Only a confirmed
+response permits writing a secret-free `revoked` receipt. Retrying that receipt
+is local and idempotent. Missing/corrupt records are not reset; network, Auth and
+vault failures retain evidence and do not report cleanup complete.
+
+For denied pending cancellation, output the original public approval link and
+`OFFICE_OWNER_CANCELLATION_REQUIRED` (exit 1). The owner can cancel on that page
+before approval, then the agent retries unpair. Unavailability is not evidence
+that no delayed approval can occur.
+
+Only an explicit `pair` may replace a confirmed revoked receipt with a fresh
+request, proof and capability selection under the same identity UUID. Pending
+intent remains immutable even after expiry. No block, notebook or profile is
+deleted or inherited by re-pairing. Older companions without unpair support
+fail rather than claim successful cleanup.
 
 ## Invocation-owned renewal
 
