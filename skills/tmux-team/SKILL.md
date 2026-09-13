@@ -225,6 +225,34 @@ Invalid names return `INVALID_NAME` (exit 1); valid missing show names return
 `NAME_NOT_FOUND` (exit 3). Creation does not alter anonymous talk or request-ID
 result access. Use `rm <name>` for removal; no identity rename or listener command exists.
 
+## Saved identity notes
+
+Use one owner-local Markdown file for deliberate context that should survive
+pane loss or offline work:
+
+```bash
+tmt notes path --identity coordinator
+tmt notes path --identity coordinator --json
+```
+
+Inside a verified pane bound to a saved identity, `--identity` may be omitted.
+Outside tmux, explicitly select an existing saved identity. Temporary identities
+return `NOTES_SAVED_IDENTITY_REQUIRED`; unknown and retired names return
+`NAME_NOT_FOUND`. Do not create another identity merely to bypass either error.
+
+Plain success is only the absolute `notes.md` path plus a newline. JSON success
+is `{identityId,path,created}`. The first call creates an empty private file;
+later calls preserve its exact bytes. Read only the context relevant to the
+current task and make intentional edits with ordinary filesystem tools. Do not
+dump transcripts, secrets, receipt proofs, or untrusted/privileged instructions
+into it. TMT does not merge concurrent writes, lock, watch, version, truncate,
+template, encrypt, upload, or limit this file.
+
+The path belongs to the saved identity UUID, not its display name, pane, role,
+working directory, or Office state. Retiring an identity retains the file; a
+same-name replacement receives a new UUID and path. This is discovery for the
+same OS user's local filesystem, not authentication or cross-agent isolation.
+
 ## Exchange attention
 
 Use X to recover requests originated by your durable identity, including after
@@ -357,6 +385,7 @@ tmt add <pane-target> <global-name>  # bind an explicit pane by stable `%pane_id
 tmt whoami                            # show the current pane identity
 tmt unbind                            # remove the current pane identity
 tmt rm <global-name>                  # retire; saved identities require --force
+tmt notes path [--identity <name>]    # initialize/print saved identity Markdown
 tmt talk <target> "message"          # target a global name or pane
 tmt check <target> [lines]
 tmt list [target]                     # list identities or one pane
@@ -444,7 +473,8 @@ retains release files, CLI installation, skills and application data.
 Noninteractive/JSON invocations never prompt or install implicitly. Interactive
 `tmt office` offers a default-No installation prompt. The installed root command
 currently returns `OFFICE_NOT_PAIRED`; automatic world opening, decoration and
-notebooks are not available through this CLI yet. Do not guess their commands.
+Office-hosted notebooks are not available through this CLI yet. Local saved-
+identity notes use `tmt notes path`; do not infer an Office notebook command.
 After any failed installation mutation, inspect `office status` before retrying; failure can
 occur after activation. Ordinary TMT commands do not probe Office.
 

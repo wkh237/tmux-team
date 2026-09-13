@@ -309,6 +309,9 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         }
         ["identity", "show"] => Invocation::Identity(IdentityRequest::Show(required(m, "name"))),
         ["identity", "list"] => Invocation::Identity(IdentityRequest::List),
+        ["notes", "path"] => Invocation::NotesPath {
+            identity: text(m, "identity"),
+        },
         ["preamble"] | ["preamble", "show"] => {
             Invocation::Preamble(PreambleRequest::Show(text(m, "agent")))
         }

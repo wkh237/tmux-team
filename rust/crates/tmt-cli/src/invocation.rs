@@ -33,6 +33,9 @@ pub enum Invocation {
     },
     Config(ConfigRequest),
     Identity(IdentityRequest),
+    NotesPath {
+        identity: Option<String>,
+    },
     Preamble(PreambleRequest),
     Role {
         identity: Option<String>,

@@ -66,12 +66,14 @@ describe('native grammar process contract', () => {
         'check',
         'role',
         'preamble',
+        'notes',
         'x',
         'install',
       ]) {
         expect(help.stdout).toMatch(new RegExp(`^  ${command}\\s`, 'm'));
       }
       expect(help.stdout).toContain('Manage identity records without probing tmux');
+      expect(help.stdout).toContain('Access saved identity notes');
       expect(help.stdout).toContain('temporary unless saved');
       expect(help.stdout).toContain('rm');
       expect(help.stdout).toContain('remove role/preamble');
