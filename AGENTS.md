@@ -10,6 +10,21 @@ and issue as well. Use the linked E2E or release skill when applicable. If a
 required reference is missing or contradicts the code, report and resolve that
 discrepancy within scope before relying on it; do not invent a convention.
 
+## Context and evidence budget
+
+- Reuse completely read, unchanged guidance within a task unless a higher-priority
+  instruction requires rereading. Record paths, revision and completed reads at
+  handoff; verify provenance and changes before reuse. Reread when uncertain.
+- Locate relevant source and reference sections first. Read required instructions
+  completely, using bounded chunks to avoid truncation and repeated loading.
+- Keep bulk inventories and logs in artifacts. Request concise findings with
+  actionable risks and evidence locations; inspect original excerpts as needed.
+  Verify published text with equality or a focused diff against its source.
+- Keep handoffs to decisions, unresolved risks and evidence. While awaiting a
+  gate, research only the next dependencies and decisions, not a full new feature.
+
+These limits reduce repeated input, not required primary review or verification.
+
 ## Architecture ownership and primary review
 
 The primary agent owns the architectural model, design tradeoffs, decomposition,
@@ -34,13 +49,15 @@ follow-up is not permission to ship inaccurate descriptions of current behavior.
 
 ## Pattern audit before changes
 
-Before editing code, tests, documentation, configuration, or repository skills, inspect the relevant existing patterns. The primary agent decides whether to inspect locally or delegate, based on the total implementation, coordination, and review effort. Delegation is optional, not a prerequisite for making changes.
+Before editing code or guidance, inspect relevant architecture, helpers, fixtures
+and conventions for reusable patterns, duplicate responsibility and conflicts.
+Keep inspection proportional; record material findings and resolve them within scope.
 
-Keep the inspection proportional to the change. Inspect relevant architecture, helpers, fixtures, scripts, naming conventions, tests, documentation, and skills to identify reusable patterns, duplicated behavior, and conflicts. Prefer `gpt-5.6-luna` for simple, bounded tasks and large-scale detection or scanning. A delegated read-only audit must not edit files, mutate external systems, or broaden the requested scope.
-
-The primary agent reviews findings before editing, records material findings and their disposition, and reuses or extends established abstractions where practical. Correct unnecessary duplication or inconsistent implementation within scope before continuing.
-
-Do not split tightly coupled architecture or integration work merely to use another agent. Direct implementation requires no delegation exception. Delegation never expands the user's authorization.
+Delegate only when the saved work or independent coverage exceeds coordination
+and review cost. Prefer `gpt-5.6-luna` for bounded scans and simple, verifiable work;
+keep tightly coupled design and integration with the primary. Assign explicit
+ownership and verification, prevent overlapping edits, and keep read-only audits
+free of mutations. Delegation never expands authorization.
 
 ## Repository content language
 
@@ -61,6 +78,10 @@ fixture provenance. Each definition has one document owner; other guides link
 to it rather than copying it. Removing narrative must not remove a safety gate
 or present planned behavior as shipped.
 
+When revising guidance, replace or consolidate overlapping rules before adding
+new ones. Resolve contradictions against the owning contract and verified behavior;
+ask when resolution would require an undecided product or authorization choice.
+
 ## Delivery lifecycle
 
 - GitHub Issues is the active tracker for TMT. Historical Linear links are
@@ -69,11 +90,6 @@ or present planned behavior as shipped.
   dedicated branch/worktree, and one reviewable PR. Confirm outcome, scope,
   acceptance criteria, dependencies and project relationship before editing;
   mark the issue started when implementation begins. Split oversized work first.
-- Delegate only when it reduces total effort or provides useful independent coverage.
-  Prefer `gpt-5.6-luna` for simple, bounded work and large-scale detection or scanning.
-  When delegating, give explicit file ownership, constraints and verification
-  requirements; prevent overlapping edits. The primary retains design,
-  integration, and acceptance authority.
 - Keep decisions, progress, blockers, deferred work, branch/PR links and evidence
   synchronized in GitHub. Do not mark work done before its delivery state supports it.
 - Every Codex-created commit includes `Co-authored-by: Codex <codex@openai.com>`.
@@ -94,7 +110,10 @@ or present planned behavior as shipped.
 - Prefer small, purpose-specific interfaces and existing dependency-injection boundaries over new global state or parallel abstractions.
 - Put shared behavior in one named helper only after more than one caller needs it; keep scenario-specific behavior close to the scenario.
 - Use names that describe observable behavior and stable domain concepts rather than implementation accidents.
-- Keep changes bounded to the tracked issue. Record adjacent improvements as follow-up work instead of silently expanding scope.
+- Keep completion criteria bounded to the agreed outcome. Classify adjacent findings
+  as blocking correctness/security defects or deferred improvements; explain the
+  dependency before expanding scope. Do not silently turn optional hardening into
+  a milestone gate or declare unresolved blockers complete.
 
 ## Verification quality
 

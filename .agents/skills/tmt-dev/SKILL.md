@@ -19,40 +19,26 @@ Read the repository guidance before planning work:
 
 ## Required workflow
 
-1. Start from a tracked issue whose outcome, scope, acceptance criteria,
-   dependencies, and project relationship are clear. Create its dedicated branch
-   before implementation; use an additional worktree only when AGENTS calls for
-   isolation or concurrent work. Follow AGENTS for state and commit attribution.
-2. Before editing, inspect relevant existing patterns locally or delegate a
-   read-only audit when it is worth the coordination and review effort. Keep
-   inspection proportional to the change; record material findings and their
-   disposition. Delegation is not mandatory. Prefer Luna for simple, bounded
-   tasks and large-scale detection or scanning.
-3. The primary reviewer owns the architecture design: define the affected
-   boundary, inputs and outputs, risks, and reuse of existing ports/helpers
-   before implementation.
-4. Implement directly or delegate according to total effort and coupling, not
-   a requirement to assign work. When delegating, set explicit file ownership,
-   constraints, and verification requirements. Do not let concurrent agents
-   edit overlapping files. Keep architectural and integration decisions with
-   the primary agent.
-5. The primary reviewer reviews every changed file and the relevant callers,
-   fixtures, and tests. Passing reports or green CI are evidence, not a
-   substitute for that review. Record findings, dispositions, and the reviewed
-   commit in the PR and GitHub issue.
-6. Run the exact checks required by the changed layer and report their commands
-   and results. Add behavioral tests for changed contracts, including relevant
-   failure, cleanup, or lifecycle cases.
-   During runtime retirement, map assertions rather than file names or counts:
-   returned-error rollback is not crash recovery, and policy tests are not
-   terminal-output tests. Preserve a positive control when a fixture could pass
-   without executing its intended mutation. Review resource destruction order
-   when consolidating cleanup helpers; reuse the existing test-only child owner
-   and stop/reap children before their files are removed.
-7. Before an authorized merge, verify all required CI passed on the current
-   reviewed commit. Review later edits and rerun affected checks. Keep
-   GitHub issue status, branch/PR links, verification evidence, and deferred work
-   current; clean up the worktree only after its state is safely handed off.
+1. Follow AGENTS for issue/branch lifecycle, incidental-edit exceptions, pattern
+   inspection, delegation and context budget. Confirm the bounded outcome and
+   acceptance criteria before implementation.
+2. Define the affected inputs/outputs, state transitions, responsibility owners
+   and risks. Reuse existing ports/helpers; avoid parallel sources of truth.
+3. Implement and apply AGENTS' primary-review gate. For a feature spanning PRs,
+   review the integrated flow across those PRs, not only the latest diff:
+   ownership, transitions, retries, partial failure and cleanup must agree.
+   Consolidate confirmed duplicate responsibility; do not create a generic
+   framework merely to centralize code.
+4. Verify the changed layers using DEVELOPMENT and CONVENTIONS. Record the
+   reviewed revision, findings, dispositions and exact verification evidence.
+   When replacing implementations, map behavioral assertions, not test counts:
+   returned-error rollback is not crash recovery. Preserve resource cleanup
+   ordering through the existing child-process owner.
+5. Close the bounded review when relevant evidence supports the agreed behavior,
+   correctness/security blockers and confirmed duplicate responsibilities in
+   scope are resolved, and deferred risks are explicit. A broad audit is not a
+   demand to find nothing else to improve. Follow AGENTS for authorized merge,
+   tracker updates and safe cleanup.
 
 ## Architecture maintenance
 
