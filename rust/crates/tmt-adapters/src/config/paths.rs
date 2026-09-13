@@ -4,6 +4,7 @@ use std::{
 };
 
 use super::ConfigError;
+use tmt_core::identity::NotesIdentityId;
 
 #[derive(Debug, Clone)]
 pub struct ConfigPaths {
@@ -16,6 +17,20 @@ pub struct ConfigPaths {
 impl ConfigPaths {
     pub fn office_directory(&self) -> PathBuf {
         self.global_dir.join("office")
+    }
+
+    pub(crate) fn notes_layout(
+        &self,
+        identity_id: &NotesIdentityId,
+    ) -> std::io::Result<(PathBuf, PathBuf, PathBuf)> {
+        let global_dir = if self.global_dir.is_absolute() {
+            normalize(&self.global_dir)
+        } else {
+            normalize(&env::current_dir()?.join(&self.global_dir))
+        };
+        let identity_dir = global_dir.join("notes").join(identity_id.as_str());
+        let notes_file = identity_dir.join("notes.md");
+        Ok((global_dir, identity_dir, notes_file))
     }
 
     pub fn discover() -> Result<Self, ConfigError> {

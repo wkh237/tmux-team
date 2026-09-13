@@ -38,3 +38,43 @@ fn invalid_names_stop_before_repository_access() {
         ));
     }
 }
+
+fn identity(id: &str, lifetime: Lifetime) -> Identity {
+    Identity {
+        id: id.into(),
+        name: "Researcher".into(),
+        canonical_name: "researcher".into(),
+        lifetime,
+        created_at: "2026-09-13T00:00:00Z".into(),
+        updated_at: "2026-09-13T00:00:00Z".into(),
+    }
+}
+
+#[test]
+fn notes_identity_id_requires_saved_canonical_v4_uuid() {
+    let canonical = "e27f6cd2-2ce7-4c40-8ef7-f156492e983b";
+    assert_eq!(
+        NotesIdentityId::try_from(&identity(canonical, Lifetime::Saved))
+            .unwrap()
+            .as_str(),
+        canonical
+    );
+    assert_eq!(
+        NotesIdentityId::try_from(&identity(canonical, Lifetime::Temporary)),
+        Err(NotesIdentityError::SavedIdentityRequired)
+    );
+
+    for invalid in [
+        "../escape",
+        "E27F6CD2-2CE7-4C40-8EF7-F156492E983B",
+        "e27f6cd22ce74c408ef7f156492e983b",
+        "00000000-0000-0000-0000-000000000000",
+        "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+    ] {
+        assert_eq!(
+            NotesIdentityId::try_from(&identity(invalid, Lifetime::Saved)),
+            Err(NotesIdentityError::InvalidIdentityId),
+            "{invalid}"
+        );
+    }
+}

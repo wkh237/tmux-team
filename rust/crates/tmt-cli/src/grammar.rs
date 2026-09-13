@@ -152,6 +152,14 @@ pub fn grammar() -> Command {
             .subcommand(storage("list", "List non-retired identities")),
     )
     .subcommand(
+        storage("notes", "Access saved identity notes")
+            .subcommand_required(true)
+            .subcommand(with_options(
+                storage("path", "Initialize and print the local Markdown path"),
+                &["identity"],
+            )),
+    )
+    .subcommand(
         with_options(general("role", "Manage role profiles"), &["identity"])
             .subcommand_required(true)
             .subcommand(with_options(general("show", "Show a role"), &["identity"]))

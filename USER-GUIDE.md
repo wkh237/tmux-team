@@ -74,6 +74,34 @@ tmt identity list --json
 Creation is idempotent for a canonical-equivalent name. It does not bind a
 pane, authenticate a caller, or create an offline receiving queue.
 
+## Saved identity notes
+
+Each saved identity can own one ordinary local Markdown file:
+
+```bash
+tmt notes path --identity coordinator
+tmt notes path --identity coordinator --json
+```
+
+Omit `--identity` only in a verified pane bound to a saved identity. Outside
+tmux, or when caller evidence is unavailable, select an existing saved identity
+explicitly. Temporary identities return `NOTES_SAVED_IDENTITY_REQUIRED`; an
+unknown or retired name returns `NAME_NOT_FOUND`.
+
+The first successful invocation creates an empty `notes.md` at
+`<global-state>/notes/<identity-uuid>/notes.md`; plain output is only that
+absolute path. JSON returns `identityId`, `path`, and `created`. Directories and
+the file are created owner-only on supported Unix platforms. Later invocations
+preserve the file's exact bytes and do not refresh, truncate, template, lock, or
+watch it. Edit it with normal filesystem tools and coordinate concurrent writers
+as you would for any other file.
+
+The path follows the saved identity UUID, not its display name, pane, current
+directory, role, or Office state. Retiring an identity retains its notebook; a
+new identity that reuses the name receives a new UUID and path. TMT does not
+garbage-collect old notebooks. This is local filesystem discovery for the same
+OS user, not authentication, isolation, encryption, or a shared remote notebook.
+
 ## Talk and receive a complete reply
 
 Send a request by global name or direct pane target:
@@ -154,9 +182,9 @@ tmt preamble show reviewer
 tmt preamble clear reviewer
 ```
 
-Use `role` for durable profile data and `preamble` for message context. Both
-survive pane loss and rebinding. Explicit names work outside tmux; unknown names
-are not created implicitly.
+Use notes for deliberate working context, `role` for durable profile data, and
+`preamble` for message context. All three survive pane loss and rebinding.
+Explicit names work outside tmux; unknown names are not created implicitly.
 
 ## Important delivery behavior
 

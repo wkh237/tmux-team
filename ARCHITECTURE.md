@@ -164,6 +164,7 @@ The maintained public surface is:
   guidance;
 - identity and binding commands: `identity`, `list`/`ls`, `add`, `name`/`this`,
   `whoami`, `unbind`, `rm`/`remove`;
+- saved-identity notes through `notes path`;
 - profile and exchange commands: `role`, `preamble`, `x list|show|ack|ackall`,
   `reply`, `result`, `talk`/`send`, `check`/`read`;
 - managed native updates through `upgrade`/`update`, with the hidden
@@ -220,6 +221,28 @@ removal requires explicit force. Neither removal nor unbind kills a pane.
 remains current-server-only. Pane number, presentation title and socket pathname
 alone are not endpoint identity. Publication and recovery preserve the full
 server/pane process evidence; ambiguous observations fail closed.
+
+### Saved identity notes
+
+`tmt-core::identity::NotesIdentityId` is the capability boundary for notebook
+storage: construction requires a saved identity and a canonical RFC 4122 UUIDv4.
+Display names never become path components. `notes_command` resolves the active
+identity before requesting filesystem work; omission uses only a verified tmux
+caller and explicit selection can use an offline saved identity.
+
+`ConfigPaths` is the sole layout owner. `tmt-adapters::notes` exclusively creates
+`<global_dir>/notes/<identity-uuid>/notes.md`, returning an absolute path. It
+creates one directory component at a time with owner-only modes, uses exclusive
+no-follow file creation, rejects linked/non-directory subtree components and
+nonregular targets, and never opens an existing notebook for writing. The file
+body, edit concurrency, and retention are ordinary user-filesystem concerns;
+there is no SQLite body copy, revision protocol, watcher, lock, size limit,
+authentication, isolation, or secure deletion claim.
+
+Identity retirement deliberately leaves notebooks in place. A later same-name
+identity has a different UUID and therefore a different path. No command moves
+notebooks for pane, tmux presentation, role, working-directory, or Office
+changes, and no garbage collector is implied.
 
 ### Settings and configuration
 
@@ -386,8 +409,8 @@ fixture files for diagnosis. Sandbox disposal cancels outstanding runs before
 removing files. This is not containment of descendants that create new sessions,
 and does not replace the separate Docker harness or release verifier.
 
-The native process suite proves parser, configuration, identity, response,
-exchange, talk, installation and skill contracts through the real executable.
+The native process suite proves parser, configuration, identity, notes,
+response, exchange, talk, installation and skill contracts through the real executable.
 Docker E2E supplies private tmux, caller, lifecycle, transport and cross-process
 evidence. Storage adapter tests prove migrations, transaction rollback,
 contention, crash cleanup, retention, acknowledgment and late-final behavior.

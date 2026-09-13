@@ -13,6 +13,7 @@ mod install_command;
 mod invocation;
 mod native_install_command;
 mod native_upgrade_command;
+mod notes_command;
 mod office_block_command;
 mod office_command;
 mod office_pairing_command;
@@ -102,6 +103,10 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Identity(request) => {
             drop(stdout);
             return identity_command::execute(request, parsed.mode);
+        }
+        Invocation::NotesPath { identity } => {
+            drop(stdout);
+            return notes_command::execute(identity, parsed.mode);
         }
         Invocation::Exchange {
             identity,

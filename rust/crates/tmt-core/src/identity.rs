@@ -2,6 +2,7 @@
 
 use crate::names::{NameError, ValidatedName, validate_name};
 use std::{error::Error, fmt};
+use uuid::{Uuid, Variant, Version};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Lifetime {
@@ -34,6 +35,53 @@ pub struct Identity {
 pub struct CreatedIdentity {
     pub identity: Identity,
     pub created: bool,
+}
+
+/// A storage-safe identifier for identity-owned notes. Constructing this type
+/// proves both saved lifetime eligibility and canonical UUID path material.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotesIdentityId(String);
+
+impl NotesIdentityId {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotesIdentityError {
+    SavedIdentityRequired,
+    InvalidIdentityId,
+}
+
+impl fmt::Display for NotesIdentityError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::SavedIdentityRequired => "notes require a saved identity",
+            Self::InvalidIdentityId => "saved identity has an invalid identifier",
+        })
+    }
+}
+
+impl Error for NotesIdentityError {}
+
+impl TryFrom<&Identity> for NotesIdentityId {
+    type Error = NotesIdentityError;
+
+    fn try_from(identity: &Identity) -> Result<Self, Self::Error> {
+        if identity.lifetime != Lifetime::Saved {
+            return Err(NotesIdentityError::SavedIdentityRequired);
+        }
+        let id =
+            Uuid::parse_str(&identity.id).map_err(|_| NotesIdentityError::InvalidIdentityId)?;
+        if id.get_variant() != Variant::RFC4122
+            || id.get_version() != Some(Version::Random)
+            || id.to_string() != identity.id
+        {
+            return Err(NotesIdentityError::InvalidIdentityId);
+        }
+        Ok(Self(identity.id.clone()))
+    }
 }
 
 /// Read capabilities never infer presence or reconcile bindings.

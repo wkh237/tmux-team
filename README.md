@@ -76,6 +76,19 @@ tmt x ackall --identity coordinator --json
 Reads never acknowledge results. `ackall` marks the current snapshot handled;
 a later reply appears again. Acknowledgment neither cancels work nor asserts success.
 
+## Keep local notes for a saved identity
+
+Initialize and print an identity-owned Markdown path with:
+
+```bash
+tmt notes path --identity coordinator
+```
+
+Inside a verified saved-identity pane, `--identity` may be omitted. The file is
+kept under TMT's local state by identity UUID, so pane loss, renaming a tmux
+window, or working offline does not move it. Temporary identities are rejected.
+TMT creates an empty private file on first use and never overwrites later edits.
+
 ## One skill, no plugin
 
 `tmt install` supports Claude Code, Codex, Gemini, agy, Pi and OpenCode. If none
@@ -101,8 +114,8 @@ ASCII `!` becomes fullwidth `！` in delivered messages to protect coding-agent
 shell shortcuts. If delivery becomes uncertain, inspect before retrying; a
 timeout alone is not permission to resend.
 
-See the [user guide](USER-GUIDE.md) for roles, preambles, configuration and
-failure handling, or `tmt help` for command options.
+See the [user guide](USER-GUIDE.md) for notes, roles, preambles, configuration
+and failure handling, or `tmt help` for command options.
 
 ## Development
 
