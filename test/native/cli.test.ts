@@ -52,7 +52,7 @@ describe('native grammar process contract', () => {
       const before = fileSnapshot(sandbox.root);
       const version = await runCli(sandbox, ['--version']);
       expect(version.status).toBe(0);
-      expect(version.stdout).toBe('5.0.0-alpha.2\n');
+      expect(version.stdout).toBe('5.0.0-alpha.3\n');
       expect(version.stderr).toBe('');
       const help = await runCli(sandbox, ['help']);
       expect(help.status).toBe(0);
@@ -165,7 +165,7 @@ describe('native grammar process contract', () => {
       expect(JSON.parse(literal.stdout).identity.name).toBe('--debug');
       const version = await runCli(sandbox, ['--version']);
       expect(version.status).toBe(0);
-      expect(version.stdout).toBe('5.0.0-alpha.2\n');
+      expect(version.stdout).toBe('5.0.0-alpha.3\n');
     });
   });
 
@@ -247,7 +247,7 @@ describe('native grammar process contract', () => {
       copyFileSync(sandbox.cli.executable, executable);
       const result = await runCli({ ...sandbox, cli: { executable, args: [] } }, ['--version']);
       expect(result.status).toBe(0);
-      expect(result.stdout).toBe('5.0.0-alpha.2\n');
+      expect(result.stdout).toBe('5.0.0-alpha.3\n');
       expect(result.stderr).toBe('');
       expect(existsSync(sandbox.database)).toBe(false);
     });

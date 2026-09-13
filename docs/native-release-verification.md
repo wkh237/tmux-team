@@ -11,10 +11,11 @@ This is verification guidance, not publication authorization.
 ### Explicit multi-platform release preparation
 
 `Native release artifacts` (`.github/workflows/native-release.yml`) is manually
-dispatched, not part of every PR. Dispatch on the authorized release's reviewed,
-required-checks-green main commit and record the run ID and exact SHA in its
-issue. It builds on native macOS arm64/x64 and Linux arm64/x64 hosts using the
-existing pinned tools and `build-native-artifact.sh`. A shared matrix keeps
+dispatched with an explicit `cli` or `office` product, not part of every PR.
+Dispatch each authorized product on the release's reviewed,
+required-checks-green main commit and record the product, run ID and exact SHA in
+its issue. It builds on native macOS arm64/x64 and Linux arm64/x64 hosts using
+the existing pinned tools and `build-native-artifact.sh`. A shared matrix keeps
 build and final verification hosts aligned; dispatches outside main are skipped.
 Cached packaging tools are keyed
 by OS, architecture and exact tool versions; they are developer tools only.
@@ -22,24 +23,29 @@ by OS, architecture and exact tool versions; they are developer tools only.
 cargo-dist itself merges the downloaded `*-dist-manifest.json` inputs through
 `dist build --artifacts global --output-format=json --no-local-paths`. Do not
 hand-merge artifact JSON or enable another installer. Generate a complete
-`dist plan` on the same source and pass it as bootstrap `--plan`: the generator
-requires exact planned archive names/targets, preventing a missing matrix target
-from silently shrinking the release. Bootstrap generation verifies TMT ownership
-and archive inventory/digests before generating code; the final matrix
-then executes both existing verifiers against this final manifest and compares
-the regenerated script bytes. All jobs must pass before publication, even if
-the assembled artifact can already be downloaded. CI artifacts expire in seven
-days. Notices alongside the bundle are verification inputs; each archive also
-contains its own target-filtered notices.
+`dist plan` on the same source. For CLI, pass it as bootstrap `--plan`: the
+generator requires exact planned archive names/targets, preventing a missing
+matrix target from silently shrinking the release. Bootstrap generation verifies
+TMT ownership and archive inventory/digests before generating code; the final
+CLI matrix executes both existing verifiers and compares the regenerated script
+bytes. Office has no bootstrap or managed skill and runs its product-specific
+archive/runtime verifier against the same final-manifest ownership instead. All
+jobs in the selected product run must pass before that product is published,
+even if the assembled artifact can already be downloaded. CI artifacts expire
+in seven days. Product-qualified artifact names prevent concurrent CLI and Office
+runs from being mistaken for one bundle. Notices alongside each bundle are
+verification inputs; every archive also contains its own target-filtered notices.
 
 Publication remains a separately authorized operation, not a workflow side
-effect. Verify the run's exact commit and all required PR checks; enable GitHub
-release immutability before creating a draft prerelease. Attach the four tar.gz
-archives, final `dist-manifest.json` and `tmt-installer.sh`, verify their uploaded
-SHA-256 digests and only then publish the draft. Verify `immutable: true`, tag
-commit and GitHub release attestation (`gh release verify` and
-`gh release verify-asset`). Never replace an immutable release's assets or move
-its tag. A repair needs a new reviewed version.
+effect. Verify the selected product run's exact commit and all required PR checks;
+enable GitHub release immutability before creating a draft prerelease. A CLI
+release attaches its four tar.gz archives, final `dist-manifest.json` and
+`tmt-installer.sh`; an Office release uses the independent `tmt-office-v<version>`
+tag and attaches its four archives and final manifest without a CLI bootstrap.
+Verify uploaded SHA-256 digests before publishing each draft. Verify
+`immutable: true`, tag commit and GitHub release attestation (`gh release verify`
+and `gh release verify-asset`). Never combine product manifests, replace an
+immutable release's assets or move its tag. A repair needs a new reviewed version.
 
 Before promoting README installation instructions, run the actual public script
 with an isolated HOME, application root and prefix, verify version, exact skill,
@@ -209,7 +215,8 @@ not CLI-only skill/SQLite commands. Follow with `office install --yes --archive
 installation and explicit uninstall. Inspect surviving bytes after rejected
 candidates and deactivation. Public availability is a separate authorized gate;
 local cargo-dist's package selection tag does not publish a Git tag. Public Office
-discovery uses `tmt-office-v<version>`; the existing CLI workflow remains CLI-only.
+discovery uses `tmt-office-v<version>`; select `office` explicitly when dispatching
+the shared release workflow and never publish its bundle under a CLI tag.
 
 Native adapter tests cover bounded archive acquisition and publication failures;
 native process contracts use the existing executable selector and sandbox. Test
