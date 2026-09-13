@@ -1,13 +1,29 @@
 # Office v1 design
 
-Status: broader pilot proposal; delivered SPA, Rules and local pairing issuer
-boundaries are described in [architecture](architecture.md).
+Status: local-first M1 semantics plus a separately scoped remote pilot proposal;
+delivered SPA, Rules and pairing boundaries are described in
+[architecture](architecture.md).
 This document owns policy and user-visible semantics; the
 [wire schema](../../contracts/office/v1.schema.json) owns message shapes.
 
-## Product boundary
+## Local-first M1
 
-The first pilot is two people in one private world, each with an invited block
+The merged local slice is installation-owned. Direct `tmt office block show/apply
+--local` commands use the existing local SQLite repository and need no Firebase
+account, remote world, pairing, or running browser service. `tmt office start` is
+an optional loopback UI for the same state, not a prerequisite for local content
+commands. The local path does not publish work, dispatch tasks, call models or
+join a remote world.
+
+Local identity selection chooses the owner in the invoking user's database; it is
+not a security boundary between processes sharing that user's OS account. Local
+file/SQLite permissions and the user's account remain the trust boundary. Remote
+pairing, leases, grant renewal and revocation retain their existing contracts and
+remain separately scoped to the later remote slices.
+
+## Remote pilot boundary
+
+The remote pilot proposal is two people in one private world, each with an invited block
 and optionally selected local TMT agents. They can visit, share bounded board
 objects, opt into a finite social session and request revision-bound review.
 Connecting blocks is not connecting databases or automatically trusting another
@@ -70,8 +86,9 @@ world subcollections, not unbounded arrays on the root. Those paths currently
 deny all client access except the owner-only `blocks/home` decoration slice
 specified in [block v1](../../contracts/office/block-v1.md) and scoped UUID blocks
 under [agent grant v1](../../contracts/office/agent-grant-v1.md). Grant enforcement
-is complemented by the local [pairing issuer and browser approval](../../contracts/office/pairing-v1.md),
-not yet native pairing. Invitations and device/work operations below remain
+is complemented by the local [pairing issuer and browser approval](../../contracts/office/pairing-v1.md)
+and the implemented [native pairing contract](../../contracts/office/native-pairing.md).
+Invitations and device/work operations below remain
 future design; they do not justify a generic backend for ordinary world storage.
 The initial owner-only world does not implement visitor memberships or presence.
 
@@ -187,11 +204,30 @@ span into the next day. Manual closure wins over the schedule. Admission and
 dispatch each recheck current policy, so a queued request can remain pending
 after the door closes. No new dispatch after its deadline.
 
+### Proposed movement contract
+
+Movement is not implemented; [#179](https://github.com/wkh237/tmux-team/issues/179)
+owns the proposed contract for one authoritative local trajectory per identity
+UUID, with revision/map revision, route/waypoints and service-derived timing.
+The browser interpolates without per-frame persistence or model calls. A retarget
+samples the prior trajectory at acceptance and validates destination/obstacles
+before replacement; client coordinates/time never assert authority and stale
+revisions conflict. Exact grammar, grid/collision, clock/restart and acceptance
+tests remain refinement work; movement never implies work availability or starts
+a conversation automatically.
+
 ## Dispatch and local exchange reuse
 
 Shared admission/routing is not a second native task engine. It records who may
 request work and where it was routed. Native `RequestService` remains the owner
 of actual delivery, immutable final responses, attention and retention.
+
+Discussion-board behavior is tracked in [#211](https://github.com/wkh237/tmux-team/issues/211),
+with shared guidance in [#213](https://github.com/wkh237/tmux-team/issues/213). Board
+posts are distinct domain content from core exchange records: a post never
+implicitly creates, replies to or acknowledges a native `x` record. Reuse the
+transport and storage infrastructure, not the request state machine; those issues
+own the detailed acceptance.
 
 | Shared routing state | Who advances it and what it means                                                         |
 | -------------------- | ----------------------------------------------------------------------------------------- |
