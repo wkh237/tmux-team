@@ -45,7 +45,7 @@ discards unsaved edits; already submitted writes may still complete on their
 original target. An absent layout is shown as **No saved layout yet**, not as
 deleted content. This editor does not change assignment or recover credentials.
 
-## Native pairing (source builds)
+## Native pairing
 
 Pairing requires an installed compatible companion and an unlocked OS credential
 store (macOS Keychain or Linux Secret Service). No hosted Office service or

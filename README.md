@@ -119,12 +119,11 @@ and failure handling, or `tmt help` for command options.
 
 ## Development
 
-Office is an optional work in progress. Its CLI installation/status commands are
-implemented; source builds also support pairing and agent block decoration with
-scoped, renewable access. An independently versioned public alpha companion is
-available through `tmt office install --yes`, but no hosted Office service is
-provided. See [Office commands](docs/office/commands.md); ordinary TMT use does
-not require it.
+Office is an optional work in progress. An independently versioned public alpha
+companion is available through `tmt office install --yes`. It supports local
+installation/status, pairing and agent block decoration with scoped, renewable
+access, but no hosted Office service is provided. See
+[Office commands](docs/office/commands.md); ordinary TMT use does not require it.
 
 Contributor-only requirements and checks are in [development](DEVELOPMENT.md).
 See [architecture](ARCHITECTURE.md) for runtime and test ownership.

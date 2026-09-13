@@ -3,9 +3,10 @@
 For an optional `tmt-office` archive, use an installed native CLI:
 `tmt office install --yes --archive <archive.tar.gz> --manifest <dist-manifest.json>`.
 Then run `tmt office status`. Add the same `--prefix <folder>` to both commands
-for a custom installation. Office is independently versioned. Source builds
-support compatibility probes, explicit pairing and renewable scoped access;
-installation alone does not pair, open a world or start a service.
+for a custom installation. Office is independently versioned. The public
+companion and source builds support compatibility probes, explicit pairing and
+renewable scoped access. Installation alone does not pair, open a world or start
+a service.
 The public alpha companion is acquired through the CLI's verified immutable
 release path. No hosted Office service or production Firebase deployment is
 provided.
