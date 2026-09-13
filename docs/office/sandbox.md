@@ -1,8 +1,15 @@
 # Data-only Office sandbox
 
-Status: proposed data-only sandbox; no authoring, exploration or assignment APIs
-are shipped. [Architecture](architecture.md)
+Status: proposed data-only sandbox; the fixed catalog, local block path and
+remote pairing/assignment path are implemented, but custom-prop authoring and
+exploration APIs are not shipped. [Architecture](architecture.md)
 describes current behavior; [commands](commands.md) owns proposed CLI syntax.
+
+The local-first M1 path can use the fixed catalog through direct local block
+commands or the optional loopback UI without Firebase, remote pairing or a
+running browser service. This document scopes only future custom content; local
+identity selection is not a process-security boundary between processes sharing
+the user's account.
 
 ## Boundary
 
@@ -14,7 +21,8 @@ or behavior hooks. Only the trusted renderer interprets a supported schema.
 The existing curated SVG primitives are repository code, not permission to
 upload SVG. No runtime SDK, marketplace or general plugin loader is needed.
 
-Authoring, world admission and placement are separate operations:
+For the remote/custom-content proposal, authoring, world admission and placement
+are separate operations:
 
 1. Validate and preview a candidate; identify an immutable version by verified
    content. Updating a prop creates a new version, not changed bytes at an old ID.
@@ -30,14 +38,18 @@ is a separate explicit layout edit. Distribution, referenced-asset retention
 and garbage collection must be specified before storage implementation.
 
 The fixed four-asset [home block v1](../../contracts/office/block-v1.md) remains
-unchanged. Custom props need a versioned successor contract, not permissive
-fallback decoding or a parallel layout copy. Before implementation, fix numeric
-byte/dimension/palette/catalog quotas, identifier and digest format, schema,
-storage paths, access rules and operation costs. Shared independent conformance
-vectors must cover the renderer, native input and authoritative write boundary;
-do not assume Firestore Rules can validate arbitrary artwork cheaply.
+unchanged and is the single built-in catalog/layout owner. Custom props use the
+singular proposed `tmt office prop` namespace and need a versioned successor
+contract, not permissive fallback decoding or a parallel layout copy;
+custom-prop commands are unimplemented and tracked in
+[#238](https://github.com/wkh237/tmux-team/issues/238). Before implementation,
+fix numeric byte/dimension/palette/catalog quotas, identifier and digest format,
+schema, storage paths, access rules, version migration and operation costs.
+Shared independent conformance vectors must cover the renderer, native input and
+authoritative write boundary; do not assume Firestore Rules can validate arbitrary
+artwork cheaply.
 
-## Exploration without execution
+## Remote exploration without execution
 
 Exploration returns structured, permission-filtered world/block observations,
 available prop versions, geometry and allowed operations. It does not move an
@@ -54,11 +66,11 @@ origin in output. Never interpolate community text into system notices or
 agent instructions. A data sandbox reduces execution risk; it does not make
 all content safe for an already-privileged model to obey.
 
-## Identity, assignment and decoration
+## Remote assignment and decoration
 
-Reuse local TMT identity UUIDs; do not create a second agent registry. A world
-owns its blocks, and a scoped assignment permits a particular device/local
-identity to edit a selected block. Both temporary and saved identities qualify.
+For a remote world, reuse local TMT identity UUIDs; do not create a second agent
+registry. A world owns its blocks, and a scoped assignment permits a particular
+device/local identity to edit a selected block. Both temporary and saved identities qualify.
 Names, pane titles and folders are never authority. Assignment is separate from
 publishing a remote work capability.
 
@@ -70,16 +82,14 @@ publishing a remote work capability.
 | Owner reassigns the block                     | Fence the former grant; preserve layout unless explicitly cleared |
 | Local evidence or connectivity is unavailable | Report unknown; never treat uncertainty as proof of retirement    |
 
-Do not create an enduring block automatically for every temporary identity.
-Start with explicit owner assignment; self-service seats and capacity policy are
-later work. The server cannot instantly observe a disconnected local pane.
-Before device writes ship, specify principal-to-identity binding, finite lease
-duration/renewal, revocation checks and stale-writer fencing. Local commands must
-reject retired identities; server authorization must expire without trusting
-the client to report retirement. Lease expiry suspends authority, not decoration
-retention, and is not proof that an agent died. TTL physical deletion is not an
-authorization mechanism. One-shot edits should not require a resident connector;
-define bounded grant renewal before promising that experience.
+For the remote slice, do not create an enduring block automatically for every
+temporary identity. Start with explicit owner assignment; self-service seats and
+capacity policy are later work. The server cannot instantly observe a disconnected
+local pane. Before remote device writes ship, specify principal-to-identity binding,
+finite lease duration/renewal, revocation checks and stale-writer fencing. Server
+authorization must expire without trusting the client to report retirement. Lease
+expiry suspends remote authority, not decoration retention, and is not proof that
+an agent died. TTL physical deletion is not an authorization mechanism.
 
 ## Trusted contextual notices
 
@@ -110,6 +120,8 @@ model tokens. Update the canonical installed skill only with actual commands.
 - Test notice deduplication, disabled mode, control-character handling, zero
   added network lookups and byte-identical JSON/payload output.
 
-Authoring depends on verified installation, scoped pairing and fixed-catalog
-agent decoration. Social chat, arbitrary runtimes, remote work, guest federation
-and production deployment are outside this sandbox.
+Custom authoring depends on a verified local installation and the fixed-catalog
+block path. Remote prop admission, assignment and server lease enforcement are a
+separate M2 slice; they do not gate local commands. Social chat, arbitrary
+runtimes, remote work, guest federation and production deployment remain outside
+this sandbox.

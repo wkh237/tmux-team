@@ -33,13 +33,15 @@ requires explicit consent and removes verified activation links only. Release
 files and unrelated data remain. A partial removal reports an invalid
 installation; repeat explicit uninstall to finish before reinstalling.
 
-## Source candidate: offline local office
+## Merged source capability: offline local Office
 
-The following local service is implemented and tested in this source tree but is not
-available in the currently published CLI/Office pair. A coordinated release must ship
-the compatible CLI before the Office companion: opening the shared database with the
-new companion applies migration 011, which an older schema-10 CLI rejects. Do not
-publish the Office candidate independently.
+The following local service is implemented and tested in this source tree. Published
+artifacts may lag until a coordinated compatible CLI/Office release; do not advertise
+source-only `start` or `--local` support from an older pair. When a schema advance
+requires it, install the compatible CLI before activating the companion: an older
+CLI may reject the upgraded shared database. Never publish an incompatible Office
+companion alone. Follow the [native installation guidance](../../NATIVE-INSTALL.md)
+for release status and compatibility.
 
 The installed companion can serve its embedded Office UI and installation-owned
 SQLite state without pairing, Firebase or network access:
@@ -229,11 +231,16 @@ provision a Firebase project or deploy a website.
 | `tmt office block ls --json`                                                             | Allowed blocks and assignments, without guessing IDs                                |
 | `tmt office block show <block-id> --json`                                                | Canonical layout and revision                                                       |
 | `tmt office block apply <block-id> --file <layout.json> --if-revision <revision> --json` | Conditional complete-layout edit, confirmed by the server; stale revisions conflict |
-| `tmt office props ls --json`                                                             | The world's admitted prop catalog                                                   |
-| `tmt office props show <prop-id> --json`                                                 | Pinned version, geometry and supported data, never executable instructions          |
+| `tmt office prop ls --json`                                                              | The local Office admitted prop catalog for M1                                       |
+| `tmt office prop show <prop-id> --json`                                                  | Pinned version, geometry and supported data, never executable instructions          |
 
-`props` is the catalog namespace; block operations consume that catalog.
-Authoring syntax is intentionally undecided until its bounded schema exists.
+Custom props are not implemented. The proposed namespace is singular, `tmt office
+prop`; no custom-prop grammar, help, completion or endpoint is shipped. Built-in
+catalog entries and future admitted custom content use one validated catalog/layout
+owner; a versioned successor extends that owner without making block-v1 accept new
+asset data or creating a second layout store. Exact schema, quotas and
+version-migration policy remain pre-implementation decisions tracked in
+[#238](https://github.com/wkh237/tmux-team/issues/238).
 No current Rules enumeration or custom-asset support is implied by this table.
 The [sandbox design](sandbox.md) owns prop admission, identity/assignment lifetime,
 untrusted content and optional contextual notices.

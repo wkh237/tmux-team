@@ -12,9 +12,9 @@ state. Default preview does not initialize Firebase. Explicit `emulator` mode
 on loopback enables local Google-provider popup sign-in, UID display and logout
 through the Auth Emulator, not real Google. Explicit `cloud` mode requires
 owner-local Firebase web configuration and uses the same Google/session adapter.
-It does not load local identities,
-install an extension, open a connector listener or dispatch work. The native CLI
-remains independent. Login alone does not grant world access. A
+This Firebase preview/cloud shell does not load local identities, install an
+extension, open a connector listener or dispatch work. The native local path is
+separate below; login alone does not grant world access. A
 Console-managed tester gate controls direct client create/read of owner-only worlds;
 Firestore Rules enforce both gates, immutable fields and default-deny paths.
 This is not an invitation, presence or connected-agent implementation.
@@ -44,8 +44,11 @@ route/admission loss. Late observations and saves cannot restore disposed data.
 selection and controls. No canvas engine, generic scene framework, new global
 store or remote-state copy is introduced. Pointer selection/tile placement and
 equivalent numeric/keyboard controls edit locally; explicit Save uses the
-revision-checked Firestore transaction. Native block mutation commands are not
-implemented. The contract and shared validation vectors live in `contracts/office`.
+revision-checked Firestore transaction. The native companion implements
+revision-safe block show/apply for its scoped remote assignment, while local
+one-shot commands and the loopback service use the same SQLite repository for
+installation-owned blocks. The contract and shared validation vectors live in
+`contracts/office`.
 Save confirmation and conflict inspection use one-shot transaction reads in the
 same adapter, independent of watch-channel recovery. Watch snapshots remain
 the ongoing projection, not an acknowledgment channel for explicit saves.
@@ -92,6 +95,16 @@ Firebase setup is implied.
 | `rust/`            | Existing local CLI, domain and concrete adapters              | Office assets, Node or a Firebase account required by ordinary commands |
 | `docs/office`      | Definitions, scenarios and operational guidance               | Describing planned behavior as shipped                                  |
 
+### Offline local service
+
+The offline local path is separate from the Firebase preview/cloud runtime.
+`tmt office block ... --local` and the loopback HTTP service call the same
+`LocalOfficeRepository` in `tmt-adapters`; the service serves the embedded SPA
+without mirroring state into it. Browser and control tokens are distinct, and
+the adapter accepts only exact IPv4 loopback requests. This is a local browser
+adapter, not a work connector: it does not receive or dispatch remote work and
+does not execute CLI work.
+
 There is no work connector, deployed service or shared browser runtime package yet.
 The independently versioned native `tmt-office` companion currently implements
 the [typed local protocol](../../contracts/office/native-companion.md), including
@@ -106,10 +119,14 @@ rebase automatically. Browser and native codecs conform to the same literal
 block vectors. There is no local scene cache or second grant registry.
 Its optional adapter feature owns discovery, Auth exchange/refresh, invocation-owned
 resource-lease renewal, identity retirement hook consumption and protected
-scope records. It has no public distribution. The CLI's explicit `office`
-subtree installs, inspects, updates and deactivates it through existing native
-owners; other CLI operations do not execute or probe it. Shared native protocol
-values remain in the existing core.
+scope records. The public alpha companion is distributed through the verified
+native release path; the local service and local block operations are merged
+source capabilities whose availability in a published pair still depends on a
+coordinated release. Follow [native installation guidance](../../NATIVE-INSTALL.md)
+for release status and compatibility rather than maintaining another version ledger
+here. The CLI's explicit `office` subtree installs, inspects, updates and deactivates
+it through existing native owners; other CLI operations do not execute or probe it.
+Shared native protocol values remain in the existing core.
 Create each only with its first concrete consumer and reviewed contract.
 Do not relocate established Rust, test, script or canonical skill paths simply
 to make the tree symmetric.
