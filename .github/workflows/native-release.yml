@@ -4,17 +4,26 @@ name: Native release artifacts
 # authorized operation; ordinary pull requests do not run this costly matrix.
 on:
   workflow_dispatch:
+    inputs:
+      product:
+        description: Native product to prepare
+        required: true
+        default: cli
+        type: choice
+        options:
+          - cli
+          - office
 
 permissions:
   contents: read
 
 concurrency:
-  group: native-release-${{ github.ref }}
+  group: native-release-${{ inputs.product }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   build:
-    name: Build (${{ matrix.target }})
+    name: Build ${{ inputs.product }} (${{ matrix.target }})
     if: github.ref == 'refs/heads/main'
     strategy:
       fail-fast: false
@@ -54,17 +63,18 @@ jobs:
           cargo +1.97.0 install cargo-about --version 0.9.2 --features cli --locked --root "$HOME/.tmt-packaging"
       - name: Build release archive and target manifest
         env:
+          PRODUCT: ${{ inputs.product }}
           TARGET: ${{ matrix.target }}
           MACOSX_DEPLOYMENT_TARGET: '11.0'
         run: |
           export PATH="$HOME/.tmt-packaging/bin:$PATH"
           cargo +1.97.0 fetch --manifest-path rust/Cargo.toml --locked
-          scripts/build-native-artifact.sh "$TARGET" > "$RUNNER_TEMP/$TARGET-dist-manifest.json"
+          scripts/build-native-artifact.sh "$TARGET" "$PRODUCT" > "$RUNNER_TEMP/$TARGET-dist-manifest.json"
           cp "$RUNNER_TEMP/$TARGET-dist-manifest.json" target/distrib/
           cp rust/target/native-notices/THIRD-PARTY-NOTICES.txt "target/distrib/$TARGET-notices.txt"
       - uses: actions/upload-artifact@v4
         with:
-          name: native-${{ matrix.target }}
+          name: native-${{ inputs.product }}-${{ matrix.target }}
           path: |
             target/distrib/*.tar.gz
             target/distrib/*.sha256
@@ -74,7 +84,7 @@ jobs:
           retention-days: 7
 
   assemble:
-    name: Assemble authoritative release manifest
+    name: Assemble authoritative ${{ inputs.product }} release manifest
     needs: build
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -99,26 +109,34 @@ jobs:
           pnpm install --frozen-lockfile --ignore-scripts
       - uses: actions/download-artifact@v4
         with:
-          pattern: native-*
+          pattern: native-${{ inputs.product }}-*
           merge-multiple: true
           path: target/distrib
       - name: Merge with cargo-dist and verify bootstrap inputs
+        env:
+          PRODUCT: ${{ inputs.product }}
         run: |
           export PATH="$HOME/.tmt-packaging/bin:$PATH"
           export RUSTUP_TOOLCHAIN=1.97.0
           TMT_NATIVE_REAL_CARGO=$(command -v cargo)
           export TMT_NATIVE_REAL_CARGO
           export CARGO="$GITHUB_WORKSPACE/scripts/native-cargo.sh"
-          version=$(cargo metadata --manifest-path rust/Cargo.toml --locked --no-deps --format-version 1 | node -pe 'JSON.parse(require("fs").readFileSync(0,"utf8")).packages.find(p => p.name === "tmt-cli").version')
-          dist plan --tag "v$version" --output-format=json --no-local-paths > "$RUNNER_TEMP/plan.json"
-          dist build --tag "v$version" --artifacts global --output-format=json --no-local-paths > "$RUNNER_TEMP/dist-manifest.json"
+          package="tmt-$PRODUCT"
+          export PACKAGE="$package"
+          version=$(cargo metadata --manifest-path rust/Cargo.toml --locked --no-deps --format-version 1 | node -pe 'const p=process.env.PACKAGE; JSON.parse(require("fs").readFileSync(0,"utf8")).packages.find(x => x.name === p).version')
+          tag="v$version"
+          if [ "$PRODUCT" = office ]; then tag="tmt-office-v$version"; fi
+          dist plan --tag "$tag" --output-format=json --no-local-paths > "$RUNNER_TEMP/plan.json"
+          dist build --tag "$tag" --artifacts global --output-format=json --no-local-paths > "$RUNNER_TEMP/dist-manifest.json"
           cp "$RUNNER_TEMP/dist-manifest.json" target/distrib/dist-manifest.json
-          node scripts/generate-native-bootstrap.mjs --manifest target/distrib/dist-manifest.json --archive-dir target/distrib --plan "$RUNNER_TEMP/plan.json" > target/distrib/tmt-installer.sh
-          sh -n target/distrib/tmt-installer.sh
-          shellcheck --shell sh target/distrib/tmt-installer.sh
+          if [ "$PRODUCT" = cli ]; then
+            node scripts/generate-native-bootstrap.mjs --manifest target/distrib/dist-manifest.json --archive-dir target/distrib --plan "$RUNNER_TEMP/plan.json" > target/distrib/tmt-installer.sh
+            sh -n target/distrib/tmt-installer.sh
+            shellcheck --shell sh target/distrib/tmt-installer.sh
+          fi
       - uses: actions/upload-artifact@v4
         with:
-          name: native-release-bundle
+          name: native-release-${{ inputs.product }}-bundle
           path: |
             target/distrib/*.tar.gz
             target/distrib/*.sha256
@@ -130,7 +148,7 @@ jobs:
           retention-days: 7
 
   verify:
-    name: Verify final bundle (${{ matrix.target }})
+    name: Verify final ${{ inputs.product }} bundle (${{ matrix.target }})
     needs: assemble
     strategy:
       fail-fast: false
@@ -151,20 +169,30 @@ jobs:
           pnpm install --frozen-lockfile --ignore-scripts
       - uses: actions/download-artifact@v4
         with:
-          name: native-release-bundle
+          name: native-release-${{ inputs.product }}-bundle
           path: target/distrib
       - name: Execute final archive and bootstrap on matching native host
         env:
+          PRODUCT: ${{ inputs.product }}
           TARGET: ${{ matrix.target }}
         run: |
-          node scripts/verify-native-artifact.mjs \
-            --manifest target/distrib/dist-manifest.json \
-            --archive "target/distrib/tmt-cli-$TARGET.tar.gz" --target "$TARGET" \
-            --skill skills/tmux-team/SKILL.md --license LICENSE \
-            --notices "target/distrib/$TARGET-notices.txt"
-          node scripts/verify-native-bootstrap.mjs \
-            --manifest target/distrib/dist-manifest.json \
-            --archive "target/distrib/tmt-cli-$TARGET.tar.gz" --target "$TARGET" \
-            --skill skills/tmux-team/SKILL.md
-          node scripts/generate-native-bootstrap.mjs --manifest target/distrib/dist-manifest.json --archive-dir target/distrib > "$RUNNER_TEMP/installer.sh"
-          cmp "$RUNNER_TEMP/installer.sh" target/distrib/tmt-installer.sh
+          if [ "$PRODUCT" = cli ]; then
+            node scripts/verify-native-artifact.mjs \
+              --manifest target/distrib/dist-manifest.json \
+              --archive "target/distrib/tmt-cli-$TARGET.tar.gz" --target "$TARGET" \
+              --skill skills/tmux-team/SKILL.md --license LICENSE \
+              --notices "target/distrib/$TARGET-notices.txt"
+            node scripts/verify-native-bootstrap.mjs \
+              --manifest target/distrib/dist-manifest.json \
+              --archive "target/distrib/tmt-cli-$TARGET.tar.gz" --target "$TARGET" \
+              --skill skills/tmux-team/SKILL.md
+            node scripts/generate-native-bootstrap.mjs --manifest target/distrib/dist-manifest.json --archive-dir target/distrib > "$RUNNER_TEMP/installer.sh"
+            cmp "$RUNNER_TEMP/installer.sh" target/distrib/tmt-installer.sh
+          else
+            node scripts/verify-native-artifact.mjs \
+              --product office \
+              --manifest target/distrib/dist-manifest.json \
+              --archive "target/distrib/tmt-office-$TARGET.tar.gz" --target "$TARGET" \
+              --license LICENSE \
+              --notices "target/distrib/$TARGET-notices.txt"
+          fi

@@ -452,12 +452,17 @@ zero-file success.
 `scripts/native-cargo.sh`, `scripts/native-artifact-policy.mjs` and
 `scripts/verify-native-artifact.mjs` are developer/release tooling. The
 workflow builds the four supported cargo-dist targets, creates target-filtered
-third-party notices, and verifies runtime bytes, linkage, skill contents,
-checksums, archive inventory and executable behavior on matching hosts.
+third-party notices, and verifies runtime bytes, linkage, checksums, archive
+inventory and executable behavior on matching hosts. CLI runs additionally
+verify exact managed-skill contents and the generated bootstrap.
 
-The release workflow remains an explicit preparation and verification workflow;
-publication is separately authorized. Archives, their manifest/checksums,
-notices and generated `tmt-installer.sh` are verified before any public
+The release workflow remains an explicit product-selected preparation and
+verification workflow; publication is separately authorized. CLI and Office
+runs share the four-target cargo-dist build and archive verifier, while keeping
+product-qualified bundles, independent versions and separate immutable tags.
+Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill
+bootstrap proof. Archives, their product-specific manifest/checksums and notices,
+plus the CLI bootstrap where applicable, are verified before any public
 publication. Raw PR executables do not prove cargo-dist archive correctness.
 The runtime/linkage proof is shared through `scripts/native-runtime-proof.mjs`
 and `scripts/verify-native-runtime.mjs`; do not reintroduce a second archive
