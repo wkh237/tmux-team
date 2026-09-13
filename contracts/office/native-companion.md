@@ -4,7 +4,7 @@ This internal local protocol is separate from the proposed remote work-handoff
 schema. It grants no Office access and does not replace pairing.
 
 The core-owned `OfficeInvocation` has exact operations `probe`, `pair-begin`,
-`pair-poll`, `pair-status`, `inspect` and `sync`. Its argument vector is
+`pair-poll`, `pair-status`, `unpair`, `inspect` and `sync`. Its argument vector is
 `__tmt-office`, `1`, `<operation>`. Unknown versions, operations,
 extra arguments and non-UTF-8 arguments fail with exit 1, empty stdout and a brief
 stderr diagnostic. There is no arbitrary argv forwarding or shell evaluation.
@@ -59,6 +59,12 @@ adapters stay in the Office feature, not the CLI or core. See
 [native pairing](native-pairing.md) for scope, deadlines and server authority.
 Future operations require a reviewed typed contract before implementation;
 the probe response is never a generic payload or remote authentication.
+
+`unpair` uses the same scoped input. Success returns `state: revoked`; a denied
+pending cancellation returns `state: pending` plus the original `approvalUrl`
+for owner cancellation, never a cleanup confirmation. Other failures retain the
+normal error result. An older companion rejects `unpair`; the host must not
+interpret unsupported-operation failure as successful revocation.
 
 `sync` consumes exactly `{}`; it requires no active identity or world selector.
 It returns exactly `completed`, `failed`, `pending` (unsigned counts) and

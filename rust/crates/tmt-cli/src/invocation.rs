@@ -80,6 +80,11 @@ pub enum OfficeOperation {
     Open,
     Status,
     Sync,
+    Unpair {
+        world: String,
+        identity: Option<String>,
+        emulator: bool,
+    },
     Inspect {
         world: String,
         identity: Option<String>,

@@ -120,6 +120,13 @@ reference, never a duplicate credential or grant. OS random
 bytes create proofs; explicit Keychain/Secret Service backends fail closed.
 Background connection and resource editing remain unimplemented.
 
+Explicit `office unpair` reuses the record's reduction-only revocation path and
+scope lock. Only a confirmed revoked receipt can be replaced by a new explicit
+pair request. Owner cancellation of an unknown public request uses the existing
+issuer transaction to write a disabled pairing, never a second cancellation store.
+Browser request snapshots share the existing contract decoder across state and
+transport; uncertain cancellation prevents switching back to approval.
+
 Identity retirement remains the existing binding transaction's responsibility.
 `tmt-core::identity_hooks` owns typed subscriptions and delivery state;
 `storage::identity_hooks` registers subscriptions and atomically queues retirement

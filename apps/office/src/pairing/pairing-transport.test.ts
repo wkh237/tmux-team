@@ -5,6 +5,16 @@ import type { PairingRequest } from './pairing-contract.js';
 
 const pairingId = 'a'.repeat(64);
 const endpoint = 'https://pair.example/officePairing';
+const revokeRequest: PairingRequest = {
+  version: 1,
+  pairingId,
+  worldId: 'a'.repeat(20),
+  installationId: '00000000-0000-4000-8000-000000000001',
+  identityId: '00000000-0000-4000-8000-000000000002',
+  installationLabel: 'Device',
+  identityLabel: 'Alice',
+  capabilities: ['layout.read'],
+};
 const response = () =>
   new Response(JSON.stringify({ version: 1, pairingId, revoked: true }), {
     headers: { 'content-type': 'application/json' },
@@ -78,7 +88,7 @@ it('only explicit deployment settings select an endpoint, never request or previ
 it('uses the selected owner token only in a no-redirect/no-cookie bounded POST header', async () => {
   const send = vi.fn<typeof fetch>().mockResolvedValue(response());
   const auth = { currentUser: { uid: 'owner', getIdToken: async () => 'private-token' } };
-  await createPairingPort(auth, endpoint, send).revoke(pairingId, 'owner');
+  await createPairingPort(auth, endpoint, send).revoke(revokeRequest, 'owner');
   expect(send).toHaveBeenCalledOnce();
   const [url, options] = send.mock.calls[0];
   expect(url).toBe(`${endpoint}/revoke`);
@@ -89,7 +99,10 @@ it('uses the selected owner token only in a no-redirect/no-cookie bounded POST h
     cache: 'no-store',
     headers: { authorization: 'Bearer private-token' },
   });
-  expect(options?.body).toBe(JSON.stringify({ version: 1, pairingId }));
+  expect(JSON.parse(options?.body as string)).toEqual({
+    version: 1,
+    publicApproval: revokeRequest,
+  });
   expect(options?.signal).toBeInstanceOf(AbortSignal);
 });
 
@@ -106,12 +119,12 @@ it('session change during token acquisition cannot send an approval as the previ
   };
   const send = vi.fn<typeof fetch>();
   const port = createPairingPort(auth, endpoint, send);
-  const pending = port.revoke(pairingId, 'owner');
+  const pending = port.revoke(revokeRequest, 'owner');
   auth.currentUser = null;
   resolve('private-token');
   await expect(pending).rejects.toMatchObject({ kind: 'denied' });
   expect(send).not.toHaveBeenCalled();
-  await expect(port.revoke(pairingId, 'other')).rejects.toMatchObject({ kind: 'denied' });
+  await expect(port.revoke(revokeRequest, 'other')).rejects.toMatchObject({ kind: 'denied' });
 });
 
 it('oversize or invalid successful responses remain uncertain and error bodies are never displayed', async () => {
@@ -122,14 +135,14 @@ it('oversize or invalid successful responses remain uncertain and error bodies a
     new Response('private server path', { status: 503 }),
   ]) {
     const port = createPairingPort(auth, endpoint, vi.fn<typeof fetch>().mockResolvedValue(reply));
-    await expect(port.revoke(pairingId, 'owner')).rejects.toMatchObject({ kind: 'uncertain' });
+    await expect(port.revoke(revokeRequest, 'owner')).rejects.toMatchObject({ kind: 'uncertain' });
   }
   const denied = createPairingPort(
     auth,
     endpoint,
     vi.fn<typeof fetch>().mockResolvedValue(new Response('private server path', { status: 403 }))
   );
-  await expect(denied.revoke(pairingId, 'owner')).rejects.toMatchObject({ kind: 'denied' });
+  await expect(denied.revoke(revokeRequest, 'owner')).rejects.toMatchObject({ kind: 'denied' });
 });
 
 it.each([
@@ -146,6 +159,6 @@ it.each([
       endpoint,
       vi.fn<typeof fetch>().mockResolvedValue(new Response('sensitive server details', { status }))
     );
-    await expect(port.revoke(pairingId, 'owner')).rejects.toMatchObject({ kind });
+    await expect(port.revoke(revokeRequest, 'owner')).rejects.toMatchObject({ kind });
   }
 );

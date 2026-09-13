@@ -168,11 +168,17 @@ export function parseRenewal(input: unknown): Renewal {
 
 export type Revocation =
   | { kind: 'pairing'; pairingId: string }
-  | { kind: 'proof'; pairingId: string };
+  | { kind: 'proof'; pairingId: string }
+  | { kind: 'ownerApproval'; request: Approval };
 
 export function parseRevocation(input: unknown): Revocation {
   const value = object(input);
   if (Object.hasOwn(value, 'secret')) return { kind: 'proof', pairingId: parseClaim(value) };
+  if (Object.hasOwn(value, 'publicApproval')) {
+    exact(value, ['version', 'publicApproval']);
+    if (value.version !== 1) throw new PairingError('INVALID_ARGUMENT');
+    return { kind: 'ownerApproval', request: parseApproval(value.publicApproval) };
+  }
   exact(value, ['version', 'pairingId']);
   if (value.version !== 1 || !matches(value.pairingId, PAIRING_ID))
     throw new PairingError('INVALID_ARGUMENT');

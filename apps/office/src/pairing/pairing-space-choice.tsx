@@ -28,13 +28,17 @@ export function PairingSpaceChoice({
 }
 
 function SpaceChoice({ state, spaces }: { state: PairingState; spaces: SpaceState }) {
-  const { attempted, replacement } = useSyncExternalStore(state.subscribe, state.getSnapshot);
+  const { attempted, revocationAttempted, replacement } = useSyncExternalStore(
+    state.subscribe,
+    state.getSnapshot
+  );
+  const locked = attempted || revocationAttempted;
   const { entries, busy, next, error, ready } = useSyncExternalStore(
     spaces.subscribe,
     spaces.getSnapshot
   );
   return (
-    <fieldset className="pairing-space-choice" disabled={attempted}>
+    <fieldset className="pairing-space-choice" disabled={locked}>
       <legend>Assigned block</legend>
       <p>
         Choose a fresh block or a revoked agent's retained layout. Profiles and notebooks are not
@@ -55,7 +59,7 @@ function SpaceChoice({ state, spaces }: { state: PairingState; spaces: SpaceStat
           <code>{replacement.principalUid}</code>
         </p>
       )}
-      {attempted ? (
+      {locked ? (
         <p>The choice is fixed for this request. Retry keeps the same assignment.</p>
       ) : (
         <>

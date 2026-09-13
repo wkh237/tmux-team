@@ -14,6 +14,17 @@ fn office_pairing_has_bounded_typed_options_and_retains_unqualified_status() {
     use crate::invocation::OfficeOperation;
     let world = "https://office.example/worlds/abcdefghijklmnopqrst";
     assert_eq!(
+        parsed(&["office", "unpair", "--world", world, "--identity", "Alice"]).invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Unpair {
+                world: world.into(),
+                identity: Some("Alice".into()),
+                emulator: false,
+            }
+        }
+    );
+    assert_eq!(
         parsed(&[
             "office",
             "pair",
@@ -69,6 +80,9 @@ fn office_pairing_has_bounded_typed_options_and_retains_unqualified_status() {
         vec!["office", "status", "--identity", "Alice"],
         vec!["office", "status", "--emulator"],
         vec!["office", "inspect"],
+        vec!["office", "unpair"],
+        vec!["office", "unpair", "--world", world, "--read-only"],
+        vec!["office", "unpair", "--world", world, "--timeout", "5"],
         vec!["office", "status", "--world", world, "--read-only"],
     ] {
         assert_eq!(parse_error(&input).code, "USAGE_ERROR");

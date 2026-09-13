@@ -25,7 +25,7 @@ export interface PairingPort {
     ownerUid: string,
     replacement?: PairingReplacement
   ): Promise<ApprovedPairing>;
-  revoke(pairingId: string, ownerUid: string): Promise<void>;
+  revoke(request: PairingRequest, ownerUid: string): Promise<void>;
 }
 
 /** Owner-selected intent, never part of the native request fragment. */
@@ -137,6 +137,15 @@ function parseRequest(value: unknown, worldId: string): PairingRequest {
     identityLabel: input.identityLabel,
     capabilities: parsedCapabilities,
   };
+}
+
+/** Canonical immutable request snapshot for one mounted action or transport call. */
+export function snapshotPairingRequest(request: PairingRequest): PairingRequest {
+  const parsed = parseRequest(request, request.worldId);
+  return Object.freeze({
+    ...parsed,
+    capabilities: Object.freeze([...parsed.capabilities]),
+  }) as PairingRequest;
 }
 
 function requestFields(value: Record<string, unknown>): Record<string, unknown> {

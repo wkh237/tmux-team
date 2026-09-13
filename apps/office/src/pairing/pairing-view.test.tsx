@@ -139,7 +139,26 @@ it('requires explicit recognition, renders labels as text and never approves jus
     expect(f.port.approve).toHaveBeenCalledExactlyOnceWith(f.request, 'owner');
     await user.click(screen.getByRole('button', { name: 'Revoke request' }));
     await screen.findByText(/Request revoked\. Existing workspace content is retained/);
-    expect(f.port.revoke).toHaveBeenCalledExactlyOnceWith(f.request.pairingId, 'owner');
+    expect(f.port.revoke).toHaveBeenCalledExactlyOnceWith(f.request, 'owner');
+  } finally {
+    await f.dispose();
+  }
+});
+
+it('offers explicit cancellation before approval and does not approve while cancellation is uncertain', async () => {
+  const f = await fixture();
+  try {
+    const user = userEvent.setup();
+    vi.mocked(f.port.revoke).mockRejectedValueOnce(new Error('Lost response'));
+    await user.click(await screen.findByRole('button', { name: 'Cancel request' }));
+    await screen.findByText(/may already have completed/);
+    expect(f.port.revoke).toHaveBeenCalledExactlyOnceWith(f.request, 'owner');
+    expect(screen.queryByRole('button', { name: 'Approve pairing' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Retry cancel request' }));
+    await screen.findByText(/Request cancelled\. Existing workspace content is retained/);
+    expect(f.port.approve).not.toHaveBeenCalled();
+    expect(f.port.revoke).toHaveBeenCalledTimes(2);
+    expect(f.port.revoke).toHaveBeenLastCalledWith(f.request, 'owner');
   } finally {
     await f.dispose();
   }

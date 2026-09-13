@@ -6,7 +6,11 @@ import { test, signIn } from './browser-session.js';
 import { setTester, writeAgentGrantFields, writeBlockFields } from './firestore-fixture.js';
 import { createPairingEmulatorFixture } from '../../../services/office/functions/test/emulator-fixture.js';
 import { runCli, withSandbox } from '../../../test/support/cli-process.js';
-import { installNativeOffice, protectedOfficeRecord } from './native-office-fixture.js';
+import {
+  installNativeOffice,
+  protectedOfficeRecord,
+  clearOfficeScopes,
+} from './native-office-fixture.js';
 
 test('native pairing selects a retained block, resumes it, and exposes the same layout in Office', async ({
   openSession,
@@ -15,21 +19,6 @@ test('native pairing selects a retained block, resumes it, and exposes the same 
   const admin = createPairingEmulatorFixture();
   try {
     await withSandbox(async (sandbox) => {
-      const clearProtectedScopes = async () => {
-        let names: string[];
-        try {
-          names = readdirSync(path.join(sandbox.globalDir, 'office'));
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
-          throw error;
-        }
-        for (const name of names) {
-          if (!/^[0-9a-f]{64}\.lock$/.test(name)) continue;
-          const key = name.slice(0, -'.lock'.length);
-          expect((await protectedOfficeRecord(sandbox, key, 'clear')).status).toBe(0);
-          expect((await protectedOfficeRecord(sandbox, key, 'lookup')).status).toBe(1);
-        }
-      };
       try {
         const prefix = await installNativeOffice(sandbox);
         expect(
@@ -189,7 +178,7 @@ test('native pairing selects a retained block, resumes it, and exposes the same 
           .click();
         await expect(page.getByRole('button', { name: 'Desk 1', exact: true })).toBeVisible();
       } finally {
-        await clearProtectedScopes();
+        await clearOfficeScopes(sandbox);
       }
     });
   } finally {

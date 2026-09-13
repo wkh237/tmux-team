@@ -454,6 +454,7 @@ Compatible source builds support explicit pairing:
 tmt office pair --world <world-url> --identity <name> --timeout 30
 tmt office status --world <world-url> --identity <name> --json
 tmt office inspect --world <world-url> --identity <name> --json
+tmt office unpair --world <world-url> --identity <name> --json
 ```
 
 The world URL is canonical HTTPS `/worlds/<world-id>`. Omit `--identity` only
@@ -478,6 +479,13 @@ on failures. Disabled/missing grants, expired pending approvals and lost
 credentials cannot be repaired by silently creating another grant. Report those
 errors; never delete state to bypass revocation. Uninstall does not revoke
 remote grants. Do not use proposed connector or resource-edit commands.
+
+Use `unpair` to explicitly revoke a pairing without removing the identity or
+workspace content. A confirmed result retains a secret-free `revoked` receipt;
+then an explicit `pair` can request new capabilities under the same identity.
+If `OFFICE_OWNER_CANCELLATION_REQUIRED` is returned, give the user the original
+public link to cancel, then retry unpair. Never approve/cancel on their behalf,
+interpret failure as revocation, or delete credentials to force a fresh pairing.
 
 Retiring a paired identity queues Office cleanup by UUID. Pair/inspect attempt
 pending cleanup; ordinary `ls`, `rm` and `unbind` do not contact Office. Use

@@ -69,6 +69,7 @@ pub enum OfficeInvocation {
     PairBegin,
     PairPoll,
     PairStatus,
+    Unpair,
     Inspect,
     Sync,
 }
@@ -80,6 +81,7 @@ impl OfficeInvocation {
             Self::PairBegin => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "pair-begin"],
             Self::PairPoll => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "pair-poll"],
             Self::PairStatus => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "pair-status"],
+            Self::Unpair => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "unpair"],
             Self::Inspect => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "inspect"],
             Self::Sync => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "sync"],
         }
@@ -91,6 +93,7 @@ impl OfficeInvocation {
             Self::PairBegin,
             Self::PairPoll,
             Self::PairStatus,
+            Self::Unpair,
             Self::Inspect,
             Self::Sync,
         ]
@@ -150,6 +153,7 @@ mod tests {
             ("pair-begin", OfficeInvocation::PairBegin),
             ("pair-poll", OfficeInvocation::PairPoll),
             ("pair-status", OfficeInvocation::PairStatus),
+            ("unpair", OfficeInvocation::Unpair),
             ("inspect", OfficeInvocation::Inspect),
             ("sync", OfficeInvocation::Sync),
         ] {

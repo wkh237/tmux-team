@@ -19,6 +19,16 @@ import {
 
 const pairingPath = `officePairings/${PAIRING}`;
 const grantPath = `worlds/${WORLD}/agentGrants/${PRINCIPAL}`;
+const publicApproval = {
+  version: 1 as const,
+  pairingId: PAIRING,
+  worldId: WORLD,
+  installationId: INSTALLATION,
+  identityId: IDENTITY,
+  installationLabel: 'Installation',
+  identityLabel: 'Alice',
+  capabilities: ['layout.read', 'layout.write'] as ['layout.read', 'layout.write'],
+};
 const actors: RevocationActor[] = [
   { kind: 'owner', uid: OWNER },
   { kind: 'agent', agent },
@@ -197,6 +207,104 @@ describe('revocation authentication and proof', () => {
       code: 'PAIRING_UNAVAILABLE',
     });
     expect(fixture.values.has(`officePairings/${digest}`)).toBe(false);
+    expect(fixture.updates).toEqual([]);
+  });
+
+  it('lets an admitted owner cancel an unknown request without grants or resources', async () => {
+    const fixture = setup({
+      uid: OWNER,
+      email_verified: true,
+      firebase: { sign_in_provider: 'google.com' },
+    });
+    fixture.values.delete(pairingPath);
+    await expect(
+      fixture.service.revoke({ version: 1, publicApproval }, 'Bearer owner-token')
+    ).resolves.toEqual({ version: 1, pairingId: PAIRING, revoked: true });
+    expect(fixture.values.get(pairingPath)).toMatchObject({
+      request: publicApproval,
+      ownerUid: OWNER,
+      enabled: false,
+      claimed: false,
+    });
+    expect(fixture.values.has(grantPath)).toBe(true);
+    expect(fixture.values.get(grantPath)).toMatchObject({ enabled: true });
+    expect(fixture.values.size).toBe(4);
+    expect(fixture.createCustomToken).not.toHaveBeenCalled();
+  });
+
+  it('cancels a known request only for the exact admitted owner request and is idempotent', async () => {
+    const fixture = setup({
+      uid: OWNER,
+      email_verified: true,
+      firebase: { sign_in_provider: 'google.com' },
+    });
+    await expect(
+      fixture.service.revoke({ version: 1, publicApproval }, 'Bearer owner-token')
+    ).resolves.toEqual({ version: 1, pairingId: PAIRING, revoked: true });
+    const afterFirst = new Map(fixture.values);
+    await expect(
+      fixture.service.revoke({ version: 1, publicApproval }, 'Bearer owner-token')
+    ).resolves.toEqual({ version: 1, pairingId: PAIRING, revoked: true });
+    expect(fixture.values.get(pairingPath)).toMatchObject({ enabled: false });
+    expect(fixture.values.get(grantPath)).toMatchObject({ enabled: false });
+    expect(fixture.values.get(`worlds/${WORLD}`)).toEqual(afterFirst.get(`worlds/${WORLD}`));
+    expect(fixture.verifyIdToken).toHaveBeenCalledTimes(2);
+  });
+
+  it('denies changed intent, wrong owner/admission and agent public cancellation without writes', async () => {
+    const changed = { ...publicApproval, capabilities: ['layout.read'] as ['layout.read'] };
+    const cases = [
+      {
+        token: { uid: OWNER, email_verified: true, firebase: { sign_in_provider: 'google.com' } },
+        input: { version: 1, publicApproval: changed },
+        code: 'PAIRING_CONFLICT',
+      },
+      {
+        token: {
+          uid: 'other-owner',
+          email_verified: true,
+          firebase: { sign_in_provider: 'google.com' },
+        },
+        input: { version: 1, publicApproval },
+        code: 'PERMISSION_DENIED',
+      },
+      {
+        token: { uid: OWNER, email_verified: true, firebase: { sign_in_provider: 'google.com' } },
+        input: { version: 1, publicApproval },
+        code: 'PERMISSION_DENIED',
+        ownerAdmitted: false,
+      },
+      { token: agentToken, input: { version: 1, publicApproval }, code: 'PERMISSION_DENIED' },
+    ];
+    for (const testCase of cases) {
+      const fixture = setup(testCase.token);
+      if (testCase.ownerAdmitted === false) fixture.values.delete(`testers/${OWNER}`);
+      const before = new Map(fixture.values);
+      await expect(fixture.service.revoke(testCase.input, 'Bearer token')).rejects.toMatchObject({
+        code: testCase.code,
+      });
+      expect(fixture.values).toEqual(before);
+      expect(fixture.updates).toEqual([]);
+    }
+  });
+
+  it('prevents late approval and claim of an owner-cancelled unknown request', async () => {
+    const fixture = setup({
+      uid: OWNER,
+      email_verified: true,
+      firebase: { sign_in_provider: 'google.com' },
+    });
+    fixture.values.delete(pairingPath);
+    const store = createPairingStore(fixture.db, () => NOW);
+    await store.revoke({ kind: 'ownerApproval', uid: OWNER, request: publicApproval }, PAIRING);
+    const before = new Map(fixture.values);
+    await expect(store.approve(OWNER, publicApproval)).rejects.toMatchObject({
+      code: 'PAIRING_UNAVAILABLE',
+    });
+    await expect(store.reserveClaim(PAIRING)).rejects.toMatchObject({
+      code: 'PAIRING_UNAVAILABLE',
+    });
+    expect(fixture.values).toEqual(before);
     expect(fixture.updates).toEqual([]);
   });
 

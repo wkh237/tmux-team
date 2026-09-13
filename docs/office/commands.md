@@ -97,6 +97,12 @@ not retired and do not enqueue this cleanup.
 The [native pairing contract](../../contracts/office/native-pairing.md) owns exact
 scope, output, errors and emulator restrictions.
 
+Source builds also support `tmt office unpair --world <url> --identity <name>`.
+It confirms revocation before retaining a secret-free receipt; an explicit pair
+can then start again under the same identity. Pending cancellation may require
+the owner to cancel using the original link first. Failure never permits deleting
+credentials. This is separate from the proposed connector lifecycle below.
+
 ## Planned connected commands
 
 The following connected behaviors are proposals, not installed instructions.
@@ -112,7 +118,6 @@ the in-progress pair/status/inspect inputs, outputs and deployment trust boundar
 | `tmt office run`                                           | Run the connector in the foreground; Ctrl-C stops it without cancelling native work                     |
 | `tmt office publish <identity> --capability review`        | Publish an explicitly selected identity UUID and allowed capability; no implicit all-agent publication  |
 | `tmt office unpublish <identity>`                          | Reject new work for that published identity, without deleting local identity or retained exchanges      |
-| `tmt office unpair`                                        | Revoke remotely, then remove local credentials; offline failure reports pending revocation, not success |
 | `tmt office social <identity> --minutes 10 --max-turns 20` | Request a bounded, opt-in social session; participants may decline and workspace tools stay disabled    |
 
 ## Decoration and discovery
@@ -199,9 +204,8 @@ do not probe for updates or incur Office startup/network cost.
   accepting work and reports `OFFICE_REVOKED`; it does not silently re-pair.
 - Duplicate connector startup for one device is rejected through an owned local
   lock. Crash recovery inspects durable dispatch records before claiming work.
-- `unpair` while offline can forget local credentials only through a separately
-  explicit `--local-only` action that warns remote revocation is still required.
-  Never report an unreachable remote device as revoked.
+- Pairing cancellation follows the native contract above; unreachable remote
+  state is never reported as revoked, and there is no local-only forget shortcut.
 - `status --json` distinguishes installed compatibility, locally known pairing,
   process observation and the age of any last remote observation. It cannot claim
   current remote availability from a stale cache.
