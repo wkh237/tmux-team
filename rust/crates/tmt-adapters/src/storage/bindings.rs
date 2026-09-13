@@ -188,6 +188,12 @@ impl BindingRecords for BindingRows<'_> {
         if remove_content {
             self.0
                 .execute(
+                    "DELETE FROM identity_metadata WHERE identity_id = ?",
+                    [&identity.id],
+                )
+                .map_err(|error| classify(error, "Remove identity metadata"))?;
+            self.0
+                .execute(
                     "DELETE FROM role_profiles WHERE identity_id = ?",
                     [&identity.id],
                 )

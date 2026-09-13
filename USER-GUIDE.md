@@ -75,6 +75,28 @@ Creation is idempotent for a canonical-equivalent name. Creation alone does not
 bind a pane, authenticate a caller, queue work, or perform delivery. The active
 identity is eligible for a later explicit local `talk --inbox` request.
 
+Attach exact, searchable descriptive metadata to an active identity:
+
+```bash
+tmt identity meta set --identity coordinator department engineering
+tmt identity meta set --identity coordinator project tmt
+tmt identity meta set --identity coordinator capability.review true
+tmt identity meta list --identity coordinator --json
+tmt identity meta get --identity coordinator project
+tmt identity meta rm --identity coordinator project
+tmt identity list --where project=tmt --where department=engineering --json
+tmt identity list --has capability.review --json
+```
+
+Repeated `--where KEY=VALUE` and `--has KEY` filters are combined with AND;
+`KEY=VALUE` splits at its first equals sign. Keys are case-sensitive literal
+strings of 1–64 ASCII bytes matching `[a-z][a-z0-9_.-]*`. Values are exact,
+case-sensitive strings of 1–1024 UTF-8 bytes without control characters
+(including the literal string `true`), with at most 64 entries per identity.
+Metadata does not save a temporary identity and is not authentication,
+authorization, live presence, a capability grant, or a safe place for secrets or
+instructions. Omit `--identity` only from a verified bound pane.
+
 ## Saved identity notes
 
 Each saved identity can own one ordinary local Markdown file:

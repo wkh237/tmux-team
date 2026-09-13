@@ -1,8 +1,8 @@
 use std::ffi::OsString;
 
 use super::{
-    ContentInput, ExchangeOperation, Invocation, OutputMode, ParseError, Parsed, RoleOperation,
-    TalkOptions, parse,
+    ContentInput, ExchangeOperation, IdentityFilterRequest, IdentityMetadataRequest,
+    IdentityRequest, Invocation, OutputMode, ParseError, Parsed, RoleOperation, TalkOptions, parse,
 };
 
 fn args(values: &[&str]) -> Vec<OsString> {
@@ -857,6 +857,76 @@ fn retired_wait_and_team_paths_have_distinct_errors() {
     let scoped = parse_error(&["--json", "--team", "legacy", "list"]);
     assert_eq!(scoped.code, "UNSUPPORTED_TEAM");
     assert_eq!(scoped.mode, OutputMode { json: true });
+}
+
+#[test]
+fn identity_metadata_and_repeated_filters_have_typed_requests() {
+    assert_eq!(
+        parsed(&[
+            "identity",
+            "meta",
+            "set",
+            "--identity",
+            "alice",
+            "project",
+            "tmt",
+        ])
+        .invocation,
+        Invocation::Identity(IdentityRequest::Metadata {
+            identity: Some("alice".into()),
+            operation: IdentityMetadataRequest::Set {
+                key: "project".into(),
+                value: "tmt".into(),
+            },
+        })
+    );
+    assert_eq!(
+        parsed(&[
+            "identity",
+            "list",
+            "--where",
+            "project=tmt=alpha",
+            "--has",
+            "capability.review",
+            "--where",
+            "department=engineering",
+        ])
+        .invocation,
+        Invocation::Identity(IdentityRequest::List(vec![
+            IdentityFilterRequest::Equals {
+                key: "project".into(),
+                value: "tmt=alpha".into(),
+            },
+            IdentityFilterRequest::Equals {
+                key: "department".into(),
+                value: "engineering".into(),
+            },
+            IdentityFilterRequest::Has("capability.review".into()),
+        ]))
+    );
+    assert_usage_error(
+        &["identity", "list", "--where", "project"],
+        "KEY=VALUE",
+        OutputMode::default(),
+    );
+    let Invocation::Identity(IdentityRequest::Metadata {
+        operation: IdentityMetadataRequest::Set { value, .. },
+        ..
+    }) = parsed(&[
+        "identity",
+        "meta",
+        "set",
+        "--identity",
+        "alice",
+        "key",
+        "--",
+        "--literal-value",
+    ])
+    .invocation
+    else {
+        panic!("expected metadata set request")
+    };
+    assert_eq!(value, "--literal-value");
 }
 
 #[test]

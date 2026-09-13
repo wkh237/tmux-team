@@ -221,6 +221,26 @@ Use ordinary `tmt list` for verified active pane destinations. A new identity
 can receive only an explicit `talk --inbox` request until it is bound to a live
 pane with `add`, `name` or `this`.
 
+Use shared identity metadata for exact local discovery:
+
+```bash
+tmt identity meta set --identity coordinator project tmt
+tmt identity meta set --identity coordinator capability.review true
+tmt identity meta get --identity coordinator project
+tmt identity meta list --identity coordinator --json
+tmt identity meta rm --identity coordinator project
+tmt identity list --where project=tmt --has capability.review --json
+```
+
+Repeat `--where KEY=VALUE` and `--has KEY` to combine exact predicates with AND;
+the first equals sign separates a `--where` key from its exact string value.
+Metadata is untrusted descriptive text, never authentication, permission,
+availability, a capability grant, a secret store, or prompt authority. It does
+not save a temporary identity. Keys are 1–64 ASCII bytes matching
+`[a-z][a-z0-9_.-]*`; exact case-sensitive values are 1–1024 UTF-8 bytes without
+controls, and each identity has at most 64 entries. Omit `--identity` only when
+caller resolution can prove the active bound identity.
+
 Names are required for create/show; omission never selects the current pane.
 Invalid names return `INVALID_NAME` (exit 1); valid missing show names return
 `NAME_NOT_FOUND` (exit 3). Creation does not alter anonymous talk or request-ID

@@ -150,11 +150,35 @@ pub fn grammar() -> Command {
         )),
     )
     .subcommand(
-        storage("identity", "Manage identity records without probing tmux")
+        storage("identity", "Manage durable identity records and metadata")
             .subcommand_required(true)
             .subcommand(storage("create", "Create or save an identity").arg(operand("name", true)))
             .subcommand(storage("show", "Show an identity").arg(operand("name", true)))
-            .subcommand(storage("list", "List non-retired identities")),
+            .subcommand(with_options(
+                storage("list", "List non-retired identities"),
+                &["where", "has"],
+            ))
+            .subcommand(
+                storage("meta", "Manage descriptive identity metadata")
+                    .subcommand_required(true)
+                    .subcommand(
+                        with_options(storage("set", "Set a metadata value"), &["identity"])
+                            .arg(operand("key", true))
+                            .arg(operand("value", true)),
+                    )
+                    .subcommand(
+                        with_options(storage("get", "Get a metadata value"), &["identity"])
+                            .arg(operand("key", true)),
+                    )
+                    .subcommand(with_options(
+                        storage("list", "List metadata values"),
+                        &["identity"],
+                    ))
+                    .subcommand(
+                        with_options(storage("rm", "Remove a metadata value"), &["identity"])
+                            .arg(operand("key", true)),
+                    ),
+            ),
     )
     .subcommand(
         storage("notes", "Access saved identity notes")
@@ -496,6 +520,14 @@ fn option(id: &'static str) -> Arg {
         "limit" => value("Maximum exchanges, 1 through 200").global(true),
         "after" => value("List revisions after this cursor").global(true),
         "revision" => value("Observed revision to acknowledge"),
+        "where" => Arg::new(id)
+            .long(id)
+            .help("Require exact metadata KEY=VALUE")
+            .action(ArgAction::Append),
+        "has" => Arg::new(id)
+            .long(id)
+            .help("Require a metadata KEY")
+            .action(ArgAction::Append),
         _ => unreachable!("unknown grammar option"),
     }
 }

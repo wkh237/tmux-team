@@ -13,6 +13,7 @@ export interface DurableState {
   identities: DurableIdentityRow[];
   bindings: Array<Record<string, unknown>>;
   profiles: Array<Record<string, unknown>>;
+  metadata: Array<Record<string, unknown>>;
 }
 
 /** Observe committed identity state without service reconciliation or writes. */
@@ -29,6 +30,9 @@ export function durableState(fixture: E2EFixture): DurableState {
       profiles: database.prepare('SELECT * FROM role_profiles ORDER BY identity_id').all() as Array<
         Record<string, unknown>
       >,
+      metadata: database
+        .prepare('SELECT * FROM identity_metadata ORDER BY identity_id, key')
+        .all() as Array<Record<string, unknown>>,
     };
   } finally {
     database.close();

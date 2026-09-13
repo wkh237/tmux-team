@@ -72,7 +72,7 @@ describe('native grammar process contract', () => {
       ]) {
         expect(help.stdout).toMatch(new RegExp(`^  ${command}\\s`, 'm'));
       }
-      expect(help.stdout).toContain('Manage identity records without probing tmux');
+      expect(help.stdout).toContain('Manage durable identity records and metadata');
       expect(help.stdout).toContain('Access saved identity notes');
       expect(help.stdout).toContain('temporary unless saved');
       expect(help.stdout).toContain('rm');

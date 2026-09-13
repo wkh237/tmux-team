@@ -521,6 +521,235 @@ describe('native durable identity process boundary', () => {
     });
   });
 
+  it('sets, searches, lists, gets, removes, and retires exact identity metadata', async () => {
+    await withSandbox(async (sandbox) => {
+      const alice = documentIdentity(
+        await runCli(sandbox, ['identity', 'create', 'Alice', '--json'])
+      );
+      const bob = documentIdentity(await runCli(sandbox, ['identity', 'create', 'Bob', '--json']));
+
+      expectJsonSuccess(
+        await runCli(sandbox, [
+          'identity',
+          'meta',
+          'set',
+          '--identity',
+          'alice',
+          'project',
+          'tmt=alpha',
+          '--json',
+        ]),
+        { identityId: alice.id, key: 'project', value: 'tmt=alpha', changed: true }
+      );
+      expectJsonSuccess(
+        await runCli(sandbox, [
+          'identity',
+          'meta',
+          'set',
+          '--identity',
+          'alice',
+          'project',
+          'tmt=alpha',
+          '--json',
+        ]),
+        { identityId: alice.id, key: 'project', value: 'tmt=alpha', changed: false }
+      );
+      for (const [key, value] of [
+        ['department', 'engineering'],
+        ['capability.review', 'true'],
+      ]) {
+        expect(
+          (await runCli(sandbox, ['identity', 'meta', 'set', '--identity', 'alice', key, value]))
+            .status
+        ).toBe(0);
+      }
+      expect(
+        (
+          await runCli(sandbox, [
+            'identity',
+            'meta',
+            'set',
+            '--identity',
+            'bob',
+            'project',
+            'other',
+          ])
+        ).status
+      ).toBe(0);
+
+      const exact = await runCli(sandbox, [
+        'identity',
+        'meta',
+        'get',
+        '--identity',
+        'alice',
+        'project',
+      ]);
+      expect(exact).toMatchObject({ status: 0, stdout: 'tmt=alpha\n', stderr: '' });
+      expectJsonSuccess(
+        await runCli(sandbox, ['identity', 'meta', 'list', '--identity', 'alice', '--json']),
+        {
+          identityId: alice.id,
+          metadata: {
+            'capability.review': 'true',
+            department: 'engineering',
+            project: 'tmt=alpha',
+          },
+        }
+      );
+      expectJsonSuccess(
+        await runCli(sandbox, [
+          'identity',
+          'list',
+          '--where',
+          'project=tmt=alpha',
+          '--where',
+          'department=engineering',
+          '--has',
+          'capability.review',
+          '--json',
+        ]),
+        { identities: [alice] }
+      );
+      expectJsonSuccess(await runCli(sandbox, ['identity', 'list', '--has', 'missing', '--json']), {
+        identities: [],
+      });
+
+      expectJsonSuccess(
+        await runCli(sandbox, [
+          'identity',
+          'meta',
+          'rm',
+          '--identity',
+          'alice',
+          'project',
+          '--json',
+        ]),
+        { identityId: alice.id, key: 'project', removed: true }
+      );
+      expectJsonSuccess(
+        await runCli(sandbox, [
+          'identity',
+          'meta',
+          'rm',
+          '--identity',
+          'alice',
+          'project',
+          '--json',
+        ]),
+        { identityId: alice.id, key: 'project', removed: false }
+      );
+      expectError(
+        await runCli(sandbox, [
+          'identity',
+          'meta',
+          'get',
+          '--identity',
+          'alice',
+          'project',
+          '--json',
+        ]),
+        'METADATA_KEY_NOT_FOUND',
+        'The metadata key was not found.'
+      );
+
+      const removed = await runCli(sandbox, ['rm', 'Alice', '--force', '--json']);
+      expect(removed.status).toBe(0);
+      expect(
+        withDatabase(sandbox.database, (database) =>
+          database
+            .prepare('SELECT COUNT(*) AS count FROM identity_metadata WHERE identity_id = ?')
+            .get(alice.id)
+        )
+      ).toEqual({ count: 0 });
+      expectJsonSuccess(
+        await runCli(sandbox, ['identity', 'list', '--has', 'department', '--json']),
+        {
+          identities: [],
+        }
+      );
+      expectJsonSuccess(await runCli(sandbox, ['identity', 'list', '--json']), {
+        identities: [bob],
+      });
+    });
+  });
+
+  it('rejects invalid metadata and requires an explicit or verified caller identity', async () => {
+    await withSandbox(async (sandbox) => {
+      const missingIdentity = await runCli(sandbox, ['identity', 'meta', 'list', '--json']);
+      expect(missingIdentity.status).toBe(1);
+      expectError(
+        missingIdentity,
+        'IDENTITY_REQUIRED',
+        'An identity is required; use --identity or run from a verified bound pane.'
+      );
+      expect(existsSync(sandbox.database)).toBe(false);
+
+      const alice = documentIdentity(
+        await runCli(sandbox, ['identity', 'create', 'Alice', '--json'])
+      );
+      expect(
+        (
+          await runCli(sandbox, [
+            'identity',
+            'meta',
+            'set',
+            '--identity',
+            'alice',
+            'preserved',
+            'original',
+            '--json',
+          ])
+        ).status
+      ).toBe(0);
+      for (const [key, value] of [
+        ['Upper', 'value'],
+        ['preserved', 'line\nfeed'],
+        ['preserved', ''],
+        ['preserved', 'é'.repeat(512) + 'a'],
+      ]) {
+        const result = await runCli(sandbox, [
+          'identity',
+          'meta',
+          'set',
+          '--identity',
+          'alice',
+          key,
+          value,
+          '--json',
+        ]);
+        expect(result.status).toBe(1);
+        expectError(result, 'IDENTITY_METADATA_INVALID');
+        expectJsonSuccess(
+          await runCli(sandbox, [
+            'identity',
+            'meta',
+            'get',
+            '--identity',
+            'alice',
+            'preserved',
+            '--json',
+          ]),
+          {
+            identityId: alice.id,
+            key: 'preserved',
+            value: 'original',
+          }
+        );
+      }
+      const malformedFilter = await runCli(sandbox, [
+        'identity',
+        'list',
+        '--where',
+        'project',
+        '--json',
+      ]);
+      expect(malformedFilter.status).toBe(1);
+      const malformedDocument = expectError(malformedFilter, 'USAGE_ERROR');
+      expect((malformedDocument.error as { message: string }).message).toContain('KEY=VALUE');
+    });
+  });
+
   it('rejects an unsupported future migration without mutating history or rows', async () => {
     await withSandbox(async (sandbox) => {
       await initializeSchema(sandbox);
@@ -536,7 +765,7 @@ describe('native durable identity process boundary', () => {
       withDatabase(sandbox.database, (database) => {
         database
           .prepare('INSERT INTO _migrations (version, name, applied_at) VALUES (?, ?, ?)')
-          .run(13, 'unsupported future migration', '2026-01-07T00:00:00.000Z');
+          .run(14, 'unsupported future migration', '2026-01-07T00:00:00.000Z');
       });
       const result = await runCli(sandbox, ['identity', 'show', created.canonicalName, '--json']);
       expect(result.status).toBe(1);
@@ -552,7 +781,7 @@ describe('native durable identity process boundary', () => {
         history: [
           ...before.history,
           {
-            version: 13,
+            version: 14,
             name: 'unsupported future migration',
             applied_at: '2026-01-07T00:00:00.000Z',
           },

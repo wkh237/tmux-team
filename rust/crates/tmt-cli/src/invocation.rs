@@ -180,7 +180,25 @@ pub enum ConfigRequest {
 pub enum IdentityRequest {
     Create(String),
     Show(String),
+    List(Vec<IdentityFilterRequest>),
+    Metadata {
+        identity: Option<String>,
+        operation: IdentityMetadataRequest,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum IdentityFilterRequest {
+    Equals { key: String, value: String },
+    Has(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum IdentityMetadataRequest {
+    Set { key: String, value: String },
+    Get { key: String },
     List,
+    Remove { key: String },
 }
 
 #[derive(Debug, Clone, PartialEq)]

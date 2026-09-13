@@ -172,7 +172,8 @@ The maintained public surface is:
 
 - `init`, `config`, `completion`, `learn` and `install` for local setup and
   guidance;
-- identity and binding commands: `identity`, `list`/`ls`, `add`, `name`/`this`,
+- identity and binding commands: `identity` create/show/list and metadata
+  set/get/list/remove with exact filters, `list`/`ls`, `add`, `name`/`this`,
   `whoami`, `unbind`, `rm`/`remove`;
 - saved-identity notes through `notes path`;
 - profile and exchange commands: `role`, `preamble`, `x list|show|ack|ackall`,
@@ -208,13 +209,17 @@ Canonicalization is ECMAScript whitespace trim, NFKC and root-locale default
 lowercase using pinned ICU data, not case folding or compiler-dependent casing.
 Dependency upgrades must not renormalize stored keys.
 `tmt-core::identity` owns lifetime and storage-only create/promote policy.
+`tmt-core::identity_metadata` owns validated string keys and values, exact-match
+filters, typed results and shared metadata operations. Metadata is descriptive,
+untrusted data; it does not grant permissions, capabilities, availability or
+prompt authority.
 `tmt-core::binding` owns evidence evaluation, retirement authorization and
 binding use cases. Unknown or conflicting endpoint evidence is never treated as
 proof of death. Saved identities detach and remain offline; temporary identities
 may retire only after conclusive evidence.
 
-The concrete implementations are `storage::identities`,
-`storage::bindings` and `tmux::{metadata,evidence,binding,caller,transport}`.
+The concrete implementations are `storage::{identities,identity_metadata,bindings}`
+and `tmux::{metadata,evidence,binding,caller,transport}`.
 `binding_command` performs caller/target preflight and composes those owners.
 Presence is observation, not routing permission; an explicit socket or pane
 marker cannot authorize a different identity.
@@ -272,7 +277,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 10, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 13, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
@@ -287,6 +292,12 @@ cannot be resurrected by registration retries.
 Schema 12 adds a typed inbox route and recipient-scoped attention without
 fabricating tmux endpoint evidence. One request/final lifecycle remains the
 source of truth; originator and recipient acknowledgment are independent.
+Schema 13 adds UUID-owned identity metadata with one unique value per key and an
+exact `(key, value, identity_id)` search index. Adapter operations revalidate the
+active UUID, serialize writes with the existing immediate transaction owner and
+enforce the 64-entry limit atomically. Retirement hides metadata; explicit
+content removal deletes it, while a same-name replacement receives a new UUID
+and inherits nothing.
 
 `tmt-core::request::RequestService` owns preparation, delivery-state
 transitions, exact final submission, waiter release, attention revisions and

@@ -1,8 +1,9 @@
-//! Storage-only command composition. Identity policy and SQL remain in their
-//! existing core/service and adapter owners; this layer projects public output.
+//! Identity command composition. Policy and SQL remain in core/service and
+//! adapter owners; this layer resolves optional callers and projects output.
 
 use crate::{
-    invocation::{IdentityRequest, OutputMode},
+    identity_context,
+    invocation::{IdentityFilterRequest, IdentityMetadataRequest, IdentityRequest, OutputMode},
     output::{Failure, after_cleanup, identity_document},
 };
 use serde_json::json;
@@ -14,12 +15,35 @@ use tmt_adapters::{
     config::ConfigPaths,
     storage::{Storage, StorageError},
 };
-use tmt_core::identity::{self, Identity, IdentityError, IdentityReader, Lifetime};
+use tmt_core::{
+    identity::{self, Identity, IdentityError, IdentityReader, Lifetime},
+    identity_metadata::{self, MetadataError, MetadataFilter},
+};
 
 enum Report {
     Created(identity::CreatedIdentity),
     Shown(Identity),
     Listed(Vec<Identity>),
+    MetadataSet {
+        identity_id: String,
+        key: String,
+        value: String,
+        changed: bool,
+    },
+    MetadataGet {
+        identity_id: String,
+        key: String,
+        value: String,
+    },
+    MetadataList {
+        identity_id: String,
+        metadata: std::collections::BTreeMap<String, String>,
+    },
+    MetadataRemoved {
+        identity_id: String,
+        key: String,
+        removed: bool,
+    },
 }
 
 fn unavailable(error: impl Error + 'static) -> Failure {
@@ -40,16 +64,43 @@ fn identity_failure(error: IdentityError<StorageError>) -> Failure {
     }
 }
 
+fn metadata_failure(error: MetadataError<StorageError>) -> Failure {
+    match error {
+        MetadataError::Invalid(error) => {
+            Failure::new("IDENTITY_METADATA_INVALID", error.to_string(), 1).caused_by(error)
+        }
+        MetadataError::IdentityNotFound => {
+            Failure::new("NAME_NOT_FOUND", "The selected identity was not found.", 3)
+        }
+        MetadataError::KeyNotFound => Failure::new(
+            "METADATA_KEY_NOT_FOUND",
+            "The metadata key was not found.",
+            3,
+        ),
+        MetadataError::Repository(error) => unavailable(error),
+    }
+}
+
 fn run(request: IdentityRequest) -> Result<Report, Failure> {
-    // Path discovery does not load settings. Open only for this implemented
-    // capability; unported commands never reach storage or tmux construction.
+    // Metadata may use the established verified-caller resolver. Explicit
+    // identity operations remain storage-only and do not probe tmux.
+    let selector = match &request {
+        IdentityRequest::Metadata { identity, .. } => {
+            Some(identity_context::required(identity.as_deref())?)
+        }
+        _ => None,
+    };
     let paths = ConfigPaths::discover().map_err(unavailable)?;
     let mut storage = Storage::open(paths.database).map_err(unavailable)?;
-    let pending = operation(&mut storage, request);
+    let pending = operation(&mut storage, request, selector);
     after_cleanup(pending, || storage.close())
 }
 
-fn operation(storage: &mut Storage, request: IdentityRequest) -> Result<Report, Failure> {
+fn operation(
+    storage: &mut Storage,
+    request: IdentityRequest,
+    selector: Option<identity_context::Selector>,
+) -> Result<Report, Failure> {
     match request {
         IdentityRequest::Create(name) => {
             identity::create_or_resolve(storage, &name, Lifetime::Saved)
@@ -66,10 +117,78 @@ fn operation(storage: &mut Storage, request: IdentityRequest) -> Result<Report, 
                     3,
                 )
             }),
-        IdentityRequest::List => storage
-            .list_identities()
-            .map(Report::Listed)
-            .map_err(unavailable),
+        IdentityRequest::List(filters) => {
+            if filters.is_empty() {
+                return storage
+                    .list_identities()
+                    .map(Report::Listed)
+                    .map_err(unavailable);
+            }
+            let filters = filters
+                .into_iter()
+                .map(|filter| match filter {
+                    IdentityFilterRequest::Equals { key, value } => {
+                        MetadataFilter::equals(&key, &value)
+                    }
+                    IdentityFilterRequest::Has(key) => MetadataFilter::has(&key),
+                })
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| metadata_failure(MetadataError::Invalid(error)))?;
+            identity_metadata::search_identities_by_metadata(storage, &filters)
+                .map(Report::Listed)
+                .map_err(metadata_failure)
+        }
+        IdentityRequest::Metadata { operation, .. } => {
+            let identity = identity_context::resolve(
+                storage,
+                selector.expect("metadata request resolved a selector"),
+            )?;
+            match operation {
+                IdentityMetadataRequest::Set { key, value } => {
+                    let result = identity_metadata::set_identity_metadata(
+                        storage,
+                        &identity.id,
+                        &key,
+                        &value,
+                    )
+                    .map_err(metadata_failure)?;
+                    Ok(Report::MetadataSet {
+                        identity_id: result.identity_id,
+                        key: result.key,
+                        value: result.value,
+                        changed: result.changed,
+                    })
+                }
+                IdentityMetadataRequest::Get { key } => {
+                    let result =
+                        identity_metadata::get_identity_metadata(storage, &identity.id, &key)
+                            .map_err(metadata_failure)?;
+                    Ok(Report::MetadataGet {
+                        identity_id: result.identity_id,
+                        key: result.key,
+                        value: result.value,
+                    })
+                }
+                IdentityMetadataRequest::List => {
+                    let result = identity_metadata::list_identity_metadata(storage, &identity.id)
+                        .map_err(metadata_failure)?;
+                    Ok(Report::MetadataList {
+                        identity_id: result.identity_id,
+                        metadata: result.metadata,
+                    })
+                }
+                IdentityMetadataRequest::Remove { key } => {
+                    let result =
+                        identity_metadata::remove_identity_metadata(storage, &identity.id, &key)
+                            .map_err(metadata_failure)?;
+                    Ok(Report::MetadataRemoved {
+                        identity_id: result.identity_id,
+                        key: result.key,
+                        removed: result.removed,
+                    })
+                }
+            }
+        }
     }
 }
 
@@ -88,6 +207,26 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
             Report::Listed(identities) => {
                 json!({"identities": identities.iter().map(identity_document).collect::<Vec<_>>()})
             }
+            Report::MetadataSet {
+                identity_id,
+                key,
+                value,
+                changed,
+            } => json!({"identityId": identity_id, "key": key, "value": value, "changed": changed}),
+            Report::MetadataGet {
+                identity_id,
+                key,
+                value,
+            } => json!({"identityId": identity_id, "key": key, "value": value}),
+            Report::MetadataList {
+                identity_id,
+                metadata,
+            } => json!({"identityId": identity_id, "metadata": metadata}),
+            Report::MetadataRemoved {
+                identity_id,
+                key,
+                removed,
+            } => json!({"identityId": identity_id, "key": key, "removed": removed}),
         };
         writeln!(stdout, "{document}")?;
     } else {
@@ -131,6 +270,34 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
                         ]
                     }),
                 )?;
+            }
+            Report::MetadataSet {
+                key,
+                value,
+                changed,
+                ..
+            } => {
+                let action = if changed { "Set" } else { "Unchanged" };
+                writeln!(stdout, "{action} {key}={value}.")?;
+            }
+            Report::MetadataGet { value, .. } => writeln!(stdout, "{value}")?,
+            Report::MetadataList { metadata, .. } if metadata.is_empty() => {
+                writeln!(stdout, "No metadata found.")?;
+            }
+            Report::MetadataList { metadata, .. } => {
+                crate::output::table::write(
+                    &mut stdout,
+                    ["KEY", "VALUE"],
+                    metadata.into_iter().map(|(key, value)| [key, value]),
+                )?;
+            }
+            Report::MetadataRemoved { key, removed, .. } => {
+                let action = if removed {
+                    "Removed"
+                } else {
+                    "Already absent:"
+                };
+                writeln!(stdout, "{action} {key}.")?;
             }
         }
     }
