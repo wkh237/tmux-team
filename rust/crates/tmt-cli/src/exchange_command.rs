@@ -1,5 +1,6 @@
 //! Identity-scoped attention presentation over the existing request service.
 
+mod listen;
 mod presentation;
 
 use crate::{
@@ -10,6 +11,7 @@ use crate::{
 use std::{error::Error, io};
 use tmt_adapters::{
     config::ConfigPaths,
+    reply_receipt::encode_route_receipt,
     request_runtime::wall_time_ms,
     storage::{Storage, StorageError},
 };
@@ -23,7 +25,10 @@ use tmt_core::{
 
 enum ResultKind {
     List(ExchangePage),
-    Show(ExchangeDetail),
+    Show {
+        detail: ExchangeDetail,
+        receipt: Option<String>,
+    },
     Ack(Acknowledged),
     Ackall(u64),
 }
@@ -70,18 +75,51 @@ fn run(identity: Option<String>, operation: ExchangeOperation) -> Result<Report,
             ExchangeOperation::List { limit, after } => service
                 .list_exchanges(&identity.id, limit, after)
                 .map(ResultKind::List),
-            ExchangeOperation::Show(request) => service
-                .show_exchange(&identity.id, &request)
-                .map(ResultKind::Show),
+            ExchangeOperation::Show {
+                request_id,
+                incoming,
+            } => {
+                let detail = if incoming {
+                    service.show_incoming_request(&identity.id, &request_id)
+                } else {
+                    service.show_exchange(&identity.id, &request_id)
+                };
+                detail.and_then(|detail| {
+                    let receipt = if incoming {
+                        let context =
+                            service
+                                .get_context(&request_id)?
+                                .ok_or(RequestError::Attention(
+                                    tmt_core::request::attention::AttentionRejection::NotFound,
+                                ))?;
+                        Some(encode_route_receipt(
+                            &request_id,
+                            &context.attempt.attempt_id,
+                            &context.attempt.route,
+                        ))
+                    } else {
+                        None
+                    };
+                    Ok(ResultKind::Show { detail, receipt })
+                })
+            }
             ExchangeOperation::Ack {
                 request_id,
                 revision,
-            } => service
-                .acknowledge_exchange(&identity.id, &request_id, revision)
-                .map(ResultKind::Ack),
-            ExchangeOperation::Ackall => service
-                .acknowledge_all_exchanges(&identity.id)
-                .map(ResultKind::Ackall),
+                incoming,
+            } => if incoming {
+                service.acknowledge_incoming_request(&identity.id, &request_id, revision)
+            } else {
+                service.acknowledge_exchange(&identity.id, &request_id, revision)
+            }
+            .map(ResultKind::Ack),
+            ExchangeOperation::Ackall { incoming } => if incoming {
+                service.acknowledge_all_incoming_requests(&identity.id)
+            } else {
+                service.acknowledge_all_exchanges(&identity.id)
+            }
+            .map(ResultKind::Ackall),
+            ExchangeOperation::Listen { .. } => unreachable!("listen has its own bounded runner"),
         }
         .map_err(request_failure)?;
         Ok(Report { identity, result })
@@ -94,6 +132,13 @@ pub fn execute(
     operation: ExchangeOperation,
     mode: OutputMode,
 ) -> io::Result<u8> {
+    if let ExchangeOperation::Listen {
+        timeout_seconds,
+        debounce_seconds,
+    } = &operation
+    {
+        return listen::execute(identity, *timeout_seconds, *debounce_seconds, mode);
+    }
     match run(identity, operation) {
         Ok(report) => presentation::publish(report, mode),
         Err(error) => error.publish(mode),

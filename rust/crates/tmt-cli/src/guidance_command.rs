@@ -39,7 +39,7 @@ pub fn execute(skill: bool) -> io::Result<u8> {
         )?;
         writeln!(
             output,
-            "Outside tmux, use an existing --identity for attributed talk or x.\nCreate saved identities with tmt identity create <name>. X reads never ack;\na later final reopens attention. Recipients still need a live tmux pane.\n"
+            "Outside tmux, use an existing --identity for attributed talk or x.\nCreate saved identities with tmt identity create <name>. Use talk --inbox for\na durable non-pane request and x listen for one bounded incoming wait. Reads\nnever ack, and Office is not required.\n"
         )?;
         writeln!(
             output,

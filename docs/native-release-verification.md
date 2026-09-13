@@ -48,7 +48,7 @@ and `gh release verify-asset`). Never combine product manifests, replace an
 immutable release's assets or move its tag. A repair needs a new reviewed version.
 
 Before promoting README installation instructions, run the actual public script
-with an isolated HOME, application root and prefix, verify version, exact skill,
+with an isolated HOME, application root and prefix, verify version, exact skill bundle,
 PATH selection and `tmt upgrade --json` against live immutable metadata. Do not
 mutate a host installation. Record this separately from controlled-curl fixture
 evidence. npm publication is not part of native GitHub release publication.
@@ -278,7 +278,7 @@ The last command requires actual matching-host release artifacts, uses isolated
 HOME/state/PATH, real shell utilities and the new native executable. Only curl
 acquisition is replaced with task-owned fixture copies; production has no test
 endpoint. It checks repeat/no-op, explicit pin followed by no-network upgrade,
-exact installed skill bytes, old npm command preservation, PATH warning and
+exact installed skill-bundle bytes, old npm command preservation, PATH warning and
 temporary cleanup. It is not live GitHub download or cross-target evidence.
 
 The existing `test/native/artifact.Dockerfile` also carries this verifier. After

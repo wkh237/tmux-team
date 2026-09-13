@@ -93,6 +93,19 @@ impl IdentityReader for Storage {
 }
 
 impl Storage {
+    /// Request history keeps participant UUIDs after retirement, so compact
+    /// projections can continue to name the exact historical participant.
+    pub fn find_identity_by_id(&self, id: &str) -> Result<Option<Identity>, StorageError> {
+        self.connection()?
+            .query_row(
+                &format!("SELECT {COLUMNS} FROM identities WHERE id = ?"),
+                [id],
+                identity_row,
+            )
+            .optional()
+            .map_err(|error| classify(error, "Find identity by ID"))
+    }
+
     /// Office revalidates the originally selected UUID across separate calls;
     /// a same-name replacement must never inherit a pending proof or credential.
     pub fn find_active_identity_by_id(&self, id: &str) -> Result<Option<Identity>, StorageError> {

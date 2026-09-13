@@ -6,7 +6,8 @@ use rusqlite::OptionalExtension;
 use std::{path::Path, sync::mpsc, thread, time::Duration};
 use tmt_core::request::{
     FinalResponse, Originator, PreambleReservation, PrepareRequest, PreparedRequest, RequestError,
-    RequestService, ResponseProof, ResponseRejection, SubmitResponse, correlation::response_token,
+    RequestRoute, RequestService, ResponseProof, ResponseRejection, SubmitResponse,
+    correlation::response_token,
 };
 
 type Operation<T> = Box<dyn FnOnce(&mut Storage) -> T + Send>;
@@ -251,7 +252,7 @@ fn concurrent_prepare_connections_serialize_cadence_and_preserve_both_attempts()
                 let input = PrepareRequest {
                     request_id: format!("request-{suffix}"),
                     message: format!("prompt-{suffix}"),
-                    endpoint: endpoint("%60", 160),
+                    route: RequestRoute::Pane(endpoint("%60", 160)),
                     wait: true,
                     expires_at_ms: NOW_MS + 3_600_001,
                     originator: Originator::Unknown,
@@ -328,7 +329,7 @@ fn identical_and_conflicting_final_writers_keep_one_body_marker_and_revision() {
                                 ResponseProof::Compact(response_token(
                                     "final-race",
                                     "final-race-attempt",
-                                    &endpoint("%61", 161),
+                                    &RequestRoute::Pane(endpoint("%61", 161)),
                                 ))
                             },
                             body: bodies[index].into(),
@@ -616,7 +617,7 @@ fn cleanup_and_late_submission_serialize_without_refund_or_lost_final() {
                         proof: ResponseProof::Compact(response_token(
                             "cleanup-race",
                             "cleanup-race-attempt",
-                            &endpoint("%62", 162),
+                            &RequestRoute::Pane(endpoint("%62", 162)),
                         )),
                         body: "late final".into(),
                     })

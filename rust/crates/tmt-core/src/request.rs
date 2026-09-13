@@ -18,11 +18,18 @@ pub struct RequestEndpoint {
     pub pane_pid: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RequestRoute {
+    Pane(RequestEndpoint),
+    Inbox { recipient_identity_id: String },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AttemptStatus {
     Prepared,
     Sending,
     Sent,
+    Queued,
     Uncertain,
     DefinitelyFailed,
 }
@@ -33,6 +40,7 @@ impl AttemptStatus {
             Self::Prepared => "prepared",
             Self::Sending => "sending",
             Self::Sent => "sent",
+            Self::Queued => "queued",
             Self::Uncertain => "uncertain",
             Self::DefinitelyFailed => "definitely_failed",
         }
@@ -77,7 +85,7 @@ pub struct RequestAttempt {
     pub recipient_identity_id: Option<String>,
     pub nonce: Option<String>,
     pub identity_id: Option<String>,
-    pub endpoint: RequestEndpoint,
+    pub route: RequestRoute,
     pub wait_active: bool,
     pub status: AttemptStatus,
     pub preamble_every: Option<u64>,
@@ -97,7 +105,7 @@ pub struct RequestAttempt {
 pub struct FinalResponse {
     pub request_id: String,
     pub attempt_id: String,
-    pub endpoint: RequestEndpoint,
+    pub route: RequestRoute,
     pub body: String,
     pub body_bytes: u64,
     pub submitted_at_ms: u64,
@@ -112,7 +120,7 @@ pub struct PreambleReservation {
 pub struct PrepareRequest {
     pub request_id: String,
     pub message: String,
-    pub endpoint: RequestEndpoint,
+    pub route: RequestRoute,
     pub wait: bool,
     pub expires_at_ms: u64,
     pub originator: Originator,
@@ -188,6 +196,26 @@ pub trait RequestRecords {
         limit: u64,
         now_ms: u64,
     ) -> Result<Vec<attention::AttentionRecord>, Self::Error>;
+    fn list_response_attention(
+        &self,
+        identity_id: &str,
+        after: u64,
+        limit: u64,
+        now_ms: u64,
+    ) -> Result<Vec<attention::AttentionRecord>, Self::Error>;
+    fn identity_is_active(&self, identity_id: &str) -> Result<bool, Self::Error>;
+    fn find_recipient_attention(
+        &self,
+        identity_id: &str,
+        request_id: &str,
+    ) -> Result<Option<attention::AttentionRecord>, Self::Error>;
+    fn list_recipient_attention(
+        &self,
+        identity_id: &str,
+        after: u64,
+        limit: u64,
+        now_ms: u64,
+    ) -> Result<Vec<attention::AttentionRecord>, Self::Error>;
     /// Guard the observed revision; a missing update must not count as an ack.
     fn acknowledge_revision(
         &mut self,
@@ -197,19 +225,28 @@ pub trait RequestRecords {
     ) -> Result<bool, Self::Error>;
     /// Advance the watermark only for the transaction's observed latest revision.
     fn acknowledge_through(&mut self, identity_id: &str, latest: u64) -> Result<bool, Self::Error>;
+    fn acknowledge_recipient_revision(
+        &mut self,
+        identity_id: &str,
+        request_id: &str,
+        revision: u64,
+    ) -> Result<bool, Self::Error>;
+    fn acknowledge_recipient_through(
+        &mut self,
+        identity_id: &str,
+        latest: u64,
+    ) -> Result<bool, Self::Error>;
+    fn incoming_watermark(&self, identity_id: &str, now_ms: u64) -> Result<u64, Self::Error>;
     fn find_attempt(&self, attempt_id: &str) -> Result<Option<RequestAttempt>, Self::Error>;
     fn find_request(&self, request_id: &str) -> Result<Option<RequestAttempt>, Self::Error>;
     fn find_context(&self, request_id: &str) -> Result<Option<RawRequestContext>, Self::Error>;
     fn find_response(&self, request_id: &str) -> Result<Option<FinalResponse>, Self::Error>;
-    fn find_active_request(
-        &self,
-        endpoint: &RequestEndpoint,
-    ) -> Result<Option<String>, Self::Error>;
+    fn find_active_request(&self, route: &RequestRoute) -> Result<Option<String>, Self::Error>;
     fn create_attempt(
         &mut self,
         attempt: &RequestAttempt,
         prompt: &StoredPrompt,
-        revision: u64,
+        originator_revision: u64,
     ) -> Result<(), Self::Error>;
     /// Inserts final and completion marker atomically; fails if exactly one
     /// matching previously-uncompleted attempt cannot be marked.
@@ -244,6 +281,18 @@ pub trait RequestRecords {
         request_id: &str,
         revision: u64,
     ) -> Result<(), Self::Error>;
+    fn recipient_attention_counter(&self, identity_id: &str) -> Result<Option<u64>, Self::Error>;
+    fn set_recipient_attention_counter(
+        &mut self,
+        identity_id: &str,
+        expected: Option<u64>,
+        next: u64,
+    ) -> Result<(), Self::Error>;
+    fn set_recipient_attention_revision(
+        &mut self,
+        request_id: &str,
+        revision: u64,
+    ) -> Result<(), Self::Error>;
     fn expired_attempts(&self, now_ms: u64, limit: u64)
     -> Result<Vec<RequestAttempt>, Self::Error>;
     fn clear_expired_prompts(&mut self, now_ms: u64, limit: u64) -> Result<(), Self::Error>;
@@ -262,6 +311,12 @@ pub trait RequestRepository {
         &mut self,
         operation: impl FnOnce(&mut dyn RequestRecords<Error = Self::Error>) -> Result<T, E>,
     ) -> Result<T, E>;
+    fn with_request_observation<T, E: From<Self::Error>>(
+        &mut self,
+        operation: impl FnOnce(&mut dyn RequestRecords<Error = Self::Error>) -> Result<T, E>,
+    ) -> Result<T, E> {
+        self.with_request_transaction(operation)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

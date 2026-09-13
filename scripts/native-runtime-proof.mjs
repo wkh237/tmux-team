@@ -188,6 +188,7 @@ export async function verifyNativeRuntime({
   target,
   version,
   skill,
+  inboxSkill,
   profileContent,
   subject,
   product = 'cli',
@@ -254,6 +255,8 @@ export async function verifyNativeRuntime({
       }
       return;
     }
+    assert.equal(typeof skill, 'string', 'CLI runtime proof requires the canonical skill');
+    assert.equal(typeof inboxSkill, 'string', 'CLI runtime proof requires the inbox skill');
     const json = (args) => JSON.parse(run([...args, '--json']));
     const globalRoot = path.join(xdg, 'tmux-team');
     assert.equal(run(['--version']).trim(), version, `${subject} version mismatch`);
@@ -262,23 +265,64 @@ export async function verifyNativeRuntime({
     assert(!fs.existsSync(xdg), 'Read-only runtime commands must not initialize config state');
     const customRoot = path.join(cwd, 'custom skills');
     fs.mkdirSync(customRoot);
-    const targetPath = path.join(fs.realpathSync(customRoot), 'tmux-team');
+    const targetRoot = fs.realpathSync(customRoot);
+    const targetPath = path.join(targetRoot, 'tmux-team');
+    const inboxTargetPath = path.join(targetRoot, 'tmt-inbox');
+    const installed = [
+      { skill: 'tmux-team', target: targetPath, content: skill },
+      { skill: 'tmt-inbox', target: inboxTargetPath, content: inboxSkill },
+    ];
     assert.deepEqual(json(['install', '--dir', customRoot]), {
-      installed: [{ target: targetPath, changed: true }],
+      installed: installed.map(({ skill: name, target }) => ({
+        skill: name,
+        target,
+        changed: true,
+      })),
     });
-    assert(fs.lstatSync(targetPath).isSymbolicLink(), 'Installed skill must be a managed link');
-    assert.equal(fs.readFileSync(path.join(targetPath, 'SKILL.md'), 'utf8'), skill);
     const managedAssets = path.join(fs.realpathSync(globalRoot), 'skill-assets');
-    assert(
-      fs.realpathSync(targetPath).startsWith(`${managedAssets}${path.sep}`),
-      'Installed skill must use the isolated managed asset store'
+    const sources = installed.map(({ skill: name, target, content }) => {
+      assert(fs.lstatSync(target).isSymbolicLink(), `${name} must be a managed link`);
+      assert.equal(fs.readFileSync(path.join(target, 'SKILL.md'), 'utf8'), content);
+      const source = fs.realpathSync(target);
+      assert(
+        source.startsWith(`${managedAssets}${path.sep}`),
+        `${name} must use the isolated managed asset store`
+      );
+      assert.equal(path.basename(source), name, `${name} source name mismatch`);
+      assert.match(path.basename(path.dirname(source)), /^[0-9a-f]{64}$/, 'Bundle digest mismatch');
+      return source;
+    });
+    assert.equal(
+      path.dirname(sources[0]),
+      path.dirname(sources[1]),
+      'Installed skills must share one verified bundle digest'
     );
     assert.deepEqual(
       JSON.parse(fs.readFileSync(path.join(globalRoot, 'skill-installations.json'))),
       {
         version: 1,
-        targets: [targetPath],
+        targets: [inboxTargetPath, targetPath],
       }
+    );
+    assert.deepEqual(json(['install', '--dir', customRoot]), {
+      installed: installed.map(({ skill: name, target }) => ({
+        skill: name,
+        target,
+        changed: false,
+      })),
+    });
+    assert.deepEqual(json(['__native-refresh-skills']), {
+      refreshed: [
+        { target: inboxTargetPath, changed: false },
+        { target: targetPath, changed: false },
+      ],
+      skipped: [],
+      conflicts: [],
+    });
+    assert.deepEqual(
+      installed.map(({ target }) => fs.realpathSync(target)),
+      sources,
+      'Repeat install and refresh must preserve exact bundle ownership'
     );
     const database = path.join(globalRoot, 'tmux-team.db');
     assert(!fs.existsSync(database), 'Skill installation must not initialize SQLite');

@@ -81,3 +81,26 @@ fn symlinked_digest_directory_is_not_a_managed_source() {
     assert_eq!(fs::read(outside.join("tmux-team/SKILL.md")).unwrap(), SKILL);
     assert_eq!(fs::read_link(version).unwrap(), outside);
 }
+
+#[test]
+fn missing_wrong_type_or_symlinked_bundle_sibling_never_establishes_ownership() {
+    for corruption in ["missing", "file", "symlink"] {
+        let root = TestDirectory::new();
+        let assets = SkillAssets::new(&root.path);
+        let source = assets.materialize().unwrap();
+        let inbox = source.parent().unwrap().join("tmt-inbox");
+        fs::remove_dir_all(&inbox).unwrap();
+        match corruption {
+            "missing" => {}
+            "file" => fs::write(&inbox, b"not a skill directory").unwrap(),
+            "symlink" => {
+                let outside = root.path.join("unsafe-inbox-sibling");
+                fs::create_dir(&outside).unwrap();
+                fs::write(outside.join("SKILL.md"), b"unsafe sibling").unwrap();
+                std::os::unix::fs::symlink(outside, &inbox).unwrap();
+            }
+            _ => unreachable!(),
+        }
+        assert!(!assets.owns(&source));
+    }
+}

@@ -61,7 +61,7 @@ pub(super) fn refresh_with_publisher(
             let targets = registry::read(&global)?;
             let assets = SkillAssets::new(&global);
             let mut locations = BTreeSet::new();
-            let mut source = None;
+            let mut sources = None;
             for target in targets {
                 let location = files::entry_location(&target)?;
                 if !locations.insert(location) {
@@ -76,9 +76,14 @@ pub(super) fn refresh_with_publisher(
                     continue;
                 };
                 files::safe_target(assets.root(), &target)?;
-                let current = match &source {
-                    Some(source) => source,
-                    None => source.insert(assets.materialize()?),
+                let current_sources = match &sources {
+                    Some(sources) => sources,
+                    None => sources.insert(assets.materialize_bundle()?),
+                };
+                let current = if target.file_name().is_some_and(|name| name == "tmt-inbox") {
+                    &current_sources.1
+                } else {
+                    &current_sources.0
                 };
                 let changed = prior != *current;
                 if changed {

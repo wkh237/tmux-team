@@ -5,9 +5,16 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
     let correlation = report.correlation;
     let mut stdout = io::stdout().lock();
     if mode.json {
-        let mut value = serde_json::json!({"requestId": correlation.request_id, "target": correlation.target, "pane": correlation.pane});
+        let mut value =
+            serde_json::json!({"requestId": correlation.request_id, "target": correlation.target});
+        if !correlation.inbox {
+            value["pane"] = correlation.pane.clone().into();
+        }
         if let Some(identity) = correlation.identity {
             value["identity"] = serde_json::json!({"name": identity.name, "canonicalName": identity.canonical_name});
+            if correlation.inbox {
+                value["recipientIdentityId"] = identity.id.into();
+            }
         }
         if let Some(response) = report.response {
             value["status"] = "completed".into();
@@ -15,22 +22,38 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
             value["bodyBytes"] = response.body_bytes.into();
             value["submittedAtMs"] = response.submitted_at_ms.into();
         } else {
-            value["status"] = "sent".into();
+            value["status"] = if correlation.inbox { "queued" } else { "sent" }.into();
         }
         writeln!(stdout, "{value}")?;
     } else {
         if let Some(response) = report.response {
-            writeln!(
-                stdout,
-                "Completed request {} for {} ({}).\n{}",
-                correlation.request_id, correlation.target, correlation.pane, response.body
-            )?;
+            if correlation.inbox {
+                writeln!(
+                    stdout,
+                    "Completed queued request {} for {}.\n{}",
+                    correlation.request_id, correlation.target, response.body
+                )?;
+            } else {
+                writeln!(
+                    stdout,
+                    "Completed request {} for {} ({}).\n{}",
+                    correlation.request_id, correlation.target, correlation.pane, response.body
+                )?;
+            }
         } else {
-            writeln!(
-                stdout,
-                "Sent request {} to {} ({}).",
-                correlation.request_id, correlation.target, correlation.pane
-            )?;
+            if correlation.inbox {
+                writeln!(
+                    stdout,
+                    "Queued request {} for {}.",
+                    correlation.request_id, correlation.target
+                )?;
+            } else {
+                writeln!(
+                    stdout,
+                    "Sent request {} to {} ({}).",
+                    correlation.request_id, correlation.target, correlation.pane
+                )?;
+            }
         }
         writeln!(
             stdout,

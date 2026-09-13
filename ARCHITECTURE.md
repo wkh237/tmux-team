@@ -284,6 +284,9 @@ own provenance in `test/fixtures/storage-history`, not in this architecture map.
 Schema 10 adds identity hook subscriptions and terminal delivery receipts;
 registration after retirement queues immediately, and delivered subscriptions
 cannot be resurrected by registration retries.
+Schema 12 adds a typed inbox route and recipient-scoped attention without
+fabricating tmux endpoint evidence. One request/final lifecycle remains the
+source of truth; originator and recipient acknowledgment are independent.
 
 `tmt-core::request::RequestService` owns preparation, delivery-state
 transitions, exact final submission, waiter release, attention revisions and
@@ -306,6 +309,19 @@ becomes unread again. Acknowledgment means handled, not successful or cancelled.
 Retention is frozen per attempt; bounded lazy housekeeping must respect active
 waiters, preserve the defined acceptance deadline and never resurrect an expired
 submission. The settings owner defines retention defaults and limits.
+
+`RequestRoute` distinguishes verified pane delivery from durable identity inbox
+queueing. Pane attempts retain server/pane evidence; inbox attempts retain only
+the resolved active recipient UUID and settle as `queued`, never `sent`.
+The recipient revision is allocated atomically with the `queued` transition, so
+a merely prepared attempt cannot wake a listener and every newly eligible item
+advances that identity's shared participant sequence. Recipient request attention
+is projected from the same attempt, while a final
+written by another participant reuses the originator response attention.
+`storage::requests` provides an indexed watermark and one bounded snapshot;
+`exchange_command` owns the monotonic hard deadline and trailing debounce.
+Listener polls perform no tmux inventory, retention cleanup, body scan or held
+transaction, and introduce no daemon or event bus.
 
 `reply_receipt` is the one maintained receipt codec. `response_command` and
 `talk_command` compose it with the request service; neither adds a repository,
@@ -343,8 +359,9 @@ threads or a second process runner.
 
 ## Managed skills and native installation
 
-Managed agent guidance is a separate filesystem concern. The canonical skill is
-embedded by `skill_installation::assets`; digest-addressed materialization,
+Managed agent guidance is a separate filesystem concern. The canonical
+`tmux-team` skill and focused `tmt-inbox` skill are embedded as one versioned
+asset bundle by `skill_installation::assets`; digest-addressed materialization,
 provider detection, target selection, links, backups, registry, drift and lock
 handling live under `rust/crates/tmt-adapters/src/skill_installation/`. Core's
 `skill_provider::Provider` is the only provider inventory. Skill installation

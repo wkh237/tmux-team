@@ -61,6 +61,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "add installation-owned local Office blocks",
         sql: include_str!("schema/011.sql"),
     },
+    Migration {
+        name: "add durable inbox routes and recipient attention",
+        sql: include_str!("schema/012.sql"),
+    },
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

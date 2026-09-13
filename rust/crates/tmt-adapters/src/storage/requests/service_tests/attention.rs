@@ -3,8 +3,8 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use tmt_core::identity::{Lifetime, create_or_resolve};
 use tmt_core::request::attention::{AttentionRejection, Exchange, FinalState};
 use tmt_core::request::{
-    AttemptStatus, Originator, PrepareRequest, RequestError, RequestPrompt, ResponseProof,
-    Settlement, SubmitResponse,
+    AttemptStatus, Originator, PrepareRequest, RequestError, RequestPrompt, RequestRoute,
+    ResponseProof, Settlement, SubmitResponse,
 };
 
 fn prepare_sent(
@@ -22,7 +22,7 @@ fn prepare_sent(
             PrepareRequest {
                 request_id: request_id.into(),
                 message: message.into(),
-                endpoint: target.clone(),
+                route: RequestRoute::Pane(target.clone()),
                 wait: false,
                 expires_at_ms: NOW_MS + 3_600_001,
                 originator: Originator::Explicit(identity_id.into()),
@@ -768,5 +768,397 @@ fn ackall_trigger_failure_rolls_back_watermark_and_acknowledgments() {
     assert_eq!(
         metadata_after.retention_expires_at_ms,
         metadata_before.retention_expires_at_ms
+    );
+}
+
+#[test]
+fn inbox_route_keeps_recipient_request_attention_independent_from_originator_response_attention() {
+    let mut fixture = Fixture::new();
+    let sender = fixture.identity_id.clone();
+    let receiver = create_or_resolve(&mut fixture.storage, "Inbox Receiver", Lifetime::Saved)
+        .expect("create inbox receiver")
+        .identity;
+    let route = RequestRoute::Inbox {
+        recipient_identity_id: receiver.id.clone(),
+    };
+    let prepared = service(&mut fixture)
+        .prepare(
+            PrepareRequest {
+                request_id: "inbox-roundtrip".into(),
+                message: "inspect this".into(),
+                route: route.clone(),
+                wait: false,
+                expires_at_ms: NOW_MS + 3_600_000,
+                originator: Originator::Explicit(sender.clone()),
+                recipient_identity_id: Some(receiver.id.clone()),
+                preamble: None,
+            },
+            "inbox-attempt".into(),
+            7,
+        )
+        .expect("prepare inbox request");
+    assert_eq!(
+        service(&mut fixture)
+            .incoming_watermark(&receiver.id)
+            .unwrap(),
+        0
+    );
+    assert!(
+        service(&mut fixture)
+            .list_incoming(&receiver.id, None, None)
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    service(&mut fixture)
+        .queue(&prepared.attempt_id)
+        .expect("queue inbox request");
+
+    let incoming = service(&mut fixture)
+        .list_incoming(&receiver.id, None, None)
+        .expect("list recipient inbox");
+    assert_eq!(incoming.items.len(), 1);
+    assert_eq!(
+        incoming.items[0].kind,
+        tmt_core::request::attention::IncomingKind::Request
+    );
+    assert_eq!(incoming.items[0].exchange.revision, 1);
+    assert_eq!(
+        incoming.items[0].sender_identity_id.as_deref(),
+        Some(sender.as_str())
+    );
+    service(&mut fixture)
+        .acknowledge_incoming_request(&receiver.id, "inbox-roundtrip", 1)
+        .expect("ack recipient role");
+    assert!(
+        service(&mut fixture)
+            .list_incoming(&receiver.id, None, None)
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    assert_eq!(
+        service(&mut fixture)
+            .list_exchanges(&sender, None, None)
+            .unwrap()
+            .items
+            .len(),
+        1
+    );
+
+    fixture.set_now(NOW_MS + 1);
+    let response = service(&mut fixture)
+        .submit_response(SubmitResponse {
+            request_id: "inbox-roundtrip".into(),
+            proof: ResponseProof::Compact(tmt_core::request::correlation::response_token(
+                "inbox-roundtrip",
+                "inbox-attempt",
+                &route,
+            )),
+            body: "done".into(),
+        })
+        .expect("submit inbox response");
+    assert_eq!(response.body, "done");
+    let sender_incoming = service(&mut fixture)
+        .list_incoming(&sender, None, None)
+        .expect("list originator results");
+    assert_eq!(sender_incoming.items.len(), 1);
+    assert_eq!(
+        sender_incoming.items[0].kind,
+        tmt_core::request::attention::IncomingKind::Response
+    );
+    assert_eq!(sender_incoming.items[0].exchange.revision, 2);
+    assert!(
+        service(&mut fixture)
+            .list_incoming(&receiver.id, None, None)
+            .unwrap()
+            .items
+            .is_empty()
+    );
+}
+
+fn queue_inbox(
+    fixture: &mut Fixture,
+    request_id: &str,
+    sender: &str,
+    recipient: &str,
+) -> RequestRoute {
+    let route = RequestRoute::Inbox {
+        recipient_identity_id: recipient.into(),
+    };
+    let prepared = service(fixture)
+        .prepare(
+            PrepareRequest {
+                request_id: request_id.into(),
+                message: format!("prompt for {request_id}"),
+                route: route.clone(),
+                wait: false,
+                expires_at_ms: NOW_MS + 3_600_000,
+                originator: Originator::Explicit(sender.into()),
+                recipient_identity_id: Some(recipient.into()),
+                preamble: None,
+            },
+            format!("{request_id}-attempt"),
+            7,
+        )
+        .expect("prepare inbox request");
+    service(fixture)
+        .queue(&prepared.attempt_id)
+        .expect("queue inbox request");
+    route
+}
+
+#[test]
+fn incoming_response_pagination_skips_earlier_non_response_attention_rows() {
+    let mut fixture = Fixture::new();
+    let owner = fixture.identity_id.clone();
+    for index in 1..=3 {
+        prepare_sent(
+            &mut fixture,
+            &owner,
+            &format!("pending-before-response-{index}"),
+            &format!("%7{index}"),
+            700 + index,
+            "pending",
+            7,
+        );
+    }
+    for index in 1..=3 {
+        let request_id = format!("incoming-response-{index}");
+        let (attempt_id, target) = prepare_sent(
+            &mut fixture,
+            &owner,
+            &request_id,
+            &format!("%8{index}"),
+            800 + index,
+            "respond later",
+            7,
+        );
+        submit_final(&mut fixture, &request_id, &attempt_id, target, "done");
+    }
+
+    let first = service(&mut fixture)
+        .list_incoming(&owner, Some(2), None)
+        .expect("list first incoming response page");
+    assert_eq!(first.items.len(), 2);
+    assert!(
+        first
+            .items
+            .iter()
+            .all(|item| { item.kind == tmt_core::request::attention::IncomingKind::Response })
+    );
+    assert_eq!(first.items[0].exchange.request_id, "incoming-response-1");
+    assert_eq!(first.items[1].exchange.request_id, "incoming-response-2");
+    let cursor = first
+        .next_after
+        .expect("more response attention remains after first page");
+    assert_eq!(cursor, first.items[1].exchange.revision);
+
+    let second = service(&mut fixture)
+        .list_incoming(&owner, Some(2), Some(cursor))
+        .expect("list second incoming response page");
+    assert_eq!(second.items.len(), 1);
+    assert_eq!(second.items[0].exchange.request_id, "incoming-response-3");
+    assert_eq!(second.next_after, None);
+}
+
+#[test]
+fn queue_rejects_a_recipient_retired_after_resolution_without_retargeting_reused_name() {
+    let mut fixture = Fixture::new();
+    let sender = fixture.identity_id.clone();
+    let original = create_or_resolve(&mut fixture.storage, "Queue Race", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    let route = RequestRoute::Inbox {
+        recipient_identity_id: original.id.clone(),
+    };
+    let prepared = service(&mut fixture)
+        .prepare(
+            PrepareRequest {
+                request_id: "retired-before-queue".into(),
+                message: "must not move to replacement".into(),
+                route,
+                wait: true,
+                expires_at_ms: NOW_MS + 3_600_000,
+                originator: Originator::Explicit(sender),
+                recipient_identity_id: Some(original.id.clone()),
+                preamble: None,
+            },
+            "retired-before-queue-attempt".into(),
+            7,
+        )
+        .unwrap();
+    Connection::open(&fixture.database)
+        .unwrap()
+        .execute(
+            "UPDATE identities SET retired_at_ms = ? WHERE id = ?",
+            params![NOW_MS as i64, original.id],
+        )
+        .unwrap();
+    let replacement = create_or_resolve(&mut fixture.storage, "Queue Race", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    assert_ne!(replacement.id, original.id);
+
+    assert!(matches!(
+        service(&mut fixture).queue(&prepared.attempt_id),
+        Err(RequestError::NotFound)
+    ));
+    let connection = Connection::open(&fixture.database).unwrap();
+    let state: (String, i64, i64, Option<i64>, Option<i64>) = connection
+        .query_row(
+            "SELECT status, recipient_attention_revision, wait_active,
+                    wait_released_at_ms, settled_at_ms
+             FROM request_attempts WHERE request_id = 'retired-before-queue'",
+            [],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
+        )
+        .unwrap();
+    assert_eq!(state.0, "definitely_failed");
+    assert_eq!(state.1, 0);
+    assert_eq!(state.2, 0);
+    assert_eq!(state.3, Some(NOW_MS as i64));
+    assert_eq!(state.4, Some(NOW_MS as i64));
+    let counters: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM request_recipient_attention_identities
+             WHERE identity_id IN (?, ?)",
+            params![original.id, replacement.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(counters, 0);
+}
+
+#[test]
+fn recipient_ackall_is_snapshot_bounded_and_exact_ack_rejects_a_stale_revision() {
+    let mut fixture = Fixture::new();
+    let sender = fixture.identity_id.clone();
+    let receiver = create_or_resolve(&mut fixture.storage, "Ackall Receiver", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    queue_inbox(&mut fixture, "inbox-before-ackall", &sender, &receiver.id);
+    assert_eq!(
+        service(&mut fixture)
+            .acknowledge_all_incoming_requests(&receiver.id)
+            .unwrap(),
+        1
+    );
+
+    queue_inbox(&mut fixture, "inbox-after-ackall", &sender, &receiver.id);
+    let page = service(&mut fixture)
+        .list_incoming(&receiver.id, None, None)
+        .unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].exchange.request_id, "inbox-after-ackall");
+    assert_eq!(page.items[0].exchange.revision, 2);
+    assert!(matches!(
+        service(&mut fixture).acknowledge_incoming_request(&receiver.id, "inbox-after-ackall", 1),
+        Err(RequestError::Attention(
+            AttentionRejection::RevisionConflict {
+                current: 2,
+                expected: 1
+            }
+        ))
+    ));
+}
+
+#[test]
+fn same_identity_self_delivery_keeps_request_and_response_roles_separate() {
+    let mut fixture = Fixture::new();
+    let identity = fixture.identity_id.clone();
+    let route = queue_inbox(&mut fixture, "inbox-self", &identity, &identity);
+    service(&mut fixture)
+        .submit_response(SubmitResponse {
+            request_id: "inbox-self".into(),
+            proof: ResponseProof::Compact(tmt_core::request::correlation::response_token(
+                "inbox-self",
+                "inbox-self-attempt",
+                &route,
+            )),
+            body: "self response".into(),
+        })
+        .unwrap();
+
+    let page = service(&mut fixture)
+        .list_incoming(&identity, None, None)
+        .unwrap();
+    assert_eq!(page.items.len(), 2);
+    assert_eq!(
+        page.items[0].kind,
+        tmt_core::request::attention::IncomingKind::Request
+    );
+    assert_eq!(page.items[0].exchange.revision, 2);
+    assert_eq!(
+        page.items[1].kind,
+        tmt_core::request::attention::IncomingKind::Response
+    );
+    assert_eq!(page.items[1].exchange.revision, 3);
+
+    service(&mut fixture)
+        .acknowledge_incoming_request(&identity, "inbox-self", 2)
+        .unwrap();
+    let remaining = service(&mut fixture)
+        .list_incoming(&identity, None, None)
+        .unwrap();
+    assert_eq!(remaining.items.len(), 1);
+    assert_eq!(
+        remaining.items[0].kind,
+        tmt_core::request::attention::IncomingKind::Response
+    );
+    service(&mut fixture)
+        .acknowledge_exchange(&identity, "inbox-self", 3)
+        .unwrap();
+    assert!(
+        service(&mut fixture)
+            .list_incoming(&identity, None, None)
+            .unwrap()
+            .items
+            .is_empty()
+    );
+}
+
+#[test]
+fn retired_recipient_attention_never_moves_to_a_same_name_replacement() {
+    let mut fixture = Fixture::new();
+    let sender = fixture.identity_id.clone();
+    let original = create_or_resolve(&mut fixture.storage, "Replaceable Inbox", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    queue_inbox(&mut fixture, "inbox-retired", &sender, &original.id);
+    Connection::open(&fixture.database)
+        .unwrap()
+        .execute(
+            "UPDATE identities SET retired_at_ms = ? WHERE id = ?",
+            params![NOW_MS as i64, original.id],
+        )
+        .unwrap();
+    let replacement = create_or_resolve(&mut fixture.storage, "Replaceable Inbox", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    assert_ne!(replacement.id, original.id);
+    assert!(
+        service(&mut fixture)
+            .list_incoming(&replacement.id, None, None)
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    assert_eq!(
+        service(&mut fixture)
+            .list_incoming(&original.id, None, None)
+            .unwrap()
+            .items[0]
+            .exchange
+            .request_id,
+        "inbox-retired"
     );
 }

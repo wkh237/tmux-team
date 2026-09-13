@@ -3,6 +3,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { expectJsonResult } from './cli-assertions.js';
 import { withE2EFixture, type E2EFixture } from './harness.js';
+import { requestAttempts } from './request-state-oracle.js';
 
 interface PublicIdentity {
   readonly id: string;
@@ -30,6 +31,46 @@ async function calibrateOfflineTmuxGuard(fixture: E2EFixture): Promise<void> {
   expect(calibration.json).toMatchObject({ error: { code: 'PANE_NOT_FOUND' } });
   expect(fs.existsSync(fixture.forbiddenTmuxLogPath)).toBe(true);
   fs.rmSync(fixture.forbiddenTmuxLogPath, { force: true });
+}
+
+function processGroupIsRunning(pid: number): boolean {
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ESRCH') return false;
+    throw error;
+  }
+}
+
+function processWaitsInInterruptPoll(pid: number): boolean {
+  try {
+    return /poll/i.test(fs.readFileSync(`/proc/${pid}/wchan`, 'utf8').trim());
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+function processHasOpenFile(pid: number, file: string): boolean {
+  try {
+    return fs
+      .readdirSync(`/proc/${pid}/fd`)
+      .some((descriptor) => fs.readlinkSync(`/proc/${pid}/fd/${descriptor}`) === file);
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+function listenerWaitIsReady(fixture: E2EFixture, pid: number): boolean {
+  if (!processGroupIsRunning(pid)) {
+    throw new Error('Listener exited before reaching its interrupt wait.');
+  }
+  return (
+    processHasOpenFile(pid, path.join(fixture.globalDir, 'tmux-team.db')) &&
+    processWaitsInInterruptPoll(pid)
+  );
 }
 
 describe.sequential('Exchange attention through the real Docker/tmux fixture', () => {
@@ -281,4 +322,378 @@ describe.sequential('Exchange attention through the real Docker/tmux fixture', (
       { mode: 'virtualized', replyGate: true }
     );
   }, 30_000);
+
+  it('queues, listens, inspects, replies and retrieves an inbox request without tmux or Office', async () => {
+    await withE2EFixture(async (fixture) => {
+      const sender = expectJsonResult<{ identity: PublicIdentity }>(
+        await fixture.runJsonCli(['identity', 'create', 'Inbox Sender'], { withoutTmux: true })
+      ).identity;
+      const receiver = expectJsonResult<{ identity: PublicIdentity }>(
+        await fixture.runJsonCli(['identity', 'create', 'Inbox Receiver'], { withoutTmux: true })
+      ).identity;
+      await calibrateOfflineTmuxGuard(fixture);
+
+      const queued = expectJsonResult<{
+        status: string;
+        requestId: string;
+        recipientIdentityId: string;
+      }>(
+        await fixture.runJsonCli(
+          [
+            'talk',
+            receiver.canonicalName,
+            'docker inbox review',
+            '--inbox',
+            '--identity',
+            sender.canonicalName,
+            '--detach',
+          ],
+          { withoutTmux: true }
+        )
+      );
+      expect(queued).toMatchObject({
+        status: 'queued',
+        recipientIdentityId: receiver.id,
+      });
+      expect(queued).not.toHaveProperty('pane');
+
+      const incoming = expectJsonResult<{
+        reason: string;
+        identityId: string;
+        items: Array<{
+          requestId: string;
+          revision: number;
+          kind: string;
+          delivery: string;
+          inspectCommand: string;
+        }>;
+      }>(
+        await fixture.runJsonCli(
+          [
+            'x',
+            'listen',
+            '--identity',
+            receiver.canonicalName,
+            '--timeout',
+            '1s',
+            '--debounce',
+            '1ms',
+          ],
+          { withoutTmux: true }
+        )
+      );
+      expect(incoming).toMatchObject({
+        reason: 'messages',
+        identityId: receiver.id,
+        items: [
+          {
+            requestId: queued.requestId,
+            revision: 1,
+            kind: 'request',
+            delivery: 'queued',
+            inspectCommand: `tmt x show ${queued.requestId} --incoming --identity 'inbox receiver'`,
+          },
+        ],
+      });
+      expect(JSON.stringify(incoming)).not.toContain('docker inbox review');
+      expect(JSON.stringify(incoming)).not.toContain('receipt');
+
+      const detail = expectJsonResult<{
+        exchange: {
+          prompt: { message: string };
+          reply: { receipt: string; command: string };
+        };
+      }>(
+        await fixture.runJsonCli(
+          ['x', 'show', queued.requestId, '--incoming', '--identity', receiver.canonicalName],
+          { withoutTmux: true }
+        )
+      );
+      expect(detail.exchange.prompt.message).toBe('docker inbox review');
+      expect(detail.exchange.reply.receipt).toMatch(/^v2_/);
+
+      expectJsonResult(
+        await fixture.runJsonCli(
+          [
+            'reply',
+            queued.requestId,
+            '--receipt',
+            detail.exchange.reply.receipt,
+            '--message',
+            'docker review complete',
+          ],
+          { withoutTmux: true }
+        )
+      );
+      expect(
+        expectJsonResult<{ status: string; response: string }>(
+          await fixture.runJsonCli(['result', queued.requestId], { withoutTmux: true })
+        )
+      ).toMatchObject({ status: 'completed', response: 'docker review complete' });
+
+      const resultNotice = expectJsonResult<{
+        reason: string;
+        identityId: string;
+        items: Array<{ requestId: string; kind: string; revision: number }>;
+      }>(
+        await fixture.runJsonCli(
+          [
+            'x',
+            'listen',
+            '--identity',
+            sender.canonicalName,
+            '--timeout',
+            '1s',
+            '--debounce',
+            '1ms',
+          ],
+          { withoutTmux: true }
+        )
+      );
+      expect(resultNotice).toMatchObject({
+        reason: 'messages',
+        identityId: sender.id,
+        items: [{ requestId: queued.requestId, kind: 'response', revision: 2 }],
+      });
+      expect(JSON.stringify(resultNotice)).not.toContain('docker review complete');
+      expect(fs.existsSync(fixture.forbiddenTmuxLogPath)).toBe(false);
+      expect(fs.existsSync(path.join(fixture.globalDir, 'office', 'service.json'))).toBe(false);
+    });
+  }, 30_000);
+
+  it('wakes an already-running empty-inbox listener for exactly the separately queued request', async () => {
+    await withE2EFixture(async (fixture) => {
+      const sender = expectJsonResult<{ identity: PublicIdentity }>(
+        await fixture.runJsonCli(['identity', 'create', 'Wake Sender'], { withoutTmux: true })
+      ).identity;
+      const receiver = expectJsonResult<{ identity: PublicIdentity }>(
+        await fixture.runJsonCli(['identity', 'create', 'Wake Receiver'], { withoutTmux: true })
+      ).identity;
+      const listener = fixture.runCliProcess<{
+        reason: string;
+        identityId: string;
+        items: Array<{ requestId: string; revision: number; kind: string }>;
+        nextAfter: number | null;
+      }>(
+        [
+          '--json',
+          'x',
+          'listen',
+          '--identity',
+          receiver.canonicalName,
+          '--timeout',
+          '5s',
+          '--debounce',
+          '1ms',
+        ],
+        { withoutTmux: true }
+      );
+      await fixture.waitFor(
+        () => listenerWaitIsReady(fixture, listener.pid),
+        2_000,
+        'empty-inbox listener interrupt wait readiness'
+      );
+
+      const queued = expectJsonResult<{ requestId: string }>(
+        await fixture.runJsonCli(
+          [
+            'talk',
+            receiver.canonicalName,
+            'wake this exact listener',
+            '--inbox',
+            '--identity',
+            sender.canonicalName,
+            '--detach',
+          ],
+          { withoutTmux: true }
+        )
+      );
+      const result = await listener.result;
+      expect(result.code).toBe(0);
+      expect(result.stderr).toBe('');
+      expect(result.json).toEqual({
+        reason: 'messages',
+        identityId: receiver.id,
+        items: [
+          expect.objectContaining({ requestId: queued.requestId, revision: 1, kind: 'request' }),
+        ],
+        nextAfter: null,
+      });
+      await fixture.waitFor(
+        () => !processGroupIsRunning(listener.pid),
+        2_000,
+        'completed listener process cleanup'
+      );
+    });
+  }, 15_000);
+
+  it('interrupts a listener without acknowledging or mutating its queued request', async () => {
+    await withE2EFixture(async (fixture) => {
+      const sender = expectJsonResult<{ identity: PublicIdentity }>(
+        await fixture.runJsonCli(['identity', 'create', 'Interrupt Sender'], {
+          withoutTmux: true,
+        })
+      ).identity;
+      const receiver = expectJsonResult<{ identity: PublicIdentity }>(
+        await fixture.runJsonCli(['identity', 'create', 'Interrupt Receiver'], {
+          withoutTmux: true,
+        })
+      ).identity;
+      const queued = expectJsonResult<{ requestId: string }>(
+        await fixture.runJsonCli(
+          [
+            'talk',
+            receiver.canonicalName,
+            'remain unread after interrupt',
+            '--inbox',
+            '--identity',
+            sender.canonicalName,
+            '--detach',
+          ],
+          { withoutTmux: true }
+        )
+      );
+      const before = requestAttempts(fixture).find((row) => row.request_id === queued.requestId);
+      expect(before).toMatchObject({ status: 'queued', wait_active: 0 });
+      const listener = fixture.runCliProcess(
+        [
+          '--json',
+          'x',
+          'listen',
+          '--identity',
+          receiver.canonicalName,
+          '--timeout',
+          '120s',
+          '--debounce',
+          '120s',
+        ],
+        { withoutTmux: true }
+      );
+      await fixture.waitFor(
+        () => listenerWaitIsReady(fixture, listener.pid),
+        2_000,
+        'interruptible listener wait readiness'
+      );
+      listener.kill('SIGINT');
+      const interrupted = await listener.result;
+      expect(interrupted.code).toBe(1);
+      expect(interrupted.stderr).toBe('');
+      expect(interrupted.json).toMatchObject({ error: { code: 'INTERRUPTED' } });
+      await fixture.waitFor(
+        () => !processGroupIsRunning(listener.pid),
+        2_000,
+        'interrupted listener process cleanup'
+      );
+      expect(requestAttempts(fixture).find((row) => row.request_id === queued.requestId)).toEqual(
+        before
+      );
+      const remaining = expectJsonResult<{
+        items: Array<{ requestId: string; acknowledged: boolean }>;
+      }>(
+        await fixture.runJsonCli(
+          [
+            'x',
+            'listen',
+            '--identity',
+            receiver.canonicalName,
+            '--timeout',
+            '1s',
+            '--debounce',
+            '1ms',
+          ],
+          { withoutTmux: true }
+        )
+      );
+      expect(remaining.items).toEqual([
+        expect.objectContaining({ requestId: queued.requestId, acknowledged: false }),
+      ]);
+    });
+  }, 15_000);
+
+  it('ends a waiting retired identity and keeps same-name replacement inbox isolated', async () => {
+    await withE2EFixture(async (fixture) => {
+      const sender = expectJsonResult<{ identity: PublicIdentity }>(
+        await fixture.runJsonCli(['identity', 'create', 'Retire Sender'], { withoutTmux: true })
+      ).identity;
+      const original = expectJsonResult<{ identity: PublicIdentity }>(
+        await fixture.runJsonCli(['identity', 'create', 'Replace Listener'], {
+          withoutTmux: true,
+        })
+      ).identity;
+      const listener = fixture.runCliProcess(
+        [
+          '--json',
+          'x',
+          'listen',
+          '--identity',
+          original.canonicalName,
+          '--timeout',
+          '120s',
+          '--debounce',
+          '10s',
+        ],
+        { withoutTmux: true }
+      );
+      await fixture.waitFor(
+        () => listenerWaitIsReady(fixture, listener.pid),
+        2_000,
+        'retirable listener wait readiness'
+      );
+      expectJsonResult(
+        await fixture.runJsonCli(['rm', original.canonicalName, '--force'], { withoutTmux: true })
+      );
+      const replacement = expectJsonResult<{ identity: PublicIdentity }>(
+        await fixture.runJsonCli(['identity', 'create', 'Replace Listener'], {
+          withoutTmux: true,
+        })
+      ).identity;
+      expect(replacement.id).not.toBe(original.id);
+      const retired = await listener.result;
+      expect(retired.code).toBe(3);
+      expect(retired.stderr).toBe('');
+      expect(retired.json).toMatchObject({ error: { code: 'IDENTITY_RETIRED' } });
+      await fixture.waitFor(
+        () => !processGroupIsRunning(listener.pid),
+        2_000,
+        'retired listener process cleanup'
+      );
+
+      const queued = expectJsonResult<{ requestId: string }>(
+        await fixture.runJsonCli(
+          [
+            'talk',
+            replacement.canonicalName,
+            'replacement-only request',
+            '--inbox',
+            '--identity',
+            sender.canonicalName,
+            '--detach',
+          ],
+          { withoutTmux: true }
+        )
+      );
+      const replacementInbox = expectJsonResult<{
+        identityId: string;
+        items: Array<{ requestId: string }>;
+      }>(
+        await fixture.runJsonCli(
+          [
+            'x',
+            'listen',
+            '--identity',
+            replacement.canonicalName,
+            '--timeout',
+            '1s',
+            '--debounce',
+            '1ms',
+          ],
+          { withoutTmux: true }
+        )
+      );
+      expect(replacementInbox).toMatchObject({
+        identityId: replacement.id,
+        items: [{ requestId: queued.requestId }],
+      });
+    });
+  }, 15_000);
 });

@@ -7,7 +7,7 @@ use std::{error::Error, fmt};
 use tmt_core::{
     endpoint::ServerEvidence,
     limits::MAX_JS_SAFE_INTEGER,
-    request::{RequestEndpoint, ResponseProof, correlation::response_token},
+    request::{RequestEndpoint, RequestRoute, ResponseProof, correlation::response_token},
 };
 
 pub const MAX_REPLY_RECEIPT_LENGTH: usize = 8192;
@@ -45,9 +45,17 @@ pub fn encode_short_receipt(
     attempt_id: &str,
     endpoint: &RequestEndpoint,
 ) -> String {
+    encode_route_receipt(
+        request_id,
+        attempt_id,
+        &RequestRoute::Pane(endpoint.clone()),
+    )
+}
+
+pub fn encode_route_receipt(request_id: &str, attempt_id: &str, route: &RequestRoute) -> String {
     format!(
         "{COMPACT_PREFIX}{}",
-        URL_SAFE_NO_PAD.encode(response_token(request_id, attempt_id, endpoint))
+        URL_SAFE_NO_PAD.encode(response_token(request_id, attempt_id, route))
     )
 }
 

@@ -26,7 +26,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 validate_proof(
                     &existing.request_id,
                     &existing.attempt_id,
-                    &existing.endpoint,
+                    &existing.route,
                     &input.proof,
                 )?;
                 if now >= existing.response_expires_at_ms {
@@ -43,7 +43,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             validate_proof(
                 &attempt.request_id,
                 &attempt.attempt_id,
-                &attempt.endpoint,
+                &attempt.route,
                 &input.proof,
             )?;
             if attempt.response_submitted_at_ms.is_some()
@@ -53,14 +53,17 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             }
             if !matches!(
                 attempt.status,
-                AttemptStatus::Sending | AttemptStatus::Sent | AttemptStatus::Uncertain
+                AttemptStatus::Sending
+                    | AttemptStatus::Sent
+                    | AttemptStatus::Queued
+                    | AttemptStatus::Uncertain
             ) {
                 return Err(RequestError::Response(ResponseRejection::StateInvalid));
             }
             let response = FinalResponse {
                 request_id: input.request_id,
                 attempt_id: attempt.attempt_id,
-                endpoint: attempt.endpoint,
+                route: attempt.route,
                 body_bytes: input.body.len() as u64,
                 body: input.body,
                 submitted_at_ms: now,
@@ -94,7 +97,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
 fn validate_proof<E>(
     request_id: &str,
     attempt_id: &str,
-    endpoint: &RequestEndpoint,
+    route: &RequestRoute,
     proof: &ResponseProof,
 ) -> Result<(), RequestError<E>> {
     match proof {
@@ -105,12 +108,12 @@ fn validate_proof<E>(
             if attempt_id != supplied_id {
                 return Err(RequestError::Response(ResponseRejection::AttemptMismatch));
             }
-            if endpoint != supplied_endpoint {
+            if !matches!(route, RequestRoute::Pane(endpoint) if endpoint == supplied_endpoint) {
                 return Err(RequestError::Response(ResponseRejection::RecipientMismatch));
             }
         }
         ResponseProof::Compact(token) => {
-            if *token != correlation::response_token(request_id, attempt_id, endpoint) {
+            if *token != correlation::response_token(request_id, attempt_id, route) {
                 return Err(RequestError::Response(ResponseRejection::ReceiptMismatch));
             }
         }

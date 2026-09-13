@@ -27,7 +27,7 @@ impl<'a, R: RequestRepository, C: Fn() -> u64> RequestService<'a, R, C> {
         nonempty(&input.request_id)?;
         nonempty(&attempt_id)?;
         validate_exact_text(input.message.as_bytes()).map_err(|_| RequestError::InputTooLarge)?;
-        endpoint_valid(&input.endpoint)?;
+        route_valid(&input.route)?;
         positive(input.expires_at_ms)?;
         if !valid_retention_days(retention_days) {
             return Err(RequestError::Invalid("Invalid retention days."));
@@ -37,6 +37,15 @@ impl<'a, R: RequestRepository, C: Fn() -> u64> RequestService<'a, R, C> {
         }
         if let Some(id) = &input.recipient_identity_id {
             nonempty(id)?;
+        }
+        if let RequestRoute::Inbox {
+            recipient_identity_id,
+        } = &input.route
+            && input.recipient_identity_id.as_deref() != Some(recipient_identity_id)
+        {
+            return Err(RequestError::Invalid(
+                "Inbox route must match the recipient identity.",
+            ));
         }
         if let Some(preamble) = &input.preamble {
             nonempty(&preamble.identity_id)?;
@@ -61,7 +70,7 @@ impl<'a, R: RequestRepository, C: Fn() -> u64> RequestService<'a, R, C> {
                 Some(id) => reserve_revision(records, id)?,
                 None => 0,
             };
-            let previous_request_id = records.find_active_request(&input.endpoint)?;
+            let previous_request_id = records.find_active_request(&input.route)?;
             let mut inject = false;
             if let Some(preamble) = &input.preamble {
                 let count = records.preamble_count(&preamble.identity_id)?;
@@ -78,7 +87,7 @@ impl<'a, R: RequestRepository, C: Fn() -> u64> RequestService<'a, R, C> {
                 recipient_identity_id: input.recipient_identity_id,
                 nonce: None,
                 identity_id: input.preamble.as_ref().map(|p| p.identity_id.clone()),
-                endpoint: input.endpoint,
+                route: input.route,
                 wait_active: input.wait,
                 status: AttemptStatus::Prepared,
                 preamble_every: input.preamble.as_ref().map(|p| p.every),
@@ -211,6 +220,15 @@ fn endpoint_valid<E>(endpoint: &RequestEndpoint) -> Result<(), RequestError<E>> 
     Ok(())
 }
 
+fn route_valid<E>(route: &RequestRoute) -> Result<(), RequestError<E>> {
+    match route {
+        RequestRoute::Pane(endpoint) => endpoint_valid(endpoint),
+        RequestRoute::Inbox {
+            recipient_identity_id,
+        } => nonempty(recipient_identity_id),
+    }
+}
+
 fn reserve_revision<E>(
     records: &mut dyn RequestRecords<Error = E>,
     id: &str,
@@ -222,6 +240,16 @@ fn reserve_revision<E>(
     }
     records.set_attention_counter(id, current, value + 1)?;
     Ok(value + 1)
+}
+
+fn reserve_recipient_revision<E>(
+    records: &mut dyn RequestRecords<Error = E>,
+    id: &str,
+) -> Result<u64, RequestError<E>> {
+    let recipient_current = records.recipient_attention_counter(id)?;
+    let revision = reserve_revision(records, id)?;
+    records.set_recipient_attention_counter(id, recipient_current, revision)?;
+    Ok(revision)
 }
 
 fn fail_unsent<E>(

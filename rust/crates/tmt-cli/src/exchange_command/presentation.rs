@@ -85,9 +85,12 @@ fn document(report: &Report) -> Value {
                 .collect();
             value["nextAfter"] = json!(page.next_after);
         }
-        ResultKind::Show(detail) => {
+        ResultKind::Show { detail, receipt } => {
             let mut exchange = exchange_document(&detail.exchange, |body| Some(json!(body)));
             exchange["prompt"] = prompt_document(&detail.prompt);
+            if let Some(receipt) = receipt {
+                exchange["reply"] = json!({"receipt": receipt, "command": format!("tmt reply {} --receipt {} --message <text>", detail.exchange.request_id, receipt)});
+            }
             value["exchange"] = exchange;
         }
         ResultKind::Ack(ack) => {
@@ -135,7 +138,7 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
                     )?;
                 }
             }
-            ResultKind::Show(detail) => {
+            ResultKind::Show { detail, receipt } => {
                 let item = &detail.exchange;
                 table::write(
                     &mut stdout,
@@ -162,6 +165,13 @@ pub(super) fn publish(report: Report, mode: OutputMode) -> io::Result<u8> {
                 }
                 if let FinalState::Retained { content, .. } = &item.final_state {
                     writeln!(stdout, "Final:\n{content}")?;
+                }
+                if let Some(receipt) = receipt {
+                    writeln!(
+                        stdout,
+                        "Reply with: tmt reply {} --receipt {} --message <text>",
+                        item.request_id, receipt
+                    )?;
                 }
             }
             ResultKind::Ack(ack) => writeln!(

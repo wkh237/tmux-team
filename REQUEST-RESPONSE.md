@@ -3,8 +3,9 @@
 The native CLI stores complete replies in SQLite. `talk` waits for a durable
 reply by default; `--timeout` bounds observation and `--detach` returns after
 sending. Terminal capture and `check` are diagnostics, not authoritative
-completion or full-body retrieval. No provider hook, inbox, daemon or remote
-authentication is implied.
+completion or full-body retrieval. Explicit `talk --inbox` adds a local durable
+recipient route; it does not imply a provider hook, background daemon, remote
+transport or authentication.
 
 A cooperating agent submits its complete final body successfully, then may show
 a short truthful summary of work, verification and unresolved items. Submission
@@ -338,10 +339,10 @@ Unexpected failures use sanitized `X_ERROR` (1); shared identity errors remain.
 `talk`, `reply`, and `result` remain the verbs for sending, submitting, and
 reading. `check` remains a pane diagnostic only. Timeout and interruption
 remain observer-only: they do not cancel or complete X, and the existing
-180-second default remains current behavior. No offline queue, lease, daemon,
-memory feature, or MCP state machine is implied. An eventual minimal MCP
-client may use live tmux delivery and the same SQLite-backed reply path without
-requiring caller identity or an inbox; authenticated remote access is separate.
+180-second default remains current behavior. Explicit `talk --inbox` queues for
+one existing non-retired local identity, and bounded `x listen` observes local
+recipient or result attention. This adds no lease, background daemon, memory
+feature, MCP state machine, remote transport or Office dependency.
 
 The request service owns frozen policy, metadata/final horizons, prompt
 validation and bounded housekeeping. Attention consumes the same retained state. Do not add a

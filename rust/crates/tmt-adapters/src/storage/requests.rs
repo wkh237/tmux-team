@@ -7,10 +7,10 @@
 mod attention;
 mod rows;
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use tmt_core::request::{
     AttemptStatus, FinalResponse, RawRequestContext, RequestAttempt, RequestEndpoint,
-    RequestRecords, RequestRepository, StoredPrompt,
+    RequestRecords, RequestRepository, RequestRoute, StoredPrompt,
 };
 
 use super::{
@@ -25,7 +25,7 @@ const DELETE_RETAINED_SQL: &str = "DELETE FROM request_attempts
                  SELECT attempt_id
                  FROM request_attempts INDEXED BY request_attempts_retention_horizon
                  WHERE wait_active = 0
-                   AND status IN ('sent', 'uncertain', 'definitely_failed')
+                   AND status IN ('sent', 'queued', 'uncertain', 'definitely_failed')
                    AND settled_at_ms IS NOT NULL
                    AND settled_at_ms <= ?
                    AND retention_expires_at_ms <= ?
@@ -37,6 +37,33 @@ const DELETE_RETAINED_SQL: &str = "DELETE FROM request_attempts
                  ORDER BY retention_expires_at_ms, attempt_id
                  LIMIT ?
              )";
+
+const INCOMING_WATERMARK_SQL: &str = "SELECT MAX(
+             COALESCE((
+               SELECT recipient_attention_revision FROM request_attempts
+               INDEXED BY request_attempts_recipient_attention
+               JOIN request_recipient_attention_identities AS state
+                 ON state.identity_id = request_attempts.recipient_identity_id
+               WHERE route_kind = 'inbox' AND status = 'queued'
+                 AND recipient_identity_id = ?1 AND retention_expires_at_ms > ?2
+                 AND recipient_attention_revision > recipient_attention_acknowledged_revision
+                 AND recipient_attention_revision > state.acknowledged_through
+               ORDER BY recipient_attention_revision DESC, request_id DESC
+               LIMIT 1
+             ), 0),
+             COALESCE((
+               SELECT attention_revision FROM request_attempts
+               INDEXED BY request_attempts_response_attention
+               JOIN request_attention_identities AS state
+                 ON state.identity_id = request_attempts.originator_identity_id
+               WHERE originator_identity_id = ?1 AND retention_expires_at_ms > ?2
+                 AND response_submitted_at_ms IS NOT NULL
+                 AND attention_revision > attention_acknowledged_revision
+                 AND attention_revision > state.acknowledged_through
+               ORDER BY attention_revision DESC, request_id DESC
+               LIMIT 1
+             ), 0)
+           )";
 
 fn endpoint_args(endpoint: &RequestEndpoint) -> Result<[rusqlite::types::Value; 6], StorageError> {
     Ok([
@@ -162,6 +189,28 @@ impl RequestRecords for RequestRows<'_> {
         attention::list_attention(self.0, identity_id, after, limit, now_ms)
     }
 
+    fn list_response_attention(
+        &self,
+        identity_id: &str,
+        after: u64,
+        limit: u64,
+        now_ms: u64,
+    ) -> Result<Vec<tmt_core::request::attention::AttentionRecord>, Self::Error> {
+        attention::list_response_attention(self.0, identity_id, after, limit, now_ms)
+    }
+
+    fn identity_is_active(&self, identity_id: &str) -> Result<bool, Self::Error> {
+        self.0
+            .query_row(
+                "SELECT EXISTS(
+                   SELECT 1 FROM identities WHERE id = ? AND retired_at_ms IS NULL
+                 )",
+                [identity_id],
+                |row| row.get(0),
+            )
+            .map_err(|error| classify(error, "Check active request recipient"))
+    }
+
     fn acknowledge_revision(
         &mut self,
         identity_id: &str,
@@ -175,21 +224,61 @@ impl RequestRecords for RequestRows<'_> {
         attention::acknowledge_through(self.0, identity_id, latest)
     }
 
-    fn find_active_request(
+    fn find_recipient_attention(
         &self,
-        endpoint: &RequestEndpoint,
-    ) -> Result<Option<String>, Self::Error> {
-        let args = endpoint_args(endpoint)?;
+        identity_id: &str,
+        request_id: &str,
+    ) -> Result<Option<tmt_core::request::attention::AttentionRecord>, Self::Error> {
+        attention::find_recipient_attention(self.0, identity_id, request_id)
+    }
+
+    fn list_recipient_attention(
+        &self,
+        identity_id: &str,
+        after: u64,
+        limit: u64,
+        now_ms: u64,
+    ) -> Result<Vec<tmt_core::request::attention::AttentionRecord>, Self::Error> {
+        attention::list_recipient_attention(self.0, identity_id, after, limit, now_ms)
+    }
+
+    fn acknowledge_recipient_revision(
+        &mut self,
+        identity_id: &str,
+        request_id: &str,
+        revision: u64,
+    ) -> Result<bool, Self::Error> {
+        attention::acknowledge_recipient_revision(self.0, identity_id, request_id, revision)
+    }
+
+    fn acknowledge_recipient_through(
+        &mut self,
+        identity_id: &str,
+        latest: u64,
+    ) -> Result<bool, Self::Error> {
+        attention::acknowledge_recipient_through(self.0, identity_id, latest)
+    }
+
+    fn find_active_request(&self, route: &RequestRoute) -> Result<Option<String>, Self::Error> {
+        let (sql, args) = match route {
+            RequestRoute::Pane(endpoint) => (
+                "SELECT request_id FROM request_attempts WHERE route_kind = 'pane'
+                 AND server_id = ? AND socket_path = ? AND server_pid = ?
+                 AND server_start_time = ? AND pane_id = ? AND pane_pid = ?
+                 AND wait_active = 1 ORDER BY prepared_at_ms, attempt_id LIMIT 1",
+                endpoint_args(endpoint)?.to_vec(),
+            ),
+            RequestRoute::Inbox {
+                recipient_identity_id,
+            } => (
+                "SELECT request_id FROM request_attempts WHERE route_kind = 'inbox'
+                 AND recipient_identity_id = ? AND wait_active = 1
+                 ORDER BY prepared_at_ms, attempt_id LIMIT 1",
+                vec![recipient_identity_id.clone().into()],
+            ),
+        };
         self.0
-            .query_row(
-                "SELECT request_id FROM request_attempts
-             WHERE server_id = ? AND socket_path = ? AND server_pid = ?
-               AND server_start_time = ? AND pane_id = ? AND pane_pid = ?
-               AND wait_active = 1
-             ORDER BY prepared_at_ms, attempt_id LIMIT 1",
-                rusqlite::params_from_iter(args),
-                |row| row.get(0),
-            )
+            .query_row(sql, rusqlite::params_from_iter(args), |row| row.get(0))
             .optional()
             .map_err(|error| classify(error, "Find active request"))
     }
@@ -198,10 +287,18 @@ impl RequestRecords for RequestRows<'_> {
         &mut self,
         attempt: &RequestAttempt,
         prompt: &StoredPrompt,
-        revision: u64,
+        originator_revision: u64,
     ) -> Result<(), Self::Error> {
-        let server_pid = checked_i64(attempt.endpoint.server.server_pid, "Server PID")?;
-        let pane_pid = checked_i64(attempt.endpoint.pane_pid, "Pane PID")?;
+        let (route_kind, endpoint) = match &attempt.route {
+            RequestRoute::Pane(endpoint) => ("pane", Some(endpoint)),
+            RequestRoute::Inbox { .. } => ("inbox", None),
+        };
+        let server_pid = endpoint
+            .map(|e| checked_i64(e.server.server_pid, "Server PID"))
+            .transpose()?;
+        let pane_pid = endpoint
+            .map(|e| checked_i64(e.pane_pid, "Pane PID"))
+            .transpose()?;
         let preamble_every = attempt
             .preamble_every
             .map(|value| checked_i64(value, "Preamble cadence"))
@@ -229,26 +326,27 @@ impl RequestRecords for RequestRows<'_> {
             attempt.retention_expires_at_ms,
             "Retention expiry timestamp",
         )?;
-        let revision = checked_i64(revision, "Attention revision")?;
+        let originator_revision = checked_i64(originator_revision, "Attention revision")?;
         let prompt_bytes = checked_i64(prompt.message_bytes, "Prompt bytes")?;
         let prompt_expires_at_ms = checked_i64(prompt.expires_at_ms, "Prompt expiry timestamp")?;
         self.0
             .execute(
                 "INSERT INTO request_attempts (
                 attempt_id, request_id, originator_kind, originator_identity_id,
-                recipient_identity_id, nonce, identity_id, server_id, socket_path,
+                recipient_identity_id, nonce, identity_id, route_kind, server_id, socket_path,
                 server_pid, server_start_time, pane_id, pane_pid, wait_active, status,
                 preamble_every, inject_preamble, cadence_reserved, prepared_at_ms,
                 sending_at_ms, settled_at_ms, wait_released_at_ms,
                 response_submitted_at_ms, expires_at_ms, retention_days,
                 retention_expires_at_ms, attention_revision,
-                attention_acknowledged_revision, message_text, message_bytes,
+                attention_acknowledged_revision, recipient_attention_revision,
+                recipient_attention_acknowledged_revision, message_text, message_bytes,
                 message_expires_at_ms
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?
+                ?, ?, ?, ?
             )",
                 params![
                     attempt.attempt_id,
@@ -258,11 +356,12 @@ impl RequestRecords for RequestRows<'_> {
                     attempt.recipient_identity_id,
                     attempt.nonce,
                     attempt.identity_id,
-                    attempt.endpoint.server.server_id,
-                    attempt.endpoint.server.socket_path,
+                    route_kind,
+                    endpoint.map(|e| e.server.server_id.as_str()),
+                    endpoint.map(|e| e.server.socket_path.as_str()),
                     server_pid,
-                    attempt.endpoint.server.server_start_time,
-                    attempt.endpoint.pane_id,
+                    endpoint.map(|e| e.server.server_start_time.as_str()),
+                    endpoint.map(|e| e.pane_id.as_str()),
                     pane_pid,
                     if attempt.wait_active { 1 } else { 0 },
                     attempt.status.as_str(),
@@ -277,7 +376,9 @@ impl RequestRecords for RequestRows<'_> {
                     expires_at_ms,
                     retention_days,
                     retention_expires_at_ms,
-                    revision,
+                    originator_revision,
+                    0_i64,
+                    0_i64,
                     0_i64,
                     prompt.message,
                     prompt_bytes,
@@ -289,8 +390,18 @@ impl RequestRecords for RequestRows<'_> {
     }
 
     fn create_response(&mut self, response: &FinalResponse) -> Result<(), Self::Error> {
-        let server_pid = checked_i64(response.endpoint.server.server_pid, "Server PID")?;
-        let pane_pid = checked_i64(response.endpoint.pane_pid, "Pane PID")?;
+        let (route_kind, route_recipient, endpoint) = match &response.route {
+            RequestRoute::Pane(endpoint) => ("pane", None, Some(endpoint)),
+            RequestRoute::Inbox {
+                recipient_identity_id,
+            } => ("inbox", Some(recipient_identity_id.as_str()), None),
+        };
+        let server_pid = endpoint
+            .map(|e| checked_i64(e.server.server_pid, "Server PID"))
+            .transpose()?;
+        let pane_pid = endpoint
+            .map(|e| checked_i64(e.pane_pid, "Pane PID"))
+            .transpose()?;
         let body_bytes = checked_i64(response.body_bytes, "Response bytes")?;
         let submitted_at_ms = checked_i64(response.submitted_at_ms, "Submission timestamp")?;
         let response_expires_at_ms =
@@ -298,18 +409,21 @@ impl RequestRecords for RequestRows<'_> {
         self.0
             .execute(
                 "INSERT INTO request_responses (
-                request_id, attempt_id, server_id, socket_path, server_pid,
+                request_id, attempt_id, route_kind, route_recipient_identity_id,
+                server_id, socket_path, server_pid,
                 server_start_time, pane_id, pane_pid, body, body_bytes,
                 submitted_at_ms, response_expires_at_ms
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 params![
                     response.request_id,
                     response.attempt_id,
-                    response.endpoint.server.server_id,
-                    response.endpoint.server.socket_path,
+                    route_kind,
+                    route_recipient,
+                    endpoint.map(|e| e.server.server_id.as_str()),
+                    endpoint.map(|e| e.server.socket_path.as_str()),
                     server_pid,
-                    response.endpoint.server.server_start_time,
-                    response.endpoint.pane_id,
+                    endpoint.map(|e| e.server.server_start_time.as_str()),
+                    endpoint.map(|e| e.pane_id.as_str()),
                     pane_pid,
                     response.body,
                     body_bytes,
@@ -368,7 +482,7 @@ impl RequestRecords for RequestRows<'_> {
                      WHEN ? = 'sending' THEN ? ELSE sending_at_ms
                  END,
                  settled_at_ms = CASE
-                     WHEN ? IN ('sent', 'uncertain', 'definitely_failed')
+                     WHEN ? IN ('sent', 'queued', 'uncertain', 'definitely_failed')
                          THEN ? ELSE settled_at_ms
                  END,
                  retention_expires_at_ms = MAX(
@@ -508,6 +622,92 @@ impl RequestRecords for RequestRows<'_> {
         Ok(())
     }
 
+    fn recipient_attention_counter(&self, identity_id: &str) -> Result<Option<u64>, Self::Error> {
+        self.0.query_row(
+            "SELECT latest_revision FROM request_recipient_attention_identities WHERE identity_id = ?",
+            [identity_id], |row| rows::u64_at(row, 0),
+        ).optional().map_err(|error| classify(error, "Read recipient attention counter"))
+    }
+
+    fn set_recipient_attention_counter(
+        &mut self,
+        identity_id: &str,
+        expected: Option<u64>,
+        next: u64,
+    ) -> Result<(), Self::Error> {
+        let next = checked_i64(next, "Recipient attention revision")?;
+        let changed = match expected {
+            None => self
+                .0
+                .execute(
+                    "INSERT INTO request_recipient_attention_identities
+                 (identity_id, latest_revision, acknowledged_through) VALUES (?, ?, 0)",
+                    params![identity_id, next],
+                )
+                .map_err(|error| classify(error, "Create recipient attention counter"))?,
+            Some(expected) => self
+                .0
+                .execute(
+                    "UPDATE request_recipient_attention_identities SET latest_revision = ?
+                 WHERE identity_id = ? AND latest_revision = ?",
+                    params![
+                        next,
+                        identity_id,
+                        checked_i64(expected, "Expected recipient attention revision")?
+                    ],
+                )
+                .map_err(|error| classify(error, "Advance recipient attention counter"))?,
+        };
+        if expected.is_some() && changed != 1 {
+            return Err(StorageError::new(
+                StorageErrorCode::Unknown,
+                format!(
+                    "Recipient attention counter for identity '{identity_id}' changed unexpectedly"
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    fn set_recipient_attention_revision(
+        &mut self,
+        request_id: &str,
+        revision: u64,
+    ) -> Result<(), Self::Error> {
+        let changed = self
+            .0
+            .execute(
+                "UPDATE request_attempts SET recipient_attention_revision = ?
+                 WHERE request_id = ? AND route_kind = 'inbox'
+                   AND status = 'prepared' AND recipient_attention_revision = 0",
+                params![
+                    checked_i64(revision, "Recipient attention revision")?,
+                    request_id
+                ],
+            )
+            .map_err(|error| classify(error, "Set recipient attention revision"))?;
+        if changed != 1 {
+            return Err(StorageError::new(
+                StorageErrorCode::Unknown,
+                format!("Inbox request '{request_id}' could not receive attention"),
+            ));
+        }
+        Ok(())
+    }
+
+    fn incoming_watermark(&self, identity_id: &str, now_ms: u64) -> Result<u64, Self::Error> {
+        self.0
+            .query_row(
+                INCOMING_WATERMARK_SQL,
+                params![
+                    identity_id,
+                    checked_now(now_ms, "Incoming retention cutoff")?
+                ],
+                |row| rows::u64_at(row, 0),
+            )
+            .map_err(|error| classify(error, "Read incoming attention watermark"))
+    }
+
     fn expired_attempts(
         &self,
         now_ms: u64,
@@ -604,6 +804,26 @@ impl RequestRepository for Storage {
         with_immediate_transaction(self, "request", |transaction| {
             operation(&mut RequestRows(transaction))
         })
+    }
+
+    fn with_request_observation<T, E: From<Self::Error>>(
+        &mut self,
+        operation: impl FnOnce(&mut dyn RequestRecords<Error = Self::Error>) -> Result<T, E>,
+    ) -> Result<T, E> {
+        let connection = self.connection.as_mut().ok_or_else(|| {
+            E::from(StorageError::new(
+                StorageErrorCode::Closed,
+                "Storage is already closed",
+            ))
+        })?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Deferred)
+            .map_err(|error| E::from(classify(error, "Begin request observation transaction")))?;
+        let result = operation(&mut RequestRows(&transaction))?;
+        transaction
+            .commit()
+            .map_err(|error| E::from(classify(error, "Commit request observation transaction")))?;
+        Ok(result)
     }
 }
 

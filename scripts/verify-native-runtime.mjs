@@ -19,14 +19,19 @@ for (const name of ['executable', 'target', 'version', 'skill']) {
 
 const executable = path.resolve(values.executable);
 const skill = fs.readFileSync(values.skill, 'utf8');
+const inboxSkill = fs.readFileSync(
+  new URL('../skills/tmt-inbox/SKILL.md', import.meta.url),
+  'utf8'
+);
 await verifyNativeRuntime({
   executable,
   target: values.target,
   version: values.version,
   skill,
+  inboxSkill,
   profileContent: 'Persisted by native executable',
   subject: 'Native executable',
 });
 console.log(
-  `Verified native executable ${executable}: linkage, version, skill, managed install, SQLite persistence`
+  `Verified native executable ${executable}: linkage, version, skill bundle, managed install, SQLite persistence`
 );

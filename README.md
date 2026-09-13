@@ -25,9 +25,11 @@ Prefer curl, a custom location, or replacing an older installation? See
 [installation options](NATIVE-INSTALL.md). The installer never uninstalls old
 packages or deletes application data.
 
-tmux is needed for live pane operations: binding, messaging and inspection.
-Explicit local identity/profile access and stored results work without it. There is no
-non-tmux receiving agent transport yet.
+tmux is needed for live pane operations: binding, direct pane messaging and
+inspection. Explicit local identity/profile access, stored results, and the
+opt-in `talk --inbox` queue with bounded `x listen` work without it. Inbox
+delivery stores work locally; it does not wake or run an agent, add a background
+service, or provide remote transport.
 
 ## Quick start
 
@@ -102,9 +104,13 @@ updating. Installation does not reload a running agent. See the
 
 ## Boundaries worth knowing
 
-TMT routes to live panes on the current tmux server. Identities, profiles and
-retained exchanges live in local SQLite. There is no offline recipient queue,
-remote routing, shared memory, authentication, or MCP connectivity yet.
+Direct delivery routes to live panes on the current tmux server and remains the
+primary path when the recipient is reachable. For explicit asynchronous local
+delivery, `tmt talk <identity> "message" --inbox` queues to an existing
+non-retired identity in local SQLite; the recipient uses bounded `tmt x listen`
+and `tmt x show --incoming` commands to discover and inspect it. This does not
+add a daemon, remote routing, shared memory, authentication, MCP connectivity,
+or an Office dependency.
 
 Your tmux titles and border layout stay untouched. Badges are off by default;
 see [optional pane badges](USER-GUIDE.md#optional-pane-badge). Inspect settings

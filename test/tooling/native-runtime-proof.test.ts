@@ -15,6 +15,7 @@ const { nativeHostTarget, verifyNativeRuntime } = (await import(
     target: string;
     version: string;
     skill: string;
+    inboxSkill: string;
     profileContent: string;
     subject: string;
   }) => Promise<void>;
@@ -89,6 +90,7 @@ describe('native runtime proof boundary', () => {
           target: nativeHostTarget(),
           version: '5.0.0-test',
           skill: 'skill\n',
+          inboxSkill: 'inbox skill\n',
           profileContent: 'proof',
           subject: 'Native executable',
         })

@@ -12,19 +12,27 @@ use tmt_core::skill_provider::Provider;
 pub fn inspect_local_drift(env: &ProviderEnvironment, global: &Path) -> io::Result<Vec<PathBuf>> {
     let assets = SkillAssets::new(&files::resolved(global)?);
     let current = assets.source();
+    let inbox_current = assets.inbox_source();
     let mut seen = BTreeSet::new();
     let mut drift = Vec::new();
     for provider in Provider::ALL {
         let target = env.target(provider);
-        for (path, legacy) in std::iter::once((target, false)).chain(
-            env.legacy_targets(provider)
-                .into_iter()
-                .map(|path| (path, true)),
-        ) {
+        let inbox = target
+            .parent()
+            .expect("skill target parent")
+            .join("tmt-inbox");
+        for (path, legacy, expected) in [(target, false, &current), (inbox, false, &inbox_current)]
+            .into_iter()
+            .chain(
+                env.legacy_targets(provider)
+                    .into_iter()
+                    .map(|path| (path, true, &current)),
+            )
+        {
             if !seen.insert(path.clone()) || !files::exists(&path)? {
                 continue;
             }
-            if legacy || managed_link(&path, &assets)?.as_ref() != Some(&current) {
+            if legacy || managed_link(&path, &assets)?.as_ref() != Some(expected) {
                 drift.push(path);
             }
         }

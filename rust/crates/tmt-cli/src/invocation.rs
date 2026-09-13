@@ -148,6 +148,7 @@ pub enum OfficeBlockOperation {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TalkOptions {
+    pub inbox: bool,
     pub force: bool,
     pub detach: bool,
     pub delay_seconds: Option<f64>,
@@ -202,12 +203,22 @@ pub enum ExchangeOperation {
         limit: Option<u64>,
         after: Option<u64>,
     },
-    Show(String),
+    Show {
+        request_id: String,
+        incoming: bool,
+    },
     Ack {
         request_id: String,
         revision: u64,
+        incoming: bool,
     },
-    Ackall,
+    Ackall {
+        incoming: bool,
+    },
+    Listen {
+        timeout_seconds: f64,
+        debounce_seconds: f64,
+    },
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]

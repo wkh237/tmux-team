@@ -591,6 +591,7 @@ fn command_aliases_preserve_typed_invocations() {
                 message: "hello".into(),
                 originator: None,
                 options: TalkOptions {
+                    inbox: false,
                     force: false,
                     detach: false,
                     delay_seconds: None,
@@ -667,6 +668,7 @@ fn literal_option_words_remain_data_when_the_grammar_requires_values() {
             message: "--json --debug".into(),
             originator: None,
             options: TalkOptions {
+                inbox: false,
                 force: false,
                 detach: false,
                 delay_seconds: None,
@@ -706,6 +708,7 @@ fn root_and_command_local_options_work_before_and_after_the_command() {
                 message: "hello".into(),
                 originator: None,
                 options: TalkOptions {
+                    inbox: false,
                     force: false,
                     detach: false,
                     delay_seconds: None,
@@ -723,6 +726,7 @@ fn root_and_command_local_options_work_before_and_after_the_command() {
             message: "hello".into(),
             originator: None,
             options: TalkOptions {
+                inbox: false,
                 force: false,
                 detach: false,
                 delay_seconds: None,
@@ -752,6 +756,7 @@ fn removed_output_flags_are_rejected_but_remain_literal_payload_data() {
             message: "--verbose --debug -v".into(),
             originator: None,
             options: TalkOptions {
+                inbox: false,
                 force: false,
                 detach: false,
                 delay_seconds: None,
@@ -864,6 +869,7 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
             message: "hello".into(),
             originator: None,
             options: TalkOptions {
+                inbox: false,
                 force: false,
                 detach: false,
                 delay_seconds: None,
@@ -880,6 +886,7 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
             message: "hello".into(),
             originator: None,
             options: TalkOptions {
+                inbox: false,
                 force: false,
                 detach: false,
                 delay_seconds: Some(2_147_483.647),
@@ -918,6 +925,7 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
             message: "hello".into(),
             originator: None,
             options: TalkOptions {
+                inbox: false,
                 force: false,
                 detach: true,
                 delay_seconds: None,
@@ -931,6 +939,50 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
         "either --timeout or --detach",
         OutputMode::default(),
     );
+}
+
+#[test]
+fn inbox_and_listener_options_have_typed_defaults_and_minutes() {
+    let talk = parsed(&["talk", "Receiver", "hello", "--inbox", "--detach"]);
+    let Invocation::Talk { options, .. } = talk.invocation else {
+        panic!("talk invocation")
+    };
+    assert!(options.inbox);
+
+    assert_eq!(
+        parsed(&["x", "listen", "--identity", "Receiver"]).invocation,
+        Invocation::Exchange {
+            identity: Some("Receiver".into()),
+            operation: ExchangeOperation::Listen {
+                timeout_seconds: 900.0,
+                debounce_seconds: 10.0
+            },
+        }
+    );
+    assert_eq!(
+        parsed(&["x", "listen", "--timeout", "1.5m", "--debounce", "250MS"]).invocation,
+        Invocation::Exchange {
+            identity: None,
+            operation: ExchangeOperation::Listen {
+                timeout_seconds: 90.0,
+                debounce_seconds: 0.25
+            },
+        }
+    );
+    for value in ["0", "86400.1s"] {
+        assert_usage_error(
+            &["x", "listen", "--timeout", value],
+            "Listen timeout",
+            OutputMode::default(),
+        );
+    }
+    for value in ["NaN", "1h"] {
+        assert_usage_error(
+            &["x", "listen", "--timeout", value],
+            "Invalid time format",
+            OutputMode::default(),
+        );
+    }
 }
 
 #[test]
@@ -966,6 +1018,7 @@ fn capture_and_exchange_integers_accept_exact_boundaries() {
             operation: ExchangeOperation::Ack {
                 request_id: "request-1".into(),
                 revision: 9_007_199_254_740_991,
+                incoming: false,
             },
         }
     );

@@ -75,6 +75,7 @@ pub fn grammar() -> Command {
                 "timeout",
                 "no-preamble",
                 "identity",
+                "inbox",
             ],
         )
         .visible_alias("send")
@@ -127,21 +128,25 @@ pub fn grammar() -> Command {
         .subcommand(
             with_options(
                 storage("show", "Show retained exchange content"),
-                &["identity"],
+                &["identity", "incoming"],
             )
             .arg(operand("request-id", true)),
         )
         .subcommand(
             with_options(
                 storage("ack", "Acknowledge an observed revision"),
-                &["identity"],
+                &["identity", "incoming"],
             )
             .arg(option("revision").required(true))
             .arg(operand("request-id", true)),
         )
         .subcommand(with_options(
             storage("ackall", "Acknowledge the current identity snapshot"),
-            &["identity"],
+            &["identity", "incoming"],
+        ))
+        .subcommand(with_options(
+            storage("listen", "Wait for incoming inbox activity"),
+            &["identity", "timeout", "debounce"],
         )),
     )
     .subcommand(
@@ -471,14 +476,17 @@ fn option(id: &'static str) -> Arg {
         "version" => flag("Show version").short('V').hide(true),
         "wait" => flag("Retired; use timeout or detach").hide(true),
         "detach" => flag("Return after sending"),
+        "inbox" => flag("Queue for an identity without tmux delivery"),
+        "incoming" => flag("Use recipient-facing request attention"),
         "no-preamble" => flag("Skip the recipient preamble"),
         "stdin" => flag("Read complete input through EOF"),
         "skill" => flag("Print the canonical skill"),
         "global" => flag("Edit global settings").short('g'),
         "config" => value("Unsupported path override").hide(true),
         "team" => value("Retired scope").hide(true),
-        "timeout" => value("Observer timeout in seconds or with ms/s suffix"),
-        "delay" => value("Pre-send delay in seconds or with ms/s suffix"),
+        "timeout" => value("Observer timeout in seconds or with ms/s/m suffix"),
+        "delay" => value("Pre-send delay in seconds or with ms/s/m suffix"),
+        "debounce" => value("Trailing quiet interval in seconds or with ms/s/m suffix"),
         "lines" => value("Diagnostic capture line count"),
         "identity" => value("Select an explicit identity").global(true),
         "file" => value("Read content from a regular file"),

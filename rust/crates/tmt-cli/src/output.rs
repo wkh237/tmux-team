@@ -30,7 +30,7 @@ struct Diagnostics {
 #[derive(Debug)]
 struct TargetDetails {
     target: String,
-    pane: String,
+    pane: Option<String>,
     identity: Option<(String, String)>,
 }
 
@@ -81,7 +81,21 @@ impl Failure {
     ) -> Self {
         self.target = Some(Box::new(TargetDetails {
             target: target.into(),
-            pane: pane.into(),
+            pane: Some(pane.into()),
+            identity: identity
+                .map(|identity| (identity.name.clone(), identity.canonical_name.clone())),
+        }));
+        self
+    }
+
+    pub fn with_inbox_target(
+        mut self,
+        target: &str,
+        identity: Option<&tmt_core::identity::Identity>,
+    ) -> Self {
+        self.target = Some(Box::new(TargetDetails {
+            target: target.into(),
+            pane: None,
             identity: identity
                 .map(|identity| (identity.name.clone(), identity.canonical_name.clone())),
         }));
@@ -110,7 +124,9 @@ impl Failure {
         }
         if let Some(target) = &self.target {
             document["target"] = target.target.clone().into();
-            document["pane"] = target.pane.clone().into();
+            if let Some(pane) = &target.pane {
+                document["pane"] = pane.clone().into();
+            }
             if let Some((name, canonical_name)) = &target.identity {
                 document["identity"] =
                     serde_json::json!({"name": name, "canonicalName": canonical_name});

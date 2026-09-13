@@ -33,8 +33,8 @@ fn failed_publication_reports_prior_success_and_recoverable_backup_then_releases
             files::link(target, source)
         })
         .unwrap_err();
-    assert_eq!(publications, 2);
-    assert_eq!(failure.report.installed.len(), 1);
+    assert_eq!(publications, 3);
+    assert_eq!(failure.report.installed.len(), 2);
     assert_eq!(failure.report.installed[0].target, first);
     assert!(fs::symlink_metadata(&first).unwrap().is_symlink());
     let backup = failure.pending_backup.as_ref().unwrap();
@@ -51,7 +51,8 @@ fn failed_publication_reports_prior_success_and_recoverable_backup_then_releases
     assert!(super::registry::read(&global).unwrap().contains(&second));
     let retry = install(&env, &global, Some("all"), None, false).unwrap();
     assert!(!retry.installed[0].changed);
-    assert!(retry.installed[1].changed);
+    assert!(!retry.installed[1].changed);
+    assert!(retry.installed[2].changed);
     assert!(fs::symlink_metadata(&second).unwrap().is_symlink());
     assert_eq!(
         fs::read(backup.join("user.md")).unwrap(),
