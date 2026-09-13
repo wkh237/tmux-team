@@ -77,7 +77,15 @@ export function LocalBoardPage() {
     try {
       const page = await activeRuntime.board.categories({ limit: 20, cursor });
       if (generation !== refreshGeneration.current) return;
-      setCategories((current) => [...current, ...page.categories]);
+      setCategories((current) => {
+        const seen = new Set<string>();
+        return [...current, ...page.categories].filter((item) => {
+          const key = categoryKey(item);
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      });
       setCategoryCursor(page.nextCursor);
     } catch (caught) {
       if (generation !== refreshGeneration.current) return;
@@ -106,7 +114,7 @@ export function LocalBoardPage() {
     }
   }
 
-  async function refresh(activeRuntime = runtime) {
+  async function refresh(activeRuntime = runtime, resetSelection = false) {
     if (!activeRuntime) return;
     const generation = ++refreshGeneration.current;
     const requestedCategory = category;
@@ -130,9 +138,7 @@ export function LocalBoardPage() {
       setThreads(threadPage.threads);
       setThreadCursor(threadPage.nextCursor);
       setSelected((current) =>
-        current && threadPage.threads.some((thread) => thread.id === current)
-          ? current
-          : threadPage.threads[0]?.id
+        resetSelection ? threadPage.threads[0]?.id : (current ?? threadPage.threads[0]?.id)
       );
       setDetailVersion((version) => version + 1);
     } catch (caught) {
@@ -143,7 +149,7 @@ export function LocalBoardPage() {
   }
 
   useEffect(() => {
-    void refresh(runtime);
+    void refresh(runtime, true);
     // The runtime is installation-scoped and the serialized category is an explicit reload key.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runtime, selectedCategoryKey, view]);

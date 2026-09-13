@@ -135,19 +135,20 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
             )
             .caused_by(error)
         } else if let Some(operation_id) = mutation_id.as_deref() {
-            Failure::new(
-                "OFFICE_LOCAL_UNCERTAIN",
-                format!(
-                    "Office did not confirm the board mutation. Retry with --operation-id {operation_id}."
-                ),
-                1,
-            )
-            .caused_by(error)
+            uncertain_mutation(operation_id).caused_by(error)
         } else {
             io_failure(error)
         }
     })?
-    .map_err(board_failure)?;
+    .map_err(|code| {
+        if code == tmt_core::office_board::BoardErrorCode::Storage
+            && let Some(operation_id) = mutation_id.as_deref()
+        {
+            uncertain_mutation(operation_id)
+        } else {
+            board_failure(code)
+        }
+    })?;
     if mode.json {
         writeln!(io::stdout().lock(), "{result}").map_err(io_failure)?;
     } else {
@@ -301,6 +302,15 @@ fn board_failure(code: tmt_core::office_board::BoardErrorCode) -> Failure {
         1
     };
     Failure::new(code.code(), code.code().replace('_', " "), exit)
+}
+fn uncertain_mutation(operation_id: &str) -> Failure {
+    Failure::new(
+        "OFFICE_LOCAL_UNCERTAIN",
+        format!(
+            "Office did not confirm the board mutation. Retry with --operation-id {operation_id}."
+        ),
+        1,
+    )
 }
 fn input_failure(error: tmt_adapters::response_input::ResponseInputError) -> Failure {
     Failure::new("BOARD_INVALID", "Could not read exact board content.", 1).caused_by(error)

@@ -301,7 +301,12 @@ describe('local Office board', () => {
         boardRevision: 2,
       })
       .mockResolvedValueOnce({ categories: [repository], nextCursor: null, boardRevision: 2 })
-      .mockResolvedValue({ categories: [category], nextCursor: 'categories-2', boardRevision: 2 });
+      .mockResolvedValueOnce({
+        categories: [category],
+        nextCursor: 'categories-2',
+        boardRevision: 2,
+      })
+      .mockResolvedValue({ categories: [repository], nextCursor: null, boardRevision: 2 });
     vi.mocked(active.board.list).mockImplementation(async (input) => ({
       threads:
         input.category.kind === 'general'
@@ -327,6 +332,76 @@ describe('local Office board', () => {
       `repository:${repository.repositoryId}`
     );
     expect(screen.getByRole('option', { name: repository.repositoryId })).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'More categories' }));
+    await waitFor(() =>
+      expect(screen.getAllByRole('option', { name: repository.repositoryId })).toHaveLength(1)
+    );
+  });
+
+  it('preserves a page-two selection, drafts, and uncertain reply across refresh', async () => {
+    const secondId = '66666666-6666-4666-8666-666666666666';
+    const secondThread = {
+      ...thread,
+      id: secondId,
+      threadId: secondId,
+      title: 'Second page work',
+      body: 'Second page body',
+    };
+    const { body: _firstBody, ...firstSummary } = thread;
+    const { body: _secondBody, ...secondSummary } = secondThread;
+    const active = runtime();
+    vi.mocked(active.board.list).mockImplementation(async (input) =>
+      input.cursor
+        ? {
+            threads: [{ ...secondSummary, replyCount: 0, activitySequence: 3 }],
+            nextCursor: null,
+            boardRevision: 3,
+          }
+        : {
+            threads: [{ ...firstSummary, replyCount: 1, activitySequence: 2 }],
+            nextCursor: 'threads-2',
+            boardRevision: 3,
+          }
+    );
+    vi.mocked(active.board.show).mockImplementation(async (input) => ({
+      thread: input.threadId === secondId ? secondThread : thread,
+      replies: input.threadId === secondId ? [] : [reply],
+      nextCursor: null,
+      boardRevision: 3,
+    }));
+    vi.mocked(active.board.reply)
+      .mockRejectedValueOnce(new TypeError('lost response'))
+      .mockResolvedValueOnce({
+        entryId: replyId,
+        threadId: secondId,
+        revision: 1,
+        created: true,
+        operationId,
+      });
+    mount(active);
+    await screen.findByRole('heading', { name: 'Current work' });
+    await userEvent.click(screen.getByRole('button', { name: 'More threads' }));
+    await userEvent.click(screen.getByRole('button', { name: /Second page work/ }));
+    await screen.findByRole('heading', { name: 'Second page work' });
+    await userEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const editForm = screen.getByRole('button', { name: 'Save edit' }).closest('form')!;
+    await userEvent.clear(within(editForm).getByLabelText('Title'));
+    await userEvent.type(within(editForm).getByLabelText('Title'), 'Second page draft');
+    const replyForm = screen.getByRole('button', { name: 'Reply as owner' }).closest('form')!;
+    await userEvent.type(within(replyForm).getByLabelText('Message'), 'Uncertain page-two reply');
+    await userEvent.click(screen.getByRole('button', { name: 'Reply as owner' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('draft is still here');
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh board' }));
+    await waitFor(() => expect(screen.queryByText('Loading the board…')).toBeNull());
+    expect(screen.getByDisplayValue('Second page draft')).toBeTruthy();
+    expect(screen.getByDisplayValue('Uncertain page-two reply')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Reply as owner' }));
+    await waitFor(() => expect(active.board.reply).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(active.board.reply).mock.calls.map(([input]) => input.operationId)).toEqual([
+      operationId,
+      operationId,
+    ]);
+    expect(vi.mocked(active.board.show).mock.calls.at(-1)?.[0].threadId).toBe(secondId);
   });
 
   it('single-flights continuations and ignores their results after refresh', async () => {
