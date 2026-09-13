@@ -19,6 +19,25 @@ fn old_source(global: &Path, bytes: &[u8]) -> PathBuf {
     source
 }
 
+fn old_bundle(global: &Path, core: &[u8], inbox: &[u8]) -> (PathBuf, PathBuf) {
+    let mut framed = Vec::new();
+    framed.extend_from_slice(&(core.len() as u64).to_be_bytes());
+    framed.extend_from_slice(core);
+    framed.extend_from_slice(&(inbox.len() as u64).to_be_bytes());
+    framed.extend_from_slice(inbox);
+    let version = files::resolved(global)
+        .unwrap()
+        .join("skill-assets")
+        .join(sha256(&framed));
+    let main = version.join("tmux-team");
+    let inbox_source = version.join("tmt-inbox");
+    fs::create_dir_all(&main).unwrap();
+    fs::create_dir(&inbox_source).unwrap();
+    fs::write(main.join("SKILL.md"), core).unwrap();
+    fs::write(inbox_source.join("SKILL.md"), inbox).unwrap();
+    (main, inbox_source)
+}
+
 fn managed_target(target: &Path, source: &Path) {
     fs::create_dir_all(target.parent().unwrap()).unwrap();
     std::os::unix::fs::symlink(source, target).unwrap();
@@ -39,6 +58,32 @@ fn target_paths(root: &Path) -> [PathBuf; 3] {
 fn assert_current(target: &Path) {
     let source = fs::read_link(target).unwrap();
     assert_eq!(fs::read(source.join("SKILL.md")).unwrap(), bundled_skill());
+}
+
+#[test]
+fn refreshes_both_targets_from_a_genuine_old_two_skill_bundle() {
+    let (directory, global) = fixture();
+    let old_core = b"prior refresh core bytes\n";
+    let old_inbox = b"prior refresh inbox bytes\n";
+    let (main_source, inbox_source) = old_bundle(&global, old_core, old_inbox);
+    let main_target = directory.path.join("home/.agents/skills/tmux-team");
+    let inbox_target = directory.path.join("home/.agents/skills/tmt-inbox");
+    managed_target(&main_target, &main_source);
+    managed_target(&inbox_target, &inbox_source);
+    remember(&global, [main_target.clone(), inbox_target.clone()]);
+
+    let report = refresh(&global).unwrap();
+    assert_eq!(report.refreshed.len(), 2);
+    assert!(report.refreshed.iter().all(|item| item.changed));
+    assert!(report.skipped.is_empty());
+    assert!(report.conflicts.is_empty());
+    assert_current(&main_target);
+    assert_eq!(
+        fs::read(fs::read_link(&inbox_target).unwrap().join("SKILL.md")).unwrap(),
+        super::assets::INBOX_SKILL
+    );
+    assert_eq!(fs::read(main_source.join("SKILL.md")).unwrap(), old_core);
+    assert_eq!(fs::read(inbox_source.join("SKILL.md")).unwrap(), old_inbox);
 }
 
 #[test]

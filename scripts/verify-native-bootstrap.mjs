@@ -98,7 +98,22 @@ exec cp "$source" "$destination"
   assert.equal(fs.readlinkSync(pointer), initial, 'Repeat bootstrap must not create a release');
   assert.equal(run(['learn', '--skill']), fs.readFileSync(values.skill, 'utf8'));
   const installedSkill = path.join(root, '.agents/skills/tmux-team/SKILL.md');
+  const installedInboxSkill = path.join(root, '.agents/skills/tmt-inbox/SKILL.md');
   assert.equal(fs.readFileSync(installedSkill, 'utf8'), fs.readFileSync(values.skill, 'utf8'));
+  assert.equal(
+    fs.readFileSync(installedInboxSkill, 'utf8'),
+    fs.readFileSync(new URL('../skills/tmt-inbox/SKILL.md', import.meta.url), 'utf8')
+  );
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(path.join(state, 'skill-installations.json'), 'utf8')),
+    {
+      version: 1,
+      targets: [
+        path.join(root, '.agents/skills/tmt-inbox'),
+        path.join(root, '.agents/skills/tmux-team'),
+      ],
+    }
+  );
   assert(!fs.existsSync(path.join(state, 'tmux-team.db')), 'Skill setup must not open SQLite');
   bootstrap(['--pin']);
   const receipt = JSON.parse(

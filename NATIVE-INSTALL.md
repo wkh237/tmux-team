@@ -23,7 +23,9 @@ This archive contains the standalone Rust native alpha runtime. It needs no
 Node.js, npm, pnpm, Rust toolchain or source checkout to run. tmux and socket
 access are required for binding, sending and capturing live panes, not for
 storage-only identity/profile/reply/result/X operations with explicit selection
-where required. A sender can run outside tmux; recipients still need live panes.
+where required. Direct pane delivery still requires a reachable live pane, but
+explicit local `talk --inbox` delivery and bounded `x listen` do not; they use
+the same local SQLite state without a daemon, remote service, MCP, or Office.
 Use the installer asset from a published release; the README
 supplies the verified version URL when one is available.
 

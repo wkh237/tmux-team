@@ -3,8 +3,9 @@
 Install the native alpha using the [README instructions](../README.md), then run
 `tmt install`. Use the installer asset from a published release; the README
 supplies the verified version URL when one is available. No plugin, marketplace
-or separate slash-command package is required. All providers use the same bundled
-[skill](tmux-team/SKILL.md).
+or separate slash-command package is required. All providers receive the same
+versioned bundle: the canonical [tmux-team skill](tmux-team/SKILL.md) and focused
+[tmt-inbox skill](tmt-inbox/SKILL.md).
 
 The native runtime needs no Node.js, Rust toolchain or source checkout; tmux is
 still required for pane operations. Native bindings are temporary by default:
@@ -25,26 +26,30 @@ tmt install opencode
 tmt install all      # Install for every supported provider
 ```
 
-| Provider                   | Native skill location                        |
-| -------------------------- | -------------------------------------------- |
-| Claude Code                | `~/.claude/skills/tmux-team/SKILL.md`        |
-| Codex, Gemini and OpenCode | `~/.agents/skills/tmux-team/SKILL.md`        |
-| Antigravity CLI (`agy`)    | `~/.gemini/config/skills/tmux-team/SKILL.md` |
-| Pi                         | `~/.pi/agent/skills/tmux-team/SKILL.md`      |
+| Provider                   | Native skill root          |
+| -------------------------- | -------------------------- |
+| Claude Code                | `~/.claude/skills/`        |
+| Codex, Gemini and OpenCode | `~/.agents/skills/`        |
+| Antigravity CLI (`agy`)    | `~/.gemini/config/skills/` |
+| Pi                         | `~/.pi/agent/skills/`      |
+
+Each root receives sibling `tmux-team/SKILL.md` and `tmt-inbox/SKILL.md` links.
 
 Installation is non-interactive and accepts `--json`. If no provider is detected,
-the shared `~/.agents/skills/tmux-team` target is installed without claiming a
-provider was found; its JSON result has `target` and `changed`, but no `agent`.
+the shared `~/.agents/skills/{tmux-team,tmt-inbox}` targets are installed without
+claiming a provider was found; each JSON item has `skill`, `target` and `changed`,
+but no `agent`.
 This does not install the agent applications themselves. Explicit selectors work
 even before the selected provider is installed.
 
-Pi honors `PI_CODING_AGENT_DIR`: its target is `<agent-dir>/skills/tmux-team`.
+Pi honors `PI_CODING_AGENT_DIR`: its targets are sibling directories under
+`<agent-dir>/skills`.
 OpenCode's configuration directory is used for detection, including
 `OPENCODE_CONFIG_DIR` or `XDG_CONFIG_HOME`, but its installed skill remains in the shared home location.
 Use `--dir` for a different skill discovery root; TMT does not edit provider settings.
 
-The containing directory is a managed link to the installed native skill
-package. Repeating installation is a no-op when the link is correct. Native
+Each skill directory is a managed link to one immutable native asset bundle.
+Repeating installation is a no-op when both links are correct. Native
 `tmt upgrade`/`tmt update` refreshes recorded managed skills through the newly
 activated executable; use `--channel stable|alpha`, `--to <version>`, or
 `--unpin` as needed. A skill refresh can fail after binary activation and is
@@ -54,7 +59,8 @@ selection.
 The legacy TypeScript `tmt upgrade` follows npm `latest` and cannot update a
 native installation. Use the original manager for package-manager installations.
 
-Load the skill in your agent before collaborating. Claude Code's native skill
+Load `tmux-team` in your agent before pane collaboration and `tmt-inbox` for an
+authorized bounded inbox-processing session. Claude Code's canonical skill
 can be invoked as `/tmux-team`; the CLI remains `tmt`. Installing files does not
 guarantee an already-running agent has reloaded them. Use its skill discovery
 or restart the session when necessary. The [Claude skill documentation](https://code.claude.com/docs/en/skills)
@@ -82,8 +88,9 @@ tmt install --dir './project skills'
 ```
 
 `learn --skill` prints the exact bundled skill; plain `learn` is a short guide.
-Custom installation creates `./project skills/tmux-team` relative to the current
-directory. Choose a folder your provider discovers, and do not combine `--dir`
+Custom installation creates sibling `./project skills/tmux-team` and
+`./project skills/tmt-inbox` links relative to the current directory. Choose a
+folder your provider discovers, and do not combine `--dir`
 with a provider or `all`. Custom installs do not migrate default paths or touch
 unrelated siblings. Automatic drift reminders cover default locations, not
 arbitrary custom folders.

@@ -39,16 +39,21 @@ fn assert_failure_preserves(failure: &InstallFailure, expected: &str) {
 fn neutral_install_is_exact_repeat_noop_and_records_one_target() {
     let (_directory, environment, global, home) = fixture();
     let first = install(&environment, &global, None, None, false).unwrap();
-    assert_eq!(first.installed.len(), 1);
+    assert_eq!(first.installed.len(), 2);
     assert_eq!(first.installed[0].agent, None);
     assert!(first.installed[0].changed);
     let universal = home.join(".agents/skills/tmux-team");
+    let inbox = home.join(".agents/skills/tmt-inbox");
     let source = assert_link(&universal);
     assert_eq!(fs::read(source.join("SKILL.md")).unwrap(), bundled_skill());
+    assert_eq!(
+        fs::read(assert_link(&inbox).join("SKILL.md")).unwrap(),
+        super::assets::INBOX_SKILL
+    );
 
     let registry = fs::read(global.join("skill-installations.json")).unwrap();
     let second = install(&environment, &global, None, None, false).unwrap();
-    assert_eq!(second.installed.len(), 1);
+    assert_eq!(second.installed.len(), 2);
     assert!(!second.installed[0].changed);
     assert_eq!(second.installed[0].backup, None);
     assert_eq!(assert_link(&universal), source);
@@ -64,14 +69,14 @@ fn custom_install_uses_exact_target_and_does_not_invent_provider() {
     let (directory, environment, global, _home) = fixture();
     let custom_root = PathBuf::from("custom skills");
     let report = install(&environment, &global, None, Some(&custom_root), false).unwrap();
-    assert_eq!(report.installed.len(), 1);
+    assert_eq!(report.installed.len(), 2);
     assert_eq!(report.installed[0].agent, None);
     assert!(report.installed[0].changed);
     let custom = directory.path.join("cwd/custom skills/tmux-team");
     assert_eq!(report.installed[0].target, custom);
     let source = assert_link(&custom);
     assert_eq!(fs::read(source.join("SKILL.md")).unwrap(), bundled_skill());
-    assert_eq!(fs::read_dir(custom.parent().unwrap()).unwrap().count(), 1);
+    assert_eq!(fs::read_dir(custom.parent().unwrap()).unwrap().count(), 2);
 }
 
 #[test]
@@ -84,11 +89,14 @@ fn all_install_deduplicates_shared_targets_but_reports_stable_provider_order() {
             .iter()
             .map(|item| item.agent.unwrap().as_str())
             .collect::<Vec<_>>(),
-        vec!["claude", "codex", "gemini", "agy", "pi", "opencode"]
+        vec![
+            "claude", "claude", "codex", "codex", "gemini", "gemini", "agy", "agy", "pi", "pi",
+            "opencode", "opencode"
+        ]
     );
     assert_eq!(
         report.installed.iter().filter(|item| item.changed).count(),
-        4
+        8
     );
     for provider in Provider::ALL {
         assert!(
@@ -107,12 +115,16 @@ fn all_install_deduplicates_shared_targets_but_reports_stable_provider_order() {
         .iter()
         .map(|value| PathBuf::from(value.as_str().unwrap()))
         .collect::<BTreeSet<_>>();
-    assert_eq!(registry["targets"].as_array().unwrap().len(), 4);
+    assert_eq!(registry["targets"].as_array().unwrap().len(), 8);
     let expected = [
         home.join(".claude/skills/tmux-team"),
         home.join(".agents/skills/tmux-team"),
         home.join(".gemini/config/skills/tmux-team"),
         home.join(".pi/agent/skills/tmux-team"),
+        home.join(".claude/skills/tmt-inbox"),
+        home.join(".agents/skills/tmt-inbox"),
+        home.join(".gemini/config/skills/tmt-inbox"),
+        home.join(".pi/agent/skills/tmt-inbox"),
     ]
     .into_iter()
     .collect::<BTreeSet<_>>();
@@ -272,6 +284,83 @@ fn digest(bytes: &[u8]) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+fn bundle_digest(core: &[u8], inbox: &[u8]) -> String {
+    let mut framed = Vec::new();
+    framed.extend_from_slice(&(core.len() as u64).to_be_bytes());
+    framed.extend_from_slice(core);
+    framed.extend_from_slice(&(inbox.len() as u64).to_be_bytes());
+    framed.extend_from_slice(inbox);
+    digest(&framed)
+}
+
+fn old_bundle(global: &Path, core: &[u8], inbox: &[u8]) -> (PathBuf, PathBuf) {
+    let version = super::files::resolved(global)
+        .unwrap()
+        .join("skill-assets")
+        .join(bundle_digest(core, inbox));
+    let main = version.join("tmux-team");
+    let inbox_source = version.join("tmt-inbox");
+    fs::create_dir_all(&main).unwrap();
+    fs::create_dir(&inbox_source).unwrap();
+    fs::write(main.join("SKILL.md"), core).unwrap();
+    fs::write(inbox_source.join("SKILL.md"), inbox).unwrap();
+    (main, inbox_source)
+}
+
+#[test]
+fn valid_old_two_skill_bundle_upgrades_both_targets_without_backup() {
+    let (_directory, environment, global, home) = fixture();
+    let old_core = b"old core skill bytes\n";
+    let old_inbox = b"old inbox skill bytes\n";
+    let (old_main, old_inbox_source) = old_bundle(&global, old_core, old_inbox);
+    let target = home.join(".claude/skills/tmux-team");
+    let inbox_target = home.join(".claude/skills/tmt-inbox");
+    fs::create_dir_all(target.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&old_main, &target).unwrap();
+    std::os::unix::fs::symlink(&old_inbox_source, &inbox_target).unwrap();
+
+    let report = install(&environment, &global, Some("claude"), None, false).unwrap();
+    assert_eq!(report.installed.len(), 2);
+    assert!(report.installed.iter().all(|item| item.changed));
+    assert!(report.installed.iter().all(|item| item.backup.is_none()));
+    assert_ne!(assert_link(&target), old_main);
+    assert_ne!(assert_link(&inbox_target), old_inbox_source);
+    assert_eq!(fs::read(target.join("SKILL.md")).unwrap(), bundled_skill());
+    assert_eq!(
+        fs::read(inbox_target.join("SKILL.md")).unwrap(),
+        super::assets::INBOX_SKILL
+    );
+    assert_eq!(fs::read(old_main.join("SKILL.md")).unwrap(), old_core);
+    assert_eq!(
+        fs::read(old_inbox_source.join("SKILL.md")).unwrap(),
+        old_inbox
+    );
+}
+
+#[test]
+fn tampered_old_two_skill_bundle_is_unmanaged_and_preserved() {
+    let (_directory, environment, global, home) = fixture();
+    let old_core = b"old core skill bytes\n";
+    let old_inbox = b"old inbox skill bytes\n";
+    let (old_main, old_inbox_source) = old_bundle(&global, old_core, old_inbox);
+    fs::write(old_inbox_source.join("SKILL.md"), b"tampered inbox\n").unwrap();
+    let target = home.join(".claude/skills/tmux-team");
+    let inbox_target = home.join(".claude/skills/tmt-inbox");
+    fs::create_dir_all(target.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(&old_main, &target).unwrap();
+    std::os::unix::fs::symlink(&old_inbox_source, &inbox_target).unwrap();
+
+    let failure = install(&environment, &global, Some("claude"), None, false).unwrap_err();
+    assert_failure_preserves(&failure, "Refusing to replace existing unmanaged path");
+    assert_eq!(assert_link(&target), old_main);
+    assert_eq!(assert_link(&inbox_target), old_inbox_source);
+    assert_eq!(fs::read(old_main.join("SKILL.md")).unwrap(), old_core);
+    assert_eq!(
+        fs::read(old_inbox_source.join("SKILL.md")).unwrap(),
+        b"tampered inbox\n"
+    );
 }
 
 #[test]

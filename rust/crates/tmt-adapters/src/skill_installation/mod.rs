@@ -33,6 +33,7 @@ use tmt_core::skill_provider::Provider;
 
 #[derive(Debug)]
 pub struct InstalledSkill {
+    pub name: &'static str,
     pub agent: Option<Provider>,
     pub target: PathBuf,
     pub changed: bool,
@@ -149,20 +150,30 @@ fn install_with_publisher(
     let mut report = InstallReport::default();
     let mut pending_backup = None;
     let pending = (|| {
-        let targets = selected(env, provider, directory)?;
+        let targets = selected(env, provider, directory)?
+            .into_iter()
+            .flat_map(|(agent, main)| {
+                let inbox = main
+                    .parent()
+                    .expect("skill target parent")
+                    .join("tmt-inbox");
+                [(agent, main, false), (agent, inbox, true)]
+            })
+            .collect::<Vec<_>>();
         let global = files::resolved(global)?;
         let assets = assets::SkillAssets::new(&global);
         // These guards precede even lock/cache creation or forced backups.
-        for (_, target) in &targets {
+        for (_, target, _) in &targets {
             files::safe_target(assets.root(), target)?;
         }
         files::with_lock(&global, || {
             registry::read(&global)?;
-            let source = assets.materialize()?;
-            registry::remember(&global, targets.iter().map(|(_, target)| target.clone()))?;
-            for (agent, target) in targets {
+            let (main_source, inbox_source) = assets.materialize_bundle()?;
+            registry::remember(&global, targets.iter().map(|(_, target, _)| target.clone()))?;
+            for (agent, target, inbox) in targets {
+                let source = if inbox { &inbox_source } else { &main_source };
                 let prior = managed_link(&target, &assets)?;
-                let changed = prior.as_ref() != Some(&source);
+                let changed = prior.as_ref() != Some(source);
                 if changed {
                     if prior.is_none() && files::exists(&target)? {
                         if !force {
@@ -173,16 +184,17 @@ fn install_with_publisher(
                         }
                         pending_backup = Some(files::backup(&target)?);
                     }
-                    publish(&target, &source)?;
+                    publish(&target, source)?;
                 }
                 report.installed.push(InstalledSkill {
+                    name: if inbox { "tmt-inbox" } else { "tmux-team" },
                     agent,
                     target: target.clone(),
                     changed,
                     backup: pending_backup.take(),
                     legacy_backups: Vec::new(),
                 });
-                if let Some(agent) = agent {
+                if !inbox && let Some(agent) = agent {
                     for legacy in env.legacy_targets(agent) {
                         if !files::exists(&legacy)?
                             || files::entry_location(&legacy)? == files::entry_location(&target)?

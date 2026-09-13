@@ -10,7 +10,10 @@ use crate::{storage::Storage, test_support::TestDirectory};
 use tmt_core::{
     endpoint::ServerEvidence,
     identity::{Lifetime, create_or_resolve},
-    request::{Originator, PreambleReservation, PrepareRequest, RequestEndpoint, RequestService},
+    request::{
+        Originator, PreambleReservation, PrepareRequest, RequestEndpoint, RequestRoute,
+        RequestService,
+    },
 };
 
 pub const NOW_MS: u64 = 1_700_000_000_000;
@@ -76,7 +79,7 @@ pub fn prepare_input(
     PrepareRequest {
         request_id: request_id.into(),
         message: format!("prompt for {request_id}"),
-        endpoint: target,
+        route: RequestRoute::Pane(target),
         wait,
         expires_at_ms,
         originator,

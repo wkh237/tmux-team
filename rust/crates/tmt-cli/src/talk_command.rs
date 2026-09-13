@@ -38,11 +38,12 @@ struct Correlation {
     target: String,
     pane: String,
     identity: Option<Identity>,
+    inbox: bool,
 }
 struct Prepared {
     correlation: Correlation,
     attempt_id: String,
-    endpoint: RequestEndpoint,
+    endpoint: Option<RequestEndpoint>,
     payload: String,
     previous_request_id: Option<String>,
 }
@@ -53,15 +54,26 @@ struct Report {
 
 impl Correlation {
     fn error(&self, code: &'static str, message: impl Into<String>, status: u8) -> Failure {
-        Failure::new(code, message, status)
-            .with_request(self.request_id.clone(), None)
-            .with_target(&self.target, &self.pane, self.identity.as_ref())
+        let failure =
+            Failure::new(code, message, status).with_request(self.request_id.clone(), None);
+        if self.inbox {
+            failure.with_inbox_target(&self.target, self.identity.as_ref())
+        } else {
+            failure.with_target(&self.target, &self.pane, self.identity.as_ref())
+        }
     }
     fn inspection(&self) -> String {
-        format!(
-            "Inspect with 'tmt result {}' and 'tmt check {}' before deciding whether to retry.",
-            self.request_id, self.target
-        )
+        if self.inbox {
+            format!(
+                "Inspect with 'tmt result {}'. Do not resend solely because the observer ended.",
+                self.request_id
+            )
+        } else {
+            format!(
+                "Inspect with 'tmt result {}' and 'tmt check {}' before deciding whether to retry.",
+                self.request_id, self.target
+            )
+        }
     }
     fn state_error(&self, error: RequestError<StorageError>, possible_delivery: bool) -> Failure {
         self.error(
@@ -106,7 +118,11 @@ fn deliver(
                 .map_err(|error| correlation.state_error(error, false))?;
             return Err(correlation.interrupted());
         }
-        if let Err(primary) = service.begin_send(&prepared.attempt_id) {
+        if input.options.inbox {
+            service
+                .queue(&prepared.attempt_id)
+                .map_err(|error| correlation.state_error(error, false))?;
+        } else if let Err(primary) = service.begin_send(&prepared.attempt_id) {
             // Settlement is idempotent; the primary failure remains diagnostic.
             let primary = correlation.state_error(primary, false);
             return Err(
@@ -116,43 +132,45 @@ fn deliver(
                 },
             );
         }
-        let delivered = tmux.send_on(
-            &prepared.endpoint.server.socket_path,
-            &prepared.endpoint.pane_id,
-            &prepared.payload,
-            Duration::from_secs_f64(settings.paste_enter_delay_ms / 1000.0),
-        );
-        match delivered {
-            Ok(()) => service
-                .settle(&prepared.attempt_id, Settlement::Sent)
-                .map_err(|error| correlation.state_error(error, true))?,
-            Err(error) => {
-                let uncertain = error.uncertain();
-                if let Err(state) = service.settle(
-                    &prepared.attempt_id,
-                    if uncertain {
-                        Settlement::Uncertain
-                    } else {
-                        Settlement::DefinitelyFailed
-                    },
-                ) {
-                    return Err(correlation
-                        .state_error(state, uncertain)
-                        .with_secondary_error(error));
-                }
-                return Err(correlation
-                    .error(
+        if let Some(endpoint) = &prepared.endpoint {
+            let delivered = tmux.send_on(
+                &endpoint.server.socket_path,
+                &endpoint.pane_id,
+                &prepared.payload,
+                Duration::from_secs_f64(settings.paste_enter_delay_ms / 1000.0),
+            );
+            match delivered {
+                Ok(()) => service
+                    .settle(&prepared.attempt_id, Settlement::Sent)
+                    .map_err(|error| correlation.state_error(error, true))?,
+                Err(error) => {
+                    let uncertain = error.uncertain();
+                    if let Err(state) = service.settle(
+                        &prepared.attempt_id,
                         if uncertain {
-                            "DELIVERY_UNCERTAIN"
+                            Settlement::Uncertain
                         } else {
-                            "DELIVERY_PREPARATION_FAILED"
+                            Settlement::DefinitelyFailed
                         },
-                        error.to_string(),
-                        1,
-                    )
-                    .at_stage(error.stage.as_str())
-                    .suggestion(correlation.inspection())
-                    .caused_by(error));
+                    ) {
+                        return Err(correlation
+                            .state_error(state, uncertain)
+                            .with_secondary_error(error));
+                    }
+                    return Err(correlation
+                        .error(
+                            if uncertain {
+                                "DELIVERY_UNCERTAIN"
+                            } else {
+                                "DELIVERY_PREPARATION_FAILED"
+                            },
+                            error.to_string(),
+                            1,
+                        )
+                        .at_stage(error.stage.as_str())
+                        .suggestion(correlation.inspection())
+                        .caused_by(error));
+                }
             }
         }
         if !wait {
@@ -219,13 +237,16 @@ fn run(
         if error.code == "CLEANUP_ERROR"
             && let Some(correlation) = cleanup_correlation
         {
-            error
-                .with_request(correlation.request_id, None)
-                .with_target(
+            let error = error.with_request(correlation.request_id, None);
+            if correlation.inbox {
+                error.with_inbox_target(&correlation.target, correlation.identity.as_ref())
+            } else {
+                error.with_target(
                     &correlation.target,
                     &correlation.pane,
                     correlation.identity.as_ref(),
                 )
+            }
         } else {
             error
         }

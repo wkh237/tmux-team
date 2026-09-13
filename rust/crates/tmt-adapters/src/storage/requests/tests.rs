@@ -2,7 +2,10 @@ use crate::test_support::TestDirectory;
 use tmt_core::{
     endpoint::ServerEvidence,
     limits::MAX_JS_SAFE_INTEGER,
-    request::{Originator, PrepareRequest, RequestEndpoint, RequestRepository, RequestService},
+    request::{
+        Originator, PrepareRequest, RequestEndpoint, RequestRepository, RequestRoute,
+        RequestService,
+    },
 };
 
 use super::super::*;
@@ -27,7 +30,7 @@ fn seed_attempt(storage: &mut Storage, request_id: &str, attempt_id: &str) {
             PrepareRequest {
                 request_id: request_id.into(),
                 message: "original prompt".into(),
-                endpoint: endpoint(),
+                route: RequestRoute::Pane(endpoint()),
                 wait: false,
                 expires_at_ms: 2_000,
                 originator: Originator::Unknown,
@@ -125,7 +128,7 @@ fn response_marker_mismatch_rolls_back_orphan_final_insert() {
     let response = tmt_core::request::FinalResponse {
         request_id: "request-1".into(),
         attempt_id: "attempt-1".into(),
-        endpoint: endpoint(),
+        route: RequestRoute::Pane(endpoint()),
         body: "final".into(),
         body_bytes: 5,
         submitted_at_ms: 1_500,
@@ -177,6 +180,45 @@ fn retained_cleanup_plan_uses_horizon_index_without_sort() {
         details
             .iter()
             .any(|detail| detail.contains("request_attempts_retention_horizon"))
+    );
+    assert!(
+        !details
+            .iter()
+            .any(|detail| detail.contains("USE TEMP B-TREE FOR ORDER BY"))
+    );
+    storage.close().unwrap();
+}
+
+#[test]
+fn incoming_watermark_plan_uses_participant_indexes() {
+    let directory = TestDirectory::new();
+    let database = directory.path.join("state").join("requests.db");
+    let mut storage = Storage::open(database).unwrap();
+    let plan_sql = format!("EXPLAIN QUERY PLAN {}", super::INCOMING_WATERMARK_SQL);
+    let details = {
+        let mut statement = storage.connection().unwrap().prepare(&plan_sql).unwrap();
+        statement
+            .query_map(rusqlite::params!["identity-id", 1_i64], |row| {
+                row.get::<_, String>(3)
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    };
+    assert!(
+        details
+            .iter()
+            .any(|detail| detail.contains("request_attempts_recipient_attention"))
+    );
+    assert!(
+        details
+            .iter()
+            .any(|detail| detail.contains("request_attempts_response_attention"))
+    );
+    assert!(
+        !details
+            .iter()
+            .any(|detail| detail == "SCAN request_attempts")
     );
     assert!(
         !details

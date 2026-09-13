@@ -16,7 +16,7 @@ use std::{
 };
 use tmt_core::request::{
     Originator, PreambleReservation, PrepareRequest, RequestRecords, RequestRepository,
-    RequestService,
+    RequestRoute, RequestService,
 };
 
 const CHILD_TEST: &str = "storage::requests::service_tests::crash::preparation_child";
@@ -192,7 +192,7 @@ fn preparation_child() {
             PrepareRequest {
                 request_id: "uncommitted-request".into(),
                 message: "uncommitted prompt".into(),
-                endpoint: endpoint("%12", 112),
+                route: RequestRoute::Pane(endpoint("%12", 112)),
                 wait: false,
                 expires_at_ms: NOW_MS + 60_000,
                 originator: Originator::Explicit(owner.clone()),

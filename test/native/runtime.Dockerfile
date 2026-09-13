@@ -5,4 +5,5 @@ WORKDIR /verification
 COPY scripts/native-runtime-proof.mjs scripts/verify-native-runtime.mjs scripts/packed-command.mjs scripts/
 COPY test/support/performance-contract.mjs test/support/performance-contract.mjs
 COPY skills/tmux-team/SKILL.md skills/tmux-team/SKILL.md
+COPY skills/tmt-inbox/SKILL.md skills/tmt-inbox/SKILL.md
 ENTRYPOINT ["node", "scripts/verify-native-runtime.mjs"]

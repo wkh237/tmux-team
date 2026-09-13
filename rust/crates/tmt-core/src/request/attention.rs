@@ -78,6 +78,35 @@ pub struct ExchangePage {
     pub next_after: Option<u64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IncomingKind {
+    Request,
+    Response,
+}
+
+impl IncomingKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Request => "request",
+            Self::Response => "response",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncomingItem {
+    pub exchange: Exchange,
+    pub kind: IncomingKind,
+    pub sender_identity_id: Option<String>,
+    pub recipient_identity_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IncomingPage {
+    pub items: Vec<IncomingItem>,
+    pub next_after: Option<u64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Acknowledged {
     pub request_id: String,

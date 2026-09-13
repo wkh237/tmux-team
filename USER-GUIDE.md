@@ -71,8 +71,9 @@ tmt identity show coordinator --json
 tmt identity list --json
 ```
 
-Creation is idempotent for a canonical-equivalent name. It does not bind a
-pane, authenticate a caller, or create an offline receiving queue.
+Creation is idempotent for a canonical-equivalent name. Creation alone does not
+bind a pane, authenticate a caller, queue work, or perform delivery. The active
+identity is eligible for a later explicit local `talk --inbox` request.
 
 ## Saved identity notes
 
@@ -188,10 +189,17 @@ Explicit names work outside tmux; unknown names are not created implicitly.
 
 ## Important delivery behavior
 
-TMT is CLI-only. Each command exits after its operation; there is no daemon,
-listener, remote service, MCP transport, or offline recipient inbox. Active
-routing is limited to live panes on the current tmux server. Durable identities
-and retained request/reply bodies stay in local SQLite.
+TMT is CLI-only. Each command exits after its operation, and direct pane routing
+on the current tmux server remains the primary delivery path when the recipient
+is reachable. For explicit asynchronous local delivery,
+`tmt talk <identity> "message" --inbox` queues to an existing non-retired
+identity in local SQLite. The recipient can run
+`tmt x listen --identity <name>` with bounded `--timeout` and `--debounce`
+values, then inspect with
+`tmt x show <request-id> --incoming --identity <name>`. This is not a background
+listener or daemon, and it adds no remote service, cross-machine routing, MCP
+transport, or Office dependency. Durable identities and retained request/reply
+bodies remain local.
 
 Line breaks are preserved. ASCII `!` is converted to fullwidth `！` to protect
 coding-agent shell/bash shortcuts, so code such as `if (!ready)` is not delivered

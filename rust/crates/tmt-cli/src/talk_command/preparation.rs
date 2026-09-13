@@ -1,9 +1,9 @@
 use super::*;
 use crate::{identity_context, target};
-use tmt_adapters::{reply_receipt::encode_short_receipt, request_runtime::request_ids};
+use tmt_adapters::{reply_receipt::encode_route_receipt, request_runtime::request_ids};
 use tmt_core::{
     profile::{ProfileKind, ProfileReader},
-    request::{Originator, PreambleReservation, PrepareRequest},
+    request::{Originator, PreambleReservation, PrepareRequest, RequestRoute},
     retention::{REQUEST_MIN_EXPIRY_MS, checked_deadline},
     settings::PreambleMode,
 };
@@ -15,7 +15,19 @@ pub(super) fn prepare(
     settings: &Settings,
     interrupt: Option<&Interrupt>,
 ) -> Result<Prepared, Failure> {
-    let observed = target::resolve(storage, tmux, &input.target)?;
+    let inbox_identity = if input.options.inbox {
+        Some(identity_context::resolve(
+            storage,
+            identity_context::Selector::Explicit(input.target.clone()),
+        )?)
+    } else {
+        None
+    };
+    let observed = if input.options.inbox {
+        None
+    } else {
+        Some(target::resolve(storage, tmux, &input.target)?)
+    };
     let (originator, sender) =
         identity_context::optional(storage, tmux, input.originator.as_deref())?.map_or(
             (Originator::Unknown, "unknown".to_owned()),
@@ -32,8 +44,14 @@ pub(super) fn prepare(
     let correlation = Correlation {
         request_id,
         target: input.target.clone(),
-        pane: observed.pane.id.clone(),
-        identity: observed.identity.clone(),
+        pane: observed
+            .as_ref()
+            .map(|value| value.pane.id.clone())
+            .unwrap_or_default(),
+        identity: inbox_identity
+            .clone()
+            .or_else(|| observed.as_ref().and_then(|value| value.identity.clone())),
+        inbox: input.options.inbox,
     };
     if let Some(delay) = input.options.delay_seconds {
         let delay = Duration::from_secs_f64(delay);
@@ -57,7 +75,7 @@ pub(super) fn prepare(
         || settings.preamble_every == 0
     {
         None
-    } else if let Some(identity) = &observed.identity {
+    } else if let Some(identity) = observed.as_ref().and_then(|value| value.identity.as_ref()) {
         storage
             .find_profile(&identity.id, ProfileKind::Preamble)
             .map_err(|error| {
@@ -69,7 +87,13 @@ pub(super) fn prepare(
     } else {
         None
     };
-    let endpoint = target::refresh(tmux, &observed)?;
+    let route = match (&inbox_identity, &observed) {
+        (Some(identity), _) => RequestRoute::Inbox {
+            recipient_identity_id: identity.id.clone(),
+        },
+        (_, Some(observed)) => RequestRoute::Pane(target::refresh(tmux, observed)?),
+        _ => unreachable!("one route is selected"),
+    };
     let timeout_ms = if input.options.detach {
         0
     } else {
@@ -89,15 +113,17 @@ pub(super) fn prepare(
             PrepareRequest {
                 request_id: correlation.request_id.clone(),
                 message: input.message.clone(),
-                endpoint: endpoint.clone(),
+                route: route.clone(),
                 wait: !input.options.detach,
                 expires_at_ms,
                 originator,
-                recipient_identity_id: observed
+                recipient_identity_id: correlation
                     .identity
                     .as_ref()
                     .map(|identity| identity.id.clone()),
-                preamble: preamble
+                preamble: (!input.options.inbox)
+                    .then_some(preamble.as_ref())
+                    .flatten()
                     .as_ref()
                     .map(|(identity_id, _)| PreambleReservation {
                         identity_id: identity_id.clone(),
@@ -108,7 +134,7 @@ pub(super) fn prepare(
             settings.retention_days,
         )
         .map_err(|error| correlation.state_error(error, false))?;
-    let receipt = encode_short_receipt(&correlation.request_id, &attempt_id, &endpoint);
+    let receipt = encode_route_receipt(&correlation.request_id, &attempt_id, &route);
     let message = if prepared.inject_preamble {
         preamble.map_or_else(
             || input.message.clone(),
@@ -125,7 +151,10 @@ pub(super) fn prepare(
     Ok(Prepared {
         correlation,
         attempt_id,
-        endpoint,
+        endpoint: match route {
+            RequestRoute::Pane(endpoint) => Some(endpoint),
+            RequestRoute::Inbox { .. } => None,
+        },
         payload,
         previous_request_id: prepared.previous_request_id,
     })

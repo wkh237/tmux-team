@@ -380,11 +380,18 @@ TMT_TEST_STORAGE_PROBE='{"executable":"/absolute/checkout/rust/target/debug/exam
 ```
 
 The suite covers grammar, configuration-before-effects, identity and binding
-lifecycle, role/preamble, response/receipts, exchanges/attention, talk,
+lifecycle, role/preamble, response/receipts, exchanges/attention, inbox listening, talk,
 managed skills and native installation. It uses bounded process budgets,
 task-owned files and independent SQL/schema oracles. Frozen migration fixtures
 and provenance under `test/fixtures/storage-history/` are immutable evidence;
 do not generate expected data with the implementation under test.
+
+`test/native/inbox.test.ts` owns the real no-tmux queue -> bounded listen ->
+detail/receipt -> reply -> result path. It uses isolated SQLite, verifies compact
+listen output excludes receipts and bodies, preserves participant-scoped
+acknowledgment, and starts no Office process. Rust request/storage tests own route
+validity, revision CAS, migration and indexed observation. Fake-clock unit tests
+own debounce/deadline timing without a real 15-minute wait.
 
 The tooling unit suite is independent developer-tool coverage. Its denominator
 must contain no deleted TypeScript source and must not present Rust as a
@@ -513,8 +520,9 @@ executables are not proof of release archives or public installation.
 
 ## Installed guidance source ownership
 
-`skills/tmux-team/SKILL.md` is the only installed guidance source. Verify exact
-embedded bytes, managed links, repeat no-op, backup/conflict behavior, lock
+`skills/tmux-team/SKILL.md` and `skills/tmt-inbox/SKILL.md` are the two installed
+guidance sources in one versioned bundle. Verify exact embedded bytes, sibling
+managed links, repeat no-op, backup/conflict behavior, lock
 ownership and no effects on application configuration, SQLite or tmux. Follow
 `USER-GUIDE.md` and `skills/README.md` for provider/custom-root usage; do not add
 provider-specific skill copies. Runtime/linkage proof shared by archive and raw

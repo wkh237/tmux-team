@@ -1,6 +1,56 @@
 use super::*;
 
 impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
+    pub fn queue(&mut self, attempt_id: &str) -> Result<(), RequestError<R::Error>> {
+        nonempty(attempt_id)?;
+        let clock = &self.clock;
+        let queued = self.repository.with_request_transaction(|records| {
+            let now = positive(clock())?;
+            let attempt = records
+                .find_attempt(attempt_id)?
+                .ok_or(RequestError::NotFound)?;
+            let RequestRoute::Inbox {
+                recipient_identity_id,
+            } = &attempt.route
+            else {
+                return Err(RequestError::StateInvalid);
+            };
+            if attempt.status != AttemptStatus::Prepared || now >= attempt.expires_at_ms {
+                return Err(RequestError::StateInvalid);
+            }
+            if !records.identity_is_active(recipient_identity_id)? {
+                if attempt.wait_active && !records.release_wait(attempt_id, now)? {
+                    return Err(RequestError::StateInvalid);
+                }
+                if !fail_unsent(records, &attempt, now, None)? {
+                    return Err(RequestError::StateInvalid);
+                }
+                return Ok(false);
+            }
+            let revision = reserve_recipient_revision(records, recipient_identity_id)?;
+            records.set_recipient_attention_revision(&attempt.request_id, revision)?;
+            let horizon = Some(
+                attempt
+                    .retention_expires_at_ms
+                    .max(deadline(now, METADATA_SETTLEMENT_FLOOR_MS)?),
+            );
+            if !records.update_state(
+                &attempt,
+                AttemptStatus::Queued,
+                attempt.cadence_reserved,
+                now,
+                horizon,
+            )? {
+                return Err(RequestError::StateInvalid);
+            }
+            Ok(true)
+        })?;
+        if !queued {
+            return Err(RequestError::NotFound);
+        }
+        Ok(())
+    }
+
     pub fn begin_send(&mut self, attempt_id: &str) -> Result<(), RequestError<R::Error>> {
         nonempty(attempt_id)?;
         let clock = &self.clock;
@@ -77,7 +127,10 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
             };
             if matches!(
                 attempt.status,
-                AttemptStatus::Sent | AttemptStatus::Uncertain | AttemptStatus::DefinitelyFailed
+                AttemptStatus::Sent
+                    | AttemptStatus::Queued
+                    | AttemptStatus::Uncertain
+                    | AttemptStatus::DefinitelyFailed
             ) {
                 return if attempt.status == effective {
                     Ok(())

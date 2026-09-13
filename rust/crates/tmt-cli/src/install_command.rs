@@ -17,7 +17,7 @@ fn failure(error: impl Error + 'static) -> Failure {
 }
 
 fn document(item: &InstalledSkill) -> Value {
-    let mut value = json!({"target": item.target, "changed": item.changed});
+    let mut value = json!({"skill": item.name, "target": item.target, "changed": item.changed});
     if let Some(agent) = item.agent {
         value["agent"] = agent.as_str().into();
     }
@@ -69,9 +69,10 @@ pub fn execute(
         for item in &report.installed {
             writeln!(
                 output,
-                "{} {} skill at {}",
+                "{} {} skill '{}' at {}",
                 if item.changed { "Installed" } else { "Current" },
                 item.agent.map_or("shared", |agent| agent.as_str()),
+                item.name,
                 item.target.display()
             )?;
             for backup in item.backup.iter().chain(&item.legacy_backups) {

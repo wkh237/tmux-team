@@ -71,6 +71,7 @@ fn correlation() -> Correlation {
         target: "worker".into(),
         pane: "%1".into(),
         identity: None,
+        inbox: false,
     }
 }
 
@@ -78,7 +79,7 @@ fn response(body: &str) -> FinalResponse {
     FinalResponse {
         request_id: "request-observe".into(),
         attempt_id: "attempt-observe".into(),
-        endpoint: RequestEndpoint {
+        route: tmt_core::request::RequestRoute::Pane(RequestEndpoint {
             server: ServerEvidence {
                 server_id: "server".into(),
                 socket_path: "/tmp/tmux.sock".into(),
@@ -87,7 +88,7 @@ fn response(body: &str) -> FinalResponse {
             },
             pane_id: "%1".into(),
             pane_pid: 42,
-        },
+        }),
         body: body.into(),
         body_bytes: body.len() as u64,
         submitted_at_ms: 123,

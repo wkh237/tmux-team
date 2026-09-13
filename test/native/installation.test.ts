@@ -24,6 +24,7 @@ import {
 } from '../support/cli-process.js';
 
 type InstallItem = {
+  readonly skill: string;
   readonly agent?: string;
   readonly target: string;
   readonly changed: boolean;
@@ -40,6 +41,28 @@ function canonicalSkill(): Buffer {
   return readFileSync(
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../skills/tmux-team/SKILL.md')
   );
+}
+
+function inboxSkill(): Buffer {
+  return readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../skills/tmt-inbox/SKILL.md')
+  );
+}
+
+function inboxTarget(target: string): string {
+  return path.join(path.dirname(target), 'tmt-inbox');
+}
+
+function expectedInstalled(target: string, changed: boolean, agent?: string): InstallItem[] {
+  return [
+    { ...(agent ? { agent } : {}), skill: 'tmux-team', target, changed },
+    {
+      ...(agent ? { agent } : {}),
+      skill: 'tmt-inbox',
+      target: inboxTarget(target),
+      changed,
+    },
+  ];
 }
 
 function physicalFilePath(filePath: string): string {
@@ -114,15 +137,16 @@ describe('native installation process contract', () => {
       const installed = installDocument(
         await runCli(moved, ['install', '--dir', 'moved custom skills', '--json'])
       );
-      expect(installed).toEqual({ installed: [{ target, changed: true }] });
+      expect(installed).toEqual({ installed: expectedInstalled(target, true) });
       const source = assertSkillLink(target, canonicalSkill());
+      assertSkillLink(inboxTarget(target), inboxSkill());
       const assetsRoot = path.join(realpathSync(sandbox.globalDir), 'skill-assets');
       expect(source.startsWith(`${assetsRoot}${path.sep}`)).toBe(true);
       expect(
         JSON.parse(readFileSync(path.join(sandbox.globalDir, 'skill-installations.json'), 'utf8'))
       ).toEqual({
         version: 1,
-        targets: [target],
+        targets: [inboxTarget(target), target],
       });
       assertNoExternalEffects(sandbox, logPath, baseline);
     });
@@ -211,11 +235,13 @@ describe('native installation process contract', () => {
         const target = targetFor(sandbox, provider);
 
         const first = installDocument(await runCli(sandbox, ['install', provider, '--json']));
-        expect(first).toEqual({ installed: [{ agent: provider, target, changed: true }] });
+        expect(first).toEqual({ installed: expectedInstalled(target, true, provider) });
         const source = assertSkillLink(target, expected);
+        const inboxSource = assertSkillLink(inboxTarget(target), inboxSkill());
         const second = installDocument(await runCli(sandbox, ['install', provider, '--json']));
-        expect(second).toEqual({ installed: [{ agent: provider, target, changed: false }] });
+        expect(second).toEqual({ installed: expectedInstalled(target, false, provider) });
         expect(assertSkillLink(target, expected)).toBe(source);
+        expect(assertSkillLink(inboxTarget(target), inboxSkill())).toBe(inboxSource);
         assertNoExternalEffects(sandbox, logPath, baseline);
       });
     }
@@ -233,15 +259,18 @@ describe('native installation process contract', () => {
       );
       const first = installDocument(await runCli(sandbox, ['install', 'all', '--json']));
       expect(first).toEqual({
-        installed: PROVIDERS.map((agent, index) => ({
-          agent,
-          target: targets[agent],
-          changed: [true, true, false, true, true, false][index],
-        })),
+        installed: PROVIDERS.flatMap((agent, index) =>
+          expectedInstalled(targets[agent], [true, true, false, true, true, false][index], agent)
+        ),
       });
-      for (const target of new Set(Object.values(targets))) assertSkillLink(target, expected);
+      for (const target of new Set(Object.values(targets))) {
+        assertSkillLink(target, expected);
+        assertSkillLink(inboxTarget(target), inboxSkill());
+      }
       const second = installDocument(await runCli(sandbox, ['install', 'all', '--json']));
-      expect(second.installed.map((item) => item.changed)).toEqual(PROVIDERS.map(() => false));
+      expect(second.installed.map((item) => item.changed)).toEqual(
+        PROVIDERS.flatMap(() => [false, false])
+      );
       assertNoExternalEffects(sandbox, logPath, baseline);
     });
   });
@@ -253,10 +282,11 @@ describe('native installation process contract', () => {
       writeFileSync(sandbox.localConfig, '{ malformed local config');
       const target = path.join(sandbox.home, '.agents', 'skills', 'tmux-team');
       const first = installDocument(await runCli(sandbox, ['install', '--json']));
-      expect(first).toEqual({ installed: [{ target, changed: true }] });
+      expect(first).toEqual({ installed: expectedInstalled(target, true) });
       assertSkillLink(target, expected);
+      assertSkillLink(inboxTarget(target), inboxSkill());
       const second = installDocument(await runCli(sandbox, ['install', '--json']));
-      expect(second).toEqual({ installed: [{ target, changed: false }] });
+      expect(second).toEqual({ installed: expectedInstalled(target, false) });
       assertNoExternalEffects(sandbox, logPath, baseline);
     });
   });
@@ -273,12 +303,13 @@ describe('native installation process contract', () => {
       const first = installDocument(
         await runCli(sandbox, ['install', '--dir', 'custom skills', '--json'])
       );
-      expect(first).toEqual({ installed: [{ target, changed: true }] });
+      expect(first).toEqual({ installed: expectedInstalled(target, true) });
       assertSkillLink(target, expected);
+      assertSkillLink(inboxTarget(target), inboxSkill());
       const second = installDocument(
         await runCli(sandbox, ['install', '--dir', 'custom skills', '--json'])
       );
-      expect(second).toEqual({ installed: [{ target, changed: false }] });
+      expect(second).toEqual({ installed: expectedInstalled(target, false) });
       expect(readFileSync(path.join(customRoot, 'unrelated.txt'), 'utf8')).toBe(
         'keep this sibling'
       );

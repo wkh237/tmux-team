@@ -280,6 +280,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 message: required(m, "message"),
                 originator: text(m, "identity"),
                 options: TalkOptions {
+                    inbox: flag(m, "inbox"),
                     force: flag(m, "force"),
                     detach: flag(m, "detach"),
                     delay_seconds: delay,
@@ -359,11 +360,16 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         },
         ["x", "show"] => Invocation::Exchange {
             identity: text(m, "identity"),
-            operation: ExchangeOperation::Show(required(m, "request-id")),
+            operation: ExchangeOperation::Show {
+                request_id: required(m, "request-id"),
+                incoming: flag(m, "incoming"),
+            },
         },
         ["x", "ackall"] => Invocation::Exchange {
             identity: text(m, "identity"),
-            operation: ExchangeOperation::Ackall,
+            operation: ExchangeOperation::Ackall {
+                incoming: flag(m, "incoming"),
+            },
         },
         ["x", "ack"] => Invocation::Exchange {
             identity: text(m, "identity"),
@@ -375,8 +381,31 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                     1,
                     MAX_JS_SAFE_INTEGER,
                 )?,
+                incoming: flag(m, "incoming"),
             },
         },
+        ["x", "listen"] => {
+            let timeout_seconds = text(m, "timeout")
+                .map(|v| duration(&v))
+                .transpose()?
+                .unwrap_or(900.0);
+            let debounce_seconds = text(m, "debounce")
+                .map(|v| duration(&v))
+                .transpose()?
+                .unwrap_or(10.0);
+            if !is_valid_observer_timeout_seconds(timeout_seconds)
+                || !is_valid_observer_timeout_seconds(debounce_seconds)
+            {
+                return Err("Listen timeout and debounce must be finite, positive, and no greater than 24 hours.".into());
+            }
+            Invocation::Exchange {
+                identity: text(m, "identity"),
+                operation: ExchangeOperation::Listen {
+                    timeout_seconds,
+                    debounce_seconds,
+                },
+            }
+        }
         ["reply"] => Invocation::Reply {
             request_id: request_id(m)?,
             receipt: required(m, "receipt"),
@@ -462,6 +491,8 @@ fn duration(value: &str) -> Result<f64, String> {
     let lower = value.to_ascii_lowercase();
     let (digits, divisor) = if let Some(digits) = lower.strip_suffix("ms") {
         (digits, 1000.0)
+    } else if let Some(digits) = lower.strip_suffix('m') {
+        (digits, 1.0 / 60.0)
     } else {
         (lower.strip_suffix('s').unwrap_or(&lower), 1.0)
     };
@@ -476,6 +507,6 @@ fn duration(value: &str) -> Result<f64, String> {
         return Ok(number / divisor);
     }
     Err(format!(
-        "Invalid time format: {value}. Use number (seconds) or number with ms/s suffix."
+        "Invalid time format: {value}. Use number (seconds) or number with ms/s/m suffix."
     ))
 }
