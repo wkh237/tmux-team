@@ -465,8 +465,9 @@ connection. Missing Office returns `OFFICE_NOT_INSTALLED`. Do not install it
 unless the user requests Office. Installation requires explicit consent:
 `tmt office install --yes`; updates use `tmt office upgrade`. Both accept
 `--channel stable|alpha`; a first install defaults to alpha, while later calls
-retain the recorded channel. No public Office release is available yet; do not
-invent a download URL or report a missing release as success.
+retain the recorded channel. An independently versioned public alpha companion
+is available through this verified installer; do not invent a direct download
+URL or report a failed acquisition as success.
 
 The default prefix is `~/.local`; use `tmt office --prefix <folder> ...` for
 another installation, consistently across commands. Explicit local installation
