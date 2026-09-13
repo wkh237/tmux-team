@@ -25,7 +25,8 @@ installation/identity claims, live capability/lease and current owner admission.
 Direct client grant writes are owner-only revocation; clients cannot issue or
 enlarge one. The trusted issuer also accepts scoped agent/proof retirement
 cancellation through its [pairing contract](../../contracts/office/pairing-v1.md#retirement-cancellation). This
-does not provide assignment management. Native credential consumption is owned
+supports explicit retained-block reassignment during owner approval. Native
+credential consumption is owned
 by the optional companion described below. Retained UUID blocks
 use the existing layout validator; no parallel layout/ownership document is introduced.
 
@@ -43,8 +44,8 @@ route/admission loss. Late observations and saves cannot restore disposed data.
 selection and controls. No canvas engine, generic scene framework, new global
 store or remote-state copy is introduced. Pointer selection/tile placement and
 equivalent numeric/keyboard controls edit locally; explicit Save uses the
-revision-checked Firestore transaction. Agent reassignment and native block mutation
-commands are not implemented. The contract and shared validation vectors live in `contracts/office`.
+revision-checked Firestore transaction. Native block mutation commands are not
+implemented. The contract and shared validation vectors live in `contracts/office`.
 Save confirmation and conflict inspection use one-shot transaction reads in the
 same adapter, independent of watch-channel recovery. Watch snapshots remain
 the ongoing projection, not an acknowledgment channel for explicit saves.
@@ -130,7 +131,8 @@ signing, Firestore transactions and HTTP platform integration; no custom JWT or
 database client is introduced. Its [pairing contract](../../contracts/office/pairing-v1.md)
 owns the wire format and recovery policy.
 
-`pairing-contract` owns bounded value decoding; `pairing-store` owns transactional
+`pairing-contract` owns bounded wire decoding; `pairing-record` owns strict
+persisted pairing/grant decoding and timestamp shape. `pairing-store` owns transactional
 approval/grant state, compare-expiry lease renewal and live owner admission.
 `pairing-service` verifies human approval/revocation, bound-agent renewal or
 reduction-only agent/proof cancellation
@@ -171,6 +173,16 @@ requires explicit recognition before approval. Existing session/admission and
 selected-world owners gate the route; unmount fences late completions without
 claiming to cancel submitted writes. Skip-to-content focuses the main landmark
 without overwriting the request fragment. The browser cannot claim agent tokens.
+
+The approval form reuses `SpacePort` and its disposable one-page state to select
+a disabled grant's retained block. Selection is separate from the native link
+and freezes after the first attempt; retries cannot silently change assignment.
+The issuer records immutable source intent on the pairing and reserves the
+disabled source grant in the same transaction. Its transfer receipt prevents
+concurrent or ancestral reuse; only a verified abandoned unclaimed reservation
+may be superseded. Grant validation remains shared with claim and renewal.
+No block content, profile or notebook is copied. The exact transition belongs in
+[pairing v1](../../contracts/office/pairing-v1.md#retained-block-reassignment).
 
 ### Public deployment discovery
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   parseApproval,
   parseClaim,
+  parseOwnerApproval,
   parseRenewal,
   parseRevocation,
 } from '../src/pairing-contract.js';
@@ -37,6 +38,25 @@ describe('pairing input contract', () => {
     expect(() =>
       parseRenewal({ version: 1, pairingId: approval.pairingId, grantExpiresAt: 1, extra: true })
     ).toThrow('INVALID_ARGUMENT');
+  });
+  it('keeps the owner replacement selector outside the native request contract', () => {
+    const principal = 'office-agent:00000000-0000-4000-8000-000000000099';
+    expect(parseOwnerApproval({ ...approval, replacesPrincipalUid: principal })).toEqual({
+      request: approval,
+      replacesPrincipalUid: principal,
+    });
+    expect(() => parseApproval({ ...approval, replacesPrincipalUid: principal })).toThrow(
+      'INVALID_ARGUMENT'
+    );
+    for (const replacesPrincipalUid of [
+      '00000000-0000-4000-8000-000000000099',
+      'office-agent:BAD',
+      null,
+      undefined,
+    ])
+      expect(() => parseOwnerApproval({ ...approval, replacesPrincipalUid })).toThrow(
+        'INVALID_ARGUMENT'
+      );
   });
   it.each([
     { ownerUid: 'self-grant' },

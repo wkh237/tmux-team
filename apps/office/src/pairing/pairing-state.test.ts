@@ -24,6 +24,27 @@ function fixture() {
   return { port, state: createPairingState(port, request, 'owner') };
 }
 
+it('freezes a copied assignment choice before uncertain approval and keeps it through retry', async () => {
+  const { port, state } = fixture();
+  const selection = { principalUid: binding.principalUid, blockId: binding.blockId };
+  state.selectReplacement(selection);
+  selection.blockId = request.identityId;
+  vi.mocked(port.approve).mockRejectedValueOnce(new PairingActionError('uncertain'));
+  await state.approve();
+  state.selectReplacement(null);
+  await state.approve();
+  expect(port.approve).toHaveBeenCalledTimes(2);
+  for (const call of vi.mocked(port.approve).mock.calls)
+    expect(call).toEqual([
+      request,
+      'owner',
+      { principalUid: binding.principalUid, blockId: binding.blockId },
+    ]);
+  state.dispose();
+  state.selectReplacement(selection);
+  expect(state.getSnapshot().replacement).toBeNull();
+});
+
 it('viewing is read-only; concurrent actions serialize and uncertain approval retries preserve the request', async () => {
   const { port, state } = fixture();
   expect(port.approve).not.toHaveBeenCalled();

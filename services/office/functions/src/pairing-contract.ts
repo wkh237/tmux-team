@@ -26,6 +26,11 @@ export interface Approval {
   capabilities: ['layout.read'] | ['layout.read', 'layout.write'];
 }
 
+export interface OwnerApproval {
+  request: Approval;
+  replacesPrincipalUid?: string;
+}
+
 export interface Renewal {
   version: 1;
   pairingId: string;
@@ -38,6 +43,8 @@ export const RENEWAL_WINDOW_MS = 5 * 60_000;
 export const CLAIM_INTERVAL_MS = 5000;
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const PAIRING_ID = /^[0-9a-f]{64}$/;
+export const PRINCIPAL_UID =
+  /^office-agent:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const MAX_TIMESTAMP_MS = 8_640_000_000_000_000;
 
 export function object(value: unknown): Record<string, unknown> {
@@ -112,6 +119,24 @@ export function parseApproval(input: unknown): Approval {
     identityLabel: value.identityLabel,
     capabilities: capabilities.length === 1 ? ['layout.read'] : ['layout.read', 'layout.write'],
   };
+}
+
+/** Owner-only selection kept outside the strict native request contract. */
+export function parseOwnerApproval(input: unknown): OwnerApproval {
+  const value = object(input);
+  const hasReplacement = Object.hasOwn(value, 'replacesPrincipalUid');
+  const replacesPrincipalUid = hasReplacement ? value.replacesPrincipalUid : undefined;
+  const requestValue = { ...value };
+  delete requestValue.replacesPrincipalUid;
+  const request = parseApproval(requestValue);
+  if (
+    hasReplacement &&
+    (typeof replacesPrincipalUid !== 'string' || !PRINCIPAL_UID.test(replacesPrincipalUid))
+  )
+    throw new PairingError('INVALID_ARGUMENT');
+  return replacesPrincipalUid === undefined
+    ? { request }
+    : { request, replacesPrincipalUid: replacesPrincipalUid as string };
 }
 
 export function parseClaim(input: unknown): string {

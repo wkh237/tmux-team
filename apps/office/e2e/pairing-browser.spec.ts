@@ -4,7 +4,12 @@ import type { Page } from '@playwright/test';
 import { signInWithCustomToken } from 'firebase/auth';
 import { doc, getDocFromServer, setDoc, serverTimestamp } from 'firebase/firestore';
 import { test, signIn } from './browser-session.js';
-import { createFirestoreFixture, setTester } from './firestore-fixture.js';
+import {
+  createFirestoreFixture,
+  setTester,
+  writeAgentGrantFields,
+  writeBlockFields,
+} from './firestore-fixture.js';
 import { createPairingEmulatorFixture } from '../../../services/office/functions/test/emulator-fixture.js';
 
 const endpoint = 'http://127.0.0.1:5001/demo-tmt-office/us-central1/officePairing';
@@ -137,6 +142,141 @@ test('explicit browser consent issues usable scoped access and revocation preser
     } finally {
       await admin.dispose();
     }
+  }
+});
+
+test('owner pages retained spaces, submits only the source principal and freezes retry intent', async ({
+  openSession,
+}, info) => {
+  const admin = createPairingEmulatorFixture();
+  try {
+    const worldId = admin.db.collection('worlds').doc().id;
+    const { request, url } = requestFor(worldId);
+    const { page } = await openSession(url);
+    const ownerUid = await admitOwner(page, admin.db, worldId);
+    const sourcePrincipal = 'office-agent:ffffffff-ffff-4fff-8fff-ffffffffffff';
+    const sourceBlock = crypto.randomUUID();
+    const sourceIdentity = crypto.randomUUID();
+    const sourceInstallation = crypto.randomUUID();
+    const sourceFields = {
+      version: { integerValue: '1' },
+      ownerUid: { stringValue: ownerUid },
+      installationId: { stringValue: sourceInstallation },
+      identityId: { stringValue: sourceIdentity },
+      blockId: { stringValue: sourceBlock },
+      capabilities: {
+        arrayValue: { values: [{ stringValue: 'layout.read' }, { stringValue: 'layout.write' }] },
+      },
+      enabled: { booleanValue: false },
+      createdAt: { timestampValue: new Date(Date.now() - 120_000).toISOString() },
+      expiresAt: { timestampValue: new Date(Date.now() - 60_000).toISOString() },
+    };
+    for (let index = 0; index < 20; index++) {
+      await writeAgentGrantFields(
+        worldId,
+        `office-agent:00000000-0000-4000-8000-${index.toString().padStart(12, '0')}`,
+        {
+          ...sourceFields,
+          installationId: { stringValue: crypto.randomUUID() },
+          identityId: { stringValue: crypto.randomUUID() },
+          blockId: { stringValue: crypto.randomUUID() },
+        }
+      );
+    }
+    await writeAgentGrantFields(worldId, sourcePrincipal, sourceFields);
+    await writeBlockFields(worldId, sourceBlock, {
+      version: { integerValue: '1' },
+      revision: { integerValue: '1' },
+      objects: { arrayValue: { values: [{ stringValue: 'd000' }] } },
+      updatedAt: { timestampValue: new Date().toISOString() },
+    });
+    const sourceRef = admin.db
+      .collection('worlds')
+      .doc(worldId)
+      .collection('agentGrants')
+      .doc(sourcePrincipal);
+    const blockRef = admin.db
+      .collection('worlds')
+      .doc(worldId)
+      .collection('blocks')
+      .doc(sourceBlock);
+    const sourceBefore = (await sourceRef.get()).data()!;
+    const blockBefore = (await blockRef.get()).data()!;
+
+    await page.getByRole('button', { name: 'Refresh retained spaces', exact: true }).click();
+    await expect(
+      page.getByRole('button', { name: 'Next retained spaces', exact: true })
+    ).toBeEnabled();
+    await page.getByRole('button', { name: 'Next retained spaces', exact: true }).click();
+    const retained = page.getByRole('radio', {
+      name: new RegExp(`Retained block ${sourceBlock} · Previous identity ${sourceIdentity}`),
+    });
+    await expect(retained).toBeVisible();
+    await retained.check();
+    await expect(
+      page.getByRole('radio', { name: 'New empty block', exact: true })
+    ).not.toBeChecked();
+    await page.getByRole('checkbox', { name: 'I recognize this agent and installation.' }).check();
+    await page.screenshot({
+      path: info.outputPath('retained-pairing-desktop.png'),
+      fullPage: true,
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: info.outputPath('retained-pairing-narrow.png'), fullPage: true });
+
+    const firstRequest = page.waitForRequest(
+      (outgoing) => outgoing.url() === `${endpoint}/approve` && outgoing.method() === 'POST'
+    );
+    await page.route(
+      '**/officePairing/approve',
+      async (route) => {
+        const response = await route.fetch();
+        expect(response.status()).toBe(200);
+        await route.abort();
+      },
+      { times: 1 }
+    );
+    await page.getByRole('button', { name: 'Approve pairing', exact: true }).click();
+    const firstOutgoing = await firstRequest;
+    expect(firstOutgoing.postDataJSON()).toEqual({
+      ...request,
+      replacesPrincipalUid: sourcePrincipal,
+    });
+    await expect(page.getByRole('alert')).toContainText('may already have completed');
+    await expect(
+      page.getByText(`Selected retained block: ${sourceBlock} · Source grant: ${sourcePrincipal}`, {
+        exact: true,
+      })
+    ).toBeVisible();
+    await expect(
+      page.getByText('The choice is fixed for this request. Retry keeps the same assignment.', {
+        exact: true,
+      })
+    ).toBeVisible();
+    await expect(page.getByRole('radio', { name: /Retained block/ })).toHaveCount(0);
+    await expect(page.getByRole('radio', { name: 'New empty block', exact: true })).toBeDisabled();
+
+    const retryRequest = page.waitForRequest(
+      (outgoing) => outgoing.url() === `${endpoint}/approve` && outgoing.method() === 'POST'
+    );
+    await page.getByRole('button', { name: 'Retry same approval', exact: true }).click();
+    expect((await retryRequest).postDataJSON()).toEqual({
+      ...request,
+      replacesPrincipalUid: sourcePrincipal,
+    });
+    await expect(page.getByRole('status').filter({ hasText: 'Approved. Return' })).toBeVisible();
+    const pairing = (
+      await admin.db.collection('officePairings').doc(request.pairingId).get()
+    ).data()!;
+    expect(pairing.blockId).toBe(sourceBlock);
+    expect(pairing.replacesPrincipalUid).toBe(sourcePrincipal);
+    expect((await sourceRef.get()).data()).toEqual({
+      ...sourceBefore,
+      replacedByPairingId: request.pairingId,
+    });
+    expect((await blockRef.get()).data()).toEqual(blockBefore);
+  } finally {
+    await admin.dispose();
   }
 });
 

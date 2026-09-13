@@ -20,8 +20,27 @@ export interface ApprovedPairing extends PairingRequest {
 }
 
 export interface PairingPort {
-  approve(request: PairingRequest, ownerUid: string): Promise<ApprovedPairing>;
+  approve(
+    request: PairingRequest,
+    ownerUid: string,
+    replacement?: PairingReplacement
+  ): Promise<ApprovedPairing>;
   revoke(pairingId: string, ownerUid: string): Promise<void>;
+}
+
+/** Owner-selected intent, never part of the native request fragment. */
+export interface PairingReplacement {
+  principalUid: string;
+  blockId: string;
+}
+
+export function validatePairingReplacement(value: PairingReplacement): void {
+  if (
+    !value.principalUid.startsWith('office-agent:') ||
+    !UUID.test(value.principalUid.slice('office-agent:'.length)) ||
+    !UUID.test(value.blockId)
+  )
+    invalid();
 }
 
 export class PairingActionError extends Error {
@@ -30,7 +49,8 @@ export class PairingActionError extends Error {
       {
         denied: 'Pairing was denied. Check your account and current access.',
         unavailable: 'This request is unavailable or expired. Request a new pairing link.',
-        conflict: 'This challenge already has a different approved binding. Request a new link.',
+        conflict:
+          'The assignment conflicts with an existing approval or transfer. Keep the same choice when retrying; otherwise request a new link.',
         uncertain:
           'The service could not confirm the result. Keep this link and retry the same action; a submitted change may already have completed.',
       }[kind]

@@ -2,8 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import { signInWithCustomToken } from 'firebase/auth';
 import { doc, getDocFromServer, setDoc, serverTimestamp } from 'firebase/firestore';
-import { createWorldPort } from '../src/worlds/firebase-worlds.js';
-import { createFirestoreFixture, setTester } from './firestore-fixture.js';
+import { setTester } from './firestore-fixture.js';
 import {
   parseClaim,
   parseApproval,
@@ -12,68 +11,7 @@ import {
 } from '../../../services/office/functions/src/pairing-contract.js';
 import { createPairingStore } from '../../../services/office/functions/src/pairing-store.js';
 import { createPairingService } from '../../../services/office/functions/src/pairing-service.js';
-import { createPairingEmulatorFixture } from '../../../services/office/functions/test/emulator-fixture.js';
-
-const endpoint = 'http://127.0.0.1:5001/demo-tmt-office/us-central1/officePairing';
-
-async function post(operation: string, input: unknown, token?: string) {
-  const response = await fetch(`${endpoint}/${operation}`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify(input),
-    signal: AbortSignal.timeout(10_000),
-  });
-  expect(response.headers.get('cache-control')).toBe('no-store');
-  return { status: response.status, body: (await response.json()) as Record<string, unknown> };
-}
-
-function field(body: Record<string, unknown>, key: string): string {
-  const value = body[key];
-  if (typeof value !== 'string' || !value) throw new Error(`Missing response field ${key}`);
-  return value;
-}
-
-async function withPairing(run: (context: Awaited<ReturnType<typeof setup>>) => Promise<void>) {
-  const fixture = await createFirestoreFixture();
-  const admin = createPairingEmulatorFixture();
-  try {
-    await run(await setup(fixture, admin.db, admin.auth));
-  } finally {
-    try {
-      await fixture.dispose();
-    } finally {
-      await admin.dispose();
-    }
-  }
-}
-
-async function setup(
-  fixture: Awaited<ReturnType<typeof createFirestoreFixture>>,
-  db: ReturnType<typeof createPairingEmulatorFixture>['db'],
-  auth: ReturnType<typeof createPairingEmulatorFixture>['auth']
-) {
-  const owner = await fixture.client(true);
-  const worlds = createWorldPort(owner.db);
-  const world = worlds.draft('Pairing workshop');
-  await worlds.create(world, owner.uid);
-  const secret = randomBytes(32).toString('base64url');
-  const pairingId = parseClaim({ version: 1, secret });
-  const request = {
-    version: 1,
-    pairingId,
-    worldId: world.id,
-    installationId: crypto.randomUUID(),
-    identityId: crypto.randomUUID(),
-    installationLabel: 'Test installation',
-    identityLabel: 'Alice',
-    capabilities: ['layout.read', 'layout.write'],
-  };
-  const token = await owner.auth.currentUser!.getIdToken();
-  return { fixture, db, auth, owner, world, secret, request, token };
-}
+import { endpoint, field, post, withPairing } from './pairing-service-fixture.js';
 
 test('HTTP approval and proof claim produce an actually usable scoped credential', async () => {
   await withPairing(async ({ fixture, db, owner, world, secret, request, token }) => {

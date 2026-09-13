@@ -340,10 +340,13 @@ test('owner revocation is one-way, denies cached credentials and retains the exa
         { capabilities: ['layout.read'] },
         { expiresAt: serverTimestamp() },
         { enabled: false, blockId: crypto.randomUUID() },
+        { replacedByPairingId: '0'.repeat(64) },
+        { replacedByPairingId: 'not-a-pairing-id' },
       ])
         await denied(updateDoc(ownerGrant, changes));
       expect((await getDocFromServer(ownerGrant)).data()).toEqual(grant);
       await updateDoc(ownerGrant, { enabled: false });
+      await denied(updateDoc(ownerGrant, { replacedByPairingId: '0'.repeat(64) }));
       await denied(getDocFromServer(agentBlock));
       await denied(setDoc(agentBlock, layout(2)));
       await denied(updateDoc(ownerGrant, { enabled: true }));

@@ -27,6 +27,18 @@ it('keeps revoked and expired records visible without inferring presence or auth
   });
   expect(readAgentSpace(principal, { ...value, enabled: true }, 'owner').enabled).toBe(true);
 });
+
+it('projects only a disabled grant with an exact valid transfer receipt', () => {
+  const receipt = { ...value, replacedByPairingId: 'a'.repeat(64) };
+  expect(readAgentSpace(principal, receipt, 'owner').replacedByPairingId).toBe('a'.repeat(64));
+  for (const patch of [
+    { enabled: true },
+    { replacedByPairingId: null },
+    { replacedByPairingId: 'x' },
+    { extra: 1 },
+  ])
+    expect(() => readAgentSpace(principal, { ...receipt, ...patch }, 'owner')).toThrow();
+});
 it('rejects incomplete, expanded, wrong-owner and malformed authority projections', () => {
   for (const key of Object.keys(value)) {
     const incomplete: Record<string, unknown> = { ...value };

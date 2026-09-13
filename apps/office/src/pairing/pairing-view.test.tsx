@@ -9,9 +9,10 @@ import { createWorldState } from '../worlds/world-state.js';
 import { createOfficeRouter } from '../router.js';
 import { OfficeApp } from '../office-app.js';
 import type { ApprovedPairing, PairingRequest, PairingPort } from './pairing-contract.js';
+import type { SpacePort, SpacePage } from '../spaces/space-contract.js';
 import vectors from '../../../../contracts/office/pairing-examples.json' with { type: 'json' };
 
-async function fixture(change: Record<string, unknown> = {}) {
+async function fixture(change: Record<string, unknown> = {}, spaces?: SpacePort) {
   const request = { ...vectors.valid[0], ...change } as PairingRequest;
   const world = { id: request.worldId, name: 'Private studio', ownerUid: 'owner', createdAtMs: 1 };
   let identity: (user: SessionUser | null) => void = () => {};
@@ -55,7 +56,7 @@ async function fixture(change: Record<string, unknown> = {}) {
     createMemoryHistory({ initialEntries: [`/worlds/${world.id}/pair#${fragment}`] })
   );
   const view = render(
-    <OfficeApp router={router} session={session} worlds={worlds} pairing={port} />
+    <OfficeApp router={router} session={session} worlds={worlds} pairing={port} spaces={spaces} />
   );
   return {
     port,
@@ -70,6 +71,54 @@ async function fixture(change: Record<string, unknown> = {}) {
     },
   };
 }
+
+it('pages revoked spaces without approving, then fixes explicit selection across uncertain retry', async () => {
+  const id = '00000000-0000-4000-8000-000000000004';
+  const source = {
+    principalUid: `office-agent:${id}`,
+    identityId: id,
+    installationId: id,
+    blockId: id,
+    capabilities: ['layout.read'] as ['layout.read'],
+    enabled: false,
+    expiresAtMs: 1000,
+  };
+  const spaces: SpacePort = {
+    list: vi
+      .fn()
+      .mockResolvedValueOnce({ entries: [{ ...source, enabled: true }], next: source.principalUid })
+      .mockResolvedValueOnce({ entries: [source], next: null }),
+    block: () => {
+      throw new Error('Approval must not open or mutate a block');
+    },
+  };
+  const f = await fixture({}, spaces);
+  try {
+    const user = userEvent.setup();
+    await screen.findByText('No revoked grants on this page.');
+    expect(f.port.approve).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Next retained spaces' }));
+    await user.click(await screen.findByRole('radio', { name: /Retained block/ }));
+    expect(spaces.list).toHaveBeenLastCalledWith(f.request.worldId, 'owner', source.principalUid);
+    vi.mocked(f.port.approve).mockRejectedValueOnce(new Error('Lost response'));
+    await user.click(screen.getByRole('checkbox'));
+    await user.click(screen.getByRole('button', { name: 'Approve pairing' }));
+    await screen.findByText(/The choice is fixed/);
+    const fresh = screen.getByRole('radio', { name: 'New empty block' });
+    await user.click(fresh);
+    await user.click(screen.getByRole('button', { name: 'Retry same approval' }));
+    await screen.findByText(/Approved\. Return/);
+    expect(f.port.approve).toHaveBeenCalledTimes(2);
+    for (const call of vi.mocked(f.port.approve).mock.calls)
+      expect(call).toEqual([
+        f.request,
+        'owner',
+        { principalUid: source.principalUid, blockId: id },
+      ]);
+  } finally {
+    await f.dispose();
+  }
+});
 
 it('requires explicit recognition, renders labels as text and never approves just by viewing', async () => {
   const f = await fixture({ identityLabel: '<img src=x onerror=alert(1)>' });
@@ -125,13 +174,45 @@ it.each(['admission', 'route'] as const)(
   }
 );
 
-it('secret-bearing input fails before any approval operation', async () => {
-  const f = await fixture({ secret: 'must-not-be-accepted' });
+it.each(['secret', 'replacesPrincipalUid'])(
+  'native link field %s fails before any approval operation',
+  async (field) => {
+    const f = await fixture({ [field]: 'must-not-be-accepted' });
+    try {
+      await screen.findByText(/Invalid pairing link/);
+      expect(screen.queryByRole('button', { name: 'Approve pairing' })).toBeNull();
+      expect(f.port.approve).not.toHaveBeenCalled();
+      expect(f.port.revoke).not.toHaveBeenCalled();
+    } finally {
+      await f.dispose();
+    }
+  }
+);
+
+it('late retained-space results cannot restore a departed approval view', async () => {
+  let finish: (page: SpacePage) => void = () => {};
+  const spaces: SpacePort = {
+    list: vi.fn(
+      () =>
+        new Promise<SpacePage>((resolve) => {
+          finish = resolve;
+        })
+    ),
+    block: () => {
+      throw new Error('No block access');
+    },
+  };
+  const f = await fixture({}, spaces);
   try {
-    await screen.findByText(/Invalid pairing link/);
-    expect(screen.queryByRole('button', { name: 'Approve pairing' })).toBeNull();
+    await screen.findByText('Loading retained spaces…');
+    await act(async () => {
+      f.revokeAdmission();
+    });
+    await act(async () => {
+      finish({ entries: [], next: null });
+    });
+    expect(screen.queryByRole('group', { name: 'Assigned block' })).toBeNull();
     expect(f.port.approve).not.toHaveBeenCalled();
-    expect(f.port.revoke).not.toHaveBeenCalled();
   } finally {
     await f.dispose();
   }

@@ -2,6 +2,7 @@ import {
   parseApprovedPairing,
   parseRevokedPairing,
   PairingActionError,
+  validatePairingReplacement,
 } from './pairing-contract.js';
 import type { PairingPort } from './pairing-contract.js';
 
@@ -74,8 +75,19 @@ export function createPairingPort(
     }
   }
   return {
-    async approve(request, ownerUid) {
-      return parseApprovedPairing(await post('approve', request, ownerUid), request);
+    async approve(request, ownerUid, replacement) {
+      if (replacement) validatePairingReplacement(replacement);
+      const input = replacement
+        ? { ...request, replacesPrincipalUid: replacement.principalUid }
+        : request;
+      const approved = parseApprovedPairing(await post('approve', input, ownerUid), request);
+      if (
+        replacement &&
+        (approved.blockId !== replacement.blockId ||
+          approved.principalUid === replacement.principalUid)
+      )
+        throw new PairingActionError('uncertain');
+      return approved;
     },
     async revoke(pairingId, ownerUid) {
       parseRevokedPairing(await post('revoke', { version: 1, pairingId }, ownerUid), pairingId);
