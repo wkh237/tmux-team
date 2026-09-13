@@ -90,6 +90,110 @@ fn office_pairing_has_bounded_typed_options_and_retains_unqualified_status() {
 }
 
 #[test]
+fn office_board_grammar_preserves_exact_inputs_and_actor_category_choices() {
+    use crate::invocation::{
+        BoardActorSelection, BoardCategorySelection, OfficeBoardOperation, OfficeOperation,
+    };
+    assert_eq!(
+        parsed(&[
+            "office",
+            "board",
+            "post",
+            "--repo",
+            "origin",
+            "--identity",
+            "Alice",
+            "--title",
+            "--literal",
+            "--body",
+            "line\ttext",
+            "--operation-id",
+            "11111111-1111-4111-8111-111111111111"
+        ])
+        .invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Board(OfficeBoardOperation::Post {
+                category: BoardCategorySelection::Repository("origin".into()),
+                actor: BoardActorSelection::Identity(Some("Alice".into())),
+                title: "--literal".into(),
+                body: ContentInput::Inline("line\ttext".into()),
+                operation_id: Some("11111111-1111-4111-8111-111111111111".into())
+            })
+        }
+    );
+    assert_eq!(
+        parsed(&[
+            "office",
+            "board",
+            "reply",
+            "22222222-2222-4222-8222-222222222222",
+            "--owner",
+            "--file",
+            "-"
+        ])
+        .invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Board(OfficeBoardOperation::Reply {
+                thread_id: "22222222-2222-4222-8222-222222222222".into(),
+                actor: BoardActorSelection::Owner,
+                body: ContentInput::Stdin,
+                operation_id: None
+            })
+        }
+    );
+    for argv in [
+        &[
+            "office",
+            "board",
+            "post",
+            "--general",
+            "--owner",
+            "--title",
+            "t",
+        ] as &[&str],
+        &[
+            "office",
+            "board",
+            "post",
+            "--general",
+            "--repo",
+            "origin",
+            "--owner",
+            "--title",
+            "t",
+            "--body",
+            "b",
+        ],
+        &[
+            "office",
+            "board",
+            "post",
+            "--general",
+            "--owner",
+            "--identity",
+            "Alice",
+            "--title",
+            "t",
+            "--body",
+            "b",
+        ],
+        &[
+            "office",
+            "board",
+            "edit",
+            "11111111-1111-4111-8111-111111111111",
+            "--owner",
+            "--if-revision",
+            "1",
+        ],
+    ] {
+        assert!(parse(&args(argv)).is_err(), "accepted {argv:?}");
+    }
+}
+
+#[test]
 fn office_prefix_is_scoped_to_its_subtree_and_file_inputs_are_paired() {
     use crate::invocation::OfficeOperation;
     for input in [

@@ -3,9 +3,10 @@
 This internal local protocol is separate from the proposed remote work-handoff
 schema. It grants no Office access and does not replace pairing.
 
-The core-owned `OfficeInvocation` has exact operations `probe`, `pair-begin`,
+The core-owned `OfficeInvocation` has exact operations `probe`, `capabilities`, `pair-begin`,
 `pair-poll`, `pair-status`, `unpair`, `inspect`, `sync`, `block-show`, `block-apply`,
-`local-block-show` and `local-block-apply`. Its argument vector is
+`local-block-show`, `local-block-apply`, `board-post`, `board-list`, `board-show`,
+`board-reply`, `board-edit`, `board-delete` and `board-categories`. Its argument vector is
 `__tmt-office`, `1`, `<operation>`. Unknown versions, operations,
 extra arguments and non-UTF-8 arguments fail with exit 1, empty stdout and a brief
 stderr diagnostic. There is no arbitrary argv forwarding or shell evaluation.
@@ -23,6 +24,27 @@ five-second execution deadline. Success requires exit 0, empty stderr, an exact
 supported handshake and a version matching the verified receipt or candidate
 artifact during pre-activation validation.
 The fixed header identifies this explicit child response, never terminal scrollback.
+
+The additive `capabilities` operation leaves those probe bytes unchanged. Its
+only accepted response is the bounded exact text below:
+
+```text
+TMT-OFFICE-CAPABILITIES/1
+office_board_v1
+```
+
+Before any board dispatch the CLI selects one verified immutable release and
+directly executes this versioned capability check against that selected executable;
+it does not need to run the legacy version probe first. It requires the exact known value. Missing,
+duplicate, malformed or unknown capabilities fail as `OFFICE_INCOMPATIBLE` with
+no board operation launch. Old CLIs continue to use only the unchanged probe;
+new CLIs fail closed against old companions. Capability support is not inferred
+from package semver.
+
+Board requests use bounded JSON up to 64 KiB and responses up to 512 KiB so a
+maximum reply page can carry its validated exact text. The companion JSON adapter
+maps them to the single `office_board` domain/repository owner; it does not create
+a second board policy or allow an unverified executable.
 
 Only a verified owned release or staged candidate may be probed. The installer
 lock protects active-release verification and child launch, not the subsequent

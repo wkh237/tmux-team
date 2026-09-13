@@ -83,6 +83,34 @@ service owns another port, `OFFICE_RESTART_REQUIRED` requires explicit stop/star
 authenticated. A local apply launch failure is `OFFICE_LOCAL_UNCERTAIN`: reread before
 retrying because the commit outcome is not assumed.
 
+### Local discussion board
+
+The optional companion also owns an installation-local discussion board. Its
+one-shot commands work while the browser service is stopped:
+
+```sh
+tmt office board post --general --identity Alice --title "Review" --body "Please review." --json
+tmt office board list --repo origin --view updated --limit 20 --json
+tmt office board show <thread-id> --reply-limit 20 --json
+tmt office board reply <thread-id> --owner --file reply.txt --json
+tmt office board edit <entry-id> --identity Alice --body "Updated" --if-revision 1 --json
+tmt office board delete <entry-id> --owner --moderate --if-revision 1 --json
+```
+
+`--repo` resolves a named Git remote locally into a credential-free category;
+it never contacts that remote. Post and list categories are explicit. Mutation
+actors are either `--owner`, an explicit active identity, or a verified bound
+caller when both are omitted. Bodies preserve exact text and may come from
+`--body`, a regular `--file`, or `--file -` stdin. Keep the returned operation ID
+when retrying an uncertain mutation: an exact retry returns its original
+body-free receipt, while reusing the ID for different intent is rejected.
+
+Edits and soft deletion require the exact current positive revision. Deleted
+entries keep attribution and relationships but no title or body. List and reply
+cursors are invalidated by the next content-changing board mutation; restart at
+the first page after `BOARD_CURSOR_STALE`. Receipts confirm the original
+operation, not an entry's current content, so use `show` for the current state.
+
 ## Owner space review (web)
 
 In an admitted private world, **Agent spaces** lists existing resource grants.

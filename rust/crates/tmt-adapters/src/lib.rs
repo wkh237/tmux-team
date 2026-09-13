@@ -15,6 +15,7 @@ pub mod native_install;
 pub mod notes;
 #[cfg(unix)]
 pub mod office_block;
+pub mod office_board;
 #[cfg(unix)]
 pub mod office_companion;
 #[cfg(feature = "office")]
@@ -32,6 +33,8 @@ pub mod process;
 #[cfg(unix)]
 mod release_http;
 pub mod reply_receipt;
+#[cfg(unix)]
+pub mod repository_remote;
 pub mod request_runtime;
 #[cfg(unix)]
 pub mod response_input;

@@ -1,6 +1,25 @@
 import { createContext } from 'react';
 import { BlockConflict, validLayout } from '../blocks/block-contract.js';
 import type { Block, BlockPort, Furniture } from '../blocks/block-contract.js';
+import {
+  decodeBoardList,
+  decodeBoardShow,
+  decodeCategoryPage,
+  decodeDeleteReceipt,
+  decodeEditReceipt,
+  decodePostReceipt,
+  decodeReplyReceipt,
+} from './board-contract.js';
+import type {
+  BoardActor,
+  BoardCategory,
+  BoardCategoryPage,
+  BoardCreateReceipt,
+  BoardDeleteReceipt,
+  BoardEditReceipt,
+  BoardListPage,
+  BoardShowPage,
+} from './board-contract.js';
 
 export interface LocalBlockProjection {
   exists: true;
@@ -14,15 +33,64 @@ export interface LocalBlockProjection {
 
 export interface LocalRuntime {
   blocks: BlockPort;
+  board: LocalBoardPort;
   list(): Promise<LocalBlockProjection[]>;
   dispose(): void;
 }
 
+export interface BoardListInput {
+  category: BoardCategory;
+  view?: 'recent' | 'updated';
+  author?: BoardActor;
+  sinceMs?: number;
+  limit?: number;
+  cursor?: string;
+}
+
+export interface LocalBoardPort {
+  categories(input?: { limit?: number; cursor?: string }): Promise<BoardCategoryPage>;
+  list(input: BoardListInput): Promise<BoardListPage>;
+  show(input: {
+    threadId: string;
+    replyLimit?: number;
+    replyCursor?: string;
+  }): Promise<BoardShowPage>;
+  post(input: {
+    category: BoardCategory;
+    title: string;
+    body: string;
+    operationId: string;
+  }): Promise<BoardCreateReceipt>;
+  reply(input: {
+    threadId: string;
+    body: string;
+    operationId: string;
+  }): Promise<BoardCreateReceipt>;
+  edit(input: {
+    entryId: string;
+    title?: string;
+    body?: string;
+    ifRevision: number;
+    operationId: string;
+  }): Promise<BoardEditReceipt>;
+  delete(input: {
+    entryId: string;
+    ifRevision: number;
+    moderate: boolean;
+    operationId: string;
+  }): Promise<BoardDeleteReceipt>;
+}
+
 export const LocalRuntimeContext = createContext<LocalRuntime | undefined>(undefined);
 
-class HttpError extends Error {
-  constructor(readonly status: number) {
-    super(`Local Office request failed (${status}).`);
+export class LocalHttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code?: string
+  ) {
+    super(
+      code ? `Local Office request failed (${code}).` : `Local Office request failed (${status}).`
+    );
   }
 }
 
@@ -59,6 +127,28 @@ export function startLocalRuntime(location: Location): LocalRuntime {
       lifetime?.removeEventListener('abort', abort);
       controllers.delete(controller);
     }
+  }
+  function checked<T>(response: Response, value: unknown, decode: (value: unknown) => T): T {
+    if (!response.ok) {
+      const code =
+        value && typeof value === 'object' && !Array.isArray(value)
+          ? (value as Record<string, unknown>).error
+          : undefined;
+      throw new LocalHttpError(response.status, typeof code === 'string' ? code : undefined);
+    }
+    return decode(value);
+  }
+  async function boardRequest<T>(
+    path: string,
+    method: 'POST' | 'PUT' | 'DELETE',
+    body: unknown,
+    decode: (value: unknown) => T
+  ): Promise<T> {
+    const { response, value } = await jsonRequest(path, {
+      method,
+      body: JSON.stringify(body),
+    });
+    return checked(response, value, decode);
   }
   function decode(value: unknown): LocalBlockProjection {
     if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -100,7 +190,7 @@ export function startLocalRuntime(location: Location): LocalRuntime {
             undefined,
             lifetime.signal
           );
-          if (!response.ok) throw new HttpError(response.status);
+          if (!response.ok) throw new LocalHttpError(response.status);
           const block = decode(value);
           if (!active || disposed) return;
           changed({
@@ -111,7 +201,7 @@ export function startLocalRuntime(location: Location): LocalRuntime {
           delay = 2_000;
         } catch (error) {
           if (!active || disposed) return;
-          if (error instanceof HttpError && [401, 403, 404, 421].includes(error.status)) {
+          if (error instanceof LocalHttpError && [401, 403, 404, 421].includes(error.status)) {
             active = false;
             failed();
             lifetime.abort();
@@ -142,11 +232,50 @@ export function startLocalRuntime(location: Location): LocalRuntime {
       return { revision: block.revision, objects: block.objects, updatedAtMs: block.updatedAtMs };
     },
   };
+  const board: LocalBoardPort = {
+    categories(input = {}) {
+      return boardRequest('/api/v1/local/board/categories/list', 'POST', input, decodeCategoryPage);
+    },
+    list(input) {
+      return boardRequest('/api/v1/local/board/threads/list', 'POST', input, decodeBoardList);
+    },
+    show(input) {
+      return boardRequest('/api/v1/local/board/threads/show', 'POST', input, decodeBoardShow);
+    },
+    post(input) {
+      return boardRequest('/api/v1/local/board/threads', 'POST', input, decodePostReceipt);
+    },
+    reply({ threadId, ...input }) {
+      return boardRequest(
+        `/api/v1/local/board/threads/${encodeURIComponent(threadId)}/replies`,
+        'POST',
+        input,
+        decodeReplyReceipt
+      );
+    },
+    edit({ entryId, ...input }) {
+      return boardRequest(
+        `/api/v1/local/board/entries/${encodeURIComponent(entryId)}`,
+        'PUT',
+        input,
+        decodeEditReceipt
+      );
+    },
+    delete({ entryId, ...input }) {
+      return boardRequest(
+        `/api/v1/local/board/entries/${encodeURIComponent(entryId)}`,
+        'DELETE',
+        input,
+        decodeDeleteReceipt
+      );
+    },
+  };
   return {
     blocks,
+    board,
     async list() {
       const { response, value } = await jsonRequest('/api/v1/local/blocks');
-      if (!response.ok) throw new HttpError(response.status);
+      if (!response.ok) throw new LocalHttpError(response.status);
       if (!Array.isArray(value)) throw new Error('Invalid local Office projection.');
       return value.map(decode);
     },

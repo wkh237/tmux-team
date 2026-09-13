@@ -69,6 +69,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "add searchable identity metadata",
         sql: include_str!("schema/013.sql"),
     },
+    Migration {
+        name: "add local Office discussion board",
+        sql: include_str!("schema/014.sql"),
+    },
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

@@ -18,6 +18,7 @@ use tmt_adapters::{
     office_service::{self, ServiceReceipt},
     storage::{LocalOfficeError, Storage},
 };
+use tmt_core::office_protocol::OfficeInvocation;
 
 use crate::local_assets;
 
@@ -273,6 +274,9 @@ fn api(
             br#"{"error":"UNAUTHORIZED"}"#,
         );
     }
+    if request.path.starts_with("/api/v1/local/board/") {
+        return board_api(stream, request, paths, receipt);
+    }
     if request.method == "GET" && request.path == "/api/v1/local/blocks" {
         let mut storage = match Storage::open(&paths.database) {
             Ok(storage) => storage,
@@ -398,6 +402,99 @@ fn api(
         );
     }
     response(stream, status, "application/json", &body)
+}
+
+fn board_api(
+    stream: &mut TcpStream,
+    request: Request,
+    paths: &ConfigPaths,
+    receipt: &ServiceReceipt,
+) -> io::Result<()> {
+    let origin = format!("http://127.0.0.1:{}", receipt.port);
+    let (operation, value) = match prepare_board_request(&request, &origin) {
+        Ok(value) => value,
+        Err((status, body)) => return response(stream, status, "application/json", body),
+    };
+    let body = tmt_adapters::office_board::execute_at(
+        operation,
+        &serde_json::to_vec(&value)?,
+        &paths.database,
+    );
+    let code = serde_json::from_slice::<Value>(&body)
+        .ok()
+        .and_then(|v| v.get("error").and_then(Value::as_str).map(str::to_owned));
+    let status = match code.as_deref() {
+        None => 200,
+        Some("BOARD_THREAD_NOT_FOUND" | "BOARD_ENTRY_NOT_FOUND") => 404,
+        Some("BOARD_FORBIDDEN") => 403,
+        Some(
+            "BOARD_REVISION_CONFLICT"
+            | "BOARD_IDEMPOTENCY_CONFLICT"
+            | "BOARD_CURSOR_INVALID"
+            | "BOARD_CURSOR_STALE",
+        ) => 409,
+        Some("BOARD_INVALID") => 400,
+        _ => 500,
+    };
+    response(stream, status, "application/json", &body)
+}
+
+fn prepare_board_request(
+    request: &Request,
+    origin: &str,
+) -> Result<(OfficeInvocation, Value), (u16, &'static [u8])> {
+    if request.header("origin") != Some(origin)
+        || request
+            .header("content-type")
+            .is_none_or(|value| value.split(';').next() != Some("application/json"))
+    {
+        return Err((403, br#"{"error":"ORIGIN_REJECTED"}"#));
+    }
+    let (operation, actor, path_id) = match (request.method.as_str(), request.path.as_str()) {
+        ("POST", "/api/v1/local/board/categories/list") => {
+            (OfficeInvocation::BoardCategories, false, None)
+        }
+        ("POST", "/api/v1/local/board/threads/list") => (OfficeInvocation::BoardList, false, None),
+        ("POST", "/api/v1/local/board/threads/show") => (OfficeInvocation::BoardShow, false, None),
+        ("POST", "/api/v1/local/board/threads") => (OfficeInvocation::BoardPost, true, None),
+        ("POST", path)
+            if path.starts_with("/api/v1/local/board/threads/") && path.ends_with("/replies") =>
+        {
+            let id = &path[28..path.len() - 8];
+            (OfficeInvocation::BoardReply, true, Some(("threadId", id)))
+        }
+        ("PUT", path) if path.starts_with("/api/v1/local/board/entries/") => (
+            OfficeInvocation::BoardEdit,
+            true,
+            Some(("entryId", &path[28..])),
+        ),
+        ("DELETE", path) if path.starts_with("/api/v1/local/board/entries/") => (
+            OfficeInvocation::BoardDelete,
+            true,
+            Some(("entryId", &path[28..])),
+        ),
+        _ => return Err((404, br#"{"error":"NOT_FOUND"}"#)),
+    };
+    let mut value: Value = match serde_json::from_slice(&request.body) {
+        Ok(Value::Object(object)) => Value::Object(object),
+        _ => {
+            return Err((400, br#"{"error":"BOARD_INVALID"}"#));
+        }
+    };
+    let object = value.as_object_mut().expect("validated object");
+    if actor {
+        object.insert("actor".into(), json!({"kind":"owner"}));
+    }
+    if let Some((key, id)) = path_id {
+        if uuid::Uuid::parse_str(id)
+            .ok()
+            .is_none_or(|parsed| parsed.to_string() != id)
+        {
+            return Err((404, br#"{"error":"NOT_FOUND"}"#));
+        }
+        object.insert(key.into(), json!(id));
+    }
+    Ok((operation, value))
 }
 
 fn read_request(stream: &mut TcpStream, deadline: Instant) -> io::Result<Request> {
@@ -551,6 +648,170 @@ mod tests {
         let result = read_request(&mut stream, Instant::now() + REQUEST_DEADLINE);
         sender.join().unwrap();
         result
+    }
+
+    fn board_request(method: &str, path: &str, body: Value) -> Request {
+        Request {
+            method: method.into(),
+            path: path.into(),
+            headers: vec![
+                ("Origin".into(), "http://127.0.0.1:1234".into()),
+                ("Content-Type".into(), "application/json".into()),
+            ],
+            body: serde_json::to_vec(&body).unwrap(),
+        }
+    }
+
+    #[test]
+    fn board_routes_are_exact_and_browser_authority_overwrites_spoofs() {
+        let id = "11111111-1111-4111-8111-111111111111";
+        for (method, path, operation) in [
+            (
+                "POST",
+                "/api/v1/local/board/categories/list",
+                OfficeInvocation::BoardCategories,
+            ),
+            (
+                "POST",
+                "/api/v1/local/board/threads/list",
+                OfficeInvocation::BoardList,
+            ),
+            (
+                "POST",
+                "/api/v1/local/board/threads/show",
+                OfficeInvocation::BoardShow,
+            ),
+            (
+                "POST",
+                "/api/v1/local/board/threads",
+                OfficeInvocation::BoardPost,
+            ),
+            (
+                "POST",
+                &format!("/api/v1/local/board/threads/{id}/replies"),
+                OfficeInvocation::BoardReply,
+            ),
+            (
+                "PUT",
+                &format!("/api/v1/local/board/entries/{id}"),
+                OfficeInvocation::BoardEdit,
+            ),
+            (
+                "DELETE",
+                &format!("/api/v1/local/board/entries/{id}"),
+                OfficeInvocation::BoardDelete,
+            ),
+        ] {
+            let request = board_request(
+                method,
+                path,
+                json!({"actor":{"kind":"identity"},"threadId":"22222222-2222-4222-8222-222222222222","entryId":"22222222-2222-4222-8222-222222222222"}),
+            );
+            let (actual, value) = prepare_board_request(&request, "http://127.0.0.1:1234").unwrap();
+            assert_eq!(actual, operation);
+            if matches!(
+                operation,
+                OfficeInvocation::BoardPost
+                    | OfficeInvocation::BoardReply
+                    | OfficeInvocation::BoardEdit
+                    | OfficeInvocation::BoardDelete
+            ) {
+                assert_eq!(value["actor"], json!({"kind":"owner"}));
+            }
+            if matches!(operation, OfficeInvocation::BoardReply) {
+                assert_eq!(value["threadId"], id);
+            }
+            if matches!(
+                operation,
+                OfficeInvocation::BoardEdit | OfficeInvocation::BoardDelete
+            ) {
+                assert_eq!(value["entryId"], id);
+            }
+        }
+    }
+
+    #[test]
+    fn board_routes_require_exact_origin_json_uuid_and_known_route() {
+        let mut request = board_request("POST", "/api/v1/local/board/categories/list", json!({}));
+        request.headers.clear();
+        assert_eq!(
+            prepare_board_request(&request, "http://127.0.0.1:1234")
+                .unwrap_err()
+                .0,
+            403
+        );
+        for path in [
+            "/api/v1/local/board/unknown",
+            "/api/v1/local/board/entries/not-a-uuid",
+        ] {
+            assert_eq!(
+                prepare_board_request(
+                    &board_request("PUT", path, json!({})),
+                    "http://127.0.0.1:1234"
+                )
+                .unwrap_err()
+                .0,
+                404
+            );
+        }
+    }
+
+    fn call_api(request: Request, paths: &ConfigPaths, receipt: &ServiceReceipt) -> String {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let receiver = thread::spawn(move || {
+            let mut stream = TcpStream::connect(address).unwrap();
+            let mut bytes = Vec::new();
+            stream.read_to_end(&mut bytes).unwrap();
+            String::from_utf8(bytes).unwrap()
+        });
+        let (mut stream, _) = listener.accept().unwrap();
+        api(&mut stream, request, paths, receipt).unwrap();
+        drop(stream);
+        receiver.join().unwrap()
+    }
+
+    #[test]
+    fn authenticated_http_board_survives_handler_restart_and_storage_reopen() {
+        let root = std::env::temp_dir().join(format!("tmt-board-http-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let paths = ConfigPaths::resolve(&root, &root, Some(&root), None);
+        let receipt = ServiceReceipt {
+            schema_version: 1,
+            pid: std::process::id(),
+            port: 1234,
+            nonce: "n".into(),
+            browser_token: "browser".into(),
+            control_token: "control".into(),
+            running_version: "test".into(),
+        };
+        let headers = || {
+            vec![
+                ("Authorization".into(), "Bearer browser".into()),
+                ("Origin".into(), "http://127.0.0.1:1234".into()),
+                ("Content-Type".into(), "application/json".into()),
+            ]
+        };
+        let post=Request{method:"POST".into(),path:"/api/v1/local/board/threads".into(),headers:headers(),body:serde_json::to_vec(&json!({"category":{"kind":"general"},"actor":{"kind":"identity","identityId":"11111111-1111-4111-8111-111111111111","name":"spoof"},"title":"hello","body":"body","operationId":"22222222-2222-4222-8222-222222222222"})).unwrap()};
+        let posted = call_api(post, &paths, &receipt);
+        assert!(posted.starts_with("HTTP/1.1 200"));
+        let body = posted.split("\r\n\r\n").nth(1).unwrap();
+        let value: Value = serde_json::from_str(body).unwrap();
+        let thread = value["threadId"].as_str().unwrap();
+        let show = Request {
+            method: "POST".into(),
+            path: "/api/v1/local/board/threads/show".into(),
+            headers: headers(),
+            body: serde_json::to_vec(
+                &json!({"threadId":thread,"replyLimit":20,"replyCursor":null}),
+            )
+            .unwrap(),
+        };
+        let shown = call_api(show, &paths, &receipt);
+        assert!(shown.starts_with("HTTP/1.1 200"));
+        assert!(shown.contains("\"title\":\"hello\""));
+        assert!(shown.contains("\"kind\":\"owner\""));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

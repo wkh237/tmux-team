@@ -105,6 +105,22 @@ the adapter accepts only exact IPv4 loopback requests. This is a local browser
 adapter, not a work connector: it does not receive or dispatch remote work and
 does not execute CLI work.
 
+The local discussion board follows the same companion boundary without sharing
+the block model. `tmt-core::office_board` owns its bounded values, actors,
+receipts and cursor policy; schema 14 and `storage::office_board` own the single
+board revision, exact-UUID/owner revalidation, soft deletion, retry receipts and
+indexed pagination. CLI calls use the verified companion one-shot protocol and
+remain independent of the running web service. Authenticated loopback routes use
+the same operations with a fixed Owner actor. Category discovery projects one
+synthetic general category and distinct repository IDs from stored root threads;
+it is not a registry and does not inspect Git from the browser.
+The original `TMT-OFFICE/1` version probe remains byte-for-byte compatible.
+Board calls additionally require the separate exact, bounded version-1
+capabilities probe to advertise `office_board_v1` before dispatch. An older,
+malformed, duplicate or unknown-only capability response fails as incompatible
+without attempting the mutation; capability support is never inferred from the
+package version.
+
 There is no work connector, deployed service or shared browser runtime package yet.
 The independently versioned native `tmt-office` companion currently implements
 the [typed local protocol](../../contracts/office/native-companion.md), including

@@ -344,6 +344,7 @@ fn office_commands() -> Command {
                         ),
                 )),
         )
+        .subcommand(office_board_commands())
         .subcommand(office_scope(
             office(
                 "inspect",
@@ -398,6 +399,123 @@ fn office_commands() -> Command {
             )
             .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue)),
         )
+}
+
+fn office_board_commands() -> Command {
+    let category = |command: Command| {
+        command
+            .arg(Arg::new("repo").long("repo"))
+            .arg(
+                Arg::new("general")
+                    .long("general")
+                    .action(ArgAction::SetTrue),
+            )
+            .group(
+                clap::ArgGroup::new("board-category")
+                    .args(["repo", "general"])
+                    .required(true),
+            )
+    };
+    let actor = |command: Command| {
+        command
+            .arg(option("identity"))
+            .arg(Arg::new("owner").long("owner").action(ArgAction::SetTrue))
+            .group(clap::ArgGroup::new("board-actor").args(["identity", "owner"]))
+    };
+    let body = |command: Command, required: bool| {
+        command
+            .arg(Arg::new("body").long("body").allow_hyphen_values(true))
+            .arg(Arg::new("file").long("file").allow_hyphen_values(true))
+            .group(
+                clap::ArgGroup::new("board-body")
+                    .args(["body", "file"])
+                    .required(required),
+            )
+    };
+    let operation = |command: Command| command.arg(Arg::new("operation-id").long("operation-id"));
+    let revision = |command: Command| {
+        command.arg(
+            Arg::new("if-revision")
+                .long("if-revision")
+                .required(true)
+                .value_parser(clap::value_parser!(u64).range(1..)),
+        )
+    };
+    office("board", "Use the local Office discussion board")
+        .subcommand(operation(body(
+            actor(
+                category(office("post", "Post a board thread")).arg(
+                    Arg::new("title")
+                        .long("title")
+                        .required(true)
+                        .allow_hyphen_values(true),
+                ),
+            ),
+            true,
+        )))
+        .subcommand(category(
+            office("list", "List board threads")
+                .arg(
+                    Arg::new("view")
+                        .long("view")
+                        .default_value("recent")
+                        .value_parser(["recent", "updated"]),
+                )
+                .arg(
+                    Arg::new("author-id")
+                        .long("author-id")
+                        .conflicts_with("owner"),
+                )
+                .arg(Arg::new("owner").long("owner").action(ArgAction::SetTrue))
+                .arg(Arg::new("since").long("since"))
+                .arg(
+                    Arg::new("board-limit")
+                        .long("limit")
+                        .default_value("20")
+                        .value_parser(clap::value_parser!(u32).range(1..=50)),
+                )
+                .arg(Arg::new("cursor").long("cursor")),
+        ))
+        .subcommand(
+            office("show", "Show a board thread")
+                .arg(operand("thread-id", true))
+                .arg(
+                    Arg::new("reply-limit")
+                        .long("reply-limit")
+                        .default_value("20")
+                        .value_parser(clap::value_parser!(u32).range(1..=50)),
+                )
+                .arg(Arg::new("reply-cursor").long("reply-cursor")),
+        )
+        .subcommand(operation(body(
+            actor(office("reply", "Reply to a board thread").arg(operand("thread-id", true))),
+            true,
+        )))
+        .subcommand(operation(revision(
+            body(
+                actor(
+                    office("edit", "Edit a board entry")
+                        .arg(operand("entry-id", true))
+                        .arg(Arg::new("title").long("title").allow_hyphen_values(true)),
+                ),
+                false,
+            )
+            .group(
+                clap::ArgGroup::new("board-edit-fields")
+                    .args(["title", "body", "file"])
+                    .required(true),
+            ),
+        )))
+        .subcommand(operation(revision(actor(
+            office("delete", "Delete a board entry")
+                .arg(operand("entry-id", true))
+                .arg(
+                    Arg::new("moderate")
+                        .long("moderate")
+                        .requires("owner")
+                        .action(ArgAction::SetTrue),
+                ),
+        ))))
 }
 
 fn office_block_scope(command: Command) -> Command {

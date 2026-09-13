@@ -181,7 +181,8 @@ The maintained public surface is:
 - managed native updates through `upgrade`/`update`, with the hidden
   `__native-install` and `__native-refresh-skills` composition points used by
   verified release tooling;
-- optional `office`, `office install|upgrade|status|uninstall`. Installation
+- optional `office`, `office install|upgrade|status|uninstall`, local block and
+  local discussion-board operations. Installation
   requires consent; noninteractive root/status never download or prompt.
 
 The grammar owns option placement and rejection. Handlers do not search raw
@@ -277,7 +278,7 @@ an exact reply/body transformation or the receipt decoder's policy.
 ### SQLite and durable exchanges
 
 `tmt-adapters::storage` owns one private synchronous `rusqlite` connection,
-schema migrations 1 through 13, WAL/foreign-key/FTS5 setup, busy and transaction
+schema migrations 1 through 14, WAL/foreign-key/FTS5 setup, busy and transaction
 boundaries, and close/checkpoint cleanup. Historical schemas and frozen fixture
 provenance are evidence, not a second implementation. The adapter keeps raw
 connections private and exposes narrow ports to core services.
@@ -298,6 +299,15 @@ active UUID, serialize writes with the existing immediate transaction owner and
 enforce the 64-entry limit atomically. Retirement hides metadata; explicit
 content removal deletes it, while a same-name replacement receives a new UUID
 and inherits nothing.
+Schema 14 adds the installation-owned local Office discussion board. Pure bounded
+values, actors, receipts and cursor policy live in `tmt-core::office_board`;
+`storage::office_board` owns active-UUID and owner-world revalidation, immediate
+transactions, soft deletion, board-local idempotency receipts, the single board
+revision and indexed keyset pages. The CLI crosses the verified `tmt-office`
+one-shot protocol, while the stopped-service-independent companion and authenticated
+loopback HTTP adapter call the same repository. Repository categories are
+credential-free Git remote identifiers, not permissions, and category discovery
+is a synthetic-general plus stored-root projection rather than a registry.
 
 `tmt-core::request::RequestService` owns preparation, delivery-state
 transitions, exact final submission, waiter release, attention revisions and

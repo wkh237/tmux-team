@@ -4,7 +4,9 @@ use std::{
     io::{self, Read, Write},
     process::ExitCode,
 };
-use tmt_core::office_protocol::{OfficeInvocation, encode_office_probe};
+use tmt_core::office_protocol::{
+    OfficeInvocation, encode_office_capabilities, encode_office_probe,
+};
 
 #[cfg(feature = "local-service")]
 mod local_assets;
@@ -54,15 +56,33 @@ fn main() -> ExitCode {
                 .lock()
                 .write_all(encode_office_probe(&version).as_bytes())
         }
+        Ok(OfficeInvocation::Capabilities) => io::stdout()
+            .lock()
+            .write_all(encode_office_capabilities().as_bytes()),
         Ok(operation) => {
             let mut input = Vec::new();
-            match io::stdin().lock().take(4097).read_to_end(&mut input) {
+            match io::stdin()
+                .lock()
+                .take(input_sentinel_limit(operation))
+                .read_to_end(&mut input)
+            {
                 Ok(_) => {
                     let output = if matches!(
                         operation,
                         OfficeInvocation::LocalBlockShow | OfficeInvocation::LocalBlockApply
                     ) {
                         tmt_adapters::office_local::execute(operation, &input)
+                    } else if matches!(
+                        operation,
+                        OfficeInvocation::BoardPost
+                            | OfficeInvocation::BoardList
+                            | OfficeInvocation::BoardShow
+                            | OfficeInvocation::BoardReply
+                            | OfficeInvocation::BoardEdit
+                            | OfficeInvocation::BoardDelete
+                            | OfficeInvocation::BoardCategories
+                    ) {
+                        tmt_adapters::office_board::execute(operation, &input)
                     } else {
                         tmt_adapters::office_pairing::execute(operation, &input)
                     };
@@ -79,5 +99,40 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(_) => ExitCode::FAILURE,
+    }
+}
+
+fn input_sentinel_limit(operation: OfficeInvocation) -> u64 {
+    if matches!(
+        operation,
+        OfficeInvocation::BoardPost
+            | OfficeInvocation::BoardList
+            | OfficeInvocation::BoardShow
+            | OfficeInvocation::BoardReply
+            | OfficeInvocation::BoardEdit
+            | OfficeInvocation::BoardDelete
+            | OfficeInvocation::BoardCategories
+    ) {
+        65_537
+    } else {
+        4_097
+    }
+}
+
+#[cfg(test)]
+mod input_limit_tests {
+    use super::*;
+    #[test]
+    fn legacy_operations_remain_4k_and_board_operations_are_64k() {
+        assert_eq!(input_sentinel_limit(OfficeInvocation::PairBegin), 4_097);
+        assert_eq!(
+            input_sentinel_limit(OfficeInvocation::LocalBlockApply),
+            4_097
+        );
+        assert_eq!(input_sentinel_limit(OfficeInvocation::BoardPost), 65_537);
+        assert_eq!(
+            input_sentinel_limit(OfficeInvocation::BoardCategories),
+            65_537
+        );
     }
 }
