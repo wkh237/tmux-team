@@ -88,6 +88,30 @@ fn concurrent_first_access_has_one_creator() {
         .collect::<Vec<_>>();
     assert_eq!(reports.iter().filter(|report| report.created).count(), 1);
     assert!(reports.windows(2).all(|pair| pair[0].path == pair[1].path));
+
+    let notes_file = &reports[0].path;
+    assert!(fs::symlink_metadata(notes_file).unwrap().is_file());
+    assert_eq!(fs::read(notes_file).unwrap(), b"");
+    fs::write(notes_file, b"# concurrent sentinel\n").unwrap();
+    let inode = fs::metadata(notes_file).unwrap().ino();
+    let repeat_barrier = Arc::new(Barrier::new(8));
+    let repeats = (0..8)
+        .map(|_| {
+            let paths = paths.clone();
+            let barrier = repeat_barrier.clone();
+            thread::spawn(move || {
+                barrier.wait();
+                initialize(&paths, &identity_id()).unwrap()
+            })
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .map(|handle| handle.join().unwrap())
+        .collect::<Vec<_>>();
+    assert!(repeats.iter().all(|report| !report.created));
+    assert!(repeats.iter().all(|report| report.path == *notes_file));
+    assert_eq!(fs::metadata(notes_file).unwrap().ino(), inode);
+    assert_eq!(fs::read(notes_file).unwrap(), b"# concurrent sentinel\n");
 }
 
 #[test]
@@ -96,16 +120,36 @@ fn rejects_symlink_and_nonregular_targets_without_touching_them() {
     let paths = paths(&directory);
     fs::create_dir(&paths.global_dir).unwrap();
     let notes = paths.global_dir.join("notes");
-    let sentinel = directory.path.join("sentinel");
+    let outside = directory.path.join("outside");
+    fs::create_dir(&outside).unwrap();
+    let sentinel = outside.join("sentinel");
     fs::write(&sentinel, b"untouched").unwrap();
-    symlink(&sentinel, &notes).unwrap();
+    symlink(&outside, &notes).unwrap();
     assert!(initialize(&paths, &identity_id()).is_err());
     assert_eq!(fs::read(&sentinel).unwrap(), b"untouched");
 
     fs::remove_file(&notes).unwrap();
     fs::create_dir(&notes).unwrap();
     let identity_dir = notes.join(identity_id().as_str());
+    symlink(&outside, &identity_dir).unwrap();
+    assert!(initialize(&paths, &identity_id()).is_err());
+    assert_eq!(fs::read(&sentinel).unwrap(), b"untouched");
+    assert!(!outside.join("notes.md").exists());
+
+    fs::remove_file(&identity_dir).unwrap();
     fs::create_dir(&identity_dir).unwrap();
-    fs::create_dir(identity_dir.join("notes.md")).unwrap();
+    let notes_file = identity_dir.join("notes.md");
+    symlink(&sentinel, &notes_file).unwrap();
+    assert!(initialize(&paths, &identity_id()).is_err());
+    assert_eq!(fs::read(&sentinel).unwrap(), b"untouched");
+
+    fs::remove_file(&notes_file).unwrap();
+    let missing = outside.join("missing.md");
+    symlink(&missing, &notes_file).unwrap();
+    assert!(initialize(&paths, &identity_id()).is_err());
+    assert!(!missing.exists());
+
+    fs::remove_file(&notes_file).unwrap();
+    fs::create_dir(&notes_file).unwrap();
     assert!(initialize(&paths, &identity_id()).is_err());
 }

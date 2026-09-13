@@ -122,9 +122,30 @@ describe('saved identity notes path', () => {
         };
       });
       expect(documents.filter((document) => document.created)).toHaveLength(1);
-      expect(new Set(documents.map((document) => document.path))).toEqual(
-        new Set([path.join(sandbox.globalDir, 'notes', identity.id, 'notes.md')])
+      const expected = path.join(sandbox.globalDir, 'notes', identity.id, 'notes.md');
+      expect(new Set(documents.map((document) => document.path))).toEqual(new Set([expected]));
+      expect(lstatSync(expected).isFile()).toBe(true);
+      expect(readFileSync(expected)).toEqual(Buffer.alloc(0));
+
+      const sentinel = Buffer.from('# concurrent sentinel\n');
+      writeFileSync(expected, sentinel);
+      const inode = statSync(expected).ino;
+      const repeats = await Promise.all(
+        Array.from({ length: 8 }, () =>
+          runCli(sandbox, ['notes', 'path', '--identity', identity.name, '--json'])
+        )
       );
+      for (const result of repeats) {
+        expect(result.status).toBe(0);
+        expect(result.stderr).toBe('');
+        expect(parseWholeStdout(result)).toEqual({
+          identityId: identity.id,
+          path: expected,
+          created: false,
+        });
+      }
+      expect(statSync(expected).ino).toBe(inode);
+      expect(readFileSync(expected)).toEqual(sentinel);
     });
   });
 
@@ -268,8 +289,53 @@ describe('saved identity notes path', () => {
 
       rmSync(notesRoot);
       const identityDir = path.join(notesRoot, identity.id);
-      mkdirSync(identityDir, { recursive: true });
+      mkdirSync(notesRoot);
+      symlinkSync(outside, identityDir);
+      const linkedIdentity = await runCli(sandbox, [
+        'notes',
+        'path',
+        '--identity',
+        identity.name,
+        '--json',
+      ]);
+      expect(linkedIdentity.status).toBe(1);
+      expectError(linkedIdentity, 'NOTES_IO_ERROR');
+      expect(readFileSync(path.join(outside, 'sentinel'), 'utf8')).toBe('untouched');
+      expect(existsSync(path.join(outside, 'notes.md'))).toBe(false);
+
+      rmSync(identityDir);
+      mkdirSync(identityDir);
       const target = path.join(identityDir, 'notes.md');
+      const sentinel = path.join(outside, 'sentinel');
+      symlinkSync(sentinel, target);
+      const linkedFile = await runCli(sandbox, [
+        'notes',
+        'path',
+        '--identity',
+        identity.name,
+        '--json',
+      ]);
+      expect(linkedFile.status).toBe(1);
+      expectError(linkedFile, 'NOTES_IO_ERROR');
+      expect(lstatSync(target).isSymbolicLink()).toBe(true);
+      expect(readFileSync(sentinel, 'utf8')).toBe('untouched');
+
+      rmSync(target);
+      const missing = path.join(outside, 'missing.md');
+      symlinkSync(missing, target);
+      const danglingFile = await runCli(sandbox, [
+        'notes',
+        'path',
+        '--identity',
+        identity.name,
+        '--json',
+      ]);
+      expect(danglingFile.status).toBe(1);
+      expectError(danglingFile, 'NOTES_IO_ERROR');
+      expect(lstatSync(target).isSymbolicLink()).toBe(true);
+      expect(existsSync(missing)).toBe(false);
+
+      rmSync(target);
       mkdirSync(target);
       const nonregular = await runCli(sandbox, [
         'notes',
