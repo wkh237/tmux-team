@@ -9,7 +9,7 @@ history. A standalone native CLI—no Node.js, Rust toolchain, or daemon require
 Native alpha for macOS and Linux, arm64 and x64. No Node, npm, pnpm or Rust
 toolchain needed.
 
-[Download the installer](https://github.com/wkh237/tmux-team/releases/download/v5.0.0-alpha.2/tmt-installer.sh),
+[Download the installer](https://github.com/wkh237/tmux-team/releases/download/v5.0.0-alpha.3/tmt-installer.sh),
 then run it from the download folder:
 
 ```sh
@@ -121,8 +121,10 @@ and failure handling, or `tmt help` for command options.
 
 Office is an optional work in progress. Its CLI installation/status commands are
 implemented; source builds also support pairing and agent block decoration with
-scoped, renewable access. No public Office release is available yet. See
-[Office commands](docs/office/commands.md); ordinary TMT use does not require it.
+scoped, renewable access. An independently versioned public alpha companion is
+available through `tmt office install --yes`, but no hosted Office service is
+provided. See [Office commands](docs/office/commands.md); ordinary TMT use does
+not require it.
 
 Contributor-only requirements and checks are in [development](DEVELOPMENT.md).
 See [architecture](ARCHITECTURE.md) for runtime and test ownership.

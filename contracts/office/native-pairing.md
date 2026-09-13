@@ -1,7 +1,9 @@
 # Native pairing v1
 
-Implementation contract for native pairing, renewal and retirement hooks. Source builds implement deployment discovery,
-pairing and protected credential use; no public Office release is published.
+Implementation contract for native pairing, renewal and retirement hooks. The
+public Office alpha and source builds implement deployment discovery, pairing
+and protected credential use; no hosted Office service or production Firebase
+deployment is provided.
 [Approval and claim](pairing-v1.md) owns remote proof/consent semantics.
 
 ## Deployment discovery

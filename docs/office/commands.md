@@ -3,9 +3,10 @@
 ## Implemented local installation
 
 The CLI exposes `office install`, `upgrade`, `status` and `uninstall`. Office is
-optional and independently versioned; no public Office release is available yet.
-Source builds and explicit local archives can exercise this boundary. Do not
-confuse successful local installation with pairing or a running connector.
+optional and independently versioned. A public alpha companion is available
+through the verified online installer; source builds and explicit local archives
+can also exercise this boundary. Do not confuse successful local installation
+with pairing or a running connector.
 
 ```sh
 tmt office install --yes
@@ -47,8 +48,9 @@ deleted content. This editor does not change assignment or recover credentials.
 ## Native pairing (source builds)
 
 Pairing requires an installed compatible companion and an unlocked OS credential
-store (macOS Keychain or Linux Secret Service). No public Office release is
-published yet. Select a world and an existing identity explicitly outside tmux:
+store (macOS Keychain or Linux Secret Service). No hosted Office service or
+production Firebase deployment is provided. Select a world and an existing
+identity explicitly outside tmux:
 
 ```sh
 tmt office pair --world https://office.example/worlds/abcdefghijklmnopqrst --identity Alice
