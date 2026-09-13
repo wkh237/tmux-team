@@ -165,6 +165,165 @@ fn office_sync_is_install_scoped_not_active_identity_scoped() {
 }
 
 #[test]
+fn office_block_commands_are_typed_and_scoped() {
+    use crate::invocation::{OfficeBlockOperation, OfficeOperation};
+    let world = "https://office.example/worlds/abcdefghijklmnopqrst";
+    assert_eq!(
+        parsed(&["office", "block", "show", "--world", world]).invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Block {
+                world: world.into(),
+                identity: None,
+                emulator: false,
+                operation: OfficeBlockOperation::Show { block_id: None },
+            },
+        }
+    );
+    assert_eq!(
+        parsed(&[
+            "office",
+            "block",
+            "show",
+            "block-123",
+            "--world",
+            world,
+            "--identity",
+            "Alice",
+            "--emulator",
+            "--json",
+        ])
+        .invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Block {
+                world: world.into(),
+                identity: Some("Alice".into()),
+                emulator: true,
+                operation: OfficeBlockOperation::Show {
+                    block_id: Some("block-123".into()),
+                },
+            },
+        }
+    );
+    assert_eq!(
+        parsed(&[
+            "office",
+            "block",
+            "apply",
+            "block-123",
+            "--world",
+            world,
+            "--file",
+            "layout.json",
+            "--if-revision",
+            "7",
+        ])
+        .invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Block {
+                world: world.into(),
+                identity: None,
+                emulator: false,
+                operation: OfficeBlockOperation::Apply {
+                    block_id: Some("block-123".into()),
+                    file: "layout.json".into(),
+                    if_revision: 7,
+                },
+            },
+        }
+    );
+    let max_revision = tmt_core::office_block::MAX_REVISION.to_string();
+    let max_minus_one = (tmt_core::office_block::MAX_REVISION - 1).to_string();
+    assert_eq!(
+        parsed(&[
+            "office",
+            "block",
+            "apply",
+            "--world",
+            world,
+            "--file",
+            "layout.json",
+            "--if-revision",
+            &max_minus_one,
+        ])
+        .invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Block {
+                world: world.into(),
+                identity: None,
+                emulator: false,
+                operation: OfficeBlockOperation::Apply {
+                    block_id: None,
+                    file: "layout.json".into(),
+                    if_revision: tmt_core::office_block::MAX_REVISION - 1,
+                },
+            },
+        }
+    );
+    for input in [
+        vec!["office", "block", "show"],
+        vec![
+            "office",
+            "block",
+            "apply",
+            "--world",
+            world,
+            "--file",
+            "layout.json",
+        ],
+        vec![
+            "office",
+            "block",
+            "apply",
+            "--world",
+            world,
+            "--if-revision",
+            "7",
+        ],
+        vec![
+            "office",
+            "block",
+            "apply",
+            "--world",
+            world,
+            "--file",
+            "layout.json",
+            "--if-revision",
+            "-1",
+        ],
+        vec![
+            "office",
+            "block",
+            "apply",
+            "--world",
+            world,
+            "--file",
+            "layout.json",
+            "--if-revision",
+            &max_revision,
+        ],
+        vec![
+            "office",
+            "block",
+            "show",
+            "--world",
+            world,
+            "--file",
+            "layout.json",
+        ],
+    ] {
+        assert_eq!(
+            parse_error(&input).code,
+            "USAGE_ERROR",
+            "arguments: {input:?}"
+        );
+    }
+}
+
+#[test]
 fn native_upgrade_alias_and_selection_share_one_typed_contract() {
     for command in ["upgrade", "update"] {
         let invocation = parsed(&[

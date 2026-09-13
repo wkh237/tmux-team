@@ -13,6 +13,7 @@ mod install_command;
 mod invocation;
 mod native_install_command;
 mod native_upgrade_command;
+mod office_block_command;
 mod office_command;
 mod office_pairing_command;
 mod output;

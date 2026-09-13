@@ -71,7 +71,8 @@ status is local-only and returns `unpaired`, `pending`, `credential`, `expired` 
 with `serverAuthorizationChecked: false`. Inspect performs a server-authorized
 read of the assigned block, not a world-wide index. Its result is
 `blockExists: true|false` with `serverAuthorizationChecked: true`; it does not
-return or interpret layout contents. Missing pairing fails `OFFICE_NOT_PAIRED`.
+return layout contents. It reuses the validated block reader; malformed stored
+layouts are errors, not usable-space confirmation. Missing pairing fails `OFFICE_NOT_PAIRED`.
 
 A stable installation UUID is independent of release receipts and binary prefixes:
 one logical installation per ConfigPaths root. Only that public UUID and scope

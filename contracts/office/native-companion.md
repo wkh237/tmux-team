@@ -4,7 +4,7 @@ This internal local protocol is separate from the proposed remote work-handoff
 schema. It grants no Office access and does not replace pairing.
 
 The core-owned `OfficeInvocation` has exact operations `probe`, `pair-begin`,
-`pair-poll`, `pair-status`, `unpair`, `inspect` and `sync`. Its argument vector is
+`pair-poll`, `pair-status`, `unpair`, `inspect`, `sync`, `block-show` and `block-apply`. Its argument vector is
 `__tmt-office`, `1`, `<operation>`. Unknown versions, operations,
 extra arguments and non-UTF-8 arguments fail with exit 1, empty stdout and a brief
 stderr diagnostic. There is no arbitrary argv forwarding or shell evaluation.
@@ -42,6 +42,20 @@ exercise the real compiled companion. The independent native artifact verifier
 separately checks actual Office archives; neither constitutes public publication.
 
 ## Pairing operations
+
+Block operations use the same protected scope selectors and 4096-byte internal
+message/output bounds. `block-show` additionally accepts nullable `blockId`;
+`block-apply` also requires `layout` (exact readable `objects`) and
+`expectedRevision`. Input files are validated before encoding this compact
+message; the 64 KiB file limit is not an expanded companion payload allowance.
+Success returns exactly `blockId`, `revision` and readable `objects`; the host
+validates the response and supplies catalog/limits from the pure domain owner.
+Errors use the same allowlisted envelope, including `OFFICE_LAYOUT_INVALID`
+and `OFFICE_REVISION_CONFLICT`. `OFFICE_BUSY` denotes proven pre-execution local
+lock contention; unclassified process/transport failures after launch never
+become a busy/no-write claim.
+Unsupported operations from older companions
+are failures, never evidence of a saved layout. See [block v1](block-v1.md).
 
 Pairing and inspect operations consume one bounded JSON object on stdin (4096 bytes):
 `world`, `identityId`, `emulator` and `readOnly`, with no unknown or duplicate

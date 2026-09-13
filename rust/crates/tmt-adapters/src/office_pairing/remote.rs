@@ -1,5 +1,7 @@
 //! Fixed Firebase REST operations; no caller-provided credential destination.
 
+mod blocks;
+
 use super::{
     Approval, Claim, OfficeError, Proof,
     wire::{RESPONSE_LIMIT, valid_token},
@@ -154,48 +156,8 @@ impl AgentCredential {
         block_id: &str,
         deadline: Instant,
     ) -> Result<bool, OfficeError> {
-        if !super::wire::valid_uuid(block_id) || !valid_token(&self.id_token) {
-            return Err(OfficeError::CredentialsInvalid);
-        }
-        let base = match deployment.target().mode() {
-            DeploymentMode::Cloud => "https://firestore.googleapis.com",
-            DeploymentMode::Emulator => "http://127.0.0.1:8080",
-        };
-        let name = format!(
-            "projects/{}/databases/(default)/documents/worlds/{}/blocks/{block_id}",
-            deployment.project_id(),
-            deployment.target().world_id()
-        );
-        let agent = office_http::agent(deployment.target().mode(), deadline)
-            .map_err(|_| OfficeError::RemoteUncertain)?;
-        let mut response = agent
-            .get(format!("{base}/v1/{name}"))
-            .header("Authorization", &format!("Bearer {}", self.id_token))
-            .header("Accept", "application/json")
-            .header("Cache-Control", "no-store")
-            .call()
-            .map_err(|_| OfficeError::RemoteUncertain)?;
-        match response.status().as_u16() {
-            200 => {
-                let bytes = office_http::json_body(&mut response, RESPONSE_LIMIT)
-                    .map_err(|_| OfficeError::RemoteUncertain)?;
-                #[derive(Deserialize)]
-                struct Document {
-                    name: String,
-                }
-                let document: Document =
-                    serde_json::from_slice(&bytes).map_err(|_| OfficeError::CredentialsInvalid)?;
-                if document.name != name {
-                    return Err(OfficeError::CredentialsInvalid);
-                }
-                // Existence only: no parallel layout codec or unchecked fields.
-                Ok(true)
-            }
-            404 => Ok(false),
-            401 | 403 => Err(OfficeError::RemoteDenied),
-            300..=399 => Err(OfficeError::CredentialsInvalid),
-            _ => Err(OfficeError::RemoteUncertain),
-        }
+        self.block(deployment, block_id, None, deadline)
+            .map(|snapshot| snapshot.revision != 0)
     }
 
     pub fn exchange(

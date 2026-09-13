@@ -24,6 +24,9 @@ pub enum OfficeError {
     PairingExpired,
     RemoteDenied,
     RemoteUncertain,
+    LayoutInvalid,
+    RevisionConflict,
+    Busy,
 }
 
 impl OfficeError {
@@ -37,6 +40,9 @@ impl OfficeError {
             Self::PairingExpired => "OFFICE_PAIRING_EXPIRED",
             Self::RemoteDenied => "OFFICE_REMOTE_DENIED",
             Self::RemoteUncertain => "OFFICE_REMOTE_UNCERTAIN",
+            Self::LayoutInvalid => "OFFICE_LAYOUT_INVALID",
+            Self::RevisionConflict => "OFFICE_REVISION_CONFLICT",
+            Self::Busy => "OFFICE_BUSY",
         }
     }
 
@@ -50,6 +56,9 @@ impl OfficeError {
             Self::PairingExpired,
             Self::RemoteDenied,
             Self::RemoteUncertain,
+            Self::LayoutInvalid,
+            Self::RevisionConflict,
+            Self::Busy,
         ]
         .into_iter()
         .find(|value| value.code() == code)
@@ -72,6 +81,8 @@ pub enum OfficeInvocation {
     Unpair,
     Inspect,
     Sync,
+    BlockShow,
+    BlockApply,
 }
 
 impl OfficeInvocation {
@@ -84,6 +95,8 @@ impl OfficeInvocation {
             Self::Unpair => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "unpair"],
             Self::Inspect => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "inspect"],
             Self::Sync => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "sync"],
+            Self::BlockShow => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "block-show"],
+            Self::BlockApply => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "block-apply"],
         }
     }
 
@@ -96,6 +109,8 @@ impl OfficeInvocation {
             Self::Unpair,
             Self::Inspect,
             Self::Sync,
+            Self::BlockShow,
+            Self::BlockApply,
         ]
         .into_iter()
         .find(|operation| arguments == operation.arguments())
@@ -156,6 +171,8 @@ mod tests {
             ("unpair", OfficeInvocation::Unpair),
             ("inspect", OfficeInvocation::Inspect),
             ("sync", OfficeInvocation::Sync),
+            ("block-show", OfficeInvocation::BlockShow),
+            ("block-apply", OfficeInvocation::BlockApply),
         ] {
             assert_eq!(operation.arguments(), ["__tmt-office", "1", name]);
             assert_eq!(

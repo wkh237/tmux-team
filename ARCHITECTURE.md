@@ -47,6 +47,12 @@ assignment registry or permission mutation. Rules and the trusted issuer
 enforce authority; views never grant it. Remote snapshots have one owner, separate
 from unsaved drafts and ephemeral
 presentation state. No stored markup executes and no parallel layout is stored.
+Native decoration uses `tmt-core::office_block` for pure layout validation and
+codec conformance, `tmt-adapters::office_block` for readable JSON, and the existing
+paired companion for authenticated conditional Firestore commits. Browser and
+native implementations share the versioned block contract and literal vectors;
+neither creates a second scene store. The CLI owns grammar and presentation, not
+credentials, grant renewal or Firestore transactions.
 Owner approval may select a revoked grant's retained block through the same
 bounded space projection. The pairing transaction reserves that source grant
 with a transfer receipt and records immutable approval intent; no second

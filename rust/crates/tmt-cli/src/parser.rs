@@ -153,12 +153,34 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         | ["office", "unpair"]
         | ["office", "inspect"]
         | ["office", "sync"]
+        | ["office", "block", "show"]
+        | ["office", "block", "apply"]
         | ["office", "install"]
         | ["office", "upgrade"]
         | ["office", "uninstall"] => Invocation::Office {
             prefix: text(m, "prefix"),
             operation: match path.last().copied() {
                 Some("sync") => OfficeOperation::Sync,
+                Some("show") if path.get(1) == Some(&"block") => OfficeOperation::Block {
+                    world: required(m, "world"),
+                    identity: text(m, "identity"),
+                    emulator: flag(m, "emulator"),
+                    operation: OfficeBlockOperation::Show {
+                        block_id: text(m, "block-id"),
+                    },
+                },
+                Some("apply") if path.get(1) == Some(&"block") => OfficeOperation::Block {
+                    world: required(m, "world"),
+                    identity: text(m, "identity"),
+                    emulator: flag(m, "emulator"),
+                    operation: OfficeBlockOperation::Apply {
+                        block_id: text(m, "block-id"),
+                        file: required(m, "file"),
+                        if_revision: *m
+                            .get_one::<u64>("if-revision")
+                            .expect("grammar supplies block revision"),
+                    },
+                },
                 Some("unpair") => OfficeOperation::Unpair {
                     world: required(m, "world"),
                     identity: text(m, "identity"),

@@ -21,6 +21,12 @@ struct Request {
     identity_id: String,
     emulator: bool,
     read_only: bool,
+    #[serde(default)]
+    block_id: Option<String>,
+    #[serde(default)]
+    layout: Option<crate::office_block::LayoutInput>,
+    #[serde(default)]
+    expected_revision: Option<u64>,
 }
 
 pub fn execute(operation: OfficeInvocation, bytes: &[u8]) -> Vec<u8> {
@@ -45,8 +51,48 @@ fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> 
             json!({"completed":report.completed,"failed":report.failed,"pending":report.pending,"failureCode":report.failure.map(|error| error.code())}),
         );
     }
-    let request: Request =
+    let mut request: Request =
         serde_json::from_slice(bytes).map_err(|_| OfficeError::CredentialsInvalid)?;
+    let block = matches!(
+        operation,
+        OfficeInvocation::BlockShow | OfficeInvocation::BlockApply
+    );
+    let raw: Value = serde_json::from_slice(bytes).map_err(|_| OfficeError::CredentialsInvalid)?;
+    let fields = raw.as_object().ok_or(OfficeError::CredentialsInvalid)?;
+    let expected_fields = if operation == OfficeInvocation::BlockApply {
+        7
+    } else if block {
+        5
+    } else {
+        4
+    };
+    if fields.len() != expected_fields
+        || (block && (!fields.contains_key("blockId") || request.read_only))
+        || (!block
+            && ["blockId", "layout", "expectedRevision"]
+                .iter()
+                .any(|key| fields.contains_key(*key)))
+    {
+        return Err(OfficeError::CredentialsInvalid);
+    }
+    let edit = match operation {
+        OfficeInvocation::BlockApply => {
+            let revision = request
+                .expected_revision
+                .filter(|value| *value < tmt_core::office_block::MAX_REVISION)
+                .ok_or(OfficeError::LayoutInvalid)?;
+            let layout = request
+                .layout
+                .take()
+                .ok_or(OfficeError::LayoutInvalid)?
+                .validate()?;
+            Some((layout, revision))
+        }
+        _ if request.layout.is_some() || request.expected_revision.is_some() => {
+            return Err(OfficeError::CredentialsInvalid);
+        }
+        _ => None,
+    };
     let mode = if request.emulator {
         DeploymentMode::Emulator
     } else {
@@ -95,7 +141,9 @@ fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> 
                 entry.write(&record.encode()?)?;
                 Ok(json!({"state":"revoked"}))
             }
-            OfficeInvocation::Inspect => {
+            OfficeInvocation::Inspect
+            | OfficeInvocation::BlockShow
+            | OfficeInvocation::BlockApply => {
                 let mut record = existing.ok_or(OfficeError::NotPaired)?;
                 if record.refresh_if_needed(&target, now_ms()?, deadline)? {
                     active_identity(&paths, &identity.id)?;
@@ -107,8 +155,19 @@ fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> 
                     entry.write(&record.encode()?)?;
                 }
                 active_identity(&paths, &identity.id)?;
-                let exists = record.inspect(&target, now_ms()?, deadline)?;
-                Ok(json!({"blockExists":exists}))
+                if block {
+                    let snapshot = record.block(
+                        &target,
+                        now_ms()?,
+                        request.block_id.as_deref(),
+                        edit.as_ref().map(|(layout, revision)| (layout, *revision)),
+                        deadline,
+                    )?;
+                    Ok(snapshot.wire_value())
+                } else {
+                    let exists = record.inspect(&target, now_ms()?, deadline)?;
+                    Ok(json!({"blockExists":exists}))
+                }
             }
             OfficeInvocation::PairStatus => {
                 let now = now_ms()?;
@@ -211,4 +270,78 @@ pub(super) fn now_ms() -> Result<u64, OfficeError> {
         .as_millis()
         .try_into()
         .map_err(|_| OfficeError::CredentialsUnavailable)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scoped() -> Value {
+        // Invalid deployment is an intentional downstream sentinel: valid input
+        // reaches deployment validation without reading any host identity/vault.
+        json!({"world":"invalid", "identityId":"identity", "emulator":false, "readOnly":false})
+    }
+
+    fn error(operation: OfficeInvocation, value: &Value) -> OfficeError {
+        run(operation, &serde_json::to_vec(value).unwrap()).unwrap_err()
+    }
+
+    #[test]
+    fn block_input_is_typed_and_does_not_expand_pairing_inputs() {
+        let mut show = scoped();
+        assert_eq!(
+            error(OfficeInvocation::Inspect, &show),
+            OfficeError::DeploymentInvalid
+        );
+        show["blockId"] = Value::Null;
+        assert_eq!(
+            error(OfficeInvocation::BlockShow, &show),
+            OfficeError::DeploymentInvalid
+        );
+        assert_eq!(
+            error(OfficeInvocation::Inspect, &show),
+            OfficeError::CredentialsInvalid
+        );
+        show["layout"] = json!({"objects":[]});
+        show["expectedRevision"] = json!(0);
+        assert_eq!(
+            error(OfficeInvocation::BlockApply, &show),
+            OfficeError::DeploymentInvalid
+        );
+        assert_eq!(
+            error(OfficeInvocation::BlockShow, &show),
+            OfficeError::CredentialsInvalid
+        );
+        show["expectedRevision"] = json!(tmt_core::office_block::MAX_REVISION);
+        assert_eq!(
+            error(OfficeInvocation::BlockApply, &show),
+            OfficeError::LayoutInvalid
+        );
+        show["expectedRevision"] = json!(0);
+        show["layout"] = json!({"objects":[{"asset":"rug","rotation":0,"x":31,"y":31}]});
+        assert_eq!(
+            error(OfficeInvocation::BlockApply, &show),
+            OfficeError::LayoutInvalid
+        );
+    }
+
+    #[test]
+    fn unknown_duplicate_and_oversized_payloads_fail_before_scope_access() {
+        let mut value = scoped();
+        value["blockId"] = Value::Null;
+        value["unknown"] = json!(true);
+        assert_eq!(
+            error(OfficeInvocation::BlockShow, &value),
+            OfficeError::CredentialsInvalid
+        );
+        let duplicate = br#"{"world":"invalid","identityId":"identity","emulator":false,"readOnly":false,"blockId":null,"layout":{"objects":[],"objects":[]},"expectedRevision":0}"#;
+        assert_eq!(
+            run(OfficeInvocation::BlockApply, duplicate),
+            Err(OfficeError::CredentialsInvalid)
+        );
+        assert_eq!(
+            run(OfficeInvocation::BlockShow, &vec![b' '; 4097]),
+            Err(OfficeError::CredentialsInvalid)
+        );
+    }
 }

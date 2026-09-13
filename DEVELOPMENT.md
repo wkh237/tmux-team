@@ -272,8 +272,13 @@ emulators. Extend the existing fixture owners as each feature ships, not a
 parallel mock implementation of TMT. Independent database observations must
 corroborate UI and command results. Separate green layer suites are not proof of
 this integrated flow. The native pairing browser scenario covers acquisition and
-scoped reads; native resource editing and visible browser results remain separate
-milestone work, not implied by successful credential retention.
+scoped reads. `native-decoration.spec.ts` adds real block show/apply, independent
+stored tokens/revisions, visible scene geometry, exact retry without timestamp
+changes, invalid input, conflicting local callers and read-only/revoked authority.
+Local callers share fail-fast locks: pre-execution contention reports `OFFICE_BUSY`;
+retrying the original intent after the winner must conflict without another write.
+This is not proof of a Firestore precondition race. The existing browser transaction and Rules suites retain that
+independent server-side coverage. Neither replaces the other's acceptance.
 
 Automated acceptance must not call a paid model, use provider/host credentials,
 contact production Firebase or require paid runners. Keep the native-only tmux

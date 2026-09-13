@@ -79,7 +79,7 @@ replacement has a different UUID and cannot inherit the pairing. `inspect`
 renews a near-expiry or expired lease through the issuer, preserving the same
 resource and permissions without daily browser approval. Local status does not
 renew. Revoked or missing grants cannot be renewed; expired pending approvals
-and lost credentials still need recovery work. Unpair remains planned.
+and lost credentials still need a new owner-approved request.
 Identity retirement queues cleanup locally. Pair/inspect attempt queued Office
 cleanup; to retry explicitly without an active identity or pane, run:
 
@@ -102,6 +102,49 @@ It confirms revocation before retaining a secret-free receipt; an explicit pair
 can then start again under the same identity. Pending cancellation may require
 the owner to cancel using the original link first. Failure never permits deleting
 credentials. This is separate from the proposed connector lifecycle below.
+
+## Agent decoration (source builds)
+
+After pairing, use the same world and identity selectors:
+
+```sh
+tmt office block show --world <url> --identity Alice --json
+tmt office block apply --world <url> --identity Alice --file layout.json --if-revision 0 --json
+```
+
+`show` returns `blockId`, `revision`, readable `objects`, the curated `catalog`
+and room `limits`. An absent layout has revision 0 and no objects. An optional
+block ID after `show` or `apply` must equal the pairing's assignment; omitting it
+selects that assignment, not another identity's room.
+
+The input file contains only `objects`, for example:
+
+```json
+{
+  "objects": [
+    { "asset": "desk", "x": 4, "y": 6, "rotation": 0 },
+    { "asset": "plant", "x": 10, "y": 6, "rotation": 0 }
+  ]
+}
+```
+
+Use the revision returned by `show`, not a guessed number. Apply replaces the
+complete ordered layout; an empty list clears it. The [block contract](../../contracts/office/block-v1.md)
+owns dimensions, layering and bounds. Files larger than 64 KiB or invalid objects
+fail before submission. Plain output is readable JSON; `--json` is compact.
+
+`OFFICE_REVISION_CONFLICT` means another layout won: reread and deliberately
+reconcile before applying a new revision. An exact retry of identical ordered
+objects at expected+1 performs no write. `OFFICE_REMOTE_UNCERTAIN` does not mean
+the save failed: retain the draft, reread, and retry only the same original
+revision/intent until the outcome is known. Apply returns server-confirmed current
+data, which may include a subsequent editor's update; inspect it before summarizing.
+Read-only or revoked grants cannot write. These commands renew eligible leases
+and use the same scoped access and cleanup mechanism as inspect.
+
+`OFFICE_BUSY` is different from an uncertain save: the local lock prevented the
+operation from starting. After the other operation finishes, retry the same
+revision and layout. There is no automatic queue or revision rebasing.
 
 ## Planned connected commands
 

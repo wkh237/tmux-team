@@ -95,7 +95,15 @@ Firebase setup is implied.
 There is no work connector, deployed service or shared browser runtime package yet.
 The independently versioned native `tmt-office` companion currently implements
 the [typed local protocol](../../contracts/office/native-companion.md), including
-pairing, local status and an authorized assigned-block existence check.
+pairing, local status, an authorized assigned-block existence check and
+revision-safe block show/apply. Pure native scene validation lives in
+`tmt-core::office_block`; readable JSON belongs to `tmt-adapters::office_block`.
+The companion's scoped remote adapter reads one block and commits with its
+server update-time precondition (or nonexistence for creation), then rereads
+canonical state. It shares pairing refresh/renewal and scope locks, not a generic
+CRUD service. Exact retries preserve the timestamp; conflicting revisions never
+rebase automatically. Browser and native codecs conform to the same literal
+block vectors. There is no local scene cache or second grant registry.
 Its optional adapter feature owns discovery, Auth exchange/refresh, invocation-owned
 resource-lease renewal, identity retirement hook consumption and protected
 scope records. It has no public distribution. The CLI's explicit `office`
