@@ -30,6 +30,20 @@
 .pairing-panel button {
   margin: 0.5rem 0.5rem 0 0;
 }
+.pairing-space-choice {
+  min-width: 0;
+  margin: 1rem 0;
+  border: 1px solid #d4dccf;
+  border-radius: 0.5rem;
+  overflow-wrap: anywhere;
+}
+.pairing-space-choice label {
+  display: block;
+  margin: 0.75rem 0;
+}
+.pairing-space-choice input {
+  width: auto;
+}
 @media (max-width: 500px) {
   .pairing-panel {
     padding: 1rem;

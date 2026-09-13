@@ -2,7 +2,7 @@ import type { DecodedIdToken } from 'firebase-admin/auth';
 import {
   PairingError,
   UUID,
-  parseApproval,
+  parseOwnerApproval,
   parseClaim,
   parseRenewal,
   parseRevocation,
@@ -49,8 +49,12 @@ export function createPairingService(store: PairingStore, auth: PairingAuthentic
 
   return {
     async approve(input: unknown, authorization?: string) {
-      const request = parseApproval(input);
-      return store.approve(human(await verified(authorization)), request);
+      const approval = parseOwnerApproval(input);
+      return store.approve(
+        human(await verified(authorization)),
+        approval.request,
+        approval.replacesPrincipalUid
+      );
     },
     async claim(input: unknown) {
       const id = parseClaim(input);

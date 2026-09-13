@@ -10,6 +10,7 @@ import { parsePairingFragment } from './pairing-contract.js';
 import type { PairingRequest, PairingPort } from './pairing-contract.js';
 import { createPairingState } from './pairing-state.js';
 import type { PairingState } from './pairing-state.js';
+import { PairingSpaceChoice } from './pairing-space-choice.js';
 import './pairing.css';
 
 export const PairingContext = createContext<PairingPort | undefined>(undefined);
@@ -61,10 +62,18 @@ function PairingMount({
     setState(next);
     return () => next.dispose();
   }, [port, request, ownerUid]);
-  return state ? <PairingForm state={state} request={request} /> : null;
+  return state ? <PairingForm state={state} request={request} ownerUid={ownerUid} /> : null;
 }
 
-export function PairingForm({ state, request }: { state: PairingState; request: PairingRequest }) {
+export function PairingForm({
+  state,
+  request,
+  ownerUid,
+}: {
+  state: PairingState;
+  request: PairingRequest;
+  ownerUid: string;
+}) {
   const { busy, attempted, approved, revoked, error } = useSyncExternalStore(
     state.subscribe,
     state.getSnapshot
@@ -107,6 +116,7 @@ export function PairingForm({ state, request }: { state: PairingState; request: 
         This identity may renew its access in leases of up to 24 hours until you revoke it. Renewal
         keeps the same block and permissions; it does not require daily approval.
       </p>
+      <PairingSpaceChoice state={state} request={request} ownerUid={ownerUid} />
       {error && <p role="alert">{error}</p>}
       {approved && (
         <p role="status">

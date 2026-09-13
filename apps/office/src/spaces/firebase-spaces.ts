@@ -26,9 +26,14 @@ export function readAgentSpace(
   ownerUid: string
 ): AgentSpace {
   const capabilities = value.capabilities;
+  const hasReplacement = Object.hasOwn(value, 'replacedByPairingId');
   if (
     !validPrincipal(principalUid) ||
-    Object.keys(value).length !== 9 ||
+    Object.keys(value).length !== (hasReplacement ? 10 : 9) ||
+    (hasReplacement &&
+      (value.enabled !== false ||
+        typeof value.replacedByPairingId !== 'string' ||
+        !/^[0-9a-f]{64}$/.test(value.replacedByPairingId))) ||
     value.version !== 1 ||
     value.ownerUid !== ownerUid ||
     !['installationId', 'identityId', 'blockId'].every(
@@ -56,6 +61,7 @@ export function readAgentSpace(
     capabilities: capabilities.length === 1 ? ['layout.read'] : ['layout.read', 'layout.write'],
     enabled: value.enabled,
     expiresAtMs: value.expiresAt.toMillis(),
+    ...(hasReplacement ? { replacedByPairingId: value.replacedByPairingId as string } : {}),
   };
 }
 

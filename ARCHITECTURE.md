@@ -47,6 +47,10 @@ assignment registry or permission mutation. Rules and the trusted issuer
 enforce authority; views never grant it. Remote snapshots have one owner, separate
 from unsaved drafts and ephemeral
 presentation state. No stored markup executes and no parallel layout is stored.
+Owner approval may select a revoked grant's retained block through the same
+bounded space projection. The pairing transaction reserves that source grant
+with a transfer receipt and records immutable approval intent; no second
+assignment registry or resource copy is introduced.
 The detailed lifecycle and verification map lives only in
 [Office architecture](docs/office/architecture.md); exact persisted data belongs
 in [Office contracts](contracts/office/README.md).

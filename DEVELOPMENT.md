@@ -247,7 +247,16 @@ editing its retained UUID block through the shared editor, independent stored
 state, unchanged home layout, reopening and admission loss. The grant Rules
 suite independently checks bounded owner pagination and denies unbounded,
 oversized, foreign-owner, agent and revoked-admission queries. Owner editing
-does not prove native block mutation, reassignment or credential recovery.
+does not by itself prove native block mutation, reassignment or credential recovery.
+
+Retained-block reassignment adds actual competing approval transactions in
+`pairing-reassignment.spec.ts`: one source reservation, exact retries, abandoned
+unclaimed recovery and denial of claimed ancestors. Browser approval selects
+the source explicitly and preserves assignment across uncertain responses.
+The native acceptance must resume the original protected proof, inspect the
+same retained block and corroborate it in the browser and independent database;
+seeded grants or a browser-only claim do not substitute for that chain. Keep
+the former cached credential's denial and unchanged layout as separate assertions.
 
 The M1 acceptance target is a causal local flow: actual native CLI and Office
 companion -> browser owner approval -> scoped credential use -> durable resource

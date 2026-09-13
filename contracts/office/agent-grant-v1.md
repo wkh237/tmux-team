@@ -13,7 +13,7 @@ The issuer must never reuse a retired principal for a different binding. A
 device-wide credential must not implicitly authorize every agent on that device.
 Display names, folders and pane IDs are neither credentials nor lookup keys.
 
-`worlds/{worldId}/agentGrants/{principalUid}` contains exactly:
+An active `worlds/{worldId}/agentGrants/{principalUid}` contains exactly:
 
 | Field            | Value                                                                            |
 | ---------------- | -------------------------------------------------------------------------------- |
@@ -26,6 +26,13 @@ Display names, folders and pane IDs are neither credentials nor lookup keys.
 | `enabled`        | Boolean; only `true` grants access                                               |
 | `createdAt`      | Current lease start as a Firestore timestamp, not later than server request time |
 | `expiresAt`      | Firestore timestamp, after creation and at most 24 hours later                   |
+
+A disabled grant may additionally contain `replacedByPairingId`, a lowercase
+64-hex pairing ID written only by the issuer's
+[reassignment transaction](pairing-v1.md#retained-block-reassignment).
+This receipt marks a reserved or transferred source, not an unassigned block.
+It never grants access, and is invalid on an enabled grant. Client writes cannot
+add or change the receipt; revocation preserves it.
 
 Access requires `createdAt <= request.time < expiresAt`, valid schema, current
 owner tester admission and matching authenticated principal/installation/identity.
@@ -68,8 +75,9 @@ per-entry subscriptions are installed. Invalid records make the page unavailable
 
 Labels reflect the last fetch and the browser clock, not online presence or
 fresh server authorization. Expired enabled leases may renew; revoked records
-remain visible. The inventory does not change grants, recover credentials,
-reassign resources or enumerate blocks without surviving grant references.
+remain visible, including explicit transfer receipts. The inventory itself does
+not change grants, recover credentials or enumerate blocks without surviving
+grant references. Explicit reassignment uses the owner approval flow.
 
 Revocation denies subsequent server operations even with the same cached token.
 It neither erases retained blocks nor recalls already disclosed content. Expiry

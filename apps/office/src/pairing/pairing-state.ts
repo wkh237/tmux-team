@@ -1,5 +1,10 @@
 import { PairingActionError } from './pairing-contract.js';
-import type { ApprovedPairing, PairingRequest, PairingPort } from './pairing-contract.js';
+import type {
+  ApprovedPairing,
+  PairingRequest,
+  PairingPort,
+  PairingReplacement,
+} from './pairing-contract.js';
 
 interface PairingSnapshot {
   busy: boolean;
@@ -7,6 +12,7 @@ interface PairingSnapshot {
   approved: ApprovedPairing | null;
   revoked: boolean;
   error: string | null;
+  replacement: PairingReplacement | null;
 }
 
 /** One mounted request owns actions; disposal fences results, not remote writes. */
@@ -17,6 +23,7 @@ export function createPairingState(port: PairingPort, request: PairingRequest, o
     approved: null,
     revoked: false,
     error: null,
+    replacement: null,
   };
   let disposed = false;
   const listeners = new Set<() => void>();
@@ -50,7 +57,16 @@ export function createPairingState(port: PairingPort, request: PairingRequest, o
         listeners.delete(listener);
       };
     },
-    approve: () => act(async () => ({ approved: await port.approve(request, ownerUid) })),
+    selectReplacement(replacement: PairingReplacement | null) {
+      if (disposed || snapshot.attempted) return;
+      publish({ replacement: replacement ? { ...replacement } : null });
+    },
+    approve: () =>
+      act(async () => ({
+        approved: snapshot.replacement
+          ? await port.approve(request, ownerUid, snapshot.replacement)
+          : await port.approve(request, ownerUid),
+      })),
     revoke: () =>
       act(async () => {
         await port.revoke(request.pairingId, ownerUid);
@@ -59,7 +75,14 @@ export function createPairingState(port: PairingPort, request: PairingRequest, o
     dispose() {
       disposed = true;
       listeners.clear();
-      snapshot = { busy: false, attempted: false, approved: null, revoked: false, error: null };
+      snapshot = {
+        busy: false,
+        attempted: false,
+        approved: null,
+        revoked: false,
+        error: null,
+        replacement: null,
+      };
     },
   };
 }

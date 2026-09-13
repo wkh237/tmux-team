@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import { createPairingPort } from './pairing-transport.js';
 import { pairingEndpoint } from '../auth/firebase-config.js';
+import type { PairingRequest } from './pairing-contract.js';
 
 const pairingId = 'a'.repeat(64);
 const endpoint = 'https://pair.example/officePairing';
@@ -8,6 +9,54 @@ const response = () =>
   new Response(JSON.stringify({ version: 1, pairingId, revoked: true }), {
     headers: { 'content-type': 'application/json' },
   });
+
+it('sends the owner selector separately and rejects a different returned retained block', async () => {
+  const id = '00000000-0000-4000-8000-000000000001';
+  const request: PairingRequest = {
+    version: 1,
+    pairingId,
+    worldId: 'a'.repeat(20),
+    installationId: id,
+    identityId: id,
+    installationLabel: 'Device',
+    identityLabel: 'Alice',
+    capabilities: ['layout.read'],
+  };
+  const replacement = { principalUid: `office-agent:${id}`, blockId: id };
+  const auth = { currentUser: { uid: 'owner', getIdToken: async () => 'private-token' } };
+  const binding = {
+    ...request,
+    principalUid: 'office-agent:00000000-0000-4000-8000-000000000002',
+    blockId: id,
+    expiresAt: 2_000_000_000_000,
+  };
+  const send = vi
+    .fn<typeof fetch>()
+    .mockImplementation(
+      async () =>
+        new Response(JSON.stringify(binding), { headers: { 'content-type': 'application/json' } })
+    );
+  const port = createPairingPort(auth, endpoint, send);
+  expect(await port.approve(request, 'owner', replacement)).toEqual(binding);
+  expect(JSON.parse(send.mock.calls[0][1]!.body as string)).toEqual({
+    ...request,
+    replacesPrincipalUid: replacement.principalUid,
+  });
+  expect(request).not.toHaveProperty('replacesPrincipalUid');
+  binding.blockId = '00000000-0000-4000-8000-000000000003';
+  await expect(port.approve(request, 'owner', replacement)).rejects.toMatchObject({
+    kind: 'uncertain',
+  });
+  binding.blockId = id;
+  binding.principalUid = replacement.principalUid;
+  await expect(port.approve(request, 'owner', replacement)).rejects.toMatchObject({
+    kind: 'uncertain',
+  });
+  await expect(
+    port.approve(request, 'owner', { ...replacement, principalUid: '../other' })
+  ).rejects.toThrow();
+  expect(send).toHaveBeenCalledTimes(3);
+});
 
 it('only explicit deployment settings select an endpoint, never request or preview data', () => {
   expect(pairingEndpoint('preview', { VITE_OFFICE_PAIRING_URL: endpoint })).toBeUndefined();

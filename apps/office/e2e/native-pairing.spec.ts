@@ -3,10 +3,199 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { expect } from '@playwright/test';
 import { test, signIn } from './browser-session.js';
-import { setTester } from './firestore-fixture.js';
+import { setTester, writeAgentGrantFields, writeBlockFields } from './firestore-fixture.js';
 import { createPairingEmulatorFixture } from '../../../services/office/functions/test/emulator-fixture.js';
 import { runCli, withSandbox } from '../../../test/support/cli-process.js';
 import { installNativeOffice, protectedOfficeRecord } from './native-office-fixture.js';
+
+test('native pairing selects a retained block, resumes it, and exposes the same layout in Office', async ({
+  openSession,
+}) => {
+  test.setTimeout(90_000);
+  const admin = createPairingEmulatorFixture();
+  try {
+    await withSandbox(async (sandbox) => {
+      const clearProtectedScopes = async () => {
+        let names: string[];
+        try {
+          names = readdirSync(path.join(sandbox.globalDir, 'office'));
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+          throw error;
+        }
+        for (const name of names) {
+          if (!/^[0-9a-f]{64}\.lock$/.test(name)) continue;
+          const key = name.slice(0, -'.lock'.length);
+          expect((await protectedOfficeRecord(sandbox, key, 'clear')).status).toBe(0);
+          expect((await protectedOfficeRecord(sandbox, key, 'lookup')).status).toBe(1);
+        }
+      };
+      try {
+        const prefix = await installNativeOffice(sandbox);
+        expect(
+          (await runCli(sandbox, ['identity', 'create', 'RetainedNative', '--json'])).status
+        ).toBe(0);
+        const worldId = admin.db.collection('worlds').doc().id;
+        const world = `http://127.0.0.1:4173/worlds/${worldId}`;
+        const office = (operation: string, extra: string[] = []) =>
+          runCli(
+            sandbox,
+            [
+              'office',
+              operation,
+              '--prefix',
+              prefix,
+              '--world',
+              world,
+              '--identity',
+              'RetainedNative',
+              '--emulator',
+              '--json',
+              ...extra,
+            ],
+            { deadlineMs: 35_000 }
+          );
+        const pending = await office('pair', ['--timeout', '5']);
+        expect(pending.status).toBe(1);
+        expect(JSON.parse(pending.stdout).error.code).toBe('OFFICE_PAIRING_PENDING');
+        const link = pending.stderr.trim();
+        const request = JSON.parse(
+          Buffer.from(link.split('#tmt-pair=')[1]!, 'base64url').toString('utf8')
+        ) as {
+          version: 1;
+          pairingId: string;
+          worldId: string;
+          installationId: string;
+          identityId: string;
+          installationLabel: string;
+          identityLabel: string;
+          capabilities: ['layout.read', 'layout.write'];
+        };
+        const sourcePrincipal = 'office-agent:00000000-0000-4233-8233-000000000233';
+        const sourceBlock = crypto.randomUUID();
+        const sourceIdentity = crypto.randomUUID();
+        const sourceInstallation = crypto.randomUUID();
+        await writeAgentGrantFields(worldId, sourcePrincipal, {
+          version: { integerValue: '1' },
+          ownerUid: { stringValue: 'pending-owner' },
+          installationId: { stringValue: sourceInstallation },
+          identityId: { stringValue: sourceIdentity },
+          blockId: { stringValue: sourceBlock },
+          capabilities: {
+            arrayValue: {
+              values: [{ stringValue: 'layout.read' }, { stringValue: 'layout.write' }],
+            },
+          },
+          enabled: { booleanValue: false },
+          createdAt: { timestampValue: new Date(Date.now() - 120_000).toISOString() },
+          expiresAt: { timestampValue: new Date(Date.now() - 60_000).toISOString() },
+        });
+        await writeBlockFields(worldId, sourceBlock, {
+          version: { integerValue: '1' },
+          revision: { integerValue: '1' },
+          objects: { arrayValue: { values: [{ stringValue: 'd000' }] } },
+          updatedAt: { timestampValue: new Date().toISOString() },
+        });
+        const blockRef = admin.db
+          .collection('worlds')
+          .doc(worldId)
+          .collection('blocks')
+          .doc(sourceBlock);
+        const blockBefore = (await blockRef.get()).data()!;
+
+        const { page } = await openSession(link);
+        await signIn(page, 'Native retained owner');
+        const ownerUid = (await page.getByText(/^UID: /).innerText()).replace(/^UID: /, '').trim();
+        await admin.db
+          .collection('worlds')
+          .doc(worldId)
+          .set({ version: 1, name: 'Native retained office', ownerUid, createdAt: new Date() });
+        await admin.db
+          .collection('worlds')
+          .doc(worldId)
+          .collection('agentGrants')
+          .doc(sourcePrincipal)
+          .update({ ownerUid });
+        await setTester(ownerUid, true);
+        await expect(page.getByRole('region', { name: 'Agent pairing request' })).toBeVisible();
+        await page.getByRole('button', { name: 'Refresh retained spaces', exact: true }).click();
+        const retained = page.getByRole('radio', {
+          name: new RegExp(`Retained block ${sourceBlock} · Previous identity ${sourceIdentity}`),
+        });
+        await expect(retained).toBeVisible();
+        await retained.check();
+        await page
+          .getByRole('checkbox', { name: 'I recognize this agent and installation.' })
+          .check();
+        const approvalRequest = page.waitForRequest(
+          (outgoing) => outgoing.url().endsWith('/approve') && outgoing.method() === 'POST'
+        );
+        await page.getByRole('button', { name: 'Approve pairing', exact: true }).click();
+        expect((await approvalRequest).postDataJSON()).toEqual({
+          ...request,
+          replacesPrincipalUid: sourcePrincipal,
+        });
+        await expect(
+          page.getByRole('status').filter({ hasText: 'Approved. Return' })
+        ).toBeVisible();
+
+        const resumed = await office('pair', ['--timeout', '25']);
+        expect(resumed.status, resumed.stdout).toBe(0);
+        expect(JSON.parse(resumed.stdout).state).toBe('credential');
+        const pairing = admin.db.collection('officePairings').doc(request.pairingId);
+        const remote = (await pairing.get()).data()!;
+        expect(remote.replacesPrincipalUid).toBe(sourcePrincipal);
+        expect(remote.blockId).toBe(sourceBlock);
+        const newGrant = admin.db
+          .collection('worlds')
+          .doc(worldId)
+          .collection('agentGrants')
+          .doc(remote.principalUid);
+        expect((await newGrant.get()).data()).toMatchObject({
+          ownerUid,
+          installationId: request.installationId,
+          identityId: request.identityId,
+          blockId: sourceBlock,
+          enabled: true,
+        });
+        expect(
+          (
+            await admin.db
+              .collection('worlds')
+              .doc(worldId)
+              .collection('agentGrants')
+              .doc(sourcePrincipal)
+              .get()
+          ).data()
+        ).toMatchObject({ enabled: false, replacedByPairingId: request.pairingId });
+        const inspected = await office('inspect');
+        expect(inspected.status, inspected.stdout).toBe(0);
+        expect(JSON.parse(inspected.stdout)).toMatchObject({
+          blockExists: true,
+          serverAuthorizationChecked: true,
+        });
+        expect((await blockRef.get()).data()).toEqual(blockBefore);
+
+        // Navigate through the router so the owner session and its consent state remain intact.
+        await page.getByRole('link', { name: 'Office', exact: true }).click();
+        await page.getByLabel('World ID', { exact: true }).fill(worldId);
+        await page.getByRole('button', { name: 'Open world', exact: true }).click();
+        await expect(
+          page.getByRole('button', { name: `Open block ${sourceBlock}` }).first()
+        ).toBeVisible();
+        await page
+          .getByRole('button', { name: `Open block ${sourceBlock}` })
+          .first()
+          .click();
+        await expect(page.getByRole('button', { name: 'Desk 1', exact: true })).toBeVisible();
+      } finally {
+        await clearProtectedScopes();
+      }
+    });
+  } finally {
+    await admin.dispose();
+  }
+});
 
 test('native pairing resumes its protected proof and a separate process uses the scoped credential', async ({
   openSession,

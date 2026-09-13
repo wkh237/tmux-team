@@ -10,6 +10,7 @@ export interface AgentSpace {
   capabilities: PairingCapabilities;
   enabled: boolean;
   expiresAtMs: number;
+  replacedByPairingId?: string;
 }
 export interface SpacePage {
   entries: AgentSpace[];

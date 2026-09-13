@@ -2,7 +2,7 @@
 
 Locally implemented issuer and browser approval protocol. The
 [native pairing contract](native-pairing.md) defines its source-build consumer.
-Assignment management and production activation remain separate gates; no
+Production activation and local credential recovery remain separate gates; no
 public Office distribution is promised by this contract.
 
 ## Proof and consent
@@ -74,7 +74,8 @@ UUIDs use the grant v1 lowercase hyphenated format; world IDs are 20
 alphanumeric characters. Labels are 1..80 Unicode scalar values, nonblank,
 without control characters. Capabilities are exactly the ordered layout lists
 in [agent grant v1](agent-grant-v1.md). No arbitrary paths or additional resource
-permissions are accepted.
+permissions are accepted. `/approve` alone also accepts the optional owner-selected
+`replacesPrincipalUid` described under retained-block reassignment.
 
 Claim responses retain the exact approved binding and approval `expiresAt`, and
 add `customToken` plus `grantExpiresAt` from the validated resource grant. Approval
@@ -99,7 +100,9 @@ is `413 INPUT_TOO_LARGE`.
 `officePairings/{pairingId}` is service-only; Rules deny all client access. Its
 versioned record owns approved immutable input, human owner, generated principal
 UID and independent block UUID, creation/expiry timestamps, `enabled`, `claimed`
-and `nextClaimAt`. Clients cannot select the generated principal/block IDs.
+and `nextClaimAt`. A retained-block approval additionally records immutable
+`replacesPrincipalUid`. Clients cannot select the generated principal; a block
+may only be selected indirectly through the validated source grant below.
 
 Approval retries return the existing record only for the same owner and exact
 input before expiry. They never extend the deadline or re-enable a record.
@@ -127,6 +130,36 @@ uses the same principal and resource rather than manufacturing a second grant.
 The service keeps expired/disabled records as tombstones in this slice: no TTL
 or cleanup silently permits reuse of a pairing ID. Bounded retention and public
 endpoint abuse controls must be reviewed before production activation.
+
+## Retained-block reassignment
+
+The owner may add `replacesPrincipalUid` (`office-agent:` followed by a lowercase
+UUID) to `/approve`. It is not accepted in the native public fragment. Without
+it, approval allocates a fresh block as before. The browser lists bounded grant
+pages and requires explicit recognition and selection; after any attempt the
+choice is fixed for that mounted request. It verifies that the response names
+the selected block, while native claim continues to verify its own identity,
+installation, world and capabilities.
+
+The source must be a complete disabled grant in the same owned world. In the
+approval transaction, reserve it with `replacedByPairingId` and create a new
+pairing/principal that names the same block. No resource document is written,
+copied or deleted; notebooks and profiles do not transfer. Same request and
+source retry returns the same binding; a changed choice conflicts. Two approvals
+cannot consume the same source concurrently.
+
+A marked source can be reclaimed only when its referenced predecessor is
+unclaimed and expired or disabled, with matching owner, world, source and block.
+Disable that predecessor and replace the receipt in the same transaction.
+Missing, malformed, mismatched or claimed predecessor evidence conflicts.
+Once claimed, a later transfer must use the newly issued grant after revocation,
+never an ancestor. The old principal stays disabled and old cached credentials
+remain denied. Expired enabled grants are not eligible: expiry is not revocation.
+
+The original grant records are the sole authority and transfer receipts. Browser
+inventory labels do not promise that a reservation is available; the issuer
+checks current state when approving. Local expired-pending and lost/corrupt
+credential recovery are separate work, not implied by successful reassignment.
 
 ## Lease renewal
 

@@ -7,26 +7,19 @@ import {
   GRANT_MS,
   isTimestampMillis,
   MAX_TIMESTAMP_MS,
+  PRINCIPAL_UID,
   RENEWAL_WINDOW_MS,
-  UUID,
   PairingError,
-  exact,
-  object,
-  parseApproval,
 } from './pairing-contract.js';
 import type { Approval } from './pairing-contract.js';
-
-interface Pairing {
-  request: Approval;
-  ownerUid: string;
-  principalUid: string;
-  blockId: string;
-  createdAt: Timestamp;
-  expiresAt: Timestamp;
-  enabled: boolean;
-  claimed: boolean;
-  nextClaimAt: Timestamp;
-}
+import {
+  decodeGrant,
+  decodePairing,
+  timestampMillis,
+  validApprovalTimestamps,
+  validGrantDuration,
+} from './pairing-record.js';
+import type { Grant, Pairing } from './pairing-record.js';
 
 export interface ApprovedBinding extends Approval {
   principalUid: string;
@@ -73,70 +66,11 @@ function unavailable(): never {
   throw new PairingError('PAIRING_UNAVAILABLE');
 }
 
-function decode(input: unknown, id: string): Pairing {
-  try {
-    const value = object(input);
-    exact(value, [
-      'request',
-      'ownerUid',
-      'principalUid',
-      'blockId',
-      'createdAt',
-      'expiresAt',
-      'enabled',
-      'claimed',
-      'nextClaimAt',
-    ]);
-    const request = parseApproval(value.request);
-    if (
-      request.pairingId !== id ||
-      typeof value.ownerUid !== 'string' ||
-      !value.ownerUid ||
-      typeof value.principalUid !== 'string' ||
-      !value.principalUid.startsWith('office-agent:') ||
-      !UUID.test(value.principalUid.slice('office-agent:'.length)) ||
-      typeof value.blockId !== 'string' ||
-      !UUID.test(value.blockId) ||
-      !(value.createdAt instanceof Timestamp) ||
-      !(value.expiresAt instanceof Timestamp) ||
-      !(value.nextClaimAt instanceof Timestamp) ||
-      typeof value.enabled !== 'boolean' ||
-      typeof value.claimed !== 'boolean'
-    )
-      return unavailable();
-    return {
-      request,
-      ownerUid: value.ownerUid,
-      principalUid: value.principalUid,
-      blockId: value.blockId,
-      createdAt: value.createdAt,
-      expiresAt: value.expiresAt,
-      enabled: value.enabled,
-      claimed: value.claimed,
-      nextClaimAt: value.nextClaimAt,
-    };
-  } catch {
-    return unavailable();
-  }
-}
-
-function timestampMillis(value: Timestamp): number {
-  if (value.nanoseconds % 1_000_000 !== 0) unavailable();
-  const millis = value.toMillis();
-  if (!isTimestampMillis(millis)) unavailable();
-  return millis;
-}
-
 function validApproval(pairing: Pairing, now: number, temporal: 'active' | 'renewal'): void {
   const createdAt = timestampMillis(pairing.createdAt);
   const expiresAt = timestampMillis(pairing.expiresAt);
-  timestampMillis(pairing.nextClaimAt);
-  if (
-    !pairing.enabled ||
-    createdAt > now ||
-    expiresAt - createdAt !== APPROVAL_MS ||
-    (temporal === 'active' && expiresAt <= now)
-  )
+  validApprovalTimestamps(pairing);
+  if (!pairing.enabled || createdAt > now || (temporal === 'active' && expiresAt <= now))
     unavailable();
 }
 
@@ -159,38 +93,80 @@ function validGrant(
   now: number,
   temporal: 'active' | 'renewal' = 'active'
 ): number {
+  const value = decodeGrant(input);
+  validGrantDuration(value);
+  const createdAt = timestampMillis(value.createdAt);
+  const expiresAt = timestampMillis(value.expiresAt);
+  if (
+    value.ownerUid !== pairing.ownerUid ||
+    value.installationId !== pairing.request.installationId ||
+    value.identityId !== pairing.request.identityId ||
+    value.blockId !== pairing.blockId ||
+    JSON.stringify(value.capabilities) !== JSON.stringify(pairing.request.capabilities) ||
+    value.enabled !== true ||
+    createdAt > now ||
+    (temporal === 'active' && expiresAt <= now)
+  )
+    unavailable();
+  return expiresAt;
+}
+
+function replacementConflict(): never {
+  throw new PairingError('PAIRING_CONFLICT');
+}
+
+function sourceGrant(input: unknown, ownerUid: string, now: number): Grant {
   try {
-    const value = object(input);
-    exact(value, [
-      'version',
-      'ownerUid',
-      'installationId',
-      'identityId',
-      'blockId',
-      'capabilities',
-      'enabled',
-      'createdAt',
-      'expiresAt',
-    ]);
-    const createdAt =
-      value.createdAt instanceof Timestamp ? timestampMillis(value.createdAt) : unavailable();
-    const expiresAt =
-      value.expiresAt instanceof Timestamp ? timestampMillis(value.expiresAt) : unavailable();
+    const grant = decodeGrant(input);
+    validGrantDuration(grant);
+    const createdAt = timestampMillis(grant.createdAt);
+    if (grant.ownerUid !== ownerUid || grant.enabled !== false || createdAt > now)
+      return replacementConflict();
+    return grant;
+  } catch {
+    return replacementConflict();
+  }
+}
+
+function validPredecessor(
+  input: unknown,
+  id: string,
+  source: Grant,
+  sourcePrincipalUid: string,
+  ownerUid: string,
+  request: Approval,
+  now: number
+): Pairing {
+  try {
+    const predecessor = decodePairing(input, id);
+    const createdAt = timestampMillis(predecessor.createdAt);
+    const expiresAt = timestampMillis(predecessor.expiresAt);
+    validApprovalTimestamps(predecessor);
     if (
-      value.version !== 1 ||
-      value.ownerUid !== pairing.ownerUid ||
-      value.installationId !== pairing.request.installationId ||
-      value.identityId !== pairing.request.identityId ||
-      value.blockId !== pairing.blockId ||
-      JSON.stringify(value.capabilities) !== JSON.stringify(pairing.request.capabilities) ||
-      value.enabled !== true ||
+      predecessor.ownerUid !== ownerUid ||
+      predecessor.request.worldId !== request.worldId ||
+      predecessor.blockId !== source.blockId ||
+      predecessor.replacesPrincipalUid !== sourcePrincipalUid ||
+      predecessor.claimed ||
       createdAt > now ||
-      (temporal === 'active' && expiresAt <= now) ||
-      expiresAt <= createdAt ||
-      expiresAt - createdAt > GRANT_MS
+      (predecessor.enabled && expiresAt > now)
+    )
+      return replacementConflict();
+    return predecessor;
+  } catch {
+    return replacementConflict();
+  }
+}
+
+function validSourceReservation(input: unknown, pairing: Pairing, now: number): void {
+  if (pairing.replacesPrincipalUid === undefined) return;
+  try {
+    const source = sourceGrant(input, pairing.ownerUid, now);
+    if (
+      source.blockId !== pairing.blockId ||
+      source.replacedByPairingId !== pairing.request.pairingId
     )
       unavailable();
-    return expiresAt;
   } catch {
     unavailable();
   }
@@ -212,12 +188,9 @@ function renewed(pairing: Pairing, grantExpiresAt: number): RenewedBinding {
 
 export function createPairingStore(db: Firestore, clock: () => number = Date.now) {
   const pairingRef = (id: string) => db.collection('officePairings').doc(id);
-  const grantRef = (pairing: Pairing) =>
-    db
-      .collection('worlds')
-      .doc(pairing.request.worldId)
-      .collection('agentGrants')
-      .doc(pairing.principalUid);
+  const grantRefFor = (worldId: string, principalUid: string) =>
+    db.collection('worlds').doc(worldId).collection('agentGrants').doc(principalUid);
+  const grantRef = (pairing: Pairing) => grantRefFor(pairing.request.worldId, pairing.principalUid);
 
   async function ownsWorld(tx: Transaction, uid: string, worldId: string): Promise<boolean> {
     const [tester, world] = await tx.getAll(
@@ -233,41 +206,107 @@ export function createPairingStore(db: Firestore, clock: () => number = Date.now
   }
 
   async function current(tx: Transaction, id: string, now: number): Promise<Pairing> {
-    const pairing = decode((await tx.get(pairingRef(id))).data(), id);
+    const pairing = decodePairing((await tx.get(pairingRef(id))).data(), id);
     validApproval(pairing, now, 'active');
     if (!(await ownsWorld(tx, pairing.ownerUid, pairing.request.worldId))) unavailable();
+    if (pairing.replacesPrincipalUid !== undefined) {
+      const source = await tx.get(
+        grantRefFor(pairing.request.worldId, pairing.replacesPrincipalUid)
+      );
+      validSourceReservation(source.data(), pairing, now);
+    }
     return pairing;
   }
 
   return {
-    async approve(uid: string, request: Approval): Promise<ApprovedBinding> {
+    async approve(
+      uid: string,
+      request: Approval,
+      replacesPrincipalUid?: string
+    ): Promise<ApprovedBinding> {
+      if (replacesPrincipalUid !== undefined && !PRINCIPAL_UID.test(replacesPrincipalUid))
+        throw new PairingError('INVALID_ARGUMENT');
       // Random IDs are stable across transaction retries; no minting or delivery in tx.
       const principalUid = `office-agent:${randomUUID()}`;
-      const blockId = randomUUID();
+      const freshBlockId = randomUUID();
       return db.runTransaction(async (tx) => {
         const now = clock();
+        if (!isTimestampMillis(now) || now > MAX_TIMESTAMP_MS - APPROVAL_MS) unavailable();
         if (!(await ownsWorld(tx, uid, request.worldId)))
           throw new PairingError('PERMISSION_DENIED');
         const existing = await tx.get(pairingRef(request.pairingId));
+        const sourceRef =
+          replacesPrincipalUid === undefined
+            ? undefined
+            : grantRefFor(request.worldId, replacesPrincipalUid);
+        const sourceSnapshot = sourceRef === undefined ? undefined : await tx.get(sourceRef);
+        const source =
+          replacesPrincipalUid === undefined
+            ? undefined
+            : sourceGrant(sourceSnapshot?.data(), uid, now);
+        const reservedPairingId = source?.replacedByPairingId;
+        const predecessorSnapshot =
+          reservedPairingId !== undefined && reservedPairingId !== request.pairingId
+            ? await tx.get(pairingRef(reservedPairingId))
+            : undefined;
+        const predecessor =
+          source !== undefined &&
+          reservedPairingId !== undefined &&
+          reservedPairingId !== request.pairingId
+            ? validPredecessor(
+                predecessorSnapshot?.data(),
+                reservedPairingId,
+                source,
+                replacesPrincipalUid!,
+                uid,
+                request,
+                now
+              )
+            : undefined;
+        const predecessorGrantSnapshot =
+          predecessor !== undefined
+            ? await tx.get(grantRefFor(request.worldId, predecessor.principalUid))
+            : undefined;
         if (existing.exists) {
-          const pairing = decode(existing.data(), request.pairingId);
-          if (pairing.ownerUid !== uid || !sameRequest(pairing.request, request))
+          const pairing = decodePairing(existing.data(), request.pairingId);
+          if (
+            pairing.ownerUid !== uid ||
+            !sameRequest(pairing.request, request) ||
+            pairing.replacesPrincipalUid !== replacesPrincipalUid
+          )
             throw new PairingError('PAIRING_CONFLICT');
           validApproval(pairing, now, 'active');
+          if (replacesPrincipalUid !== undefined) {
+            if (
+              source === undefined ||
+              source.blockId !== pairing.blockId ||
+              reservedPairingId !== request.pairingId
+            )
+              return replacementConflict();
+          }
           if (pairing.claimed) validGrant((await tx.get(grantRef(pairing))).data(), pairing, now);
           return view(pairing);
+        }
+        if (source !== undefined && reservedPairingId !== undefined) {
+          if (reservedPairingId === request.pairingId) return replacementConflict();
+          if (predecessor === undefined) return replacementConflict();
+          if (predecessorGrantSnapshot?.exists) return replacementConflict();
+          tx.update(pairingRef(predecessor.request.pairingId), { enabled: false });
         }
         const pairing: Pairing = {
           request,
           ownerUid: uid,
           principalUid,
-          blockId,
+          blockId: source?.blockId ?? freshBlockId,
           createdAt: Timestamp.fromMillis(now),
           expiresAt: Timestamp.fromMillis(now + APPROVAL_MS),
           enabled: true,
           claimed: false,
           nextClaimAt: Timestamp.fromMillis(now),
+          ...(replacesPrincipalUid !== undefined ? { replacesPrincipalUid } : {}),
         };
+        if (sourceRef !== undefined)
+          tx.update(sourceRef, { replacedByPairingId: request.pairingId });
         tx.create(pairingRef(request.pairingId), pairing);
         return view(pairing);
       });
@@ -321,7 +360,7 @@ export function createPairingStore(db: Firestore, clock: () => number = Date.now
       return db.runTransaction(async (tx) => {
         const now = clock();
         if (!isTimestampMillis(now) || !isTimestampMillis(expectedGrantExpiresAt)) unavailable();
-        const pairing = decode((await tx.get(pairingRef(id))).data(), id);
+        const pairing = decodePairing((await tx.get(pairingRef(id))).data(), id);
         validApproval(pairing, now, 'renewal');
         if (!pairing.claimed || !(await ownsWorld(tx, pairing.ownerUid, pairing.request.worldId)))
           unavailable();
@@ -351,7 +390,7 @@ export function createPairingStore(db: Firestore, clock: () => number = Date.now
         const snapshot = await tx.get(pairingRef(id));
         let pairing: Pairing;
         try {
-          pairing = decode(snapshot.data(), id);
+          pairing = decodePairing(snapshot.data(), id);
         } catch {
           throw new PairingError(
             actor.kind === 'owner' ? 'PERMISSION_DENIED' : 'PAIRING_UNAVAILABLE'

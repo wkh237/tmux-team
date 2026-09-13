@@ -42,7 +42,7 @@ Choose **Open block** to inspect or edit the referenced space using the existing
 layout editor. **Open home block** returns to your own layout. Switching spaces
 discards unsaved edits; already submitted writes may still complete on their
 original target. An absent layout is shown as **No saved layout yet**, not as
-deleted content. Reassignment and credential recovery are not available here.
+deleted content. This editor does not change assignment or recover credentials.
 
 ## Native pairing (source builds)
 
@@ -62,6 +62,14 @@ the identity/installation and approve. `pair` waits up to 300 seconds; use
 original pending request. `--read-only` requests only layout read access. Omit
 `--identity` only with verified pane context. Temporary identities are accepted
 without promoting them to saved identities.
+
+The approval form defaults to **New empty block**. To reuse a retired agent's
+layout, select its **Retained block** from the revoked grant pages before
+approving. The first attempt fixes this choice, including uncertain retries.
+The new agent receives a new principal for that block; the previous principal
+stays revoked. Profiles and notebooks do not transfer. A reserved/transferred
+source may reject if already claimed; use the most recent revoked grant, not
+an ancestor. The service can reclaim only an abandoned unclaimed reservation.
 
 World-qualified `status` reports local retained state, not live authority.
 `inspect` checks server access and reports only whether the assigned block exists;

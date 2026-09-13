@@ -42,6 +42,10 @@ function fakeFirestore(initial: Record<string, unknown>) {
       operation({
         get: async (ref: Ref) => snapshot(ref),
         getAll: async (...refs: Ref[]) => refs.map((ref) => snapshot(ref)),
+        create: (ref: Ref, value: Record<string, unknown>) => {
+          if (values.has(ref.path)) throw new Error(`already exists: ${ref.path}`);
+          values.set(ref.path, value);
+        },
         update: (ref: Ref, value: Record<string, unknown>) => {
           const current = values.get(ref.path);
           values.set(ref.path, { ...(current as Record<string, unknown>), ...value });

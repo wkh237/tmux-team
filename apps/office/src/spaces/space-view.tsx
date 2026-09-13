@@ -89,6 +89,13 @@ export function SpaceList({ state, open }: { state: SpaceState; open: (id: strin
               {entry.capabilities.join(', ')}
             </p>
             <button onClick={() => open(entry.blockId)}>Open block {entry.blockId}</button>
+            {entry.replacedByPairingId && (
+              <p>
+                Reserved or transferred through pairing{' '}
+                <code>{entry.replacedByPairingId.slice(0, 12)}</code>. This is not an unassigned
+                block.
+              </p>
+            )}
           </li>
         ))}
       </ul>
