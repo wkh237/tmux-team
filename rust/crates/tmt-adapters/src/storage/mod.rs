@@ -2,6 +2,7 @@ mod bindings;
 mod errors;
 mod identities;
 mod identity_hooks;
+mod identity_metadata;
 mod migrations;
 mod office_local;
 mod profiles;

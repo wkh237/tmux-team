@@ -131,6 +131,15 @@ fn required(matches: &ArgMatches, id: &str) -> String {
     text(matches, id).expect("required grammar operand was validated")
 }
 
+fn texts(matches: &ArgMatches, id: &str) -> Vec<String> {
+    matches
+        .try_get_many::<String>(id)
+        .ok()
+        .flatten()
+        .map(|values| values.cloned().collect())
+        .unwrap_or_default()
+}
+
 fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
     Ok(match path {
         [] if flag(m, "version") => Invocation::Version,
@@ -314,7 +323,37 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             Invocation::Identity(IdentityRequest::Create(required(m, "name")))
         }
         ["identity", "show"] => Invocation::Identity(IdentityRequest::Show(required(m, "name"))),
-        ["identity", "list"] => Invocation::Identity(IdentityRequest::List),
+        ["identity", "list"] => {
+            let mut filters = Vec::new();
+            for expression in texts(m, "where") {
+                let Some((key, value)) = expression.split_once('=') else {
+                    return Err("--where requires KEY=VALUE.".into());
+                };
+                filters.push(IdentityFilterRequest::Equals {
+                    key: key.into(),
+                    value: value.into(),
+                });
+            }
+            filters.extend(texts(m, "has").into_iter().map(IdentityFilterRequest::Has));
+            Invocation::Identity(IdentityRequest::List(filters))
+        }
+        ["identity", "meta", operation] => Invocation::Identity(IdentityRequest::Metadata {
+            identity: text(m, "identity"),
+            operation: match *operation {
+                "set" => IdentityMetadataRequest::Set {
+                    key: required(m, "key"),
+                    value: required(m, "value"),
+                },
+                "get" => IdentityMetadataRequest::Get {
+                    key: required(m, "key"),
+                },
+                "list" => IdentityMetadataRequest::List,
+                "rm" => IdentityMetadataRequest::Remove {
+                    key: required(m, "key"),
+                },
+                _ => unreachable!(),
+            },
+        }),
         ["notes", "path"] => Invocation::NotesPath {
             identity: text(m, "identity"),
         },

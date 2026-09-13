@@ -273,20 +273,29 @@ fn binding_mutations_are_exact_and_content_removal_is_opt_in() {
         )
         .unwrap();
     storage
+        .connection()
+        .unwrap()
+        .execute(
+            "INSERT INTO identity_metadata VALUES (?, 'project', 'tmt')",
+            [&identity.id],
+        )
+        .unwrap();
+    storage
         .with_binding_transaction(|records| records.retire_identity(&identity, false))
         .unwrap();
-    let retained_content: (i64, i64) = storage
+    let retained_content: (i64, i64, i64) = storage
         .connection()
         .unwrap()
         .query_row(
             "SELECT
                 (SELECT COUNT(*) FROM role_profiles WHERE identity_id = ?),
-                (SELECT COUNT(*) FROM identity_preambles WHERE identity_id = ?)",
-            [&identity.id, &identity.id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+                (SELECT COUNT(*) FROM identity_preambles WHERE identity_id = ?),
+                (SELECT COUNT(*) FROM identity_metadata WHERE identity_id = ?)",
+            [&identity.id, &identity.id, &identity.id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .unwrap();
-    assert_eq!(retained_content, (1, 1));
+    assert_eq!(retained_content, (1, 1, 1));
 
     storage
         .connection()
@@ -301,6 +310,14 @@ fn binding_mutations_are_exact_and_content_removal_is_opt_in() {
         .unwrap()
         .execute(
             "INSERT INTO identity_preambles VALUES (?, 'preamble', 'preamble-time')",
+            [&other.id],
+        )
+        .unwrap();
+    storage
+        .connection()
+        .unwrap()
+        .execute(
+            "INSERT INTO identity_metadata VALUES (?, 'project', 'other')",
             [&other.id],
         )
         .unwrap();
@@ -350,18 +367,21 @@ fn binding_mutations_are_exact_and_content_removal_is_opt_in() {
     storage
         .with_binding_transaction(|records| records.retire_identity(&other, true))
         .unwrap();
-    let retained_state: (i64, i64, i64, i64, i64, i64) = storage
+    let retained_state: (i64, i64, i64, i64, i64, i64, i64) = storage
         .connection()
         .unwrap()
         .query_row(
             "SELECT
                 (SELECT COUNT(*) FROM role_profiles WHERE identity_id = ?),
                 (SELECT COUNT(*) FROM identity_preambles WHERE identity_id = ?),
+                (SELECT COUNT(*) FROM identity_metadata WHERE identity_id = ?),
                 (SELECT COUNT(*) FROM preamble_counters WHERE identity_id = ?),
                 (SELECT COUNT(*) FROM request_attempts WHERE identity_id = ?),
                 (SELECT COUNT(*) FROM request_responses WHERE request_id = 'request-other'),
                 (SELECT COUNT(*) FROM request_attention_identities WHERE identity_id = ?)",
-            [&other.id, &other.id, &other.id, &other.id, &other.id],
+            [
+                &other.id, &other.id, &other.id, &other.id, &other.id, &other.id,
+            ],
             |row| {
                 Ok((
                     row.get(0)?,
@@ -370,11 +390,12 @@ fn binding_mutations_are_exact_and_content_removal_is_opt_in() {
                     row.get(3)?,
                     row.get(4)?,
                     row.get(5)?,
+                    row.get(6)?,
                 ))
             },
         )
         .unwrap();
-    assert_eq!(retained_state, (0, 0, 1, 1, 1, 1));
+    assert_eq!(retained_state, (0, 0, 0, 1, 1, 1, 1));
 
     // A stale exact ID cannot detach another identity's binding.
     let survivor = create_or_resolve(&mut storage, "Survivor", Lifetime::Saved)

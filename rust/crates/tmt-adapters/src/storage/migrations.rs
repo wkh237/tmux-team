@@ -65,6 +65,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "add durable inbox routes and recipient attention",
         sql: include_str!("schema/012.sql"),
     },
+    Migration {
+        name: "add searchable identity metadata",
+        sql: include_str!("schema/013.sql"),
+    },
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

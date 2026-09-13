@@ -5,6 +5,57 @@ import { durableState } from './identity-state-oracle.js';
 const inputLog = { mode: 'input-log' } as const;
 
 describe.sequential('profile ownership across binding transitions', () => {
+  it('uses the verified temporary caller for metadata and rejects tampered caller writes', async () => {
+    await withE2EFixture(async (fixture) => {
+      const named = await fixture.runJsonCli<{ id: string; lifetime: string }>(['name', 'Alice']);
+      expect(named).toMatchObject({
+        code: 0,
+        json: { id: expect.any(String), lifetime: 'temporary' },
+      });
+      const identityId = named.json!.id;
+
+      expect(await fixture.runJsonCli(['identity', 'meta', 'set', 'project', 'tmt'])).toMatchObject(
+        {
+          code: 0,
+          json: { identityId, key: 'project', value: 'tmt', changed: true },
+        }
+      );
+      expect(await fixture.runJsonCli(['identity', 'meta', 'get', 'project'])).toMatchObject({
+        code: 0,
+        json: { identityId, key: 'project', value: 'tmt' },
+      });
+      expect(await fixture.runJsonCli(['identity', 'meta', 'list'])).toMatchObject({
+        code: 0,
+        json: { identityId, metadata: { project: 'tmt' } },
+      });
+      expect(durableState(fixture)).toMatchObject({
+        identities: [expect.objectContaining({ id: identityId, lifetime: 'temporary' })],
+        metadata: [{ identity_id: identityId, key: 'project', value: 'tmt' }],
+      });
+
+      const paneMetadata = JSON.parse(fixture.paneMetadata());
+      paneMetadata.globalIdentity.bindingId = 'tampered-binding';
+      fixture.tmux([
+        'set-option',
+        '-p',
+        '-t',
+        fixture.pane,
+        '@tmux-team.agent',
+        JSON.stringify(paneMetadata),
+      ]);
+      expect(
+        await fixture.runJsonCli(['identity', 'meta', 'set', 'project', 'other'])
+      ).toMatchObject({
+        code: 1,
+        json: { error: { code: 'IDENTITY_REQUIRED' } },
+      });
+      expect(durableState(fixture)).toMatchObject({
+        identities: [expect.objectContaining({ id: identityId, lifetime: 'temporary' })],
+        metadata: [{ identity_id: identityId, key: 'project', value: 'tmt' }],
+      });
+    }, inputLog);
+  });
+
   it('uses a verified implicit role and preserves saved profiles across unbind and rebind', async () => {
     await withE2EFixture(async (fixture) => {
       expect(await fixture.runJsonCli(['name', 'Alice', '-s'])).toMatchObject({ code: 0 });
