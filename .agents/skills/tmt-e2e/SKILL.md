@@ -21,7 +21,8 @@ Use this skill for the repository's Docker E2E test foundation. Keep E2E tests s
 
 ## Test quality gate
 
-Do not optimize for a passing suite or a larger test count. Every scenario must name the concrete regression risk or invariant it covers, and a reviewer should be able to explain what realistic defect would make it fail.
+Apply [CONVENTIONS' test review rules](../../../CONVENTIONS.md#tests-and-review),
+including concrete defect coverage and meaningful positive/negative controls.
 
 - Cover distinct boundaries and failure modes instead of repeating equivalent happy paths.
 - Exercise the subject under test rather than recreating its logic in the harness. Mock agents are allowed because they are deterministic peers; `tmt` and tmux themselves stay real.
@@ -69,7 +70,10 @@ Keep orchestration in the wrapper and scenario assertions in Vitest. Do not dupl
 
 ## Scope guard
 
-This foundation covers CLI/tmux integration scenarios only. Do not expand it into daemon behavior, persistence, team workflows, aliases, or memory unless a separate, explicit requirement adds those areas.
+This skill covers CLI/tmux integration; Office browser/emulator verification is
+defined in DEVELOPMENT. Test existing persistence and identity contracts where
+the CLI flow requires them. Test work does not authorize new product behavior
+or silently expand the tracked feature's acceptance criteria.
 
 ## Verification
 

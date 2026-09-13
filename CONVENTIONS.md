@@ -112,6 +112,10 @@ observable failure/cleanup postconditions. Verify causal agent output rather
 than terminal echo. Cover compatibility, negative paths and partial failure,
 not only the new happy path. Demonstrate regression tests fail against the
 original defect when practical; explain when that evidence cannot be obtained.
+For high-risk guards, use a valid positive control and change the relevant
+condition in isolation: an unrelated failure must not satisfy the negative
+assertion. Where practical, disable or perturb the intended guard to confirm
+the test detects its absence; report unverified sensitivity honestly.
 
 Primary review examines test setup and assertions as code. Do not weaken an
 assertion, bypass a gate or count more tests as proof of correctness. Use fixture
