@@ -109,16 +109,16 @@ The following connected behaviors are proposals, not installed instructions.
 The [native pairing contract](../../contracts/office/native-pairing.md) refines
 the in-progress pair/status/inspect inputs, outputs and deployment trust boundary.
 
-| Command                                                    | Planned behavior                                                                                        |
-| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `tmt office`                                               | Open the selected world's web UI; never implicitly run a connector or publish agents                    |
-| `tmt office install --yes`                                 | Explicitly acquire and verify the official extension; `--yes` consents to installation only             |
-| `tmt office upgrade`                                       | Explicit verified extension update, with compatibility checks and rollback-safe activation              |
-| `tmt office status --json`                                 | Local extension/pairing/connector status; no network or automatic update check                          |
-| `tmt office run`                                           | Run the connector in the foreground; Ctrl-C stops it without cancelling native work                     |
-| `tmt office publish <identity> --capability review`        | Publish an explicitly selected identity UUID and allowed capability; no implicit all-agent publication  |
-| `tmt office unpublish <identity>`                          | Reject new work for that published identity, without deleting local identity or retained exchanges      |
-| `tmt office social <identity> --minutes 10 --max-turns 20` | Request a bounded, opt-in social session; participants may decline and workspace tools stay disabled    |
+| Command                                                    | Planned behavior                                                                                       |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `tmt office`                                               | Open the selected world's web UI; never implicitly run a connector or publish agents                   |
+| `tmt office install --yes`                                 | Explicitly acquire and verify the official extension; `--yes` consents to installation only            |
+| `tmt office upgrade`                                       | Explicit verified extension update, with compatibility checks and rollback-safe activation             |
+| `tmt office status --json`                                 | Local extension/pairing/connector status; no network or automatic update check                         |
+| `tmt office run`                                           | Run the connector in the foreground; Ctrl-C stops it without cancelling native work                    |
+| `tmt office publish <identity> --capability review`        | Publish an explicitly selected identity UUID and allowed capability; no implicit all-agent publication |
+| `tmt office unpublish <identity>`                          | Reject new work for that published identity, without deleting local identity or retained exchanges     |
+| `tmt office social <identity> --minutes 10 --max-turns 20` | Request a bounded, opt-in social session; participants may decline and workspace tools stay disabled   |
 
 ## Decoration and discovery
 
