@@ -423,18 +423,24 @@ fn dependency_policy_rejects_unknown_workspace_packages() {
 }
 
 #[test]
-fn companion_reuses_core_and_adapters_without_direct_cli_or_effect_libraries() {
+fn companion_uses_only_reviewed_local_service_dependencies() {
     assert!(
         policy::dependency_violations(&package(
             "tmt-office",
             vec![
                 dependency("tmt-core", "normal", None, None),
-                dependency("tmt-adapters", "normal", None, None)
+                dependency("tmt-adapters", "normal", None, None),
+                dependency("base64", "normal", None, None),
+                dependency("getrandom", "normal", None, None),
+                dependency("httparse", "normal", None, None),
+                dependency("serde", "normal", None, None),
+                dependency("serde_json", "normal", None, None),
+                dependency("uuid", "normal", None, None),
             ]
         ))
         .is_empty()
     );
-    for name in ["tmt-cli", "rusqlite", "ureq", "url", "serde"] {
+    for name in ["tmt-cli", "rusqlite", "ureq", "url"] {
         assert_eq!(
             policy::dependency_violations(&package(
                 "tmt-office",
@@ -676,6 +682,20 @@ fn collector_fails_closed_for_missing_ambiguous_invalid_and_remapped_modules() {
     assert_eq!(
         error,
         "lib.rs: source include! requires explicit collector support"
+    );
+
+    let generated_assets = FixtureDirectory::new();
+    generated_assets.write(
+        "local_assets.rs",
+        "include!(concat!(env!(\"OUT_DIR\"), \"/office_assets.rs\"));\n",
+    );
+    assert!(
+        source::collect(
+            "tmt-office",
+            &generated_assets.root().join("local_assets.rs")
+        )
+        .is_ok(),
+        "the explicit generated Office asset collector must remain supported"
     );
 
     let verbatim = FixtureDirectory::new();

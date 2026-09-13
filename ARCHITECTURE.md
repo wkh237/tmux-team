@@ -12,8 +12,10 @@ run explicit developer fixtures and verifiers, never serve as a product fallback
 
 Published releases are immutable. Source changes do not publish replacements
 or migrate application data.
-TMT remains an invocation-owned local CLI, without a daemon, remote MCP server,
-identity memory or a separate inbox service.
+TMT remains an invocation-owned local CLI, without a remote MCP server, identity
+memory or a separate inbox service. The independently installed Office companion may
+run one explicit loopback-only browser service; it does not execute CLI work or change
+the CLI's invocation-owned storage policy.
 
 Any retained `better-sqlite3` use belongs to private developer tooling as an
 independent oracle. It is not a Rust runtime dependency or an alternate owner
@@ -53,6 +55,14 @@ paired companion for authenticated conditional Firestore commits. Browser and
 native implementations share the versioned block contract and literal vectors;
 neither creates a second scene store. The CLI owns grammar and presentation, not
 credentials, grant renewal or Firestore transactions.
+The offline local Office path is separate from the Firebase runtime. Both one-shot CLI
+block commands and the loopback HTTP service call the same SQLite repository in
+`tmt-adapters`; neither mirrors state into the SPA. `tmt-office` embeds the Vite local
+build at compile time, so the fixed native archive inventory does not gain mutable web
+files. A private receipt coordinates one installation-wide process. Browser and control
+tokens are distinct, status is token-free, and only exact IPv4 loopback Host/Origin
+requests reach the bounded HTTP adapter. Identity UUID remains ownership authority;
+retirement hides but does not delete its block.
 Owner approval may select a revoked grant's retained block through the same
 bounded space projection. The pairing transaction reserves that source grant
 with a transfer receipt and records immutable approval intent; no second

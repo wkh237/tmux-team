@@ -1,0 +1,591 @@
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use serde::Deserialize;
+use serde_json::{Value, json};
+use std::{
+    io::{self, Read, Write},
+    net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream},
+    process::ExitCode,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+    time::{Duration, Instant},
+};
+use tmt_adapters::{
+    config::ConfigPaths,
+    office_block::decode_layout,
+    office_local::local_snapshot,
+    office_service::{self, ServiceReceipt},
+    storage::{LocalOfficeError, Storage},
+};
+
+use crate::local_assets;
+
+const HEADER_LIMIT: usize = 16 * 1024;
+const BODY_LIMIT: usize = 64 * 1024;
+const MAX_CONNECTIONS: usize = 16;
+const REQUEST_DEADLINE: Duration = Duration::from_secs(3);
+
+enum ServeError {
+    PortUnavailable(io::Error),
+    Other(io::Error),
+}
+
+impl From<io::Error> for ServeError {
+    fn from(error: io::Error) -> Self {
+        Self::Other(error)
+    }
+}
+
+struct Request {
+    method: String,
+    path: String,
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
+}
+
+struct ActiveConnection(Arc<AtomicUsize>);
+
+impl Drop for ActiveConnection {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+impl Request {
+    fn header(&self, name: &str) -> Option<&str> {
+        let mut values = self
+            .headers
+            .iter()
+            .filter(|(key, _)| key.eq_ignore_ascii_case(name));
+        let value = values.next()?.1.as_str();
+        values.next().is_none().then_some(value)
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ApplyInput {
+    expected_revision: u64,
+    objects: Value,
+}
+
+pub fn run() -> ExitCode {
+    match serve() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(ServeError::PortUnavailable(error)) => {
+            let mut stdout = io::stdout().lock();
+            let _ = writeln!(stdout, "TMT-OFFICE-SERVICE/1 PORT-UNAVAILABLE");
+            let _ = stdout.flush();
+            let _ = writeln!(io::stderr().lock(), "Local Office service failed: {error}");
+            ExitCode::FAILURE
+        }
+        Err(ServeError::Other(error)) => {
+            let _ = writeln!(io::stderr().lock(), "Local Office service failed: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn serve() -> Result<(), ServeError> {
+    let paths = ConfigPaths::discover().map_err(io::Error::other)?;
+    let _service_lock = office_service::service_lock(&paths)?;
+    let requested = std::env::var("TMT_OFFICE_SERVICE_PORT")
+        .map_err(io::Error::other)?
+        .parse::<u16>()
+        .map_err(io::Error::other)?;
+    let listener =
+        TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, requested)).map_err(|error| {
+            if matches!(
+                error.kind(),
+                io::ErrorKind::AddrInUse | io::ErrorKind::PermissionDenied
+            ) {
+                ServeError::PortUnavailable(error)
+            } else {
+                ServeError::Other(error)
+            }
+        })?;
+    let port = listener.local_addr()?.port();
+    let receipt = ServiceReceipt {
+        schema_version: 1,
+        pid: std::process::id(),
+        port,
+        nonce: secret()?,
+        browser_token: secret()?,
+        control_token: secret()?,
+        running_version: env!("CARGO_PKG_VERSION").to_owned(),
+    };
+    office_service::write_receipt(&paths, &receipt)?;
+    writeln!(io::stdout().lock(), "TMT-OFFICE-SERVICE/1 READY")?;
+    io::stdout().lock().flush()?;
+    let stopping = Arc::new(AtomicBool::new(false));
+    let active = Arc::new(AtomicUsize::new(0));
+    let mut workers: Vec<std::thread::JoinHandle<()>> = Vec::new();
+    listener.set_nonblocking(true)?;
+    while !stopping.load(Ordering::Acquire) {
+        let mut index = 0;
+        while index < workers.len() {
+            if workers[index].is_finished() {
+                let worker: std::thread::JoinHandle<()> = workers.swap_remove(index);
+                let _ = worker.join();
+            } else {
+                index += 1;
+            }
+        }
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                if stopping.load(Ordering::Acquire) {
+                    continue;
+                }
+                if active
+                    .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                        (count < MAX_CONNECTIONS).then_some(count + 1)
+                    })
+                    .is_err()
+                {
+                    continue;
+                }
+                let guard = ActiveConnection(Arc::clone(&active));
+                let paths = paths.clone();
+                let receipt = receipt.clone();
+                let stopping = Arc::clone(&stopping);
+                workers.push(std::thread::spawn(move || {
+                    let _guard = guard;
+                    let _ = stream.set_write_timeout(Some(REQUEST_DEADLINE));
+                    if let Err(error) = handle(&mut stream, &paths, &receipt, &stopping) {
+                        let _ = response(
+                            &mut stream,
+                            400,
+                            "application/json",
+                            br#"{"error":"BAD_REQUEST"}"#,
+                        );
+                        let _ = error;
+                    }
+                }));
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    drop(listener);
+    for worker in workers {
+        let _ = worker.join();
+    }
+    office_service::remove_matching_receipt(&paths, &receipt)
+        .map_err(io::Error::other)
+        .map_err(ServeError::Other)
+}
+
+fn handle(
+    stream: &mut TcpStream,
+    paths: &ConfigPaths,
+    receipt: &ServiceReceipt,
+    stopping: &AtomicBool,
+) -> io::Result<()> {
+    let request = read_request(stream, Instant::now() + REQUEST_DEADLINE)?;
+    if request.method == "GET" && !request.body.is_empty() {
+        return response(
+            stream,
+            400,
+            "application/json",
+            br#"{"error":"BAD_REQUEST"}"#,
+        );
+    }
+    let host = format!("127.0.0.1:{}", receipt.port);
+    if request.header("host") != Some(host.as_str()) {
+        return response(
+            stream,
+            421,
+            "application/json",
+            br#"{"error":"HOST_REJECTED"}"#,
+        );
+    }
+    if request.path.starts_with("/control/v1/") {
+        return control(stream, &request, receipt, stopping);
+    }
+    if request.path.starts_with("/api/v1/") {
+        return api(stream, request, paths, receipt);
+    }
+    if request.method != "GET" {
+        return response(
+            stream,
+            405,
+            "text/plain; charset=utf-8",
+            b"Method not allowed",
+        );
+    }
+    let asset = local_assets::find(&request.path).or_else(|| {
+        (request.path == "/" || request.path.starts_with("/local/")).then(local_assets::index)
+    });
+    match asset {
+        Some((content_type, bytes)) => response(stream, 200, content_type, bytes),
+        None => response(stream, 404, "text/plain; charset=utf-8", b"Not found"),
+    }
+}
+
+fn control(
+    stream: &mut TcpStream,
+    request: &Request,
+    receipt: &ServiceReceipt,
+    stopping: &AtomicBool,
+) -> io::Result<()> {
+    let authorization = format!("Bearer {}", receipt.control_token);
+    if request.method != "POST"
+        || request.header("authorization") != Some(authorization.as_str())
+        || request.header("x-tmt-office-nonce") != Some(receipt.nonce.as_str())
+        || !request.body.is_empty()
+    {
+        return response(
+            stream,
+            401,
+            "application/json",
+            br#"{"error":"UNAUTHORIZED"}"#,
+        );
+    }
+    match request.path.as_str() {
+        "/control/v1/health" => response(stream, 200, "application/json", br#"{"ok":true}"#),
+        "/control/v1/stop" => {
+            let result = response(stream, 200, "application/json", br#"{"ok":true}"#);
+            if result.is_ok() {
+                stopping.store(true, Ordering::Release);
+            }
+            result
+        }
+        _ => response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#),
+    }
+}
+
+fn api(
+    stream: &mut TcpStream,
+    request: Request,
+    paths: &ConfigPaths,
+    receipt: &ServiceReceipt,
+) -> io::Result<()> {
+    let authorization = format!("Bearer {}", receipt.browser_token);
+    if request.header("authorization") != Some(authorization.as_str()) {
+        return response(
+            stream,
+            401,
+            "application/json",
+            br#"{"error":"UNAUTHORIZED"}"#,
+        );
+    }
+    if request.method == "GET" && request.path == "/api/v1/local/blocks" {
+        let mut storage = match Storage::open(&paths.database) {
+            Ok(storage) => storage,
+            Err(_) => {
+                return response(
+                    stream,
+                    500,
+                    "application/json",
+                    br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+                );
+            }
+        };
+        let blocks = match storage.list_active_local_blocks() {
+            Ok(blocks) => blocks,
+            Err(_) => {
+                let _ = storage.close();
+                return response(
+                    stream,
+                    500,
+                    "application/json",
+                    br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+                );
+            }
+        };
+        let body = serde_json::to_vec(&blocks.into_iter().map(local_snapshot).collect::<Vec<_>>())?;
+        if storage.close().is_err() {
+            return response(
+                stream,
+                500,
+                "application/json",
+                br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+            );
+        }
+        return response(stream, 200, "application/json", &body);
+    }
+    let Some(block_id) = request.path.strip_prefix("/api/v1/local/blocks/") else {
+        return response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#);
+    };
+    if uuid::Uuid::parse_str(block_id)
+        .ok()
+        .is_none_or(|id| id.to_string() != block_id)
+    {
+        return response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#);
+    }
+    let put = request.method == "PUT";
+    if request.method != "GET" && !put {
+        return response(
+            stream,
+            405,
+            "application/json",
+            br#"{"error":"METHOD_NOT_ALLOWED"}"#,
+        );
+    }
+    if put {
+        let origin = format!("http://127.0.0.1:{}", receipt.port);
+        if request.header("origin") != Some(origin.as_str())
+            || request
+                .header("content-type")
+                .is_none_or(|value| value.split(';').next() != Some("application/json"))
+        {
+            return response(
+                stream,
+                403,
+                "application/json",
+                br#"{"error":"ORIGIN_REJECTED"}"#,
+            );
+        }
+    }
+    let edit = if put {
+        let input: ApplyInput = serde_json::from_slice(&request.body).map_err(io::Error::other)?;
+        if input.expected_revision >= tmt_core::office_block::MAX_REVISION {
+            return response(
+                stream,
+                400,
+                "application/json",
+                br#"{"error":"LAYOUT_INVALID"}"#,
+            );
+        }
+        let layout = decode_layout(&serde_json::to_vec(&json!({"objects": input.objects}))?)
+            .map_err(io::Error::other)?;
+        Some((input.expected_revision, layout))
+    } else {
+        None
+    };
+    let mut storage = match Storage::open(&paths.database) {
+        Ok(storage) => storage,
+        Err(_) => {
+            return response(
+                stream,
+                500,
+                "application/json",
+                br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+            );
+        }
+    };
+    let result = match edit {
+        None => storage.show_active_local_block_by_block_id(block_id),
+        Some((expected_revision, layout)) => {
+            storage.apply_active_local_block_by_block_id(block_id, expected_revision, &layout)
+        }
+    };
+    let status = match &result {
+        Ok(_) => 200,
+        Err(LocalOfficeError::RevisionConflict | LocalOfficeError::RevisionExhausted) => 409,
+        Err(LocalOfficeError::IdentityInactive) => 404,
+        Err(_) => 500,
+    };
+    let body = match result {
+        Ok(block) => serde_json::to_vec(&local_snapshot(block))?,
+        Err(LocalOfficeError::RevisionConflict | LocalOfficeError::RevisionExhausted) => {
+            br#"{"error":"REVISION_CONFLICT"}"#.to_vec()
+        }
+        Err(LocalOfficeError::IdentityInactive) => br#"{"error":"NOT_FOUND"}"#.to_vec(),
+        Err(_) => br#"{"error":"STORAGE_UNAVAILABLE"}"#.to_vec(),
+    };
+    let close = storage.close();
+    if status == 200 && close.is_err() {
+        return response(
+            stream,
+            500,
+            "application/json",
+            br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+        );
+    }
+    response(stream, status, "application/json", &body)
+}
+
+fn read_request(stream: &mut TcpStream, deadline: Instant) -> io::Result<Request> {
+    let mut bytes = Vec::new();
+    let mut chunk = [0_u8; 2048];
+    let header_end = loop {
+        if bytes.len() >= HEADER_LIMIT {
+            return Err(io::Error::other("request headers too large"));
+        }
+        let read = read_before(stream, &mut chunk, deadline)?;
+        if read == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "request ended",
+            ));
+        }
+        bytes.extend_from_slice(&chunk[..read]);
+        if let Some(index) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+            let end = index + 4;
+            if end > HEADER_LIMIT {
+                return Err(io::Error::other("request headers too large"));
+            }
+            break end;
+        }
+    };
+    let mut headers = [httparse::EMPTY_HEADER; 32];
+    let mut parsed = httparse::Request::new(&mut headers);
+    if parsed
+        .parse(&bytes[..header_end])
+        .map_err(io::Error::other)?
+        != httparse::Status::Complete(header_end)
+    {
+        return Err(io::Error::other("incomplete request"));
+    }
+    if parsed.version != Some(1) {
+        return Err(io::Error::other("HTTP/1.1 is required"));
+    }
+    let method = parsed
+        .method
+        .ok_or_else(|| io::Error::other("missing method"))?
+        .to_owned();
+    let path = parsed
+        .path
+        .ok_or_else(|| io::Error::other("missing path"))?
+        .to_owned();
+    if !path.starts_with('/') || path.contains('?') || path.contains('#') {
+        return Err(io::Error::other("invalid path"));
+    }
+    let headers = parsed
+        .headers
+        .iter()
+        .map(|header| {
+            let value = std::str::from_utf8(header.value).map_err(io::Error::other)?;
+            Ok((header.name.to_owned(), value.trim().to_owned()))
+        })
+        .collect::<io::Result<Vec<_>>>()?;
+    let transfer = headers
+        .iter()
+        .any(|(key, _)| key.eq_ignore_ascii_case("transfer-encoding"));
+    if transfer {
+        return Err(io::Error::other("transfer encoding is unsupported"));
+    }
+    let lengths = headers
+        .iter()
+        .filter(|(key, _)| key.eq_ignore_ascii_case("content-length"))
+        .map(|(_, value)| value.parse::<usize>().map_err(io::Error::other))
+        .collect::<io::Result<Vec<_>>>()?;
+    if lengths.len() > 1 {
+        return Err(io::Error::other("duplicate content length"));
+    }
+    let content_length = lengths.first().copied().unwrap_or(0);
+    if content_length > BODY_LIMIT {
+        return Err(io::Error::other("request body too large"));
+    }
+    while bytes.len() < header_end + content_length {
+        let read = read_before(stream, &mut chunk, deadline)?;
+        if read == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "request body ended",
+            ));
+        }
+        bytes.extend_from_slice(&chunk[..read]);
+        if bytes.len() > header_end + BODY_LIMIT {
+            return Err(io::Error::other("request body too large"));
+        }
+    }
+    if bytes.len() != header_end + content_length {
+        return Err(io::Error::other("unexpected bytes after request body"));
+    }
+    Ok(Request {
+        method,
+        path,
+        headers,
+        body: bytes[header_end..header_end + content_length].to_vec(),
+    })
+}
+
+fn read_before(stream: &mut TcpStream, buffer: &mut [u8], deadline: Instant) -> io::Result<usize> {
+    let remaining = deadline
+        .checked_duration_since(Instant::now())
+        .ok_or_else(|| io::Error::new(io::ErrorKind::TimedOut, "request deadline exceeded"))?;
+    stream.set_read_timeout(Some(remaining.max(Duration::from_millis(1))))?;
+    stream.read(buffer)
+}
+
+fn response(
+    stream: &mut TcpStream,
+    status: u16,
+    content_type: &str,
+    body: &[u8],
+) -> io::Result<()> {
+    let reason = match status {
+        200 => "OK",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        409 => "Conflict",
+        421 => "Misdirected Request",
+        _ => "Internal Server Error",
+    };
+    write!(
+        stream,
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nContent-Security-Policy: default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nCross-Origin-Resource-Policy: same-origin\r\nConnection: close\r\n\r\n",
+        body.len()
+    )?;
+    stream.write_all(body)
+}
+
+fn secret() -> io::Result<String> {
+    let mut bytes = [0_u8; 32];
+    getrandom::fill(&mut bytes).map_err(io::Error::other)?;
+    Ok(URL_SAFE_NO_PAD.encode(bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::thread;
+
+    fn parse_wire(wire: &'static [u8]) -> io::Result<Request> {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let sender = thread::spawn(move || {
+            let mut stream = TcpStream::connect(address).unwrap();
+            stream.write_all(wire).unwrap();
+        });
+        let (mut stream, _) = listener.accept().unwrap();
+        let result = read_request(&mut stream, Instant::now() + REQUEST_DEADLINE);
+        sender.join().unwrap();
+        result
+    }
+
+    #[test]
+    fn request_parser_rejects_ambiguous_framing_and_headers() {
+        let duplicate_host =
+            parse_wire(b"GET /local HTTP/1.1\r\nHost: 127.0.0.1:1\r\nHost: attacker\r\n\r\n")
+                .unwrap();
+        assert_eq!(duplicate_host.header("host"), None);
+        assert!(parse_wire(
+            b"PUT /api/v1/local/blocks/x HTTP/1.1\r\nHost: 127.0.0.1:1\r\nContent-Length: 0\r\nContent-Length: 0\r\n\r\n"
+        )
+        .is_err());
+        assert!(parse_wire(
+            b"PUT /api/v1/local/blocks/x HTTP/1.1\r\nHost: 127.0.0.1:1\r\nTransfer-Encoding: chunked\r\n\r\n"
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn every_response_has_private_browser_security_headers() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let receiver = thread::spawn(move || {
+            let mut stream = TcpStream::connect(address).unwrap();
+            let mut bytes = Vec::new();
+            stream.read_to_end(&mut bytes).unwrap();
+            String::from_utf8(bytes).unwrap()
+        });
+        let (mut stream, _) = listener.accept().unwrap();
+        response(&mut stream, 200, "application/json", b"{}").unwrap();
+        drop(stream);
+        let output = receiver.join().unwrap();
+        assert!(output.contains("Cache-Control: no-store\r\n"));
+        assert!(output.contains("Content-Security-Policy:"));
+        assert!(output.contains("Referrer-Policy: no-referrer\r\n"));
+        assert!(!output.contains("Access-Control-Allow-Origin"));
+    }
+}

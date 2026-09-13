@@ -57,6 +57,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "add durable identity retirement hooks",
         sql: include_str!("schema/010.sql"),
     },
+    Migration {
+        name: "add installation-owned local Office blocks",
+        sql: include_str!("schema/011.sql"),
+    },
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

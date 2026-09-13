@@ -11,8 +11,10 @@ use std::{
     path::{Path, PathBuf},
 };
 use tmt_adapters::{
+    config::ConfigPaths,
     native_install::{self, InstallRequest, Product, UpgradeRequest},
     office_companion::probe_office_companion,
+    office_service::{self, ServiceError},
 };
 use tmt_core::native_install::{Channel, PinAction};
 
@@ -64,6 +66,17 @@ fn report(value: serde_json::Value, human: &str, mode: OutputMode) -> io::Result
         }
     )?;
     Ok(0)
+}
+
+fn service_failure(error: ServiceError) -> Failure {
+    let code = match error {
+        ServiceError::PortUnavailable => "OFFICE_PORT_UNAVAILABLE",
+        ServiceError::Conflict => "OFFICE_SERVICE_CONFLICT",
+        ServiceError::RestartRequired => "OFFICE_RESTART_REQUIRED",
+        ServiceError::Uncertain => "OFFICE_SERVICE_UNCERTAIN",
+        ServiceError::Unavailable(_) => "OFFICE_SERVICE_UNAVAILABLE",
+    };
+    Failure::new(code, error.to_string(), 1).caused_by(error)
 }
 
 fn installed(executable: &Path) -> Result<bool, Failure> {
@@ -210,6 +223,39 @@ fn run(
     }
     let executable = prefix.join("bin/tmt-office");
     match operation {
+        OfficeOperation::Start { port } => {
+            if !installed(&executable)? {
+                return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
+            }
+            let version = probe_office_companion(&executable)
+                .map_err(|error| failure("OFFICE_INCOMPATIBLE", error))?;
+            let paths = ConfigPaths::discover()
+                .map_err(|error| failure("OFFICE_LOCATION_INVALID", error))?;
+            let started = office_service::start(&paths, &executable, &version.to_string(), port)
+                .map_err(service_failure)?;
+            let url = started.receipt.session_url();
+            report(
+                json!({"running":true,"url":url,"changed":started.changed,"reused":started.reused,"version":version}),
+                &url,
+                mode,
+            )
+            .map_err(|error| failure("OFFICE_IO_ERROR", error))
+        }
+        OfficeOperation::Stop => {
+            let paths = ConfigPaths::discover()
+                .map_err(|error| failure("OFFICE_LOCATION_INVALID", error))?;
+            let changed = office_service::stop(&paths).map_err(service_failure)?;
+            report(
+                json!({"running":false,"changed":changed}),
+                if changed {
+                    "Local Office stopped."
+                } else {
+                    "Local Office was not running."
+                },
+                mode,
+            )
+            .map_err(|error| failure("OFFICE_IO_ERROR", error))
+        }
         OfficeOperation::Pair { .. }
         | OfficeOperation::PairStatus { .. }
         | OfficeOperation::Unpair { .. }
@@ -262,7 +308,36 @@ fn run(
                     1,
                 ));
             }
-            report(json!({"installed": true, "version": version, "protocolVersion": tmt_core::office_protocol::OFFICE_PROTOCOL_VERSION, "executable": executable}), &format!("Office {version} is installed and compatible. No connection was started."), mode).map_err(|e| failure("OFFICE_IO_ERROR", e))
+            let paths = ConfigPaths::discover()
+                .map_err(|error| failure("OFFICE_LOCATION_INVALID", error))?;
+            let service =
+                office_service::status(&paths, &version.to_string()).map_err(service_failure)?;
+            let service_value = service
+                .receipt
+                .as_ref()
+                .map(|receipt| {
+                    json!({
+                        "running":true,
+                        "endpoint":receipt.endpoint(),
+                        "port":receipt.port,
+                        "restartNeeded":service.restart_needed,
+                        "runningVersion":receipt.running_version,
+                    })
+                })
+                .unwrap_or_else(|| json!({"running":false,"restartNeeded":false}));
+            let human = if service.running {
+                format!(
+                    "Office {version} is installed; local service is running{}.",
+                    if service.restart_needed {
+                        " and needs restart"
+                    } else {
+                        ""
+                    }
+                )
+            } else {
+                format!("Office {version} is installed and compatible. Local service is stopped.")
+            };
+            report(json!({"installed": true, "version": version, "protocolVersion": tmt_core::office_protocol::OFFICE_PROTOCOL_VERSION, "executable": executable, "service":service_value}), &human, mode).map_err(|e| failure("OFFICE_IO_ERROR", e))
         }
         OfficeOperation::Install {
             yes,

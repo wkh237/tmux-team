@@ -1,6 +1,6 @@
 [package]
 name = "tmt-office"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -9,10 +9,20 @@ repository.workspace = true
 
 [package.metadata.dist]
 dist = true
+features = ["local-service"]
+
+[features]
+local-service = ["dep:httparse", "dep:getrandom", "dep:base64", "dep:serde", "dep:serde_json", "dep:uuid"]
 
 [dependencies]
 tmt-core.workspace = true
 tmt-adapters = { workspace = true, features = ["office"] }
+httparse = { workspace = true, optional = true }
+getrandom = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+uuid = { workspace = true, optional = true, features = ["v4"] }
 
 [lints]
 workspace = true

@@ -1849,10 +1849,16 @@ dependencies = [
 
 [[package]]
 name = "tmt-office"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
+ "base64 0.22.1",
+ "getrandom 0.4.3",
+ "httparse",
+ "serde",
+ "serde_json",
  "tmt-adapters",
  "tmt-core",
+ "uuid",
 ]
 
 [[package]]

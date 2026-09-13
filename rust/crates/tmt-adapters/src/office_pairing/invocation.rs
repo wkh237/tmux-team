@@ -245,6 +245,9 @@ fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> 
             OfficeInvocation::Probe | OfficeInvocation::Sync => {
                 Err(OfficeError::CredentialsInvalid)
             }
+            OfficeInvocation::LocalBlockShow | OfficeInvocation::LocalBlockApply => {
+                Err(OfficeError::CredentialsInvalid)
+            }
         }
     };
     if operation == OfficeInvocation::PairStatus {

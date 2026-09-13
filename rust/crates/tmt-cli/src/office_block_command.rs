@@ -1,7 +1,7 @@
 //! One-shot Office block composition; all authorization remains in the companion.
 
 use crate::{
-    invocation::{OfficeBlockOperation, OfficeOperation, OutputMode},
+    invocation::{OfficeBlockOperation, OfficeBlockTarget, OfficeOperation, OutputMode},
     office_pairing_command::{pairing_error, resolve_identity, sync_before_operation},
     output::Failure,
 };
@@ -13,14 +13,13 @@ use std::{
 use tmt_adapters::{
     interrupt::Interrupt,
     office_block::read_layout_file,
-    office_companion::{PairingCall, invoke_office_block},
+    office_companion::{PairingCall, invoke_local_office_block, invoke_office_block},
 };
 
 pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> Result<u8, Failure> {
     let OfficeOperation::Block {
-        world,
+        target,
         identity: selector,
-        emulator,
         operation,
     } = operation
     else {
@@ -46,33 +45,54 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
     };
     let identity = resolve_identity(selector.as_deref())?;
     let interrupt = Interrupt::install().map_err(unavailable)?;
-    sync_before_operation(executable)?;
+    if matches!(target, OfficeBlockTarget::Remote { .. }) {
+        sync_before_operation(executable)?;
+    }
     if interrupt.is_interrupted() {
         return Err(crate::office_pairing_command::interrupted());
     }
-    let call = PairingCall {
-        world: &world,
-        identity_id: &identity.id,
-        emulator,
-        read_only: false,
-    };
     let deadline = Instant::now() + Duration::from_secs(30);
-    let snapshot = match edit {
-        Some((layout, revision)) => invoke_office_block(
-            executable,
-            &call,
-            block_id.as_deref(),
-            Some((&layout, revision)),
-            deadline,
-        ),
-        None => invoke_office_block(executable, &call, block_id.as_deref(), None, deadline),
-    }
-    .map_err(remote_unavailable)?
-    .map_err(block_error)?;
+    let value = match target {
+        OfficeBlockTarget::Remote { world, emulator } => {
+            let call = PairingCall {
+                world: &world,
+                identity_id: &identity.id,
+                emulator,
+                read_only: false,
+            };
+            let snapshot = match edit {
+                Some((layout, revision)) => invoke_office_block(
+                    executable,
+                    &call,
+                    block_id.as_deref(),
+                    Some((&layout, revision)),
+                    deadline,
+                ),
+                None => invoke_office_block(executable, &call, block_id.as_deref(), None, deadline),
+            }
+            .map_err(remote_unavailable)?
+            .map_err(block_error)?;
+            snapshot.public_value()
+        }
+        OfficeBlockTarget::Local => {
+            let editing = edit.is_some();
+            let result = match edit {
+                Some((layout, revision)) => invoke_local_office_block(
+                    executable,
+                    &identity.id,
+                    Some((&layout, revision)),
+                    deadline,
+                ),
+                None => invoke_local_office_block(executable, &identity.id, None, deadline),
+            };
+            result
+                .map_err(|error| local_unavailable(error, editing))?
+                .map_err(|error| local_block_error(error, &identity.name))?
+        }
+    };
     if interrupt.is_interrupted() {
         return Err(crate::office_pairing_command::interrupted());
     }
-    let value = snapshot.public_value();
     let output = if mode.json {
         value.to_string()
     } else {
@@ -80,6 +100,25 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
     };
     writeln!(io::stdout().lock(), "{output}").map_err(unavailable)?;
     Ok(0)
+}
+
+fn local_unavailable(error: impl std::error::Error + 'static, editing: bool) -> Failure {
+    let (code, message) = if editing {
+        (
+            "OFFICE_LOCAL_UNCERTAIN",
+            "Local Office did not confirm the block edit. Read the current revision before retrying.",
+        )
+    } else {
+        ("OFFICE_IO_ERROR", "Could not read local Office state.")
+    };
+    Failure::new(code, message, 1).caused_by(error)
+}
+
+fn local_block_error(error: tmt_core::office_protocol::OfficeError, name: &str) -> Failure {
+    if error == tmt_core::office_protocol::OfficeError::IdentityInactive {
+        return crate::identity_context::missing(name);
+    }
+    block_error(error)
 }
 
 fn unavailable(error: impl std::error::Error + 'static) -> Failure {

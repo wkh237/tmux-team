@@ -11,6 +11,7 @@ import { HomePage } from './pages/home.js';
 import { SetupPage } from './pages/setup.js';
 import { SelectedWorld, WorldGate } from './worlds/world-view.js';
 import { PairingPanel } from './pairing/pairing-view.js';
+import { LocalOfficePage } from './local/local-page.js';
 
 const rootRoute = createRootRoute({
   component: OfficeShell,
@@ -38,6 +39,11 @@ const pairingRoute = createRoute({
   path: '/worlds/$worldId/pair',
   component: PairingPage,
 });
+const localRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/local',
+  component: LocalOfficePage,
+});
 function PairingPage() {
   const { worldId } = pairingRoute.useParams();
   const fragment = useLocation({ select: (location) => location.hash });
@@ -59,6 +65,7 @@ const routeTree = rootRoute.addChildren([
   createRoute({ getParentRoute: () => rootRoute, path: '/setup', component: SetupPage }),
   worldRoute,
   pairingRoute,
+  localRoute,
 ]);
 
 export function createOfficeRouter(history?: RouterHistory) {

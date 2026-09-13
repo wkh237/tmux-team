@@ -3,6 +3,7 @@ mod errors;
 mod identities;
 mod identity_hooks;
 mod migrations;
+mod office_local;
 mod profiles;
 mod requests;
 
@@ -18,6 +19,7 @@ use std::{
 
 pub use errors::{StorageError, StorageErrorCode};
 use errors::{classify, incompatible};
+pub use office_local::{LocalBlockSnapshot, LocalOfficeError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckpointMode {

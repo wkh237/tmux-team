@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { runPackedCommand } from './packed-command.mjs';
 import { assertBenchmarkHelp } from '../test/support/performance-contract.mjs';
 
@@ -75,7 +77,113 @@ function verifyLinkage(executable, cwd, env, subject) {
  * Prove the runtime behavior shared by raw native binaries and extracted archives.
  * Archive inventory, checksums, notices and license checks remain in their callers.
  */
-export function verifyNativeRuntime({
+function requestOfficeControl(receipt, route) {
+  return new Promise((resolve, reject) => {
+    const request = http.request(
+      {
+        host: '127.0.0.1',
+        port: receipt.port,
+        path: route,
+        method: 'POST',
+        headers: {
+          Host: `127.0.0.1:${receipt.port}`,
+          Authorization: `Bearer ${receipt.controlToken}`,
+          'X-TMT-Office-Nonce': receipt.nonce,
+          'Content-Length': '0',
+        },
+        timeout: 2_000,
+      },
+      (response) => {
+        response.resume();
+        response.on('end', () => resolve(response.statusCode));
+      }
+    );
+    request.on('timeout', () => request.destroy(new Error('Office control request timed out')));
+    request.on('error', reject);
+    request.end();
+  });
+}
+
+function waitForOfficeReady(child) {
+  return new Promise((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+    let done = false;
+    let timeout;
+    const finish = (callback) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timeout);
+      try {
+        callback();
+      } catch (error) {
+        reject(error);
+      }
+    };
+    timeout = setTimeout(
+      () => finish(() => reject(new Error('Office service readiness timed out'))),
+      5_000
+    );
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+      if (stdout.length > 4_096) {
+        finish(() => reject(new Error('Office readiness output is too large')));
+        return;
+      }
+      if (stdout.includes('\n')) {
+        finish(() => {
+          assert.equal(stdout, 'TMT-OFFICE-SERVICE/1 READY\n');
+          resolve();
+        });
+      }
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+      if (stderr.length > 4_096)
+        finish(() => reject(new Error('Office readiness diagnostics are too large')));
+    });
+    child.once('exit', (status, signal) =>
+      finish(() =>
+        reject(new Error(`Office service exited before readiness: ${status}/${signal}: ${stderr}`))
+      )
+    );
+    child.once('error', (error) => finish(() => reject(error)));
+  });
+}
+
+function waitForExit(child) {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Office service shutdown timed out')), 5_000);
+    child.once('exit', (status, signal) => {
+      clearTimeout(timeout);
+      try {
+        assert.equal(signal, null, `Office service terminated: ${signal}`);
+        assert.equal(status, 0, 'Office service shutdown failed');
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
+
+async function terminateOwnedChild(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise((resolve) => child.once('exit', resolve));
+  try {
+    process.kill(-child.pid, 'SIGKILL');
+  } catch (error) {
+    if (error.code !== 'ESRCH') throw error;
+  }
+  await Promise.race([
+    exited,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Office service cleanup timed out')), 5_000)
+    ),
+  ]);
+}
+
+export async function verifyNativeRuntime({
   executable,
   target,
   version,
@@ -109,9 +217,41 @@ export function verifyNativeRuntime({
         `TMT-OFFICE/1\n${version}\n`,
         `${subject} handshake mismatch`
       );
+      assert.equal(
+        run(['__tmt-office-service', '1', 'asset-probe']),
+        'TMT-OFFICE-LOCAL/1\n',
+        `${subject} embedded local Office proof mismatch`
+      );
       assert(!fs.existsSync(xdg), 'Office probe must not initialize config state');
       assert.deepEqual(fs.readdirSync(home), [], 'Office probe must not create home state');
       assert.deepEqual(fs.readdirSync(cwd), [], 'Office probe must not create workspace state');
+      const child = spawn(executable, ['__tmt-office-service', '1', 'serve'], {
+        cwd,
+        env: { ...env, TMT_OFFICE_SERVICE_PORT: '0' },
+        detached: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      try {
+        await waitForOfficeReady(child);
+        const receiptPath = path.join(xdg, 'tmux-team', 'office', 'runtime', 'service-v1.json');
+        const receipt = JSON.parse(fs.readFileSync(receiptPath, 'utf8'));
+        assert.equal(receipt.runningVersion, version, 'Office service version mismatch');
+        assert.equal(
+          await requestOfficeControl(receipt, '/control/v1/health'),
+          200,
+          'Office service health authentication failed'
+        );
+        const exited = waitForExit(child);
+        assert.equal(
+          await requestOfficeControl(receipt, '/control/v1/stop'),
+          200,
+          'Office service stop authentication failed'
+        );
+        await exited;
+        assert(!fs.existsSync(receiptPath), 'Office service receipt was not cleaned up');
+      } finally {
+        await terminateOwnedChild(child);
+      }
       return;
     }
     const json = (args) => JSON.parse(run([...args, '--json']));

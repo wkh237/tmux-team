@@ -1,0 +1,51 @@
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { afterEach, describe, expect, it } from 'vitest';
+
+const roots: string[] = [];
+
+function tool(directory: string, name: string, source: string) {
+  const target = path.join(directory, name);
+  writeFileSync(target, `#!/bin/sh\nset -eu\n${source}\n`, { mode: 0o700 });
+}
+
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+describe('native artifact stdout', () => {
+  it('reserves stdout for the authoritative dist manifest', () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), 'tmt-native-stdout-'));
+    roots.push(root);
+    const bin = path.join(root, 'bin');
+    mkdirSync(bin);
+    tool(bin, 'pnpm', `printf 'vite diagnostics\\n'`);
+    tool(bin, 'rustup', `printf '1.97.0-aarch64-apple-darwin (default)\\n'`);
+    tool(
+      bin,
+      'cargo-about',
+      `if [ "\${1:-}" = --version ]; then printf 'cargo-about 0.9.2\\n'; else printf 'notice diagnostics\\n'; fi`
+    );
+    tool(bin, 'cargo', `printf 'path+file:///fixture#tmt-office@0.1.0-alpha.2\\n'`);
+    tool(
+      bin,
+      'dist',
+      `if [ "\${1:-}" = build ]; then printf '{"artifacts":{}}\\n'; else printf 'dist diagnostics\\n'; fi`
+    );
+    const result = spawnSync(
+      path.resolve('scripts/build-native-artifact.sh'),
+      ['aarch64-apple-darwin', 'office'],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+      }
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ artifacts: {} });
+    expect(result.stderr).toContain('vite diagnostics');
+    expect(result.stderr).toContain('notice diagnostics');
+    expect(result.stderr).toContain('dist diagnostics');
+  });
+});

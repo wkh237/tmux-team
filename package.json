@@ -21,6 +21,8 @@
     "office:dev": "pnpm --filter @tmt/office --fail-if-no-match dev",
     "office:install": "cd apps/office && pnpm install --ignore-workspace --lockfile-dir \"$PWD/../..\" --frozen-lockfile",
     "office:build": "pnpm --filter @tmt/office --fail-if-no-match build",
+    "office:build:local": "pnpm --filter @tmt/office --fail-if-no-match exec vite build --mode offline --outDir ../../target/office-spa --emptyOutDir",
+    "office:local:e2e": "node scripts/verify-local-office.mjs",
     "office:test": "pnpm --filter @tmt/office --fail-if-no-match test",
     "office:check": "pnpm --filter @tmt/office --fail-if-no-match check",
     "office:service:check": "pnpm --filter @tmt/office-service --fail-if-no-match check",

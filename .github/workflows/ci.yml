@@ -119,7 +119,16 @@ jobs:
       - name: Activate pinned pnpm
         run: corepack enable && corepack prepare pnpm@10.33.0 --activate
       - name: Install test dependencies
-        run: pnpm --filter tmux-team install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Verify embedded local Office companion
+        run: |
+          pnpm office:build:local
+          cd rust
+          TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo clippy --locked -p tmt-office --features local-service -- -D warnings
+          TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo build --locked -p tmt-office --features local-service
+          TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo test --locked -p tmt-office --features local-service
+          cd ..
+          TMT_TEST_CLI="${{ github.workspace }}/rust/target/debug/tmt" TMT_TEST_OFFICE="${{ github.workspace }}/rust/target/debug/tmt-office" pnpm office:local:e2e
       - name: Verify native process and shared parser contracts
         env:
           TMT_TEST_CLI: '{"executable":"${{ github.workspace }}/rust/target/debug/tmt","args":[]}'

@@ -12,12 +12,12 @@ use tmt_core::{
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct LayoutInput {
+pub struct LayoutInput {
     objects: Vec<ObjectInput>,
 }
 
 impl LayoutInput {
-    pub(crate) fn validate(self) -> Result<BlockLayout, OfficeError> {
+    pub fn validate(self) -> Result<BlockLayout, OfficeError> {
         validated_objects(self.objects)
     }
 }
@@ -52,7 +52,7 @@ pub fn read_layout_file(path: &Path) -> Result<BlockLayout, OfficeError> {
     decode_layout(&bytes)
 }
 
-pub(crate) fn decode_layout(bytes: &[u8]) -> Result<BlockLayout, OfficeError> {
+pub fn decode_layout(bytes: &[u8]) -> Result<BlockLayout, OfficeError> {
     if bytes.len() > INPUT_LIMIT {
         return Err(OfficeError::LayoutInvalid);
     }
@@ -61,7 +61,7 @@ pub(crate) fn decode_layout(bytes: &[u8]) -> Result<BlockLayout, OfficeError> {
     input.validate()
 }
 
-pub(crate) fn layout_value(layout: &BlockLayout) -> Value {
+pub fn layout_value(layout: &BlockLayout) -> Value {
     json!({"objects": layout.objects().iter().map(|object| json!({
         "asset": object.asset.name(), "x":object.x, "y":object.y,"rotation":object.rotation
     })).collect::<Vec<_>>()})

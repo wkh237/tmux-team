@@ -4,7 +4,8 @@ This internal local protocol is separate from the proposed remote work-handoff
 schema. It grants no Office access and does not replace pairing.
 
 The core-owned `OfficeInvocation` has exact operations `probe`, `pair-begin`,
-`pair-poll`, `pair-status`, `unpair`, `inspect`, `sync`, `block-show` and `block-apply`. Its argument vector is
+`pair-poll`, `pair-status`, `unpair`, `inspect`, `sync`, `block-show`, `block-apply`,
+`local-block-show` and `local-block-apply`. Its argument vector is
 `__tmt-office`, `1`, `<operation>`. Unknown versions, operations,
 extra arguments and non-UTF-8 arguments fail with exit 1, empty stdout and a brief
 stderr diagnostic. There is no arbitrary argv forwarding or shell evaluation.
@@ -13,7 +14,7 @@ Successful probe output is exactly two LF-terminated UTF-8 lines:
 
 ```text
 TMT-OFFICE/1
-0.1.0-alpha.1
+0.1.0-alpha.2
 ```
 
 The second line is the companion's canonical package version, independent of

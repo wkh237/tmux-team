@@ -9,6 +9,12 @@ target=$1
 product=${2:-cli}
 case "$product" in cli|office) ;; *) printf '%s\n' 'Unknown native product.' >&2; exit 2 ;; esac
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+if [ "$product" = office ]; then
+  cd "$repo"
+  pnpm office:build:local 1>&2
+  TMT_OFFICE_SPA_DIR="$repo/target/office-spa"
+  export TMT_OFFICE_SPA_DIR
+fi
 cd "$repo/rust"
 # Resolve the repository toolchain before cargo-dist discovers the generic root
 # workspace. Source archives/containers need not contain Git metadata.
@@ -33,12 +39,12 @@ tag="v$version"
 if [ "$product" = office ]; then tag="tmt-office-v$version"; fi
 # cargo-dist checks its own version against dist-workspace.toml.
 cd "$repo"
-dist generate --check --target "$target" --tag "$tag"
+dist generate --check --target "$target" --tag "$tag" 1>&2
 cd "$repo/rust"
 mkdir -p target/native-notices
 cargo-about generate --manifest-path "crates/tmt-$product/Cargo.toml" \
   --config about.toml --target "$target" --locked --offline --fail about.hbs \
-  --output-file target/native-notices/THIRD-PARTY-NOTICES.txt
+  --output-file target/native-notices/THIRD-PARTY-NOTICES.txt 1>&2
 
 # Keep diagnostics on stderr and cargo-dist's authoritative manifest on stdout.
 # Callers save stdout alongside the archives, then run the independent verifier.

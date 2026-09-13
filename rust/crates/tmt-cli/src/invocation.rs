@@ -81,12 +81,15 @@ pub enum Invocation {
 #[derive(Debug, Clone, PartialEq)]
 pub enum OfficeOperation {
     Open,
+    Start {
+        port: Option<u16>,
+    },
+    Stop,
     Status,
     Sync,
     Block {
-        world: String,
+        target: OfficeBlockTarget,
         identity: Option<String>,
-        emulator: bool,
         operation: OfficeBlockOperation,
     },
     Unpair {
@@ -123,6 +126,12 @@ pub enum OfficeOperation {
     Uninstall {
         yes: bool,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum OfficeBlockTarget {
+    Remote { world: String, emulator: bool },
+    Local,
 }
 
 #[derive(Debug, Clone, PartialEq)]

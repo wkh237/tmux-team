@@ -120,7 +120,7 @@ describe('native installation process contract', () => {
           'OFFICE_INSTALL_FAILED'
         );
         expect(existsSync(prefix)).toBe(false);
-        const fixture = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'office');
+        const fixture = await createArtifact(sandbox, '0.1.0-alpha.2', new Uint8Array(), 'office');
         const args = [
           'install',
           '--yes',
@@ -134,7 +134,7 @@ describe('native installation process contract', () => {
         expect(parseWholeStdout(installed)).toMatchObject({
           installed: true,
           changed: true,
-          version: '0.1.0-alpha.1',
+          version: '0.1.0-alpha.2',
         });
         const status = await office(['status']);
         expect(status.status, status.stdout + status.stderr).toBe(0);
@@ -142,7 +142,7 @@ describe('native installation process contract', () => {
         expect(parseWholeStdout(status)).toMatchObject({
           installed: true,
           protocolVersion: '1',
-          version: '0.1.0-alpha.1',
+          version: '0.1.0-alpha.2',
         });
         expectError(await office([]), 'OFFICE_NOT_PAIRED');
         const emptySync = await office(['sync']);
@@ -191,11 +191,11 @@ describe('native installation process contract', () => {
         const installedCli = await install(sandbox, cli, prefix);
         const cliReceipt = readFileSync(receiptPath(prefix));
         const pointer = readlinkSync(currentPointer(prefix));
-        const office = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'office');
+        const office = await createArtifact(sandbox, '0.1.0-alpha.2', new Uint8Array(), 'office');
         const installed = await install(sandbox, office, prefix, ['--product', 'office']);
         expect(installed).toEqual({
           executable: path.join(realpathSync(prefix), 'bin/tmt-office'),
-          version: '0.1.0-alpha.1',
+          version: '0.1.0-alpha.2',
           changed: true,
         });
         expect(readlinkSync(installed.executable)).toBe('../lib/tmt-office/current/tmt-office');
@@ -210,7 +210,7 @@ describe('native installation process contract', () => {
         );
         expect(probe.status).toBe(0);
         expect(probe.stderr).toBe('');
-        expect(probe.stdout).toBe('TMT-OFFICE/1\n0.1.0-alpha.1\n');
+        expect(probe.stdout).toBe('TMT-OFFICE/1\n0.1.0-alpha.2\n');
         const rejected = await runCli(
           { ...sandbox, cli: { executable: installed.executable, args: [] } },
           ['__tmt-office', '2', 'probe']
