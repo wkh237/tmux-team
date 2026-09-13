@@ -50,7 +50,7 @@ The selected executable's help is the capability authority; the shared alpha
 version number alone does not distinguish native and TypeScript runtimes.
 
 For a verified managed native installation, `tmt upgrade` retains its channel;
-`tmt upgrade --channel alpha` selects alpha, `--to 5.0.0-alpha.3` pins an exact
+`tmt upgrade --channel alpha` selects alpha, `--to 5.0.0-alpha.4` pins an exact
 version, and `--unpin` resumes channel updates. `tmt update` is the same command.
 Downgrades are rejected. An ordinary pinned invocation does not access the
 network. Use `--json` for a single structured result. The update refreshes only
@@ -76,12 +76,12 @@ for tested host OS versions; a deployment target is not testing on every OS.
 
 ## Curl bootstrap
 
-Download the published native `5.0.0-alpha.3` installer:
+Download the published native `5.0.0-alpha.4` installer:
 
 ```sh
 curl -fsSL --proto '=https' --proto-redir '=https' \
   -o tmt-installer.sh \
-  https://github.com/wkh237/tmux-team/releases/download/v5.0.0-alpha.3/tmt-installer.sh
+  https://github.com/wkh237/tmux-team/releases/download/v5.0.0-alpha.4/tmt-installer.sh
 ```
 
 Only after a successful download, inspect it if desired and run:
