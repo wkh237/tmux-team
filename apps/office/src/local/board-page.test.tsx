@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BlockPort } from '../blocks/block-contract.js';
 import type { LocalRuntime } from './local-runtime.js';
-import { LocalRuntimeContext } from './local-runtime.js';
+import { LocalHttpError, LocalRuntimeContext } from './local-runtime.js';
 import { LocalBoardPage } from './board-page.js';
 
 const threadId = '11111111-1111-4111-8111-111111111111';
@@ -191,6 +191,41 @@ describe('local Office board', () => {
       operationId,
       operationId,
     ]);
+  });
+
+  it('reuses one committed mutation after an uncertain HTTP 500 response', async () => {
+    const active = runtime();
+    const committed = new Map<string, unknown>();
+    vi.mocked(active.board.post).mockImplementation(async (input) => {
+      const existing = committed.get(input.operationId);
+      if (!existing) {
+        committed.set(input.operationId, input);
+        throw new LocalHttpError(500, 'STORAGE_ERROR');
+      }
+      expect(input).toEqual(existing);
+      return {
+        entryId: threadId,
+        threadId,
+        revision: 1,
+        created: true,
+        operationId: input.operationId,
+      };
+    });
+    mount(active);
+    await screen.findByRole('heading', { name: 'Current work' });
+    await userEvent.click(screen.getByRole('button', { name: 'New post' }));
+    await userEvent.type(screen.getByLabelText('Title'), 'Committed once');
+    await userEvent.type(screen.getAllByLabelText('Message')[0]!, 'Retry the receipt');
+    await userEvent.click(screen.getByRole('button', { name: 'Post as owner' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('draft is still here');
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh board' }));
+    await waitFor(() => expect(screen.queryByText('Loading the board…')).toBeNull());
+    await userEvent.click(screen.getByRole('button', { name: 'Post as owner' }));
+    await waitFor(() => expect(active.board.post).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(active.board.post).mock.calls[0]![0]).toEqual(
+      vi.mocked(active.board.post).mock.calls[1]![0]
+    );
+    expect(committed.size).toBe(1);
   });
 
   it('keeps post, reply, and edit drafts mounted across failed and successful refreshes', async () => {

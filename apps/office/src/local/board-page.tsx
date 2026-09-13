@@ -48,6 +48,10 @@ function message(error: unknown): string {
   return 'The board request could not be completed. Your draft is still here.';
 }
 
+function isDefinitiveNoWrite(error: unknown): boolean {
+  return error instanceof LocalHttpError && error.status >= 400 && error.status < 500;
+}
+
 export function LocalBoardPage() {
   const runtime = useContext(LocalRuntimeContext);
   const [categories, setCategories] = useState<BoardCategory[]>([]);
@@ -330,7 +334,7 @@ function NewThreadForm({
             completed(receipt.threadId);
           })
           .catch((caught) => {
-            if (caught instanceof LocalHttpError) operation.current = undefined;
+            if (isDefinitiveNoWrite(caught)) operation.current = undefined;
             setError(message(caught));
           })
           .finally(() => setBusy(false));
@@ -532,7 +536,7 @@ function EntryCard({
                 changed();
               })
               .catch((caught) => {
-                if (caught instanceof LocalHttpError) editOperation.current = undefined;
+                if (isDefinitiveNoWrite(caught)) editOperation.current = undefined;
                 setError(message(caught));
               })
               .finally(() => setBusy(false));
@@ -617,7 +621,7 @@ function EntryCard({
                     changed();
                   })
                   .catch((caught) => {
-                    if (caught instanceof LocalHttpError) deleteOperation.current = undefined;
+                    if (isDefinitiveNoWrite(caught)) deleteOperation.current = undefined;
                     setError(message(caught));
                   })
                   .finally(() => setBusy(false));
@@ -672,7 +676,7 @@ function ReplyForm({
             completed();
           })
           .catch((caught) => {
-            if (caught instanceof LocalHttpError) operation.current = undefined;
+            if (isDefinitiveNoWrite(caught)) operation.current = undefined;
             setError(message(caught));
           })
           .finally(() => setBusy(false));
