@@ -76,7 +76,9 @@ fn inventory(version: &Path) -> io::Result<Vec<String>> {
     Ok(names)
 }
 
-fn bundle_source_bytes(version: &Path) -> io::Result<(Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>)> {
+type BundleSourceBytes = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>);
+
+fn bundle_source_bytes(version: &Path) -> io::Result<BundleSourceBytes> {
     if inventory(version)? != ["tmt-inbox", "tmt-office", "tmt-prop-create", "tmux-team"] {
         return Err(invalid(version));
     }

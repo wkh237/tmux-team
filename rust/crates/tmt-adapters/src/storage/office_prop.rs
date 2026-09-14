@@ -79,7 +79,7 @@ pub(super) struct ResolvedLocalPropPack {
 }
 
 enum CachedLocalPropPack {
-    Available(ResolvedLocalPropPack),
+    Available(Box<ResolvedLocalPropPack>),
     Missing,
     Corrupt,
 }
@@ -108,11 +108,11 @@ impl<'connection> LocalPropResolver<'connection> {
     ) -> Result<&ResolvedLocalPropPack, LocalPropCatalogError> {
         if !self.cache.contains_key(digest) {
             let loaded = if digest == BUILTIN_DIGEST {
-                CachedLocalPropPack::Available(ResolvedLocalPropPack {
+                CachedLocalPropPack::Available(Box::new(ResolvedLocalPropPack {
                     pack: builtin_pack(),
                     builtin: true,
                     installed_at_ms: None,
-                })
+                }))
             } else {
                 #[cfg(test)]
                 {
@@ -120,7 +120,7 @@ impl<'connection> LocalPropResolver<'connection> {
                 }
                 match load_bounded_row(self.connection, digest)? {
                     Some(row) => match resolved_from_bounded_row(row) {
-                        Ok(pack) => CachedLocalPropPack::Available(pack),
+                        Ok(pack) => CachedLocalPropPack::Available(Box::new(pack)),
                         Err(LocalPropCatalogError::Corrupt) => CachedLocalPropPack::Corrupt,
                         Err(error) => return Err(error),
                     },
