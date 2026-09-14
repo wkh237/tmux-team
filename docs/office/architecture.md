@@ -123,6 +123,11 @@ contains it; use the verified release and native installation records for availa
 CLI, SQLite revalidation, and preview; reusable placement, reference, footprint,
 rotation, and room-bound rules remain in `tmt-core::office_block` without adding a
 second codec or generic extension framework.
+Local v2 block child requests and replies share the core-owned 64 KiB transport
+ceiling; remote v1 and unrelated 4 KiB envelopes do not inherit it. Prop catalog
+cursors use their own encoded-envelope bound. Preview responses must echo the exact
+candidate digest and the exact private loopback preview ID, URL and browser token;
+the client applies bounded connect, read and write deadlines.
 
 The local discussion board follows the same companion boundary without sharing
 the block model. `tmt-core::office_board` owns its bounded values, actors,

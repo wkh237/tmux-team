@@ -76,7 +76,7 @@ checks actual Office archives; neither constitutes public publication.
 
 ## Pairing operations
 
-Block operations use the same protected scope selectors and 4096-byte internal
+Remote block operations use the same protected scope selectors and 4096-byte internal
 message/output bounds. `block-show` additionally accepts nullable `blockId`;
 `block-apply` also requires `layout` (exact readable `objects`) and
 `expectedRevision`. Input files are validated before encoding this compact
@@ -90,8 +90,13 @@ become a busy/no-write claim.
 Unsupported operations from older companions
 are failures, never evidence of a saved layout. See [block v1](block-v1.md).
 
+Local block v2 operations use a separate core-owned 64 KiB private JSON ceiling for
+both requests and replies. This accommodates the bounded 16-object prop projection
+and its escaped resolution labels without raising remote v1 or unrelated operations.
+
 Local profile and prop operations use their exact bounded contracts rather than
-the remote block envelope. Profile payloads are bounded to 8 KiB. Prop candidate
+the remote block envelope. Profile source files are bounded to 8 KiB while their
+private companion JSON remains under the legacy 4096-byte ceiling. Prop candidate
 payloads carry validated data-only bytes through the private child boundary and
 remain bounded to the 128 KiB source limit plus encoding overhead; catalog reads
 return exact allowlisted projections. See [profile v1](profile-v1.md),

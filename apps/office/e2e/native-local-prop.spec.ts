@@ -290,6 +290,16 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
         timeout: 10_000,
       });
       await expect(page.getByRole('button', { name: 'Desk 16' })).toBeVisible();
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.screenshot({
+        path: testInfo.outputPath('unavailable-props-desktop.png'),
+        fullPage: true,
+      });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.screenshot({
+        path: testInfo.outputPath('unavailable-props-narrow.png'),
+        fullPage: true,
+      });
 
       const restored = await office([
         'prop',
