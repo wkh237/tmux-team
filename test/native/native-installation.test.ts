@@ -38,6 +38,10 @@ function officeSkill(): Buffer {
   return readFileSync(path.resolve('skills/tmt-office/SKILL.md'));
 }
 
+function propCreateSkill(): Buffer {
+  return readFileSync(path.resolve('skills/tmt-prop-create/SKILL.md'));
+}
+
 async function install(
   sandbox: Sandbox,
   fixture: ArtifactFixture,
@@ -149,12 +153,21 @@ describe('native installation process contract', () => {
                 target: path.join(sandbox.home, '.agents', 'skills', 'tmt-office'),
                 changed: true,
               },
+              {
+                skill: 'tmt-prop-create',
+                target: path.join(sandbox.home, '.agents', 'skills', 'tmt-prop-create'),
+                changed: true,
+              },
             ],
           },
         });
         const officeSkillTarget = path.join(sandbox.home, '.agents', 'skills', 'tmt-office');
+        const propSkillTarget = path.join(sandbox.home, '.agents', 'skills', 'tmt-prop-create');
         expect(readFileSync(path.join(realpathSync(officeSkillTarget), 'SKILL.md'))).toEqual(
           officeSkill()
+        );
+        expect(readFileSync(path.join(realpathSync(propSkillTarget), 'SKILL.md'))).toEqual(
+          propCreateSkill()
         );
         expect(existsSync(path.join(sandbox.home, '.agents', 'skills', 'tmux-team'))).toBe(false);
         expect(existsSync(path.join(sandbox.home, '.agents', 'skills', 'tmt-inbox'))).toBe(false);
@@ -180,7 +193,12 @@ describe('native installation process contract', () => {
         expect(existsSync(path.join(sandbox.globalDir, 'office'))).toBe(false);
         expect(parseWholeStdout(await office(args))).toMatchObject({
           changed: false,
-          skills: { installed: [{ skill: 'tmt-office', changed: false }] },
+          skills: {
+            installed: [
+              { skill: 'tmt-office', changed: false },
+              { skill: 'tmt-prop-create', changed: false },
+            ],
+          },
         });
         const payload = readFileSync(path.join(prefix, 'bin/tmt-office'));
         const releases = path.join(prefix, 'lib/tmt-office/releases');
@@ -195,6 +213,7 @@ describe('native installation process contract', () => {
           retainedReleases: true,
         });
         expect(readFileSync(path.join(officeSkillTarget, 'SKILL.md'))).toEqual(officeSkill());
+        expect(readFileSync(path.join(propSkillTarget, 'SKILL.md'))).toEqual(propCreateSkill());
         expect(readFileSync(path.join(releases, release, 'tmt-office')).equals(payload)).toBe(true);
         expectError(await office(['status']), 'OFFICE_NOT_INSTALLED');
         expect(parseWholeStdout(await office(['uninstall', '--yes']))).toMatchObject({
@@ -216,7 +235,10 @@ describe('native installation process contract', () => {
         expect(recovered).toMatchObject({
           changed: false,
           skills: {
-            installed: [{ skill: 'tmt-office', changed: true }],
+            installed: [
+              { skill: 'tmt-office', changed: true },
+              { skill: 'tmt-prop-create', changed: false },
+            ],
           },
         });
         const backup = (recovered.skills as { installed: Array<{ backup?: string }> }).installed[0]

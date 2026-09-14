@@ -1,11 +1,15 @@
 //! Installation-owned Office data stored beside the existing identity repository.
 
 use rusqlite::{OptionalExtension, params};
-use tmt_core::office_block::{BlockLayout, MAX_REVISION};
+use tmt_core::office_block::{BlockLayout, LocalBlockLayout, MAX_REVISION, PropPlacement};
+
+use crate::office_prop::parse_prop_reference;
 
 use super::{
-    Storage, StorageError, StorageErrorCode, errors::classify,
+    Storage, StorageError, StorageErrorCode,
+    errors::classify,
     identities::with_immediate_transaction,
+    office_prop::{LocalPropCatalogError, LocalPropResolver},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,8 +18,16 @@ pub struct LocalBlockSnapshot {
     pub identity_name: String,
     pub block_id: Option<String>,
     pub revision: u64,
-    pub layout: BlockLayout,
+    pub layout: LocalBlockLayout,
     pub updated_at_ms: u64,
+    pub changed: bool,
+    pub resolutions: Vec<LocalPropResolution>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LocalPropResolution {
+    Available { label: String },
+    Unavailable { digest_prefix: String },
 }
 
 impl LocalBlockSnapshot {
@@ -31,6 +43,9 @@ pub enum LocalOfficeError {
     RevisionConflict,
     RevisionExhausted,
     StoredLayoutInvalid,
+    LayoutInvalid,
+    PropNotFound,
+    PropCorrupt,
 }
 
 impl std::fmt::Display for LocalOfficeError {
@@ -41,6 +56,9 @@ impl std::fmt::Display for LocalOfficeError {
             Self::RevisionConflict => "The local Office block changed.",
             Self::RevisionExhausted => "The local Office block revision is exhausted.",
             Self::StoredLayoutInvalid => "The stored local Office layout is invalid.",
+            Self::LayoutInvalid => "The proposed local Office layout is invalid.",
+            Self::PropNotFound => "The referenced local Office prop is unavailable.",
+            Self::PropCorrupt => "The referenced local Office prop pack is corrupt.",
         })
     }
 }
@@ -62,11 +80,14 @@ impl From<StorageError> for LocalOfficeError {
 
 impl Storage {
     pub fn show_local_block(
-        &self,
+        &mut self,
         identity_id: &str,
     ) -> Result<LocalBlockSnapshot, LocalOfficeError> {
-        let connection = self.connection()?;
-        let identity_name = connection
+        let transaction = self
+            .connection_mut()?
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Deferred)
+            .map_err(|error| classify(error, "Observe local Office block"))?;
+        let identity_name = transaction
             .query_row(
                 "SELECT name FROM identities WHERE id = ? AND retired_at_ms IS NULL",
                 [identity_id],
@@ -75,7 +96,7 @@ impl Storage {
             .optional()
             .map_err(|error| classify(error, "Read local Office identity"))?
             .ok_or(LocalOfficeError::IdentityInactive)?;
-        let stored = connection
+        let stored = transaction
             .query_row(
                 "SELECT block_id, revision, layout, updated_at_ms FROM office_local_blocks WHERE identity_id = ?",
                 [identity_id],
@@ -90,12 +111,26 @@ impl Storage {
             )
             .optional()
             .map_err(|error| classify(error, "Read local Office block"))?;
-        snapshot(identity_id, identity_name, stored)
+        let snapshot = snapshot(
+            &mut LocalPropResolver::new(&transaction),
+            identity_id,
+            identity_name,
+            stored,
+        )?;
+        transaction
+            .commit()
+            .map_err(|error| classify(error, "Finish local Office block observation"))?;
+        Ok(snapshot)
     }
 
-    pub fn list_active_local_blocks(&self) -> Result<Vec<LocalBlockSnapshot>, LocalOfficeError> {
-        let connection = self.connection()?;
-        let mut statement = connection
+    pub fn list_active_local_blocks(
+        &mut self,
+    ) -> Result<Vec<LocalBlockSnapshot>, LocalOfficeError> {
+        let transaction = self
+            .connection_mut()?
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Deferred)
+            .map_err(|error| classify(error, "Observe active local Office blocks"))?;
+        let mut statement = transaction
             .prepare(
                 "SELECT b.identity_id, i.name, b.block_id, b.revision, b.layout, b.updated_at_ms \
                  FROM office_local_blocks b JOIN identities i ON i.id = b.identity_id \
@@ -113,28 +148,45 @@ impl Storage {
                     row.get::<_, i64>(5)?,
                 ))
             })
-            .map_err(|error| classify(error, "List active local Office blocks"))?;
-        rows.map(|row| {
-            let (identity_id, identity_name, block_id, revision, layout, updated_at_ms) =
-                row.map_err(|error| classify(error, "Read active local Office block"))?;
-            Ok(LocalBlockSnapshot {
-                identity_id,
-                identity_name,
-                block_id: Some(block_id),
-                revision: stored_u64(revision)?,
-                layout: decode_layout(&layout)?,
-                updated_at_ms: stored_u64(updated_at_ms)?,
-            })
-        })
-        .collect()
+            .map_err(|error| classify(error, "List active local Office blocks"))?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(|error| classify(error, "Read active local Office block"))?;
+        drop(statement);
+        let mut resolver = LocalPropResolver::new(&transaction);
+        let snapshots = rows
+            .into_iter()
+            .map(
+                |(identity_id, identity_name, block_id, revision, layout, updated_at_ms)| {
+                    let layout = decode_layout(&layout)?;
+                    let resolutions = resolve_layout(&layout, &mut resolver)?;
+                    Ok(LocalBlockSnapshot {
+                        identity_id,
+                        identity_name,
+                        block_id: Some(block_id),
+                        revision: stored_u64(revision)?,
+                        layout,
+                        updated_at_ms: stored_u64(updated_at_ms)?,
+                        changed: false,
+                        resolutions,
+                    })
+                },
+            )
+            .collect::<Result<Vec<_>, LocalOfficeError>>()?;
+        transaction
+            .commit()
+            .map_err(|error| classify(error, "Finish active local Office block observation"))?;
+        Ok(snapshots)
     }
 
     pub fn show_active_local_block_by_block_id(
-        &self,
+        &mut self,
         block_id: &str,
     ) -> Result<LocalBlockSnapshot, LocalOfficeError> {
-        let connection = self.connection()?;
-        let stored = connection
+        let transaction = self
+            .connection_mut()?
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Deferred)
+            .map_err(|error| classify(error, "Observe active local Office block"))?;
+        let stored = transaction
             .query_row(
                 "SELECT b.identity_id, i.name, b.block_id, b.revision, b.layout, b.updated_at_ms \
                  FROM office_local_blocks b JOIN identities i ON i.id = b.identity_id \
@@ -155,21 +207,29 @@ impl Storage {
             .map_err(|error| classify(error, "Read active local Office block"))?
             .ok_or(LocalOfficeError::IdentityInactive)?;
         let (identity_id, identity_name, block_id, revision, layout, updated_at_ms) = stored;
-        Ok(LocalBlockSnapshot {
+        let layout = decode_layout(&layout)?;
+        let resolutions = resolve_layout(&layout, &mut LocalPropResolver::new(&transaction))?;
+        let snapshot = LocalBlockSnapshot {
             identity_id,
             identity_name,
             block_id: Some(block_id),
             revision: stored_u64(revision)?,
-            layout: decode_layout(&layout)?,
+            layout,
             updated_at_ms: stored_u64(updated_at_ms)?,
-        })
+            changed: false,
+            resolutions,
+        };
+        transaction
+            .commit()
+            .map_err(|error| classify(error, "Finish active local Office block observation"))?;
+        Ok(snapshot)
     }
 
     pub fn apply_active_local_block_by_block_id(
         &mut self,
         block_id: &str,
         expected_revision: u64,
-        layout: &BlockLayout,
+        layout: &LocalBlockLayout,
     ) -> Result<LocalBlockSnapshot, LocalOfficeError> {
         let identity_id = self
             .connection()?
@@ -189,7 +249,7 @@ impl Storage {
         &mut self,
         identity_id: &str,
         expected_revision: u64,
-        layout: &BlockLayout,
+        layout: &LocalBlockLayout,
     ) -> Result<LocalBlockSnapshot, LocalOfficeError> {
         with_immediate_transaction(self, "local Office block", |transaction| {
             let identity_name = transaction
@@ -216,7 +276,8 @@ impl Storage {
                 )
                 .optional()
                 .map_err(|error| classify(error, "Read local Office revision"))?;
-            let encoded = serde_json::to_string(&layout.encode()).map_err(|error| {
+            let encoded = serde_json::to_string(&crate::office_block::local_layout_value(layout))
+                .map_err(|error| {
                 StorageError::new(
                     StorageErrorCode::Unknown,
                     "Encode local Office layout failed",
@@ -224,8 +285,10 @@ impl Storage {
                 .caused_by(error)
             })?;
             let now = current_time_ms()?;
-            let (block_id, revision) = match current {
+            let mut resolver = LocalPropResolver::new(transaction);
+            let (block_id, revision, updated_at_ms, changed) = match current {
                 None if expected_revision == 0 => {
+                    validate_mutation(None, layout, &mut resolver)?;
                     transaction
                         .execute(
                             "INSERT OR IGNORE INTO office_local_worlds (singleton, id, created_at_ms) VALUES (1, ?, ?)",
@@ -247,13 +310,14 @@ impl Storage {
                             ],
                         )
                         .map_err(|error| classify(error, "Create local Office block"))?;
-                    (block_id, 1)
+                    (block_id, 1, now, true)
                 }
                 None => return Err(LocalOfficeError::RevisionConflict),
                 Some((block_id, revision, stored_layout, updated_at_ms))
                     if expected_revision.checked_add(1) == Some(stored_u64(revision)?)
-                        && stored_layout == encoded =>
+                        && decode_layout(&stored_layout)? == *layout =>
                 {
+                    let resolutions = resolve_layout(layout, &mut resolver)?;
                     return Ok(LocalBlockSnapshot {
                         identity_id: identity_id.to_owned(),
                         identity_name,
@@ -261,15 +325,34 @@ impl Storage {
                         revision: stored_u64(revision)?,
                         layout: layout.clone(),
                         updated_at_ms: stored_u64(updated_at_ms)?,
+                        changed: false,
+                        resolutions,
                     });
                 }
                 Some((_, revision, _, _)) if stored_u64(revision)? != expected_revision => {
                     return Err(LocalOfficeError::RevisionConflict);
                 }
+                Some((block_id, revision, stored_layout, updated_at_ms))
+                    if decode_layout(&stored_layout)? == *layout =>
+                {
+                    let resolutions = resolve_layout(layout, &mut resolver)?;
+                    return Ok(LocalBlockSnapshot {
+                        identity_id: identity_id.to_owned(),
+                        identity_name,
+                        block_id: Some(block_id),
+                        revision: stored_u64(revision)?,
+                        layout: layout.clone(),
+                        updated_at_ms: stored_u64(updated_at_ms)?,
+                        changed: false,
+                        resolutions,
+                    });
+                }
                 Some((_, revision, _, _)) if stored_u64(revision)? >= MAX_REVISION => {
                     return Err(LocalOfficeError::RevisionExhausted);
                 }
-                Some((block_id, stored_revision, _, _)) => {
+                Some((block_id, stored_revision, stored_layout, _)) => {
+                    let current_layout = decode_layout(&stored_layout)?;
+                    validate_mutation(Some(&current_layout), layout, &mut resolver)?;
                     let revision = stored_u64(stored_revision)?;
                     let next = revision + 1;
                     let changed = transaction
@@ -291,22 +374,26 @@ impl Storage {
                     if changed != 1 {
                         return Err(LocalOfficeError::IdentityInactive);
                     }
-                    (block_id, next)
+                    (block_id, next, now, true)
                 }
             };
+            let resolutions = resolve_layout(layout, &mut resolver)?;
             Ok(LocalBlockSnapshot {
                 identity_id: identity_id.to_owned(),
                 identity_name,
                 block_id: Some(block_id),
                 revision,
                 layout: layout.clone(),
-                updated_at_ms: now,
+                updated_at_ms,
+                changed,
+                resolutions,
             })
         })
     }
 }
 
 fn snapshot(
+    resolver: &mut LocalPropResolver<'_>,
     identity_id: &str,
     identity_name: String,
     stored: Option<(String, i64, String, i64)>,
@@ -317,17 +404,23 @@ fn snapshot(
             identity_name,
             block_id: None,
             revision: 0,
-            layout: BlockLayout::new(Vec::new()).expect("empty block layout is valid"),
+            layout: LocalBlockLayout::new(Vec::new()).expect("empty block layout is valid"),
             updated_at_ms: 0,
+            changed: false,
+            resolutions: Vec::new(),
         });
     };
+    let layout = decode_layout(&layout)?;
+    let resolutions = resolve_layout(&layout, resolver)?;
     Ok(LocalBlockSnapshot {
         identity_id: identity_id.to_owned(),
         identity_name,
         block_id: Some(block_id),
         revision: stored_u64(revision)?,
-        layout: decode_layout(&layout)?,
+        layout,
         updated_at_ms: stored_u64(updated_at_ms)?,
+        changed: false,
+        resolutions,
     })
 }
 
@@ -337,10 +430,103 @@ fn stored_u64(value: i64) -> Result<u64, LocalOfficeError> {
         .map_err(|_| LocalOfficeError::StoredLayoutInvalid)
 }
 
-fn decode_layout(value: &str) -> Result<BlockLayout, LocalOfficeError> {
-    let tokens = serde_json::from_str::<Vec<String>>(value)
-        .map_err(|_| LocalOfficeError::StoredLayoutInvalid)?;
-    BlockLayout::decode(&tokens).map_err(|_| LocalOfficeError::StoredLayoutInvalid)
+fn decode_layout(value: &str) -> Result<LocalBlockLayout, LocalOfficeError> {
+    if let Ok(tokens) = serde_json::from_str::<Vec<String>>(value) {
+        return BlockLayout::decode(&tokens)
+            .map(|layout| LocalBlockLayout::from_legacy(&layout))
+            .map_err(|_| LocalOfficeError::StoredLayoutInvalid);
+    }
+    crate::office_block::decode_local_layout(value.as_bytes())
+        .map_err(|_| LocalOfficeError::StoredLayoutInvalid)
+}
+
+fn resolve_layout(
+    layout: &LocalBlockLayout,
+    resolver: &mut LocalPropResolver<'_>,
+) -> Result<Vec<LocalPropResolution>, LocalOfficeError> {
+    layout
+        .objects()
+        .iter()
+        .map(|item| match resolve_item(item, resolver)? {
+            ItemResolution::Available(label) => Ok(LocalPropResolution::Available { label }),
+            ItemResolution::Missing
+            | ItemResolution::Corrupt
+            | ItemResolution::FootprintMismatch => Ok(LocalPropResolution::Unavailable {
+                digest_prefix: digest_prefix(&item.prop),
+            }),
+        })
+        .collect()
+}
+
+fn validate_mutation(
+    current: Option<&LocalBlockLayout>,
+    proposed: &LocalBlockLayout,
+    resolver: &mut LocalPropResolver<'_>,
+) -> Result<(), LocalOfficeError> {
+    let mut retained = std::collections::HashMap::<PropPlacement, usize>::new();
+    if let Some(current) = current {
+        for item in current.objects() {
+            if !matches!(resolve_item(item, resolver)?, ItemResolution::Available(_)) {
+                *retained.entry(item.clone()).or_default() += 1;
+            }
+        }
+    }
+    for item in proposed.objects() {
+        let resolution = resolve_item(item, resolver)?;
+        if matches!(resolution, ItemResolution::Available(_)) {
+            continue;
+        }
+        if let Some(count) = retained.get_mut(item).filter(|count| **count > 0) {
+            *count -= 1;
+            continue;
+        }
+        return Err(match resolution {
+            ItemResolution::Corrupt => LocalOfficeError::PropCorrupt,
+            ItemResolution::FootprintMismatch => LocalOfficeError::LayoutInvalid,
+            ItemResolution::Missing => LocalOfficeError::PropNotFound,
+            ItemResolution::Available(_) => unreachable!(),
+        });
+    }
+    Ok(())
+}
+
+enum ItemResolution {
+    Available(String),
+    Missing,
+    Corrupt,
+    FootprintMismatch,
+}
+
+fn resolve_item(
+    item: &PropPlacement,
+    resolver: &mut LocalPropResolver<'_>,
+) -> Result<ItemResolution, LocalOfficeError> {
+    let (digest, key) =
+        parse_prop_reference(&item.prop).ok_or(LocalOfficeError::StoredLayoutInvalid)?;
+    match resolver.resolve(digest) {
+        Ok(resolved) => match resolved.pack.prop(key) {
+            Some(prop)
+                if prop.footprint.width == item.footprint_width
+                    && prop.footprint.height == item.footprint_height =>
+            {
+                Ok(ItemResolution::Available(prop.label.clone()))
+            }
+            Some(_) => Ok(ItemResolution::FootprintMismatch),
+            None => Ok(ItemResolution::Missing),
+        },
+        Err(LocalPropCatalogError::NotFound) => Ok(ItemResolution::Missing),
+        Err(LocalPropCatalogError::Corrupt) => Ok(ItemResolution::Corrupt),
+        Err(LocalPropCatalogError::Storage(error)) => Err(LocalOfficeError::Storage(error)),
+        Err(_) => Err(LocalOfficeError::StoredLayoutInvalid),
+    }
+}
+
+fn digest_prefix(reference: &str) -> String {
+    reference
+        .strip_prefix("sha256:")
+        .and_then(|value| value.get(..12))
+        .unwrap_or("000000000000")
+        .to_owned()
 }
 
 fn current_time_ms() -> Result<u64, LocalOfficeError> {
@@ -363,7 +549,7 @@ fn current_time_ms() -> Result<u64, LocalOfficeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::TestDirectory;
+    use crate::{office_prop::validate_pack, test_support::TestDirectory};
     use tmt_core::office_block::{Furniture, FurnitureAsset};
 
     fn insert_identity(storage: &Storage, id: &str, name: &str, lifetime: &str) {
@@ -379,6 +565,47 @@ mod tests {
     }
 
     #[test]
+    fn one_snapshot_resolves_repeated_digest_once_across_validation_and_projection() {
+        let directory = TestDirectory::new();
+        let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+        let pack = validate_pack(br##"{"formatVersion":1,"label":"Cache","credit":"Test","license":"MIT","palette":["#00000000","#ffffffff"],"props":[{"key":"lamp","label":"Lamp","footprint":{"width":1,"height":1},"pixels":["1"]}]}"##).unwrap();
+        storage.install_local_prop_pack(0, &pack).unwrap();
+        let layout = LocalBlockLayout::new(vec![
+            PropPlacement {
+                prop: format!("{}/lamp", pack.digest()),
+                footprint_width: 1,
+                footprint_height: 1,
+                x: 1,
+                y: 1,
+                rotation: 0,
+            },
+            PropPlacement {
+                prop: format!("{}/lamp", pack.digest()),
+                footprint_width: 1,
+                footprint_height: 1,
+                x: 2,
+                y: 2,
+                rotation: 0,
+            },
+        ])
+        .unwrap();
+        let transaction = storage
+            .connection_mut()
+            .unwrap()
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Deferred)
+            .unwrap();
+        {
+            let mut resolver = LocalPropResolver::new(&transaction);
+            validate_mutation(None, &layout, &mut resolver).unwrap();
+            assert_eq!(resolve_layout(&layout, &mut resolver).unwrap().len(), 2);
+            assert_eq!(resolve_layout(&layout, &mut resolver).unwrap().len(), 2);
+            assert_eq!(resolver.database_reads(), 1);
+        }
+        transaction.commit().unwrap();
+        storage.close().unwrap();
+    }
+
+    #[test]
     fn local_blocks_use_identity_uuid_cas_and_active_projection() {
         let directory = TestDirectory::new();
         let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
@@ -388,24 +615,25 @@ mod tests {
         assert!(!missing.exists());
         assert_eq!(missing.revision, 0);
 
-        let layout = BlockLayout::new(vec![Furniture {
+        let legacy_layout = BlockLayout::new(vec![Furniture {
             asset: FurnitureAsset::Desk,
             x: 1,
             y: 2,
             rotation: 0,
         }])
         .unwrap();
+        let layout = LocalBlockLayout::from_legacy(&legacy_layout);
         let created = storage.apply_local_block(first, 0, &layout).unwrap();
         assert_eq!(created.revision, 1);
-        assert_eq!(
-            storage.apply_local_block(first, 0, &layout).unwrap(),
-            created
-        );
+        let retried = storage.apply_local_block(first, 0, &layout).unwrap();
+        assert_eq!(retried.revision, created.revision);
+        assert_eq!(retried.layout, created.layout);
+        assert!(!retried.changed);
         assert!(matches!(
             storage.apply_local_block(
                 first,
                 0,
-                &BlockLayout::new(Vec::new()).expect("empty layout is valid")
+                &LocalBlockLayout::new(Vec::new()).expect("empty layout is valid")
             ),
             Err(LocalOfficeError::RevisionConflict)
         ));

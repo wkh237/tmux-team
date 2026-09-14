@@ -1,4 +1,4 @@
-use super::assets::{INBOX_SKILL, OFFICE_SKILL, SKILL, SkillAssets};
+use super::assets::{INBOX_SKILL, OFFICE_SKILL, PROP_CREATE_SKILL, SKILL, SkillAssets};
 use crate::test_support::TestDirectory;
 use std::fs;
 
@@ -15,6 +15,10 @@ fn materialized_source_is_exact_and_repeated_install_preserves_it() {
     assert_eq!(
         fs::read(source.parent().unwrap().join("tmt-office/SKILL.md")).unwrap(),
         OFFICE_SKILL
+    );
+    assert_eq!(
+        fs::read(source.parent().unwrap().join("tmt-prop-create/SKILL.md")).unwrap(),
+        PROP_CREATE_SKILL
     );
     assert!(assets.owns(&source));
     assert_eq!(assets.materialize().unwrap(), source);

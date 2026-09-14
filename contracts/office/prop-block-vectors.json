@@ -1,0 +1,177 @@
+{
+  "packCases": [
+    {
+      "name": "minimal valid pack",
+      "valid": true,
+      "value": {
+        "formatVersion": 1,
+        "label": "Desk light",
+        "credit": "Fixture",
+        "license": "CC0-1.0",
+        "palette": ["#00000000", "#ffffffff"],
+        "props": [
+          {
+            "key": "desk-light",
+            "label": "Desk light",
+            "footprint": { "width": 1, "height": 1 },
+            "pixels": ["1"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown executable field",
+      "valid": false,
+      "value": {
+        "formatVersion": 1,
+        "label": "Desk light",
+        "credit": "Fixture",
+        "license": "CC0-1.0",
+        "palette": ["#00000000", "#ffffffff"],
+        "props": [
+          {
+            "key": "desk-light",
+            "label": "Desk light",
+            "footprint": { "width": 1, "height": 1 },
+            "pixels": ["1"]
+          }
+        ],
+        "script": "throw 1"
+      }
+    },
+    {
+      "name": "unknown palette index",
+      "valid": false,
+      "value": {
+        "formatVersion": 1,
+        "label": "Desk light",
+        "credit": "Fixture",
+        "license": "CC0-1.0",
+        "palette": ["#00000000", "#ffffffff"],
+        "props": [
+          {
+            "key": "desk-light",
+            "label": "Desk light",
+            "footprint": { "width": 1, "height": 1 },
+            "pixels": ["2"]
+          }
+        ]
+      }
+    },
+    {
+      "name": "label exceeds byte bound",
+      "valid": false,
+      "value": {
+        "formatVersion": 1,
+        "label": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+        "credit": "Fixture",
+        "license": "CC0-1.0",
+        "palette": ["#00000000", "#ffffffff"],
+        "props": [
+          {
+            "key": "desk-light",
+            "label": "Desk light",
+            "footprint": { "width": 1, "height": 1 },
+            "pixels": ["1"]
+          }
+        ]
+      }
+    }
+  ],
+  "layoutCases": [
+    {
+      "name": "rotated footprint at room edge",
+      "valid": true,
+      "value": {
+        "version": 2,
+        "objects": [
+          {
+            "prop": "sha256:1111111111111111111111111111111111111111111111111111111111111111/desk-light",
+            "footprint": { "width": 8, "height": 1 },
+            "x": 31,
+            "y": 24,
+            "rotation": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "rotated footprint exceeds room edge",
+      "valid": false,
+      "value": {
+        "version": 2,
+        "objects": [
+          {
+            "prop": "sha256:1111111111111111111111111111111111111111111111111111111111111111/desk-light",
+            "footprint": { "width": 8, "height": 1 },
+            "x": 31,
+            "y": 25,
+            "rotation": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown placement field",
+      "valid": false,
+      "value": {
+        "version": 2,
+        "objects": [
+          {
+            "prop": "sha256:1111111111111111111111111111111111111111111111111111111111111111/desk-light",
+            "footprint": { "width": 1, "height": 1 },
+            "x": 0,
+            "y": 0,
+            "rotation": 0,
+            "script": "throw 1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown footprint field",
+      "valid": false,
+      "value": {
+        "version": 2,
+        "objects": [
+          {
+            "prop": "sha256:1111111111111111111111111111111111111111111111111111111111111111/desk-light",
+            "footprint": { "width": 1, "height": 1, "depth": 1 },
+            "x": 0,
+            "y": 0,
+            "rotation": 0
+          }
+        ]
+      }
+    }
+  ],
+  "capacity": {
+    "count": 16,
+    "keyPrefix": "prop-",
+    "label": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL",
+    "rasterRow": "1111111111111111111111111111111111111111111111111111111111111111",
+    "rasterRows": 64,
+    "pack": {
+      "formatVersion": 1,
+      "label": "Full capacity",
+      "credit": "Fixture",
+      "license": "CC0-1.0",
+      "palette": ["#00000000", "#ffffffff"],
+      "props": []
+    },
+    "prop": {
+      "key": "prop-00",
+      "label": "Full capacity prop",
+      "footprint": { "width": 1, "height": 1 },
+      "pixels": ["1"]
+    },
+    "layout": { "version": 2, "objects": [] },
+    "placement": {
+      "prop": "sha256:1111111111111111111111111111111111111111111111111111111111111111/prop-00",
+      "footprint": { "width": 1, "height": 1 },
+      "x": 0,
+      "y": 0,
+      "rotation": 0
+    }
+  }
+}

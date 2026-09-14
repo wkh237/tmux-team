@@ -2,24 +2,24 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     io::{self, Read, Write},
     net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream},
     process::ExitCode,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
 use tmt_adapters::{
     config::ConfigPaths,
-    office_block::decode_layout,
     office_local::local_snapshot,
     office_profile::{
         mutation_value as local_profile_mutation, snapshot_value as local_profile_snapshot,
     },
     office_profile_wire,
+    office_prop::{PACK_INPUT_LIMIT, ValidatedPropPack, validate_pack},
     office_service::{self, ServiceReceipt},
     storage::{LocalOfficeError, LocalProfileError, Storage},
     tmux::{BindingSession, CallerEnvironment, Tmux},
@@ -31,6 +31,8 @@ use crate::local_assets;
 
 const HEADER_LIMIT: usize = 16 * 1024;
 const BODY_LIMIT: usize = 64 * 1024;
+const PREVIEW_LIMIT: usize = 4;
+const PREVIEW_LIFETIME: Duration = Duration::from_secs(5 * 60);
 const MAX_CONNECTIONS: usize = 16;
 const REQUEST_DEADLINE: Duration = Duration::from_secs(3);
 const RESPONSE_DEADLINE: Duration = Duration::from_secs(15);
@@ -55,6 +57,14 @@ struct Request {
 
 struct ActiveConnection(Arc<AtomicUsize>);
 
+struct PreviewEntry {
+    pack: ValidatedPropPack,
+    expires: Instant,
+    expires_at_ms: u64,
+}
+
+type Previews = Arc<Mutex<HashMap<String, PreviewEntry>>>;
+
 impl Drop for ActiveConnection {
     fn drop(&mut self) {
         self.0.fetch_sub(1, Ordering::AcqRel);
@@ -76,7 +86,7 @@ impl Request {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ApplyInput {
     expected_revision: u64,
-    objects: Value,
+    layout: Value,
 }
 
 #[derive(Deserialize)]
@@ -136,6 +146,7 @@ fn serve() -> Result<(), ServeError> {
     io::stdout().lock().flush()?;
     let stopping = Arc::new(AtomicBool::new(false));
     let active = Arc::new(AtomicUsize::new(0));
+    let previews: Previews = Arc::new(Mutex::new(HashMap::new()));
     let mut workers: Vec<std::thread::JoinHandle<()>> = Vec::new();
     listener.set_nonblocking(true)?;
     while !stopping.load(Ordering::Acquire) {
@@ -171,10 +182,12 @@ fn serve() -> Result<(), ServeError> {
                 let paths = paths.clone();
                 let receipt = receipt.clone();
                 let stopping = Arc::clone(&stopping);
+                let previews = Arc::clone(&previews);
                 workers.push(std::thread::spawn(move || {
                     let _guard = guard;
                     let _ = stream.set_write_timeout(Some(RESPONSE_DEADLINE));
-                    if let Err(error) = handle(&mut stream, &paths, &receipt, &stopping) {
+                    if let Err(error) = handle(&mut stream, &paths, &receipt, &stopping, &previews)
+                    {
                         let _ = response(
                             &mut stream,
                             400,
@@ -206,6 +219,7 @@ fn handle(
     paths: &ConfigPaths,
     receipt: &ServiceReceipt,
     stopping: &AtomicBool,
+    previews: &Previews,
 ) -> io::Result<()> {
     let request = read_request(stream, Instant::now() + REQUEST_DEADLINE)?;
     if request.method == "GET" && !request.body.is_empty() {
@@ -226,10 +240,10 @@ fn handle(
         );
     }
     if request.path.starts_with("/control/v1/") {
-        return control(stream, &request, receipt, stopping);
+        return control(stream, &request, receipt, stopping, previews);
     }
     if request.path.starts_with("/api/v1/") {
-        return api(stream, request, paths, receipt);
+        return api(stream, request, paths, receipt, previews);
     }
     if request.method != "GET" {
         return response(
@@ -253,12 +267,12 @@ fn control(
     request: &Request,
     receipt: &ServiceReceipt,
     stopping: &AtomicBool,
+    previews: &Previews,
 ) -> io::Result<()> {
     let authorization = format!("Bearer {}", receipt.control_token);
     if request.method != "POST"
         || request.header("authorization") != Some(authorization.as_str())
         || request.header("x-tmt-office-nonce") != Some(receipt.nonce.as_str())
-        || !request.body.is_empty()
     {
         return response(
             stream,
@@ -268,16 +282,110 @@ fn control(
         );
     }
     match request.path.as_str() {
-        "/control/v1/health" => response(stream, 200, "application/json", br#"{"ok":true}"#),
-        "/control/v1/stop" => {
+        "/control/v1/health" if request.body.is_empty() => {
+            response(stream, 200, "application/json", br#"{"ok":true}"#)
+        }
+        "/control/v1/stop" if request.body.is_empty() => {
             let result = response(stream, 200, "application/json", br#"{"ok":true}"#);
             if result.is_ok() {
                 stopping.store(true, Ordering::Release);
             }
             result
         }
+        "/control/v1/prop-previews"
+            if request.header("content-type") == Some("application/json") =>
+        {
+            create_preview(stream, request, receipt, previews)
+        }
         _ => response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#),
     }
+}
+
+fn create_preview(
+    stream: &mut TcpStream,
+    request: &Request,
+    receipt: &ServiceReceipt,
+    previews: &Previews,
+) -> io::Result<()> {
+    let pack = match validate_pack(&request.body) {
+        Ok(pack) => pack,
+        Err(_) => {
+            return response(
+                stream,
+                400,
+                "application/json",
+                br#"{"error":"OFFICE_PROP_INVALID"}"#,
+            );
+        }
+    };
+    let mut previews = previews
+        .lock()
+        .map_err(|_| io::Error::other("preview lock poisoned"))?;
+    let now = Instant::now();
+    previews.retain(|_, entry| entry.expires > now);
+    if let Some((preview_id, entry)) = previews
+        .iter()
+        .find(|(_, entry)| entry.pack.digest() == pack.digest())
+    {
+        return preview_response(
+            stream,
+            receipt,
+            preview_id,
+            &entry.pack,
+            entry.expires_at_ms,
+        );
+    }
+    if previews.len() >= PREVIEW_LIMIT {
+        return response(
+            stream,
+            429,
+            "application/json",
+            br#"{"error":"OFFICE_PROP_PREVIEW_LIMIT"}"#,
+        );
+    }
+    let preview_id = secret()?;
+    let expires_at_ms = unix_time_ms()?.saturating_add(
+        u64::try_from(PREVIEW_LIFETIME.as_millis()).expect("preview lifetime fits u64"),
+    );
+    previews.insert(
+        preview_id.clone(),
+        PreviewEntry {
+            pack: pack.clone(),
+            expires: now + PREVIEW_LIFETIME,
+            expires_at_ms,
+        },
+    );
+    preview_response(stream, receipt, &preview_id, &pack, expires_at_ms)
+}
+
+fn preview_response(
+    stream: &mut TcpStream,
+    receipt: &ServiceReceipt,
+    preview_id: &str,
+    pack: &ValidatedPropPack,
+    expires_at_ms: u64,
+) -> io::Result<()> {
+    let url = format!(
+        "{}/local/props/preview/{preview_id}#token={}",
+        receipt.endpoint(),
+        receipt.browser_token
+    );
+    let body = serde_json::to_vec(&json!({
+        "digest":pack.digest(),
+        "previewId":preview_id,
+        "expiresAtMs":expires_at_ms,
+        "url":url
+    }))?;
+    response(stream, 200, "application/json", &body)
+}
+
+fn unix_time_ms() -> io::Result<u64> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(io::Error::other)?
+        .as_millis()
+        .try_into()
+        .map_err(io::Error::other)
 }
 
 fn api(
@@ -285,6 +393,7 @@ fn api(
     request: Request,
     paths: &ConfigPaths,
     receipt: &ServiceReceipt,
+    previews: &Previews,
 ) -> io::Result<()> {
     let authorization = format!("Bearer {}", receipt.browser_token);
     if request.header("authorization") != Some(authorization.as_str()) {
@@ -294,6 +403,96 @@ fn api(
             "application/json",
             br#"{"error":"UNAUTHORIZED"}"#,
         );
+    }
+    if let Some(preview_id) = request.path.strip_prefix("/api/v1/local/prop-previews/") {
+        if request.method != "GET" || preview_id.is_empty() || preview_id.contains('/') {
+            return response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#);
+        }
+        let mut previews = previews
+            .lock()
+            .map_err(|_| io::Error::other("preview lock poisoned"))?;
+        previews.retain(|_, entry| entry.expires > Instant::now());
+        let Some(entry) = previews.get(preview_id) else {
+            return response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#);
+        };
+        let body = serde_json::to_vec(&json!({
+            "digest":entry.pack.digest(),
+            "pack":entry.pack.pack()
+        }))?;
+        return response(stream, 200, "application/json", &body);
+    }
+    if request.method == "POST" && request.path == "/api/v1/local/props/resolve" {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct ResolveInput {
+            digests: Vec<String>,
+        }
+        let input: ResolveInput = match serde_json::from_slice::<ResolveInput>(&request.body) {
+            Ok(input) if input.digests.len() <= 16 => input,
+            _ => {
+                return response(
+                    stream,
+                    400,
+                    "application/json",
+                    br#"{"error":"OFFICE_PROP_INVALID"}"#,
+                );
+            }
+        };
+        let unique = input.digests.iter().collect::<HashSet<_>>();
+        if unique.len() != input.digests.len()
+            || input
+                .digests
+                .iter()
+                .any(|digest| tmt_adapters::office_prop::parse_pack_digest(digest).is_none())
+        {
+            return response(
+                stream,
+                400,
+                "application/json",
+                br#"{"error":"OFFICE_PROP_INVALID"}"#,
+            );
+        }
+        let mut storage = match Storage::open(&paths.database) {
+            Ok(storage) => storage,
+            Err(_) => {
+                return response(
+                    stream,
+                    500,
+                    "application/json",
+                    br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+                );
+            }
+        };
+        let resolution = match storage.resolve_local_prop_packs(&input.digests) {
+            Ok(resolution) => resolution,
+            Err(_) => {
+                return response(
+                    stream,
+                    500,
+                    "application/json",
+                    br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+                );
+            }
+        };
+        let packs = resolution
+            .packs
+            .iter()
+            .map(|snapshot| json!({"digest":snapshot.pack.digest(),"pack":snapshot.pack.pack()}))
+            .collect::<Vec<_>>();
+        let body = serde_json::to_vec(&json!({
+            "catalogRevision":resolution.catalog_revision,
+            "packs":packs,
+            "unavailable":resolution.unavailable
+        }))?;
+        if storage.close().is_err() {
+            return response(
+                stream,
+                500,
+                "application/json",
+                br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+            );
+        }
+        return response(stream, 200, "application/json", &body);
     }
     if request.path.starts_with("/api/v1/local/board/") {
         return board_api(stream, request, paths, receipt);
@@ -327,7 +526,12 @@ fn api(
                 );
             }
         };
-        let body = serde_json::to_vec(&blocks.into_iter().map(local_snapshot).collect::<Vec<_>>())?;
+        let body = serde_json::to_vec(
+            &blocks
+                .into_iter()
+                .map(|snapshot| local_snapshot(snapshot, false))
+                .collect::<Vec<_>>(),
+        )?;
         if storage.close().is_err() {
             return response(
                 stream,
@@ -381,8 +585,9 @@ fn api(
                 br#"{"error":"LAYOUT_INVALID"}"#,
             );
         }
-        let layout = decode_layout(&serde_json::to_vec(&json!({"objects": input.objects}))?)
-            .map_err(io::Error::other)?;
+        let layout =
+            tmt_adapters::office_block::decode_local_layout(&serde_json::to_vec(&input.layout)?)
+                .map_err(io::Error::other)?;
         Some((input.expected_revision, layout))
     } else {
         None
@@ -407,15 +612,20 @@ fn api(
     let status = match &result {
         Ok(_) => 200,
         Err(LocalOfficeError::RevisionConflict | LocalOfficeError::RevisionExhausted) => 409,
+        Err(LocalOfficeError::LayoutInvalid) => 400,
+        Err(LocalOfficeError::PropNotFound | LocalOfficeError::PropCorrupt) => 404,
         Err(LocalOfficeError::IdentityInactive) => 404,
         Err(_) => 500,
     };
     let body = match result {
-        Ok(block) => serde_json::to_vec(&local_snapshot(block))?,
+        Ok(block) => serde_json::to_vec(&local_snapshot(block, put))?,
         Err(LocalOfficeError::RevisionConflict | LocalOfficeError::RevisionExhausted) => {
             br#"{"error":"REVISION_CONFLICT"}"#.to_vec()
         }
         Err(LocalOfficeError::IdentityInactive) => br#"{"error":"NOT_FOUND"}"#.to_vec(),
+        Err(LocalOfficeError::LayoutInvalid) => br#"{"error":"OFFICE_LAYOUT_INVALID"}"#.to_vec(),
+        Err(LocalOfficeError::PropNotFound) => br#"{"error":"OFFICE_PROP_NOT_FOUND"}"#.to_vec(),
+        Err(LocalOfficeError::PropCorrupt) => br#"{"error":"OFFICE_PROP_CORRUPT"}"#.to_vec(),
         Err(_) => br#"{"error":"STORAGE_UNAVAILABLE"}"#.to_vec(),
     };
     let close = storage.close();
@@ -777,7 +987,12 @@ fn read_request(stream: &mut TcpStream, deadline: Instant) -> io::Result<Request
         return Err(io::Error::other("duplicate content length"));
     }
     let content_length = lengths.first().copied().unwrap_or(0);
-    if content_length > BODY_LIMIT {
+    let body_limit = if method == "POST" && path == "/control/v1/prop-previews" {
+        PACK_INPUT_LIMIT
+    } else {
+        BODY_LIMIT
+    };
+    if content_length > body_limit {
         return Err(io::Error::other("request body too large"));
     }
     while bytes.len() < header_end + content_length {
@@ -789,7 +1004,7 @@ fn read_request(stream: &mut TcpStream, deadline: Instant) -> io::Result<Request
             ));
         }
         bytes.extend_from_slice(&chunk[..read]);
-        if bytes.len() > header_end + BODY_LIMIT {
+        if bytes.len() > header_end + body_limit {
             return Err(io::Error::other("request body too large"));
         }
     }
@@ -827,6 +1042,7 @@ fn response(
         405 => "Method Not Allowed",
         409 => "Conflict",
         421 => "Misdirected Request",
+        429 => "Too Many Requests",
         _ => "Internal Server Error",
     };
     write!(
@@ -859,6 +1075,28 @@ mod tests {
         let result = read_request(&mut stream, Instant::now() + REQUEST_DEADLINE);
         sender.join().unwrap();
         result
+    }
+
+    fn wire_with_body(path: &str, body_len: usize) -> &'static [u8] {
+        let mut wire = format!(
+            "POST {path} HTTP/1.1\r\nHost: 127.0.0.1:1\r\nContent-Type: application/json\r\nContent-Length: {body_len}\r\n\r\n"
+        )
+        .into_bytes();
+        wire.resize(wire.len() + body_len, b' ');
+        Box::leak(wire.into_boxed_slice())
+    }
+
+    #[test]
+    fn preview_route_alone_raises_the_parser_body_cap_to_128_kib() {
+        assert!(parse_wire(wire_with_body("/control/v1/prop-previews", BODY_LIMIT + 1)).is_ok());
+        assert!(parse_wire(wire_with_body("/api/v1/local/profiles", BODY_LIMIT + 1)).is_err());
+        assert!(
+            parse_wire(wire_with_body(
+                "/control/v1/prop-previews",
+                PACK_INPUT_LIMIT + 1
+            ))
+            .is_err()
+        );
     }
 
     fn board_request(method: &str, path: &str, body: Value) -> Request {
@@ -977,7 +1215,8 @@ mod tests {
             String::from_utf8(bytes).unwrap()
         });
         let (mut stream, _) = listener.accept().unwrap();
-        api(&mut stream, request, paths, receipt).unwrap();
+        let previews = Arc::new(Mutex::new(HashMap::new()));
+        api(&mut stream, request, paths, receipt, &previews).unwrap();
         drop(stream);
         receiver.join().unwrap()
     }

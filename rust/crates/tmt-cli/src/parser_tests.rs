@@ -320,7 +320,7 @@ fn learn_selects_exact_bundled_guidance_without_breaking_the_core_flag() {
             skill: Some("tmux-team".into())
         }
     );
-    for name in ["tmux-team", "tmt-inbox", "tmt-office"] {
+    for name in ["tmux-team", "tmt-inbox", "tmt-office", "tmt-prop-create"] {
         assert_eq!(
             parsed(&["learn", "--skill", name]).invocation,
             Invocation::Learn {
@@ -660,6 +660,69 @@ fn office_profile_commands_are_local_typed_and_revision_bounded() {
         ],
     ] {
         assert!(parse(&args(&invalid)).is_err());
+    }
+}
+
+#[test]
+fn office_prop_commands_have_exact_local_and_revision_grammar() {
+    use crate::invocation::{OfficeOperation, OfficePropOperation};
+    assert_eq!(
+        parsed(&[
+            "office",
+            "prop",
+            "install",
+            "--local",
+            "--file",
+            "pack.tmtprop.json",
+            "--if-revision",
+            "7",
+        ])
+        .invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Prop(OfficePropOperation::Install {
+                file: "pack.tmtprop.json".into(),
+                if_revision: 7,
+            }),
+        }
+    );
+    assert_eq!(
+        parsed(&[
+            "office", "prop", "list", "--local", "--limit", "1", "--cursor", "opaque",
+        ])
+        .invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Prop(OfficePropOperation::List {
+                limit: 1,
+                cursor: Some("opaque".into()),
+            }),
+        }
+    );
+    assert_eq!(
+        parsed(&["office", "prop", "preview", "--file", "pack.tmtprop.json",]).invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Prop(OfficePropOperation::Preview {
+                file: "pack.tmtprop.json".into(),
+            }),
+        }
+    );
+    for invalid in [
+        vec![
+            "office",
+            "prop",
+            "install",
+            "--file",
+            "p",
+            "--if-revision",
+            "0",
+        ],
+        vec!["office", "prop", "show", "sha256:x"],
+        vec!["office", "prop", "list", "--local", "--limit", "0"],
+        vec!["office", "prop", "list", "--local", "--limit", "21"],
+    ] {
+        assert!(parse(&args(&invalid)).is_err(), "{invalid:?}");
     }
 }
 

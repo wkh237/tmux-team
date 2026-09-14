@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect, useState, useSyncExternalStore } from 'react';
-import { FURNITURE, OBJECT_LIMIT } from './block-contract.js';
+import { FURNITURE, OBJECT_LIMIT, builtinFurniture, defaultCatalog } from './block-contract.js';
 import type { Asset, BlockPort, Furniture } from './block-contract.js';
 import { createBlockState } from './block-state.js';
 import type { BlockState } from './block-state.js';
+import { resolvedProp } from '../props/prop-contract.js';
 import { BlockScene } from './block-scene.js';
 import './block.css';
 import type { Appearance } from '../profiles/profile-contract.js';
@@ -46,6 +47,14 @@ export function BlockEditor({
   const [selected, setSelected] = useState<number | null>(null);
   const objects = draft?.objects ?? remote?.objects ?? [];
   const item = selected === null ? undefined : objects[selected];
+  const catalog = remote?.catalog ?? defaultCatalog();
+  function objectLabel(object: Furniture): string {
+    const [digest, key] = object.prop.split('/');
+    const pack = catalog.find((candidate) => candidate.digest === digest)?.pack;
+    return pack && key
+      ? (resolvedProp(pack, key, object.footprint)?.label ?? 'Unavailable prop')
+      : 'Unavailable prop';
+  }
   function update(changes: Partial<Furniture>) {
     if (!item) return;
     state.edit(
@@ -53,7 +62,7 @@ export function BlockEditor({
     );
   }
   function add(asset: Asset) {
-    state.edit([...objects, { asset, x: 14, y: 14, rotation: 0 }]);
+    state.edit([...objects, builtinFurniture(asset, 14, 14, 0)]);
     setSelected(objects.length);
   }
   return (
@@ -86,6 +95,7 @@ export function BlockEditor({
             select={setSelected}
             move={(x, y) => update({ x, y })}
             avatar={avatar}
+            catalog={catalog}
           />
           <aside className="block-tools" aria-label="Furniture controls">
             <h3>Small things, your space.</h3>
@@ -110,14 +120,14 @@ export function BlockEditor({
               {objects.map((object, index) => (
                 <li key={index}>
                   <button aria-pressed={selected === index} onClick={() => setSelected(index)}>
-                    {FURNITURE[object.asset].label} {index + 1}
+                    {objectLabel(object)} {index + 1}
                   </button>
                 </li>
               ))}
             </ol>
             {item && (
               <fieldset disabled={busy}>
-                <legend>Selected {item.asset}</legend>
+                <legend>Selected {objectLabel(item)}</legend>
                 <label>
                   Tile X
                   <input

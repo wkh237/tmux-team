@@ -26,6 +26,15 @@ UUID-owned profile resource. [`profile-v1.vectors.json`](profile-v1.vectors.json
 literal Rust/Office conformance source for its catalog, deterministic defaults and safe
 validation examples. It is independent from block layout, role, notes and presence.
 
+The [data-only prop pack v1](prop-pack-v1.md) and local
+[block layout v2](block-v2.md) own #238's file, digest, catalog, placement,
+placeholder and built-in migration boundary. Their source implementation does not
+imply availability in an installed release, a remote catalog, or a second
+layout/renderer owner.
+[`prop-block-vectors.json`](prop-block-vectors.json) is their compact shared Rust/Office
+value and full-capacity conformance source. Raw JSON duplicate-key admission remains a
+Rust file-reader proof because JavaScript object decoding occurs after JSON parsing.
+
 ## Single source of truth
 
 The [native companion handshake](native-companion.md) is an implemented internal

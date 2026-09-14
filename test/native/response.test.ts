@@ -442,7 +442,7 @@ describe('native reply/result process contract', () => {
         body,
         submission.submittedAtMs
       );
-      expect(schemaVersion(sandbox.database)).toBe(15);
+      expect(schemaVersion(sandbox.database)).toBe(16);
     }));
 
   it(

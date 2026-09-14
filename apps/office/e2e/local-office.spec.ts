@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Request } from '@playwright/test';
+import { builtinFurniture } from '../src/blocks/block-contract.js';
 
 test('offline local composition renders and conditionally edits shared profile and block ports', async ({
   page,
@@ -8,7 +9,7 @@ test('offline local composition renders and conditionally edits shared profile a
   const blockId = '11111111-1111-4111-8111-111111111111';
   let revision = 1;
   let profileRevision = 0;
-  let objects = [{ asset: 'desk', x: 4, y: 6, rotation: 0 }];
+  let objects = [builtinFurniture('desk', 4, 6, 0)];
   let profile = {
     displayLabel: '',
     description: 'Architecture review',
@@ -84,7 +85,8 @@ test('offline local composition renders and conditionally edits shared profile a
           identityName: 'Alice',
           blockId,
           revision,
-          objects,
+          layout: { version: 2, objects },
+          resolutions: objects.map((_, index) => ({ index, status: 'available', label: 'Desk' })),
           updatedAtMs: revision,
         },
       ]),
@@ -101,7 +103,7 @@ test('offline local composition renders and conditionally edits shared profile a
         return;
       }
       revision += 1;
-      objects = input.objects;
+      objects = input.layout.objects;
     }
     await route.fulfill({
       contentType: 'application/json',
@@ -111,8 +113,10 @@ test('offline local composition renders and conditionally edits shared profile a
         identityName: 'Alice',
         blockId,
         revision,
-        objects,
+        layout: { version: 2, objects },
+        resolutions: objects.map((_, index) => ({ index, status: 'available', label: 'Prop' })),
         updatedAtMs: revision,
+        ...(request.method() === 'PUT' ? { changed: true } : {}),
       }),
     });
   });

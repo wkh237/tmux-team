@@ -114,6 +114,21 @@ exclude it, so a same-name replacement inherits nothing. The SPA profile port an
 commands both call this owner. Presence is a separate binding observation: offline saved
 identities remain editable but are never drawn as present in the room.
 
+The #238 source implementation adds schema 16 and the installation-owned local prop catalog defined by
+`contracts/office/prop-pack-v1.md`. Embedded built-ins remain outside mutable rows and
+quotas; installed exact bytes use one revisioned SQLite owner and request-scoped validation.
+This source capability is not evidence that a separately installed companion release
+contains it; use the verified release and native installation records for availability.
+`tmt-adapters::office_prop` owns the one byte/JSON/semantic validation path used by
+CLI, SQLite revalidation, and preview; reusable placement, reference, footprint,
+rotation, and room-bound rules remain in `tmt-core::office_block` without adding a
+second codec or generic extension framework.
+Local v2 block child requests and replies share the core-owned 64 KiB transport
+ceiling; remote v1 and unrelated 4 KiB envelopes do not inherit it. Prop catalog
+cursors use their own encoded-envelope bound. Preview responses must echo the exact
+candidate digest and the exact private loopback preview ID, URL and browser token;
+the client applies bounded connect, read and write deadlines.
+
 The local discussion board follows the same companion boundary without sharing
 the block model. `tmt-core::office_board` owns its bounded values, actors,
 receipts and cursor policy; schema 14 and `storage::office_board` own the single

@@ -169,6 +169,12 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         | ["office", "block", "apply"]
         | ["office", "profile", "show"]
         | ["office", "profile", "apply"]
+        | ["office", "prop", "validate"]
+        | ["office", "prop", "preview"]
+        | ["office", "prop", "install"]
+        | ["office", "prop", "remove"]
+        | ["office", "prop", "list"]
+        | ["office", "prop", "show"]
         | ["office", "board", "post"]
         | ["office", "board", "list"]
         | ["office", "board", "show"]
@@ -180,6 +186,45 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         | ["office", "uninstall"] => Invocation::Office {
             prefix: text(m, "prefix"),
             operation: match path.last().copied() {
+                Some("validate") if path.get(1) == Some(&"prop") => {
+                    OfficeOperation::Prop(OfficePropOperation::Validate {
+                        file: required(m, "file"),
+                    })
+                }
+                Some("preview") if path.get(1) == Some(&"prop") => {
+                    OfficeOperation::Prop(OfficePropOperation::Preview {
+                        file: required(m, "file"),
+                    })
+                }
+                Some("install") if path.get(1) == Some(&"prop") => {
+                    OfficeOperation::Prop(OfficePropOperation::Install {
+                        file: required(m, "file"),
+                        if_revision: *m
+                            .get_one::<u64>("if-revision")
+                            .expect("grammar supplies prop revision"),
+                    })
+                }
+                Some("remove") if path.get(1) == Some(&"prop") => {
+                    OfficeOperation::Prop(OfficePropOperation::Remove {
+                        digest: required(m, "prop-digest"),
+                        if_revision: *m
+                            .get_one::<u64>("if-revision")
+                            .expect("grammar supplies prop revision"),
+                    })
+                }
+                Some("list") if path.get(1) == Some(&"prop") => {
+                    OfficeOperation::Prop(OfficePropOperation::List {
+                        limit: *m
+                            .get_one::<u64>("prop-limit")
+                            .expect("grammar supplies prop list limit"),
+                        cursor: text(m, "cursor"),
+                    })
+                }
+                Some("show") if path.get(1) == Some(&"prop") => {
+                    OfficeOperation::Prop(OfficePropOperation::Show {
+                        digest: required(m, "prop-digest"),
+                    })
+                }
                 Some("post") if path.get(1) == Some(&"board") => {
                     OfficeOperation::Board(OfficeBoardOperation::Post {
                         category: board_category(m),

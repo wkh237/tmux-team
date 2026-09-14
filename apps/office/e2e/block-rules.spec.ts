@@ -3,6 +3,7 @@ import { doc, getDocFromServer, setDoc, serverTimestamp, deleteDoc } from 'fireb
 import vectors from '../../../contracts/office/block-v1.vectors.json' with { type: 'json' };
 import { createWorldPort } from '../src/worlds/firebase-worlds.js';
 import { createBlockPort } from '../src/blocks/firebase-blocks.js';
+import { builtinFurniture } from '../src/blocks/block-contract.js';
 import { createFirestoreFixture, setTester } from './firestore-fixture.js';
 
 test('direct block writes enforce contract vectors and every bounded slot', async () => {
@@ -88,10 +89,7 @@ test('block transactions preserve exact retries and reject concurrent revision c
     const first = await port.apply(draft.id, 0, []);
     expect(first.revision).toBe(1);
     expect(await port.apply(draft.id, 0, [])).toEqual(first);
-    const changes = [
-      [{ asset: 'desk' as const, x: 0, y: 0, rotation: 0 }],
-      [{ asset: 'plant' as const, x: 0, y: 0, rotation: 0 }],
-    ];
+    const changes = [[builtinFurniture('desk', 0, 0, 0)], [builtinFurniture('plant', 0, 0, 0)]];
     const results = await Promise.allSettled(
       changes.map((objects) => port.apply(draft.id, 1, objects))
     );

@@ -30,6 +30,8 @@ pub mod office_pairing;
 pub mod office_profile;
 pub mod office_profile_wire;
 #[cfg(unix)]
+pub mod office_prop;
+#[cfg(unix)]
 pub mod office_service;
 #[cfg(unix)]
 pub mod process;

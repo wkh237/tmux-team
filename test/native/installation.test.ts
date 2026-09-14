@@ -55,6 +55,15 @@ function officeSkill(): Buffer {
   );
 }
 
+function propCreateSkill(): Buffer {
+  return readFileSync(
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../skills/tmt-prop-create/SKILL.md'
+    )
+  );
+}
+
 function inboxTarget(target: string): string {
   return path.join(path.dirname(target), 'tmt-inbox');
 }
@@ -138,6 +147,30 @@ describe('native installation process contract', () => {
       expect(officeGuidance.status).toBe(0);
       expect(officeGuidance.stderr).toBe('');
       expect(officeGuidance.stdout).toBe(officeSkill().toString('utf8'));
+      const propGuidance = await runCli(moved, ['learn', '--skill', 'tmt-prop-create']);
+      expect(propGuidance.status).toBe(0);
+      expect(propGuidance.stderr).toBe('');
+      expect(propGuidance.stdout).toBe(propCreateSkill().toString('utf8'));
+      expect(propGuidance.stdout).not.toContain('contracts/office/');
+      for (const required of [
+        '"formatVersion": 1',
+        'tmt office prop validate --file',
+        'tmt office prop list --local',
+        'tmt office prop install --local',
+        'tmt office block apply --local',
+        'tmt office prop remove --local',
+        '`.layout`',
+      ])
+        expect(propGuidance.stdout).toContain(required);
+      for (const required of [
+        '`tmt-prop-create`',
+        'tmt office prop list --local',
+        'tmt office prop install --local',
+        'tmt office prop remove --local',
+        '`.layout`',
+        '{"version":2,"objects":[...]}',
+      ])
+        expect(officeGuidance.stdout).toContain(required);
       expect(existsSync(sandbox.localConfig)).toBe(false);
       expect(existsSync(sandbox.globalDir)).toBe(false);
 

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createBlockState } from './block-state.js';
-import { BlockConflict } from './block-contract.js';
+import { BlockConflict, builtinFurniture } from './block-contract.js';
 import type { Block, BlockPort, Furniture } from './block-contract.js';
-const objects: Furniture[] = [{ asset: 'desk', x: 0, y: 0, rotation: 0 }];
+const objects: Furniture[] = [builtinFurniture('desk', 0, 0, 0)];
 function fixture() {
   let changed: (block: Block | null) => void = () => {};
   let failed = () => {};

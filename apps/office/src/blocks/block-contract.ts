@@ -1,3 +1,6 @@
+import { BUILTIN_DIGEST, BUILTIN_PACK } from '../props/prop-contract.js';
+import type { CatalogPack, Footprint } from '../props/prop-contract.js';
+
 export const BLOCK_SIZE = 32;
 export const OBJECT_LIMIT = 16;
 export const FURNITURE = {
@@ -8,7 +11,8 @@ export const FURNITURE = {
 } as const;
 export type Asset = keyof typeof FURNITURE;
 export interface Furniture {
-  asset: Asset;
+  prop: string;
+  footprint: Footprint;
   x: number;
   y: number;
   rotation: number;
@@ -17,47 +21,80 @@ export interface Block {
   revision: number;
   objects: Furniture[];
   updatedAtMs: number;
+  catalog?: CatalogPack[];
 }
-export function footprint(item: Furniture): { width: number; height: number } {
-  const { width, height } = FURNITURE[item.asset];
+
+export function builtinFurniture(asset: Asset, x: number, y: number, rotation: number): Furniture {
+  const definition = FURNITURE[asset];
+  return {
+    prop: `${BUILTIN_DIGEST}/${asset}`,
+    footprint: { width: definition.width, height: definition.height },
+    x,
+    y,
+    rotation,
+  };
+}
+
+export function footprint(item: Furniture): Footprint {
+  const { width, height } = item.footprint;
   return item.rotation % 2 ? { width: height, height: width } : { width, height };
 }
+
 export function validFurniture(value: unknown): value is Furniture {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const item = value as Record<string, unknown>;
   if (
-    Object.keys(item).length !== 4 ||
-    !Object.keys(item).every((key) => ['asset', 'x', 'y', 'rotation'].includes(key)) ||
-    typeof item.asset !== 'string' ||
-    !Object.hasOwn(FURNITURE, item.asset) ||
+    Object.keys(item).length !== 5 ||
+    !['prop', 'footprint', 'x', 'y', 'rotation'].every((field) => Object.hasOwn(item, field)) ||
+    typeof item.prop !== 'string' ||
+    !/^sha256:[0-9a-f]{64}\/[a-z][a-z0-9-]{0,31}$/.test(item.prop) ||
+    !item.footprint ||
+    typeof item.footprint !== 'object' ||
+    Array.isArray(item.footprint) ||
+    Object.keys(item.footprint as object).length !== 2 ||
+    !Object.hasOwn(item.footprint as object, 'width') ||
+    !Object.hasOwn(item.footprint as object, 'height') ||
+    !Number.isInteger((item.footprint as Record<string, unknown>).width) ||
+    !Number.isInteger((item.footprint as Record<string, unknown>).height) ||
     !Number.isInteger(item.x) ||
     !Number.isInteger(item.y) ||
     !Number.isInteger(item.rotation)
   )
     return false;
   const furniture = item as unknown as Furniture;
-  const { width, height } = footprint(furniture);
+  if (
+    furniture.footprint.width < 1 ||
+    furniture.footprint.width > 8 ||
+    furniture.footprint.height < 1 ||
+    furniture.footprint.height > 8
+  )
+    return false;
+  const size = footprint(furniture);
   return (
     furniture.rotation >= 0 &&
     furniture.rotation <= 3 &&
     furniture.x >= 0 &&
     furniture.y >= 0 &&
-    furniture.x + width <= BLOCK_SIZE &&
-    furniture.y + height <= BLOCK_SIZE
+    furniture.x + size.width <= BLOCK_SIZE &&
+    furniture.y + size.height <= BLOCK_SIZE
   );
 }
+
 export function validLayout(value: unknown): value is Furniture[] {
   return (
     Array.isArray(value) && value.length <= OBJECT_LIMIT && Array.from(value).every(validFurniture)
   );
 }
+
 export function sameLayout(left: Furniture[], right: Furniture[]): boolean {
   return (
     left.length === right.length &&
     left.every((item, index) => {
       const other = right[index];
       return (
-        item.asset === other.asset &&
+        item.prop === other?.prop &&
+        item.footprint.width === other.footprint.width &&
+        item.footprint.height === other.footprint.height &&
         item.x === other.x &&
         item.y === other.y &&
         item.rotation === other.rotation
@@ -66,35 +103,52 @@ export function sameLayout(left: Furniture[], right: Furniture[]): boolean {
   );
 }
 
-/** Storage-only encoding: asset, quarter turn, base-32 X, base-32 Y.
- * Public views/commands retain named fields; one codec owns this representation.
- */
+function builtinAsset(item: Furniture): Asset | undefined {
+  if (!item.prop.startsWith(`${BUILTIN_DIGEST}/`)) return undefined;
+  const key = item.prop.slice(BUILTIN_DIGEST.length + 1) as Asset;
+  const definition = FURNITURE[key];
+  return definition &&
+    item.footprint.width === definition.width &&
+    item.footprint.height === definition.height
+    ? key
+    : undefined;
+}
+
+/** Remote v1 storage-only encoding. Local storage is canonical v2 JSON. */
 export function encodeLayout(objects: Furniture[]): string[] {
   if (!validLayout(objects)) throw new Error('Invalid block layout.');
-  return objects.map(
-    (item) =>
-      `${FURNITURE[item.asset].code}${item.rotation}${item.x.toString(32)}${item.y.toString(32)}`
-  );
+  return objects.map((item) => {
+    const asset = builtinAsset(item);
+    if (!asset) throw new Error('Remote blocks support only built-in props.');
+    return `${FURNITURE[asset].code}${item.rotation}${item.x.toString(32)}${item.y.toString(32)}`;
+  });
 }
+
 export function decodeLayout(value: unknown): Furniture[] {
   if (!Array.isArray(value) || value.length > OBJECT_LIMIT)
     throw new Error('Invalid stored layout.');
-  const objects = Array.from(value, (token) => {
+  const objects = value.map((token) => {
     if (typeof token !== 'string' || !/^[dcpr][0-3][0-9a-v]{2}$/.test(token))
       throw new Error('Invalid stored furniture.');
     const asset = (Object.keys(FURNITURE) as Asset[]).find(
       (key) => FURNITURE[key].code === token[0]
-    )!;
-    return {
+    );
+    if (!asset) throw new Error('Invalid stored furniture.');
+    return builtinFurniture(
       asset,
-      rotation: Number(token[1]),
-      x: parseInt(token[2], 32),
-      y: parseInt(token[3], 32),
-    };
+      Number.parseInt(token[2]!, 32),
+      Number.parseInt(token[3]!, 32),
+      Number(token[1])
+    );
   });
   if (!validLayout(objects)) throw new Error('Invalid stored footprint.');
   return objects;
 }
+
+export function defaultCatalog(): CatalogPack[] {
+  return [{ digest: BUILTIN_DIGEST, pack: BUILTIN_PACK }];
+}
+
 export class BlockConflict extends Error {
   constructor() {
     super('The block changed. Load the latest layout before editing again.');

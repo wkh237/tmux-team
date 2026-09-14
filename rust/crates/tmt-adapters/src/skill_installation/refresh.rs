@@ -84,6 +84,7 @@ pub(super) fn refresh_with_publisher(
                     Some("tmux-team") => &current_sources.0,
                     Some("tmt-inbox") => &current_sources.1,
                     Some("tmt-office") => &current_sources.2,
+                    Some("tmt-prop-create") => &current_sources.3,
                     _ => {
                         report.conflicts.push(target);
                         continue;

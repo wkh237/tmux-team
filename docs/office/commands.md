@@ -24,10 +24,11 @@ and the shared native archive verifier. Explicit offline installation uses
 Without a published candidate, online installation fails rather than claiming
 success. `tmt upgrade` continues to update only the CLI and its managed skills.
 
-Explicit Office install and upgrade also manage the optional `tmt-office` skill
+Explicit Office install and upgrade also manage the optional `tmt-office` and
+`tmt-prop-create` skills
 through the existing provider/custom-root, immutable asset, registry, drift,
-backup, and refresh owner. Core `tmt install` does not expose it. Existing
-conversations can read the exact source with `tmt learn --skill tmt-office`.
+backup, and refresh owner. Core `tmt install` does not expose them. Existing
+conversations can read either exact source with `tmt learn --skill <name>`.
 An unmanaged target is preserved; after inspection, `--force` on Office install
 or upgrade creates a recoverable backup. Companion activation can complete before
 skill publication fails, and that partial result does not roll back the binary.
@@ -63,6 +64,12 @@ tmt office block show --local --identity Alice --json
 tmt office block apply --local --identity Alice --file layout.json --if-revision 0 --json
 tmt office profile show --local --identity Alice --json
 tmt office profile apply --local --identity Alice --file profile.json --if-revision 0 --json
+tmt office prop validate --file pack.tmtprop.json --json
+tmt office prop preview --file pack.tmtprop.json --json
+tmt office prop install --local --file pack.tmtprop.json --if-revision 0 --json
+tmt office prop remove --local sha256:<digest> --if-revision 1 --json
+tmt office prop list --local --json
+tmt office prop show --local sha256:<digest> --json
 tmt office stop
 ```
 
@@ -92,10 +99,17 @@ requires `--local`. An identical apply at the current revision is a no-op; an ex
 at the preceding revision returns the committed snapshot. Other stale revisions return
 `OFFICE_REVISION_CONFLICT`. After an uncertain write, reread before retrying.
 
+Local prop validation and catalog commands follow the single data-only owner in
+[`prop-pack-v1.md`](../../contracts/office/prop-pack-v1.md). Preview requires the
+already-running local service and never starts it implicitly. The optional
+`tmt-prop-create` guidance is installed through the existing Office managed-skill
+path; it is not a second installer or executable extension.
+
 With `--json`, successful start returns `running:true`, `changed`, `reused`, `url`
 and `version`; stop returns `running:false` and `changed`. Local block success returns
-`exists`, `identityId`, `identityName`, nullable `blockId`, `revision`, `objects` and
-`updatedAtMs`. Plain block output is the same object as readable indented JSON. Profile
+`exists`, `identityId`, `identityName`, nullable `blockId`, `revision`, canonical v2
+`layout`, per-object `resolutions` and `updatedAtMs`; apply also returns `changed`.
+Plain block output is the same object as readable indented JSON. Profile
 reads return `identityId`, `identityName`, `exists`, `revision`, `profile`, nullable
 `updatedAtMs`, and the bounded literal `catalog`; apply adds transactional `changed`.
 Human apply output distinguishes created, updated and unchanged results. Success exits 0. Usage, installation,
@@ -263,9 +277,6 @@ the in-progress pair/status/inspect inputs, outputs and deployment trust boundar
 | Command                                                    | Planned behavior                                                                                       |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `tmt office`                                               | Open the selected world's web UI; never implicitly run a connector or publish agents                   |
-| `tmt office install --yes`                                 | Explicitly acquire and verify the official extension; `--yes` consents to installation only            |
-| `tmt office upgrade`                                       | Explicit verified extension update, with compatibility checks and rollback-safe activation             |
-| `tmt office status --json`                                 | Local extension/pairing/connector status; no network or automatic update check                         |
 | `tmt office run`                                           | Run the connector in the foreground; Ctrl-C stops it without cancelling native work                    |
 | `tmt office publish <identity> --capability review`        | Publish an explicitly selected identity UUID and allowed capability; no implicit all-agent publication |
 | `tmt office unpublish <identity>`                          | Reject new work for that published identity, without deleting local identity or retained exchanges     |
@@ -286,17 +297,11 @@ provision a Firebase project or deploy a website.
 | `tmt office block ls --json`                                                             | Allowed blocks and assignments, without guessing IDs                                |
 | `tmt office block show <block-id> --json`                                                | Canonical layout and revision                                                       |
 | `tmt office block apply <block-id> --file <layout.json> --if-revision <revision> --json` | Conditional complete-layout edit, confirmed by the server; stale revisions conflict |
-| `tmt office prop ls --json`                                                              | The local Office admitted prop catalog for M1                                       |
-| `tmt office prop show <prop-id> --json`                                                  | Pinned version, geometry and supported data, never executable instructions          |
 
-Custom props are not implemented. The proposed namespace is singular, `tmt office
-prop`; no custom-prop grammar, help, completion or endpoint is shipped. Built-in
-catalog entries and future admitted custom content use one validated catalog/layout
-owner; a versioned successor extends that owner without making block-v1 accept new
-asset data or creating a second layout store. Exact schema, quotas and
-version-migration policy remain pre-implementation decisions tracked in
-[#238](https://github.com/wkh237/tmux-team/issues/238).
-No current Rules enumeration or custom-asset support is implied by this table.
+The local prop command surface is implemented above and owned by
+[`prop-pack-v1.md`](../../contracts/office/prop-pack-v1.md); it is not duplicated
+as proposed connected grammar here. No remote Rules enumeration or custom-asset
+support is implied by this table.
 The [sandbox design](sandbox.md) owns prop admission, identity/assignment lifetime,
 untrusted content and optional contextual notices.
 

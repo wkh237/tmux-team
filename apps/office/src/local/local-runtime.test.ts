@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BlockConflict } from '../blocks/block-contract.js';
+import { BlockConflict, builtinFurniture } from '../blocks/block-contract.js';
 import { createBlockState } from '../blocks/block-state.js';
 import { startLocalRuntime } from './local-runtime.js';
 import { PROFILE_CATALOG, ProfileConflict } from '../profiles/profile-contract.js';
@@ -11,7 +11,8 @@ const block = {
   identityId: '22222222-2222-4222-8222-222222222222',
   identityName: 'Alice',
   revision: 1,
-  objects: [],
+  layout: { version: 2 as const, objects: [] },
+  resolutions: [],
   updatedAtMs: 1,
 };
 
@@ -181,9 +182,9 @@ describe('local Office runtime', () => {
     const runtime = startLocalRuntime(window.location);
     const state = createBlockState(runtime.blocks, block.blockId);
     await vi.advanceTimersByTimeAsync(0);
-    state.edit([{ asset: 'plant', x: 2, y: 3, rotation: 0 }]);
+    state.edit([builtinFurniture('plant', 2, 3, 0)]);
     await vi.advanceTimersByTimeAsync(2_000 + 4_000 + 8_000);
-    expect(state.getSnapshot().draft?.objects[0]?.asset).toBe('plant');
+    expect(state.getSnapshot().draft?.objects[0]?.prop).toContain('/plant');
     expect(state.getSnapshot().error).toBeNull();
     expect(activeSignal?.aborted).toBe(false);
     state.dispose();

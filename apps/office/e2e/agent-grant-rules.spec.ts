@@ -14,6 +14,7 @@ import {
   documentId,
   startAfter,
 } from 'firebase/firestore';
+import { builtinFurniture } from '../src/blocks/block-contract.js';
 import { createWorldPort } from '../src/worlds/firebase-worlds.js';
 import { createSpacePort } from '../src/spaces/firebase-spaces.js';
 import { createFirestoreFixture, setTester, writeAgentGrantFields } from './firestore-fixture.js';
@@ -118,7 +119,7 @@ test('the owner inventory adapter pages real grants and opens an absent UUID blo
     );
     expect(second.next).toBeNull();
     const target = port.block(blockId);
-    const result = await target.apply(world.id, 0, [{ asset: 'desk', x: 0, y: 0, rotation: 0 }]);
+    const result = await target.apply(world.id, 0, [builtinFurniture('desk', 0, 0, 0)]);
     expect(result.revision).toBe(1);
     expect(
       (await getDocFromServer(doc(owner.db, 'worlds', world.id, 'blocks', blockId))).data()?.objects

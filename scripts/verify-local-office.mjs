@@ -121,9 +121,31 @@ function command(args, expected = 0) {
 function officeCommand(args, expected = 0) {
   return command(['office', ...args, '--prefix', prefix], expected);
 }
+const builtinBytes = fs.readFileSync(
+  path.join(process.cwd(), 'contracts/office/builtin-props-v1.tmtprop.json')
+);
+const builtinLength = Buffer.alloc(8);
+builtinLength.writeBigUInt64BE(BigInt(builtinBytes.length));
+const builtinDigest = `sha256:${createHash('sha256')
+  .update(Buffer.from('TMT-OFFICE-PROP-PACK-V1\0'))
+  .update(builtinLength)
+  .update(builtinBytes)
+  .digest('hex')}`;
+const builtinFootprints = Object.fromEntries(
+  JSON.parse(builtinBytes).props.map(({ key, footprint }) => [key, footprint])
+);
+function builtinFurniture(asset, x, y, rotation) {
+  return {
+    prop: `${builtinDigest}/${asset}`,
+    footprint: builtinFootprints[asset],
+    x,
+    y,
+    rotation,
+  };
+}
 function layout(objects) {
   const file = path.join(root, `layout-${Math.random().toString(16).slice(2)}.json`);
-  fs.writeFileSync(file, JSON.stringify({ objects }));
+  fs.writeFileSync(file, JSON.stringify({ version: 2, objects }));
   return file;
 }
 function tokenFrom(url) {
@@ -167,9 +189,9 @@ try {
   const missing = officeCommand(['block', 'show', '--local', '--identity', 'Alice']);
   assert.equal(missing.exists, false);
   assert.equal(missing.revision, 0);
-  assert.deepEqual(missing.objects, []);
+  assert.deepEqual(missing.layout, { version: 2, objects: [] });
 
-  const firstLayout = layout([{ asset: 'desk', x: 4, y: 6, rotation: 0 }]);
+  const firstLayout = layout([builtinFurniture('desk', 4, 6, 0)]);
   const created = officeCommand([
     'block',
     'apply',
@@ -281,7 +303,16 @@ try {
   assert.equal(projection.length, 1);
   assert.deepEqual(
     Object.keys(projection[0]).sort(),
-    ['blockId', 'exists', 'identityId', 'identityName', 'objects', 'revision', 'updatedAtMs'].sort()
+    [
+      'blockId',
+      'exists',
+      'identityId',
+      'identityName',
+      'layout',
+      'resolutions',
+      'revision',
+      'updatedAtMs',
+    ].sort()
   );
   assert.equal(JSON.stringify(projection).includes('notes'), false);
 
@@ -313,8 +344,12 @@ try {
   assert(browserRequests.every((url) => new URL(url).hostname === '127.0.0.1'));
   const browserSaved = officeCommand(['block', 'show', '--local', '--identity', 'Alice']);
   assert.equal(browserSaved.revision, 2);
-  assert.equal(browserSaved.objects.length, 2);
-  assert(browserSaved.objects.some((object) => object.asset === 'plant'));
+  assert.equal(browserSaved.layout.objects.length, 2);
+  assert(
+    browserSaved.layout.objects.some(
+      (object) => object.prop === `${builtinDigest}/plant` && object.footprint.width === 2
+    )
+  );
 
   // Continue through the actual rendered board. These interactions use the
   // authenticated runtime installed by the local shell, not an in-memory API mock.
@@ -407,7 +442,7 @@ try {
   const badOrigin = await fetch(`${origin}/api/v1/local/blocks/${created.blockId}`, {
     method: 'PUT',
     headers: { ...headers, Origin: 'http://attacker.invalid', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ expectedRevision: 2, objects: [] }),
+    body: JSON.stringify({ expectedRevision: 2, layout: { version: 2, objects: [] } }),
   });
   assert.equal(badOrigin.status, 403);
   assert.equal(
@@ -428,7 +463,7 @@ try {
     headers: { ...headers, Origin: origin, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       expectedRevision: 2,
-      objects: [{ asset: 'desk', x: 31, y: 31, rotation: 0 }],
+      layout: { version: 2, objects: [builtinFurniture('desk', 31, 31, 0)] },
     }),
   });
   assert.equal(invalidLayout.status, 400);
@@ -451,7 +486,7 @@ try {
   }
   assert.equal(officeCommand(['block', 'show', '--local', '--identity', 'Alice']).revision, 2);
 
-  const secondLayout = layout([{ asset: 'plant', x: 2, y: 3, rotation: 0 }]);
+  const secondLayout = layout([builtinFurniture('plant', 2, 3, 0)]);
   officeCommand([
     'block',
     'apply',
@@ -466,7 +501,7 @@ try {
   const stale = await fetch(`${origin}/api/v1/local/blocks/${created.blockId}`, {
     method: 'PUT',
     headers: { ...headers, Origin: origin, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ expectedRevision: 2, objects: [] }),
+    body: JSON.stringify({ expectedRevision: 2, layout: { version: 2, objects: [] } }),
   });
   assert.equal(stale.status, 409);
 
@@ -496,7 +531,7 @@ try {
   await heldFinished;
   assert(heldResponse.startsWith('HTTP/1.1 400 '));
   assert.equal(officeCommand(['block', 'show', '--local', '--identity', 'Alice']).revision, 3);
-  const stoppedLayout = layout([{ asset: 'rug', x: 1, y: 1, rotation: 0 }]);
+  const stoppedLayout = layout([builtinFurniture('rug', 1, 1, 0)]);
   const stoppedWrite = officeCommand([
     'block',
     'apply',
@@ -516,8 +551,8 @@ try {
     401
   );
   assert.deepEqual(
-    officeCommand(['block', 'show', '--local', '--identity', 'Alice']).objects,
-    stoppedWrite.objects
+    officeCommand(['block', 'show', '--local', '--identity', 'Alice']).layout,
+    stoppedWrite.layout
   );
   browser = await launchBrowser();
   const reopened = await browser.newPage();

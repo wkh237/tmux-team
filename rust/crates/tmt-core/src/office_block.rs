@@ -6,8 +6,12 @@ pub const BLOCK_SIZE: u8 = 32;
 pub const OBJECT_LIMIT: usize = 16;
 /// The largest revision exactly representable by a JavaScript number.
 pub const MAX_REVISION: u64 = crate::limits::MAX_JS_SAFE_INTEGER;
+/// Shared finite transport ceiling for canonical local block v2 requests and replies.
+pub const LOCAL_PROTOCOL_LIMIT: usize = 65_536;
 /// The maximum input size reserved for bounded block documents.
-pub const INPUT_LIMIT: usize = 65_536;
+pub const INPUT_LIMIT: usize = LOCAL_PROTOCOL_LIMIT;
+pub const BUILTIN_PROP_PACK_DIGEST: &str =
+    "sha256:5aa6a2d239d7111586abc06be799b2a1ec2ca46619752a90ae08a13e414afb6a";
 
 /// The fixed furniture catalog shared by the browser and native adapters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -165,6 +169,83 @@ impl BlockLayout {
     }
 }
 
+/// One canonical local-v2 immutable prop placement.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PropPlacement {
+    pub prop: String,
+    pub footprint_width: u8,
+    pub footprint_height: u8,
+    pub x: u8,
+    pub y: u8,
+    pub rotation: u8,
+}
+
+impl PropPlacement {
+    pub const fn dimensions(&self) -> (u8, u8) {
+        if self.rotation % 2 == 1 {
+            (self.footprint_height, self.footprint_width)
+        } else {
+            (self.footprint_width, self.footprint_height)
+        }
+    }
+
+    fn validate(&self) -> Result<(), LayoutError> {
+        if !valid_prop_reference(&self.prop)
+            || !(1..=8).contains(&self.footprint_width)
+            || !(1..=8).contains(&self.footprint_height)
+        {
+            return Err(LayoutError::InvalidReference);
+        }
+        if self.rotation > 3 {
+            return Err(LayoutError::InvalidRotation);
+        }
+        let (width, height) = self.dimensions();
+        if self.x > BLOCK_SIZE.saturating_sub(width) || self.y > BLOCK_SIZE.saturating_sub(height) {
+            return Err(LayoutError::OutOfBounds);
+        }
+        Ok(())
+    }
+}
+
+/// Canonical local block layout. Overlap and paint order are intentional.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalBlockLayout {
+    objects: Vec<PropPlacement>,
+}
+
+impl LocalBlockLayout {
+    pub fn new(objects: Vec<PropPlacement>) -> Result<Self, LayoutError> {
+        if objects.len() > OBJECT_LIMIT {
+            return Err(LayoutError::TooManyObjects);
+        }
+        objects.iter().try_for_each(PropPlacement::validate)?;
+        Ok(Self { objects })
+    }
+
+    pub fn objects(&self) -> &[PropPlacement] {
+        &self.objects
+    }
+
+    pub fn from_legacy(layout: &BlockLayout) -> Self {
+        let objects = layout
+            .objects()
+            .iter()
+            .map(|item| {
+                let (width, height) = item.asset.dimensions();
+                PropPlacement {
+                    prop: format!("{BUILTIN_PROP_PACK_DIGEST}/{}", item.asset.name()),
+                    footprint_width: width,
+                    footprint_height: height,
+                    x: item.x,
+                    y: item.y,
+                    rotation: item.rotation,
+                }
+            })
+            .collect();
+        Self { objects }
+    }
+}
+
 /// Why a proposed or stored layout is invalid.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayoutError {
@@ -172,6 +253,7 @@ pub enum LayoutError {
     InvalidRotation,
     OutOfBounds,
     InvalidToken,
+    InvalidReference,
 }
 
 impl std::fmt::Display for LayoutError {
@@ -181,8 +263,28 @@ impl std::fmt::Display for LayoutError {
             Self::InvalidRotation => "Furniture rotation must be between zero and three.",
             Self::OutOfBounds => "Furniture footprint must fit inside the block.",
             Self::InvalidToken => "Invalid stored furniture token.",
+            Self::InvalidReference => "Invalid immutable Office prop reference or footprint.",
         })
     }
+}
+
+fn valid_prop_reference(value: &str) -> bool {
+    let Some((digest, key)) = value.split_once('/') else {
+        return false;
+    };
+    let Some(hex) = digest.strip_prefix("sha256:") else {
+        return false;
+    };
+    hex.len() == 64
+        && hex
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        && (1..=32).contains(&key.len())
+        && key.bytes().enumerate().all(|(index, byte)| match byte {
+            b'a'..=b'z' => true,
+            b'0'..=b'9' | b'-' => index > 0,
+            _ => false,
+        })
 }
 
 impl std::error::Error for LayoutError {}
