@@ -5,16 +5,19 @@ import { createBlockState } from './block-state.js';
 import type { BlockState } from './block-state.js';
 import { BlockScene } from './block-scene.js';
 import './block.css';
+import type { Appearance } from '../profiles/profile-contract.js';
 
 export const BlockContext = createContext<BlockPort | undefined>(undefined);
 export function BlockPanel({
   worldId,
   blockPort,
   label,
+  avatar,
 }: {
   worldId: string;
   blockPort?: BlockPort;
   label?: string;
+  avatar?: { appearance: Appearance; name: string; displayLabel?: string };
 }) {
   const defaultPort = useContext(BlockContext);
   const port = blockPort ?? defaultPort;
@@ -25,14 +28,16 @@ export function BlockPanel({
     setState(next);
     return () => next.dispose();
   }, [port, worldId]);
-  return state ? <BlockEditor state={state} label={label} /> : null;
+  return state ? <BlockEditor state={state} label={label} avatar={avatar} /> : null;
 }
 export function BlockEditor({
   state,
   label = 'YOUR SPACE / HOME BLOCK',
+  avatar,
 }: {
   state: BlockState;
   label?: string;
+  avatar?: { appearance: Appearance; name: string; displayLabel?: string };
 }) {
   const { remote, draft, ready, busy, error } = useSyncExternalStore(
     state.subscribe,
@@ -80,6 +85,7 @@ export function BlockEditor({
             selected={selected}
             select={setSelected}
             move={(x, y) => update({ x, y })}
+            avatar={avatar}
           />
           <aside className="block-tools" aria-label="Furniture controls">
             <h3>Small things, your space.</h3>

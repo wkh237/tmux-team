@@ -74,6 +74,11 @@ fn main() -> ExitCode {
                         tmt_adapters::office_local::execute(operation, &input)
                     } else if matches!(
                         operation,
+                        OfficeInvocation::LocalProfileShow | OfficeInvocation::LocalProfileApply
+                    ) {
+                        tmt_adapters::office_profile::execute(operation, &input)
+                    } else if matches!(
+                        operation,
                         OfficeInvocation::BoardPost
                             | OfficeInvocation::BoardList
                             | OfficeInvocation::BoardShow

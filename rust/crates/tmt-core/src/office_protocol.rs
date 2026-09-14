@@ -26,6 +26,7 @@ pub enum OfficeError {
     RemoteDenied,
     RemoteUncertain,
     LayoutInvalid,
+    ProfileInvalid,
     RevisionConflict,
     IdentityInactive,
     Busy,
@@ -43,6 +44,7 @@ impl OfficeError {
             Self::RemoteDenied => "OFFICE_REMOTE_DENIED",
             Self::RemoteUncertain => "OFFICE_REMOTE_UNCERTAIN",
             Self::LayoutInvalid => "OFFICE_LAYOUT_INVALID",
+            Self::ProfileInvalid => "OFFICE_PROFILE_INVALID",
             Self::RevisionConflict => "OFFICE_REVISION_CONFLICT",
             Self::IdentityInactive => "OFFICE_IDENTITY_INACTIVE",
             Self::Busy => "OFFICE_BUSY",
@@ -60,6 +62,7 @@ impl OfficeError {
             Self::RemoteDenied,
             Self::RemoteUncertain,
             Self::LayoutInvalid,
+            Self::ProfileInvalid,
             Self::RevisionConflict,
             Self::IdentityInactive,
             Self::Busy,
@@ -90,6 +93,8 @@ pub enum OfficeInvocation {
     BlockApply,
     LocalBlockShow,
     LocalBlockApply,
+    LocalProfileShow,
+    LocalProfileApply,
     BoardPost,
     BoardList,
     BoardShow,
@@ -114,6 +119,16 @@ impl OfficeInvocation {
             Self::BlockApply => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "block-apply"],
             Self::LocalBlockShow => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "local-block-show"],
             Self::LocalBlockApply => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "local-block-apply"],
+            Self::LocalProfileShow => [
+                "__tmt-office",
+                OFFICE_PROTOCOL_VERSION,
+                "local-profile-show",
+            ],
+            Self::LocalProfileApply => [
+                "__tmt-office",
+                OFFICE_PROTOCOL_VERSION,
+                "local-profile-apply",
+            ],
             Self::BoardPost => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "board-post"],
             Self::BoardList => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "board-list"],
             Self::BoardShow => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "board-show"],
@@ -138,6 +153,8 @@ impl OfficeInvocation {
             Self::BlockApply,
             Self::LocalBlockShow,
             Self::LocalBlockApply,
+            Self::LocalProfileShow,
+            Self::LocalProfileApply,
             Self::BoardPost,
             Self::BoardList,
             Self::BoardShow,
@@ -266,6 +283,21 @@ mod tests {
                 OfficeInvocation::parse(&operation.arguments()),
                 Ok(operation)
             );
+        }
+    }
+
+    #[test]
+    fn local_profile_operations_have_exact_versioned_arguments() {
+        for (name, operation) in [
+            ("local-profile-show", OfficeInvocation::LocalProfileShow),
+            ("local-profile-apply", OfficeInvocation::LocalProfileApply),
+        ] {
+            assert_eq!(operation.arguments(), ["__tmt-office", "1", name]);
+            assert_eq!(
+                OfficeInvocation::parse(&operation.arguments()),
+                Ok(operation)
+            );
+            assert!(OfficeInvocation::parse(&["__tmt-office", "2", name]).is_err());
         }
     }
 

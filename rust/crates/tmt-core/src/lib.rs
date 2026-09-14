@@ -11,6 +11,7 @@ pub mod names;
 pub mod native_install;
 pub mod office_block;
 pub mod office_board;
+pub mod office_profile;
 pub mod office_protocol;
 pub mod profile;
 pub mod request;

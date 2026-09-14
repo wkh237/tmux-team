@@ -344,6 +344,48 @@ fn office_commands() -> Command {
                         ),
                 )),
         )
+        .subcommand(
+            office(
+                "profile",
+                "Read or edit a local Office presentation profile",
+            )
+            .subcommand(
+                office(
+                    "show",
+                    "Show the selected identity's local presentation profile",
+                )
+                .arg(
+                    Arg::new("local")
+                        .long("local")
+                        .required(true)
+                        .action(ArgAction::SetTrue),
+                )
+                .arg(option("identity")),
+            )
+            .subcommand(
+                office(
+                    "apply",
+                    "Apply the selected identity's local presentation profile",
+                )
+                .arg(
+                    Arg::new("local")
+                        .long("local")
+                        .required(true)
+                        .action(ArgAction::SetTrue),
+                )
+                .arg(option("identity"))
+                .arg(Arg::new("file").long("file").required(true))
+                .arg(
+                    Arg::new("if-revision")
+                        .long("if-revision")
+                        .required(true)
+                        .value_parser(
+                            clap::value_parser!(u64)
+                                .range(0..=tmt_core::office_profile::MAX_REVISION),
+                        ),
+                ),
+            ),
+        )
         .subcommand(office_board_commands())
         .subcommand(office_scope(
             office(

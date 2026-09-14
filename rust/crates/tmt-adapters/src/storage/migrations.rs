@@ -73,6 +73,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "add local Office discussion board",
         sql: include_str!("schema/014.sql"),
     },
+    Migration {
+        name: "add identity-owned local Office presentation profiles",
+        sql: include_str!("schema/015.sql"),
+    },
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

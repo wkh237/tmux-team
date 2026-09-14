@@ -46,6 +46,8 @@ pub fn invoke_office_pairing(
             | OfficeInvocation::BlockApply
             | OfficeInvocation::LocalBlockShow
             | OfficeInvocation::LocalBlockApply
+            | OfficeInvocation::LocalProfileShow
+            | OfficeInvocation::LocalProfileApply
             | OfficeInvocation::BoardPost
             | OfficeInvocation::BoardList
             | OfficeInvocation::BoardShow
@@ -92,6 +94,99 @@ pub fn invoke_local_office_block(
         Err(error) => return Err(error),
     };
     decode_local_block_reply(&bytes, identity_id)
+}
+
+pub fn invoke_local_office_profile(
+    executable: &Path,
+    identity_id: &str,
+    edit: Option<(&tmt_core::office_profile::LocalProfile, u64)>,
+    deadline: Instant,
+) -> io::Result<Result<serde_json::Value, OfficeError>> {
+    let mut input = serde_json::json!({"identityId":identity_id});
+    let operation = if let Some((profile, revision)) = edit {
+        if revision > tmt_core::office_profile::MAX_REVISION || profile.validate().is_err() {
+            return Ok(Err(OfficeError::ProfileInvalid));
+        }
+        input["profile"] = crate::office_profile_wire::encode_value(profile);
+        input["expectedRevision"] = serde_json::json!(revision);
+        OfficeInvocation::LocalProfileApply
+    } else {
+        OfficeInvocation::LocalProfileShow
+    };
+    let input = serde_json::to_vec(&input)?;
+    if input.len() > 4096 {
+        return Err(invalid_pairing());
+    }
+    let bytes = match invoke_json(executable, operation, &input, deadline) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+            return Ok(Err(OfficeError::Busy));
+        }
+        Err(error) => return Err(error),
+    };
+    decode_local_profile_reply(&bytes, identity_id, edit.is_some())
+}
+
+fn decode_local_profile_reply(
+    bytes: &[u8],
+    identity_id: &str,
+    editing: bool,
+) -> io::Result<Result<serde_json::Value, OfficeError>> {
+    if bytes.len() > 4096 {
+        return Err(invalid_pairing());
+    }
+    let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| invalid_pairing())?;
+    let object = value.as_object().ok_or_else(invalid_pairing)?;
+    if object.len() == 1
+        && let Some(error) = value["error"].as_str().and_then(OfficeError::parse)
+    {
+        return Ok(Err(error));
+    }
+    let mut expected = vec![
+        "identityId",
+        "identityName",
+        "exists",
+        "revision",
+        "profile",
+        "updatedAtMs",
+        "catalog",
+    ];
+    if editing {
+        expected.push("changed");
+    }
+    if object.len() != expected.len()
+        || !expected.iter().all(|key| object.contains_key(*key))
+        || value["identityId"].as_str() != Some(identity_id)
+        || value["identityName"].as_str().is_none_or(str::is_empty)
+    {
+        return Err(invalid_pairing());
+    }
+    crate::office_profile_wire::decode_value(value["profile"].clone())
+        .map_err(|_| invalid_pairing())?;
+    let expected_catalog = serde_json::json!({
+        "hairStyles": tmt_core::office_profile::HAIR_STYLES,
+        "hairColors": tmt_core::office_profile::HAIR_COLORS,
+        "skinTones": tmt_core::office_profile::SKIN_TONES,
+        "shirtColors": tmt_core::office_profile::SHIRT_COLORS,
+    });
+    if value["catalog"] != expected_catalog {
+        return Err(invalid_pairing());
+    }
+    let exists = value["exists"].as_bool().ok_or_else(invalid_pairing)?;
+    let revision = value["revision"].as_u64().ok_or_else(invalid_pairing)?;
+    if editing && value["changed"].as_bool().is_none() {
+        return Err(invalid_pairing());
+    }
+    if revision > tmt_core::office_profile::MAX_REVISION
+        || value["updatedAtMs"].as_u64().is_some_and(|timestamp| {
+            timestamp == 0 || timestamp > tmt_core::limits::MAX_JS_SAFE_INTEGER
+        })
+        || (exists && (revision == 0 || value["updatedAtMs"].as_u64().is_none()))
+        || (!exists && (revision != 0 || !value["updatedAtMs"].is_null()))
+    {
+        return Err(invalid_pairing());
+    }
+    Ok(Ok(value))
 }
 
 pub fn invoke_office_board(

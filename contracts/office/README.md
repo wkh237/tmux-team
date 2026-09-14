@@ -21,6 +21,11 @@ The [home block document v1](block-v1.md) extends that owner-only world with
 bounded, revision-checked decoration. Its vectors are shared by client and
 real Rules tests, not derived from implementation output.
 
+The [local presentation profile v1](profile-v1.md) defines the shipped local-only,
+UUID-owned profile resource. [`profile-v1.vectors.json`](profile-v1.vectors.json) is the
+literal Rust/Office conformance source for its catalog, deterministic defaults and safe
+validation examples. It is independent from block layout, role, notes and presence.
+
 ## Single source of truth
 
 The [native companion handshake](native-companion.md) is an implemented internal

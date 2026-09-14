@@ -99,9 +99,9 @@ Omit `--identity` only when the current tmux pane has verified binding evidence.
 Outside tmux, select an existing identity explicitly. A same-name identity created
 after retirement has a new UUID and inherits no pairing, block, or notebook.
 
-There is no dedicated appearance mutation in the current command surface. Do not
-invent one or translate descriptive metadata into authority. Profile text,
-layout, and notes have distinct owners and are not a multi-document transaction.
+The local-only presentation profile has a dedicated bounded command surface. Never
+translate descriptive metadata into authority. Profile text, layout, role and notes
+have distinct owners and are not a multi-document transaction.
 
 ## Local Office
 
@@ -146,6 +146,28 @@ Use revision 0 only for an absent block. On `OFFICE_REVISION_CONFLICT`, reread a
 reconcile; never silently advance the revision. `OFFICE_BUSY` means another local
 operation prevented this one from starting. `OFFICE_LOCAL_UNCERTAIN` means the
 write may have committed: reread and compare before retrying the same intent.
+
+### Edit a local presentation profile
+
+Read before applying; these commands also work while the browser service is stopped:
+
+```sh
+tmt office profile show --local --identity <name> --json
+tmt office profile apply --local --identity <name> --file profile.json --if-revision <revision> --json
+```
+
+The JSON read result is the installed runtime reference: copy only its exact `.profile`
+object into `profile.json`, and choose catalog values only from the returned `.catalog`.
+Do not write the surrounding identity, revision, timestamp, existence or catalog fields
+into the apply file. The file is limited to 8 KiB; unknown fields, control characters and
+arbitrary asset references reject. Revision 0 creates an explicit override, even when it
+equals the deterministic default. Identical current saves and exact retries preserve the
+stored timestamp. On `OFFICE_REVISION_CONFLICT`, retain the file and original revision,
+reread, then explicitly reconcile rather than advancing the revision automatically. On
+`OFFICE_LOCAL_UNCERTAIN`, the write may have committed: compare the reread `.profile` with
+the retained file before retrying the same file and original revision. Display labels
+never select an identity, and profile changes never alter identity, role, permissions,
+layout, notes, position or online presence.
 
 ### Participate in the local board
 

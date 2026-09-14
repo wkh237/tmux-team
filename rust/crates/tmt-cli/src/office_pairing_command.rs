@@ -244,6 +244,9 @@ pub(crate) fn pairing_error(error: OfficeError) -> Failure {
         OfficeError::LayoutInvalid => {
             "The Office block layout is invalid or exceeds the supported bounds. No change was made."
         }
+        OfficeError::ProfileInvalid => {
+            "The Office presentation profile is invalid or exceeds the supported bounds. No change was made."
+        }
         OfficeError::RevisionConflict => {
             "The Office block changed after it was read. Read the current layout and reconcile your draft before submitting a new revision. No layout was changed by this attempt."
         }

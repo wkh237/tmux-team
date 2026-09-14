@@ -6,6 +6,7 @@ mod identity_metadata;
 mod migrations;
 mod office_board;
 mod office_local;
+mod office_profile;
 mod profiles;
 mod requests;
 
@@ -23,6 +24,7 @@ pub use errors::{StorageError, StorageErrorCode};
 use errors::{classify, incompatible};
 pub use office_board::local_owner_actor;
 pub use office_local::{LocalBlockSnapshot, LocalOfficeError};
+pub use office_profile::{LocalProfileError, LocalProfileMutation, LocalProfileSnapshot};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckpointMode {

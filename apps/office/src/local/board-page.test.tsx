@@ -48,6 +48,15 @@ function runtime(): LocalRuntime {
   const { body: _body, ...threadSummary } = thread;
   return {
     blocks,
+    profiles: {
+      list: async () => [],
+      show: async () => {
+        throw new Error('Profile not used by board tests.');
+      },
+      apply: async () => {
+        throw new Error('Profile not used by board tests.');
+      },
+    },
     list: async () => [],
     dispose: () => undefined,
     board: {

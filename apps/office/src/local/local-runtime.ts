@@ -19,6 +19,13 @@ import type {
   BoardListPage,
   BoardShowPage,
 } from './board-contract.js';
+import {
+  decodeProfileProjection,
+  decodeProfileMutation,
+  decodeProfileSnapshot,
+  ProfileConflict,
+} from '../profiles/profile-contract.js';
+import type { Profile, ProfilePort } from '../profiles/profile-contract.js';
 
 export type BoardAuthorFilter = { kind: 'owner' } | { kind: 'identity'; identityId: string };
 
@@ -34,6 +41,7 @@ export interface LocalBlockProjection {
 
 export interface LocalRuntime {
   blocks: BlockPort;
+  profiles: ProfilePort;
   board: LocalBoardPort;
   list(): Promise<LocalBlockProjection[]>;
   dispose(): void;
@@ -271,9 +279,35 @@ export function startLocalRuntime(location: Location): LocalRuntime {
       );
     },
   };
+  const profiles: ProfilePort = {
+    async list() {
+      const { response, value } = await jsonRequest('/api/v1/local/profiles');
+      if (!response.ok) throw new LocalHttpError(response.status);
+      if (!Array.isArray(value)) throw new Error('Invalid local profile projection.');
+      return value.map(decodeProfileProjection);
+    },
+    async show(identityId) {
+      const { response, value } = await jsonRequest(
+        `/api/v1/local/profiles/${encodeURIComponent(identityId)}`
+      );
+      return checked(response, value, decodeProfileSnapshot);
+    },
+    async apply(identityId: string, expectedRevision: number, profile: Profile) {
+      const { response, value } = await jsonRequest(
+        `/api/v1/local/profiles/${encodeURIComponent(identityId)}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ expectedRevision, profile }),
+        }
+      );
+      if (response.status === 409) throw new ProfileConflict();
+      return checked(response, value, decodeProfileMutation);
+    },
+  };
   return {
     blocks,
     board,
+    profiles,
     async list() {
       const { response, value } = await jsonRequest('/api/v1/local/blocks');
       if (!response.ok) throw new LocalHttpError(response.status);

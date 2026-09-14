@@ -2,6 +2,7 @@ use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
+    collections::HashSet,
     io::{self, Read, Write},
     net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream},
     process::ExitCode,
@@ -15,9 +16,15 @@ use tmt_adapters::{
     config::ConfigPaths,
     office_block::decode_layout,
     office_local::local_snapshot,
+    office_profile::{
+        mutation_value as local_profile_mutation, snapshot_value as local_profile_snapshot,
+    },
+    office_profile_wire,
     office_service::{self, ServiceReceipt},
-    storage::{LocalOfficeError, Storage},
+    storage::{LocalOfficeError, LocalProfileError, Storage},
+    tmux::{BindingSession, CallerEnvironment, Tmux},
 };
+use tmt_core::binding::{self, Presence};
 use tmt_core::office_protocol::OfficeInvocation;
 
 use crate::local_assets;
@@ -26,6 +33,7 @@ const HEADER_LIMIT: usize = 16 * 1024;
 const BODY_LIMIT: usize = 64 * 1024;
 const MAX_CONNECTIONS: usize = 16;
 const REQUEST_DEADLINE: Duration = Duration::from_secs(3);
+const RESPONSE_DEADLINE: Duration = Duration::from_secs(15);
 
 enum ServeError {
     PortUnavailable(io::Error),
@@ -69,6 +77,13 @@ impl Request {
 struct ApplyInput {
     expected_revision: u64,
     objects: Value,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ApplyProfileInput {
+    expected_revision: u64,
+    profile: Value,
 }
 
 pub fn run() -> ExitCode {
@@ -138,6 +153,12 @@ fn serve() -> Result<(), ServeError> {
                 if stopping.load(Ordering::Acquire) {
                     continue;
                 }
+                // Listener nonblocking mode is platform-specific for accepted
+                // sockets. Normalize each bounded worker stream before writing
+                // assets larger than the kernel send buffer.
+                if stream.set_nonblocking(false).is_err() {
+                    continue;
+                }
                 if active
                     .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
                         (count < MAX_CONNECTIONS).then_some(count + 1)
@@ -152,7 +173,7 @@ fn serve() -> Result<(), ServeError> {
                 let stopping = Arc::clone(&stopping);
                 workers.push(std::thread::spawn(move || {
                     let _guard = guard;
-                    let _ = stream.set_write_timeout(Some(REQUEST_DEADLINE));
+                    let _ = stream.set_write_timeout(Some(RESPONSE_DEADLINE));
                     if let Err(error) = handle(&mut stream, &paths, &receipt, &stopping) {
                         let _ = response(
                             &mut stream,
@@ -277,6 +298,11 @@ fn api(
     if request.path.starts_with("/api/v1/local/board/") {
         return board_api(stream, request, paths, receipt);
     }
+    if request.path == "/api/v1/local/profiles"
+        || request.path.starts_with("/api/v1/local/profiles/")
+    {
+        return profile_api(stream, request, paths, receipt);
+    }
     if request.method == "GET" && request.path == "/api/v1/local/blocks" {
         let mut storage = match Storage::open(&paths.database) {
             Ok(storage) => storage,
@@ -391,6 +417,191 @@ fn api(
         }
         Err(LocalOfficeError::IdentityInactive) => br#"{"error":"NOT_FOUND"}"#.to_vec(),
         Err(_) => br#"{"error":"STORAGE_UNAVAILABLE"}"#.to_vec(),
+    };
+    let close = storage.close();
+    if status == 200 && close.is_err() {
+        return response(
+            stream,
+            500,
+            "application/json",
+            br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+        );
+    }
+    response(stream, status, "application/json", &body)
+}
+
+fn profile_api(
+    stream: &mut TcpStream,
+    request: Request,
+    paths: &ConfigPaths,
+    receipt: &ServiceReceipt,
+) -> io::Result<()> {
+    if request.method == "GET" && request.path == "/api/v1/local/profiles" {
+        let mut storage = match Storage::open(&paths.database) {
+            Ok(storage) => storage,
+            Err(_) => {
+                return response(
+                    stream,
+                    500,
+                    "application/json",
+                    br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+                );
+            }
+        };
+        // A persisted binding is not presence: verify the recorded tmux
+        // endpoints and treat unknown evidence conservatively as offline.
+        let tmux = Tmux::default();
+        let environment = CallerEnvironment::current();
+        let mut endpoint = BindingSession::new(&tmux);
+        let online = match binding::list_presence(
+            &mut storage,
+            &mut endpoint,
+            environment.selected_socket(),
+        ) {
+            Ok(rows) => rows
+                .into_iter()
+                .filter(|row| row.presence == Presence::Active)
+                .map(|row| row.identity.id)
+                .collect::<HashSet<_>>(),
+            Err(_) => {
+                return response(
+                    stream,
+                    500,
+                    "application/json",
+                    br#"{"error":"PRESENCE_UNAVAILABLE"}"#,
+                );
+            }
+        };
+        let profiles = match storage.list_active_local_profiles() {
+            Ok(profiles) => profiles,
+            Err(_) => {
+                return response(
+                    stream,
+                    500,
+                    "application/json",
+                    br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+                );
+            }
+        };
+        let mut values = Vec::with_capacity(profiles.len());
+        for profile in profiles {
+            let is_online = online.contains(&profile.identity_id);
+            let mut value = local_profile_snapshot(profile);
+            value["online"] = json!(is_online);
+            values.push(value);
+        }
+        let body = serde_json::to_vec(&values)?;
+        if storage.close().is_err() {
+            return response(
+                stream,
+                500,
+                "application/json",
+                br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+            );
+        }
+        return response(stream, 200, "application/json", &body);
+    }
+    let Some(identity_id) = request.path.strip_prefix("/api/v1/local/profiles/") else {
+        return response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#);
+    };
+    if uuid::Uuid::parse_str(identity_id)
+        .ok()
+        .is_none_or(|id| id.to_string() != identity_id)
+    {
+        return response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#);
+    }
+    let put = request.method == "PUT";
+    if request.method != "GET" && !put {
+        return response(
+            stream,
+            405,
+            "application/json",
+            br#"{"error":"METHOD_NOT_ALLOWED"}"#,
+        );
+    }
+    let edit = if put {
+        let origin = format!("http://127.0.0.1:{}", receipt.port);
+        if request.header("origin") != Some(origin.as_str())
+            || request
+                .header("content-type")
+                .is_none_or(|value| value.split(';').next() != Some("application/json"))
+        {
+            return response(
+                stream,
+                403,
+                "application/json",
+                br#"{"error":"ORIGIN_REJECTED"}"#,
+            );
+        }
+        if request.body.len() > tmt_core::office_profile::MAX_PROFILE_FILE_BYTES {
+            return response(
+                stream,
+                400,
+                "application/json",
+                br#"{"error":"PROFILE_INVALID"}"#,
+            );
+        }
+        let input: ApplyProfileInput = match serde_json::from_slice(&request.body) {
+            Ok(input) => input,
+            Err(_) => {
+                return response(
+                    stream,
+                    400,
+                    "application/json",
+                    br#"{"error":"PROFILE_INVALID"}"#,
+                );
+            }
+        };
+        if input.expected_revision > tmt_core::office_profile::MAX_REVISION {
+            return response(
+                stream,
+                400,
+                "application/json",
+                br#"{"error":"PROFILE_INVALID"}"#,
+            );
+        }
+        let profile = match office_profile_wire::decode_value(input.profile) {
+            Ok(profile) => profile,
+            Err(_) => {
+                return response(
+                    stream,
+                    400,
+                    "application/json",
+                    br#"{"error":"PROFILE_INVALID"}"#,
+                );
+            }
+        };
+        Some((input.expected_revision, profile))
+    } else {
+        None
+    };
+    let mut storage = match Storage::open(&paths.database) {
+        Ok(storage) => storage,
+        Err(_) => {
+            return response(
+                stream,
+                500,
+                "application/json",
+                br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+            );
+        }
+    };
+    let result = match edit {
+        Some((expected_revision, profile)) => storage
+            .apply_local_profile(identity_id, expected_revision, &profile)
+            .map(local_profile_mutation),
+        None => storage
+            .show_local_profile(identity_id)
+            .map(local_profile_snapshot),
+    };
+    let (status, body) = match result {
+        Ok(profile) => (200, serde_json::to_vec(&profile)?),
+        Err(LocalProfileError::ProfileInvalid) => (400, br#"{"error":"PROFILE_INVALID"}"#.to_vec()),
+        Err(LocalProfileError::RevisionConflict | LocalProfileError::RevisionExhausted) => {
+            (409, br#"{"error":"REVISION_CONFLICT"}"#.to_vec())
+        }
+        Err(LocalProfileError::IdentityInactive) => (404, br#"{"error":"NOT_FOUND"}"#.to_vec()),
+        Err(_) => (500, br#"{"error":"STORAGE_UNAVAILABLE"}"#.to_vec()),
     };
     let close = storage.close();
     if status == 200 && close.is_err() {
@@ -811,6 +1022,130 @@ mod tests {
         assert!(shown.starts_with("HTTP/1.1 200"));
         assert!(shown.contains("\"title\":\"hello\""));
         assert!(shown.contains("\"kind\":\"owner\""));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn protected_profile_http_uses_shared_cas_and_survives_reopen() {
+        let root = std::env::temp_dir().join(format!("tmt-profile-http-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let paths = ConfigPaths::resolve(&root, &root, Some(&root), None);
+        let mut storage = Storage::open(&paths.database).unwrap();
+        let id = tmt_core::identity::create_or_resolve(
+            &mut storage,
+            "Alice",
+            tmt_core::identity::Lifetime::Saved,
+        )
+        .unwrap()
+        .identity
+        .id;
+        storage.close().unwrap();
+        let receipt = ServiceReceipt {
+            schema_version: 1,
+            pid: std::process::id(),
+            port: 1234,
+            nonce: "n".into(),
+            browser_token: "browser".into(),
+            control_token: "control".into(),
+            running_version: "test".into(),
+        };
+        let headers = || {
+            vec![
+                ("Authorization".into(), "Bearer browser".into()),
+                ("Origin".into(), "http://127.0.0.1:1234".into()),
+                ("Content-Type".into(), "application/json".into()),
+            ]
+        };
+        let unauthorized = Request {
+            method: "GET".into(),
+            path: format!("/api/v1/local/profiles/{id}"),
+            headers: vec![],
+            body: vec![],
+        };
+        assert!(call_api(unauthorized, &paths, &receipt).starts_with("HTTP/1.1 401"));
+        let get = Request {
+            method: "GET".into(),
+            path: format!("/api/v1/local/profiles/{id}"),
+            headers: headers(),
+            body: vec![],
+        };
+        let missing = call_api(get, &paths, &receipt);
+        assert!(missing.starts_with("HTTP/1.1 200"));
+        assert!(missing.contains("\"exists\":false"));
+        let profile = json!({"displayLabel":"","description":"Architecture review","appearance":{"hairStyle":"short","hairColor":"ink","skinTone":"medium","shirtColor":"blue","shirtMark":"AI"}});
+        let rejected = Request {
+            method: "PUT".into(),
+            path: format!("/api/v1/local/profiles/{id}"),
+            headers: vec![
+                ("Authorization".into(), "Bearer browser".into()),
+                ("Origin".into(), "https://attacker.invalid".into()),
+                ("Content-Type".into(), "application/json".into()),
+            ],
+            body: serde_json::to_vec(&json!({"expectedRevision":0,"profile":profile})).unwrap(),
+        };
+        assert!(call_api(rejected, &paths, &receipt).starts_with("HTTP/1.1 403"));
+        let put = Request {
+            method: "PUT".into(),
+            path: format!("/api/v1/local/profiles/{id}"),
+            headers: headers(),
+            body: serde_json::to_vec(&json!({"expectedRevision":0,"profile":profile})).unwrap(),
+        };
+        let created = call_api(put, &paths, &receipt);
+        assert!(created.starts_with("HTTP/1.1 200"));
+        let json_body = |response: &str| {
+            serde_json::from_str::<Value>(response.split("\r\n\r\n").nth(1).unwrap()).unwrap()
+        };
+        let created_body = json_body(&created);
+        assert_eq!(created_body["revision"], 1);
+        assert_eq!(created_body["changed"], true);
+        let created_at = created_body["updatedAtMs"].as_u64().unwrap();
+        let retry = Request {
+            method: "PUT".into(),
+            path: format!("/api/v1/local/profiles/{id}"),
+            headers: headers(),
+            body: serde_json::to_vec(&json!({"expectedRevision":0,"profile":profile})).unwrap(),
+        };
+        let retried = call_api(retry, &paths, &receipt);
+        assert!(retried.starts_with("HTTP/1.1 200"));
+        let retried_body = json_body(&retried);
+        assert_eq!(retried_body["revision"], 1);
+        assert_eq!(retried_body["changed"], false);
+        assert_eq!(retried_body["updatedAtMs"], created_at);
+        let noop = Request {
+            method: "PUT".into(),
+            path: format!("/api/v1/local/profiles/{id}"),
+            headers: headers(),
+            body: serde_json::to_vec(&json!({"expectedRevision":1,"profile":profile})).unwrap(),
+        };
+        let noop_body = json_body(&call_api(noop, &paths, &receipt));
+        assert_eq!(noop_body["changed"], false);
+        assert_eq!(noop_body["updatedAtMs"], created_at);
+        let updated_profile = json!({"displayLabel":"Lead","description":"Architecture review","appearance":{"hairStyle":"short","hairColor":"ink","skinTone":"medium","shirtColor":"blue","shirtMark":"AI"}});
+        let update = Request {
+            method: "PUT".into(),
+            path: format!("/api/v1/local/profiles/{id}"),
+            headers: headers(),
+            body: serde_json::to_vec(&json!({"expectedRevision":1,"profile":updated_profile}))
+                .unwrap(),
+        };
+        let updated_body = json_body(&call_api(update, &paths, &receipt));
+        assert_eq!(updated_body["revision"], 2);
+        assert_eq!(updated_body["changed"], true);
+        let stale = Request {
+            method: "PUT".into(),
+            path: format!("/api/v1/local/profiles/{id}"),
+            headers: headers(),
+            body: serde_json::to_vec(&json!({"expectedRevision":1,"profile":profile})).unwrap(),
+        };
+        assert!(call_api(stale, &paths, &receipt).starts_with("HTTP/1.1 409"));
+        let list = Request {
+            method: "GET".into(),
+            path: "/api/v1/local/profiles".into(),
+            headers: headers(),
+            body: vec![],
+        };
+        let listed = call_api(list, &paths, &receipt);
+        assert!(listed.contains("\"online\":false"));
         std::fs::remove_dir_all(root).unwrap();
     }
 

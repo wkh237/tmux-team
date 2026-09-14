@@ -27,6 +27,9 @@ pub mod office_local;
 #[cfg(feature = "office")]
 pub mod office_pairing;
 #[cfg(unix)]
+pub mod office_profile;
+pub mod office_profile_wire;
+#[cfg(unix)]
 pub mod office_service;
 #[cfg(unix)]
 pub mod process;

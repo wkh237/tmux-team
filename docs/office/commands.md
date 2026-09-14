@@ -61,6 +61,8 @@ SQLite state without pairing, Firebase or network access:
 tmt office start
 tmt office block show --local --identity Alice --json
 tmt office block apply --local --identity Alice --file layout.json --if-revision 0 --json
+tmt office profile show --local --identity Alice --json
+tmt office profile apply --local --identity Alice --file profile.json --if-revision 0 --json
 tmt office stop
 ```
 
@@ -82,11 +84,22 @@ and block. `--local` is explicit and cannot be combined with `--world`, `--emula
 or a positional block ID. Omitting `--world` does not imply local mode. This slice does
 not publish, import or adopt remote Office data.
 
+Local profile commands are also one-shot and do not require the browser service. A missing
+override returns `exists:false`, revision 0 and the deterministic UUID-derived catalog
+default without writing. Apply accepts the exact object documented in
+[`profile-v1.md`](../../contracts/office/profile-v1.md), rejects files above 8 KiB and
+requires `--local`. An identical apply at the current revision is a no-op; an exact retry
+at the preceding revision returns the committed snapshot. Other stale revisions return
+`OFFICE_REVISION_CONFLICT`. After an uncertain write, reread before retrying.
+
 With `--json`, successful start returns `running:true`, `changed`, `reused`, `url`
 and `version`; stop returns `running:false` and `changed`. Local block success returns
 `exists`, `identityId`, `identityName`, nullable `blockId`, `revision`, `objects` and
-`updatedAtMs`. Plain block output is the same object as readable indented JSON. Success
-exits 0. Usage, installation, I/O and service lifecycle failures exit 1; existing
+`updatedAtMs`. Plain block output is the same object as readable indented JSON. Profile
+reads return `identityId`, `identityName`, `exists`, `revision`, `profile`, nullable
+`updatedAtMs`, and the bounded literal `catalog`; apply adds transactional `changed`.
+Human apply output distinguishes created, updated and unchanged results. Success exits 0. Usage, installation,
+I/O and service lifecycle failures exit 1; existing
 identity resolution retains its documented not-found exit. `OFFICE_PORT_UNAVAILABLE`
 means the requested port could not bind, `OFFICE_SERVICE_CONFLICT` means a healthy
 service owns another port, `OFFICE_RESTART_REQUIRED` requires explicit stop/start, and

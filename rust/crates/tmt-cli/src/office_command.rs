@@ -413,6 +413,12 @@ fn run(
             }
             crate::office_block_command::run(&executable, operation, mode)
         }
+        OfficeOperation::Profile { .. } => {
+            if !installed(&executable)? {
+                return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
+            }
+            crate::office_profile_command::run(&executable, operation, mode)
+        }
         OfficeOperation::Board(_) => {
             if !installed(&executable)? {
                 return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
