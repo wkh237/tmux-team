@@ -266,8 +266,32 @@ fn office_prefix_is_scoped_to_its_subtree_and_file_inputs_are_paired() {
             prefix: None,
             operation: OfficeOperation::Install {
                 yes: true,
+                force: false,
                 archive: None,
                 manifest: None,
+                channel: None,
+            }
+        }
+    );
+    assert_eq!(
+        parsed(&["office", "install", "--yes", "--force"]).invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Install {
+                yes: true,
+                force: true,
+                archive: None,
+                manifest: None,
+                channel: None,
+            }
+        }
+    );
+    assert_eq!(
+        parsed(&["office", "upgrade", "--force"]).invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Upgrade {
+                force: true,
                 channel: None,
             }
         }
@@ -282,6 +306,32 @@ fn office_prefix_is_scoped_to_its_subtree_and_file_inputs_are_paired() {
     ] {
         assert_eq!(parse_error(&input).code, "USAGE_ERROR");
     }
+}
+
+#[test]
+fn learn_selects_exact_bundled_guidance_without_breaking_the_core_flag() {
+    assert_eq!(
+        parsed(&["learn"]).invocation,
+        Invocation::Learn { skill: None }
+    );
+    assert_eq!(
+        parsed(&["learn", "--skill"]).invocation,
+        Invocation::Learn {
+            skill: Some("tmux-team".into())
+        }
+    );
+    for name in ["tmux-team", "tmt-inbox", "tmt-office"] {
+        assert_eq!(
+            parsed(&["learn", "--skill", name]).invocation,
+            Invocation::Learn {
+                skill: Some(name.into())
+            }
+        );
+    }
+    assert_eq!(
+        parse_error(&["learn", "--skill", "unknown"]).code,
+        "USAGE_ERROR"
+    );
 }
 
 #[test]

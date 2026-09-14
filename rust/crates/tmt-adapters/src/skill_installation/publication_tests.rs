@@ -1,4 +1,7 @@
-use super::{ProviderEnvironment, files, install, install_with_publisher};
+use super::{
+    ProviderEnvironment, files, install, install_office, install_office_with_publisher,
+    install_with_publisher,
+};
 use crate::test_support::TestDirectory;
 use std::{fs, io};
 
@@ -57,6 +60,50 @@ fn failed_publication_reports_prior_success_and_recoverable_backup_then_releases
     assert_eq!(
         fs::read(backup.join("user.md")).unwrap(),
         b"irreplaceable user content"
+    );
+}
+
+#[test]
+fn failed_office_publication_preserves_a_recoverable_backup_and_can_retry() {
+    let root = TestDirectory::new();
+    let home = root.path.join("home");
+    let global = root.path.join("global");
+    fs::create_dir(&home).unwrap();
+    let env = ProviderEnvironment::from_parts(
+        home.clone(),
+        root.path.clone(),
+        Vec::new(),
+        None,
+        None,
+        None,
+        None,
+    );
+    let target = home.join(".agents/skills/tmt-office");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("user.md"), b"user-owned office guidance").unwrap();
+
+    let failure = install_office_with_publisher(&env, &global, true, |published, _source| {
+        assert_eq!(published, target);
+        assert!(!published.exists());
+        Err(io::Error::other("injected Office publication failure"))
+    })
+    .unwrap_err();
+    assert!(failure.report.installed.is_empty());
+    let backup = failure.pending_backup.as_ref().unwrap();
+    assert_eq!(
+        fs::read(backup.join("user.md")).unwrap(),
+        b"user-owned office guidance"
+    );
+    assert!(!target.exists());
+    assert!(failure.to_string().contains(backup.to_str().unwrap()));
+
+    let retry = install_office(&env, &global, false).unwrap();
+    assert_eq!(retry.installed.len(), 1);
+    assert!(retry.installed[0].changed);
+    assert!(fs::symlink_metadata(&target).unwrap().is_symlink());
+    assert_eq!(
+        fs::read(backup.join("user.md")).unwrap(),
+        b"user-owned office guidance"
     );
 }
 

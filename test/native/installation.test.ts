@@ -49,6 +49,12 @@ function inboxSkill(): Buffer {
   );
 }
 
+function officeSkill(): Buffer {
+  return readFileSync(
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../skills/tmt-office/SKILL.md')
+  );
+}
+
 function inboxTarget(target: string): string {
   return path.join(path.dirname(target), 'tmt-inbox');
 }
@@ -128,6 +134,10 @@ describe('native installation process contract', () => {
       expect(result.status).toBe(0);
       expect(result.stderr).toBe('');
       expect(result.stdout).toBe(canonicalSkill().toString('utf8'));
+      const officeGuidance = await runCli(moved, ['learn', '--skill', 'tmt-office']);
+      expect(officeGuidance.status).toBe(0);
+      expect(officeGuidance.stderr).toBe('');
+      expect(officeGuidance.stdout).toBe(officeSkill().toString('utf8'));
       expect(existsSync(sandbox.localConfig)).toBe(false);
       expect(existsSync(sandbox.globalDir)).toBe(false);
 

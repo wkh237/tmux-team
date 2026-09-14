@@ -101,6 +101,8 @@ Claude Code can invoke the skill as `/tmux-team`.
 For an existing conversation, ask the agent to read `tmt learn --skill` after
 updating. Installation does not reload a running agent. See the
 [provider guide](skills/README.md) and [canonical skill](skills/tmux-team/SKILL.md).
+Explicit Office setup manages a separate optional
+[`tmt-office` skill](skills/tmt-office/SKILL.md); core installation does not add it.
 
 ## Boundaries worth knowing
 

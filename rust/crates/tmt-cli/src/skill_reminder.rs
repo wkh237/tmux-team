@@ -72,8 +72,10 @@ mod tests {
             Invocation::Version,
             Invocation::Completion(None),
             Invocation::Init,
-            Invocation::Learn { skill: true },
-            Invocation::Learn { skill: false },
+            Invocation::Learn {
+                skill: Some("tmux-team".into()),
+            },
+            Invocation::Learn { skill: None },
             Invocation::Install {
                 target: None,
                 directory: None,

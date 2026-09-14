@@ -24,6 +24,17 @@ and the shared native archive verifier. Explicit offline installation uses
 Without a published candidate, online installation fails rather than claiming
 success. `tmt upgrade` continues to update only the CLI and its managed skills.
 
+Explicit Office install and upgrade also manage the optional `tmt-office` skill
+through the existing provider/custom-root, immutable asset, registry, drift,
+backup, and refresh owner. Core `tmt install` does not expose it. Existing
+conversations can read the exact source with `tmt learn --skill tmt-office`.
+An unmanaged target is preserved; after inspection, `--force` on Office install
+or upgrade creates a recoverable backup. Companion activation can complete before
+skill publication fails, and that partial result does not roll back the binary.
+JSON partial results retain the successful companion fields, a bounded `skills`
+report, an `error`, and `skills.pendingBackup` when publication failed after a
+forced backup. Office uninstall retains managed guidance.
+
 `status --json` returns `installed`, `version`, `protocolVersion`, `executable`
 and token-free local service status after local ownership/integrity and handshake
 verification. It never checks cloud

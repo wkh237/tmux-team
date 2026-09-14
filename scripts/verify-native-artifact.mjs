@@ -39,6 +39,10 @@ const inboxSkill =
   values.product === 'cli'
     ? fs.readFileSync(new URL('../skills/tmt-inbox/SKILL.md', import.meta.url), 'utf8')
     : undefined;
+const officeSkill =
+  values.product === 'cli'
+    ? fs.readFileSync(new URL('../skills/tmt-office/SKILL.md', import.meta.url), 'utf8')
+    : undefined;
 const notices = fs.readFileSync(values.notices, 'utf8');
 assert(
   !/<year>|<copyright holders>/.test(notices),
@@ -63,6 +67,7 @@ await withNativeArtifact(values.archive, metadata, async (artifactRoot) => {
     version: metadata.version,
     skill,
     inboxSkill,
+    officeSkill,
     profileContent: 'Persisted by native archive',
     subject: 'Native archive',
     matchingHostMessage: 'Artifact requires a matching native host',

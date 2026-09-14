@@ -3,9 +3,11 @@
 Install the native alpha using the [README instructions](../README.md), then run
 `tmt install`. Use the installer asset from a published release; the README
 supplies the verified version URL when one is available. No plugin, marketplace
-or separate slash-command package is required. All providers receive the same
-versioned bundle: the canonical [tmux-team skill](tmux-team/SKILL.md) and focused
-[tmt-inbox skill](tmt-inbox/SKILL.md).
+or separate slash-command package is required. The native executable embeds the
+canonical [tmux-team skill](tmux-team/SKILL.md), focused
+[tmt-inbox skill](tmt-inbox/SKILL.md), and optional
+[tmt-office skill](tmt-office/SKILL.md) in one versioned bundle. Core install
+exposes only the first two; explicit Office setup manages the Office skill.
 
 The native runtime needs no Node.js, Rust toolchain or source checkout; tmux is
 still required for pane operations. Native bindings are temporary by default:
@@ -87,13 +89,40 @@ tmt learn --skill
 tmt install --dir './project skills'
 ```
 
-`learn --skill` prints the exact bundled skill; plain `learn` is a short guide.
+`learn --skill` prints the exact core skill; `learn --skill tmt-inbox` and
+`learn --skill tmt-office` select the other exact embedded sources. Plain
+`learn` is a short guide.
 Custom installation creates sibling `./project skills/tmux-team` and
 `./project skills/tmt-inbox` links relative to the current directory. Choose a
 folder your provider discovers, and do not combine `--dir`
 with a provider or `all`. Custom installs do not migrate default paths or touch
 unrelated siblings. Automatic drift reminders cover default locations, not
 arbitrary custom folders.
+
+## Optional Office guidance
+
+`tmt office install --yes` installs the verified companion and the `tmt-office`
+skill in detected provider roots. If a core skill is still managed in a custom
+root, Office setup adds the optional sibling there too. A failed companion
+installation creates no Office skill. A skill conflict after companion
+activation is reported as partial completion and preserves user content; inspect
+it before repeating with explicit `--force`.
+
+`tmt office upgrade` refreshes the optional skill as part of the explicit Office
+operation. Native `tmt upgrade` also refreshes an already-recorded Office link,
+but neither CLI upgrade nor core installation creates a missing Office
+integration. Office uninstall retains managed guidance along with release and
+application data.
+
+```bash
+tmt learn --skill tmt-office
+tmt office install --yes
+tmt office upgrade
+```
+
+Custom and provider-specific targets remain managed by the same immutable asset,
+registry, drift, backup, and lock owner. There are no provider-specific Office
+copies or command wrappers.
 
 ## Existing installations
 

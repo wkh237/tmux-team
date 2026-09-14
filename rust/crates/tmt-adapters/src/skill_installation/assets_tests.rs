@@ -1,4 +1,4 @@
-use super::assets::{SKILL, SkillAssets};
+use super::assets::{INBOX_SKILL, OFFICE_SKILL, SKILL, SkillAssets};
 use crate::test_support::TestDirectory;
 use std::fs;
 
@@ -8,6 +8,14 @@ fn materialized_source_is_exact_and_repeated_install_preserves_it() {
     let assets = SkillAssets::new(&root.path);
     let source = assets.materialize().unwrap();
     assert_eq!(fs::read(source.join("SKILL.md")).unwrap(), SKILL);
+    assert_eq!(
+        fs::read(source.parent().unwrap().join("tmt-inbox/SKILL.md")).unwrap(),
+        INBOX_SKILL
+    );
+    assert_eq!(
+        fs::read(source.parent().unwrap().join("tmt-office/SKILL.md")).unwrap(),
+        OFFICE_SKILL
+    );
     assert!(assets.owns(&source));
     assert_eq!(assets.materialize().unwrap(), source);
     assert_eq!(
@@ -88,16 +96,20 @@ fn missing_wrong_type_or_symlinked_bundle_sibling_never_establishes_ownership() 
         let root = TestDirectory::new();
         let assets = SkillAssets::new(&root.path);
         let source = assets.materialize().unwrap();
-        let inbox = source.parent().unwrap().join("tmt-inbox");
-        fs::remove_dir_all(&inbox).unwrap();
+        let sibling = source.parent().unwrap().join(if corruption == "missing" {
+            "tmt-office"
+        } else {
+            "tmt-inbox"
+        });
+        fs::remove_dir_all(&sibling).unwrap();
         match corruption {
             "missing" => {}
-            "file" => fs::write(&inbox, b"not a skill directory").unwrap(),
+            "file" => fs::write(&sibling, b"not a skill directory").unwrap(),
             "symlink" => {
                 let outside = root.path.join("unsafe-inbox-sibling");
                 fs::create_dir(&outside).unwrap();
                 fs::write(outside.join("SKILL.md"), b"unsafe sibling").unwrap();
-                std::os::unix::fs::symlink(outside, &inbox).unwrap();
+                std::os::unix::fs::symlink(outside, &sibling).unwrap();
             }
             _ => unreachable!(),
         }

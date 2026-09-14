@@ -91,7 +91,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         }
         Invocation::Learn { skill } => {
             drop(stdout);
-            return guidance_command::execute(skill);
+            return guidance_command::execute(skill.as_deref());
         }
         Invocation::Install {
             target,

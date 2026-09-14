@@ -97,13 +97,19 @@ exec cp "$source" "$destination"
   bootstrap();
   assert.equal(fs.readlinkSync(pointer), initial, 'Repeat bootstrap must not create a release');
   assert.equal(run(['learn', '--skill']), fs.readFileSync(values.skill, 'utf8'));
+  assert.equal(
+    run(['learn', '--skill', 'tmt-office']),
+    fs.readFileSync(new URL('../skills/tmt-office/SKILL.md', import.meta.url), 'utf8')
+  );
   const installedSkill = path.join(root, '.agents/skills/tmux-team/SKILL.md');
   const installedInboxSkill = path.join(root, '.agents/skills/tmt-inbox/SKILL.md');
+  const installedOfficeSkill = path.join(root, '.agents/skills/tmt-office/SKILL.md');
   assert.equal(fs.readFileSync(installedSkill, 'utf8'), fs.readFileSync(values.skill, 'utf8'));
   assert.equal(
     fs.readFileSync(installedInboxSkill, 'utf8'),
     fs.readFileSync(new URL('../skills/tmt-inbox/SKILL.md', import.meta.url), 'utf8')
   );
+  assert(!fs.existsSync(installedOfficeSkill), 'CLI bootstrap must preserve core-only guidance');
   assert.deepEqual(
     JSON.parse(fs.readFileSync(path.join(state, 'skill-installations.json'), 'utf8')),
     {

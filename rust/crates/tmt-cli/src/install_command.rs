@@ -16,7 +16,7 @@ fn failure(error: impl Error + 'static) -> Failure {
     Failure::new("ERROR", error.to_string(), 1).caused_by(error)
 }
 
-fn document(item: &InstalledSkill) -> Value {
+pub(crate) fn document(item: &InstalledSkill) -> Value {
     let mut value = json!({"skill": item.name, "target": item.target, "changed": item.changed});
     if let Some(agent) = item.agent {
         value["agent"] = agent.as_str().into();
@@ -26,6 +26,14 @@ fn document(item: &InstalledSkill) -> Value {
     }
     if !item.legacy_backups.is_empty() {
         value["legacyBackups"] = json!(item.legacy_backups);
+    }
+    value
+}
+
+pub(crate) fn report_document(report: &InstallReport) -> Value {
+    let mut value = json!({"installed": report.installed.iter().map(document).collect::<Vec<_>>()});
+    if !report.warnings.is_empty() {
+        value["warnings"] = json!(report.warnings);
     }
     value
 }
@@ -59,11 +67,7 @@ pub fn execute(
     };
     let mut output = io::stdout().lock();
     if mode.json {
-        let mut value =
-            json!({"installed": report.installed.iter().map(document).collect::<Vec<_>>()});
-        if !report.warnings.is_empty() {
-            value["warnings"] = json!(report.warnings);
-        }
+        let value = report_document(&report);
         writeln!(output, "{value}")?;
     } else {
         for item in &report.installed {

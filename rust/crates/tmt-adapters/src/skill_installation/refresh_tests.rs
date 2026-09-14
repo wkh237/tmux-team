@@ -38,6 +38,33 @@ fn old_bundle(global: &Path, core: &[u8], inbox: &[u8]) -> (PathBuf, PathBuf) {
     (main, inbox_source)
 }
 
+fn old_office_bundle(
+    global: &Path,
+    core: &[u8],
+    inbox: &[u8],
+    office: &[u8],
+) -> (PathBuf, PathBuf, PathBuf) {
+    let mut framed = Vec::new();
+    for bytes in [core, inbox, office] {
+        framed.extend_from_slice(&(bytes.len() as u64).to_be_bytes());
+        framed.extend_from_slice(bytes);
+    }
+    let version = files::resolved(global)
+        .unwrap()
+        .join("skill-assets")
+        .join(sha256(&framed));
+    let main = version.join("tmux-team");
+    let inbox_source = version.join("tmt-inbox");
+    let office_source = version.join("tmt-office");
+    for source in [&main, &inbox_source, &office_source] {
+        fs::create_dir_all(source).unwrap();
+    }
+    fs::write(main.join("SKILL.md"), core).unwrap();
+    fs::write(inbox_source.join("SKILL.md"), inbox).unwrap();
+    fs::write(office_source.join("SKILL.md"), office).unwrap();
+    (main, inbox_source, office_source)
+}
+
 fn managed_target(target: &Path, source: &Path) {
     fs::create_dir_all(target.parent().unwrap()).unwrap();
     std::os::unix::fs::symlink(source, target).unwrap();
@@ -84,6 +111,49 @@ fn refreshes_both_targets_from_a_genuine_old_two_skill_bundle() {
     );
     assert_eq!(fs::read(main_source.join("SKILL.md")).unwrap(), old_core);
     assert_eq!(fs::read(inbox_source.join("SKILL.md")).unwrap(), old_inbox);
+}
+
+#[test]
+fn refreshes_an_existing_optional_office_skill_without_creating_missing_siblings() {
+    let (directory, global) = fixture();
+    let (main_source, _inbox_source, office_source) = old_office_bundle(
+        &global,
+        b"prior core\n",
+        b"prior inbox\n",
+        b"prior office\n",
+    );
+    let office_target = directory.path.join("home/.agents/skills/tmt-office");
+    managed_target(&office_target, &office_source);
+    remember(&global, [office_target.clone()]);
+
+    let first = refresh(&global).unwrap();
+    assert_eq!(first.refreshed.len(), 1);
+    assert_eq!(first.refreshed[0].target, office_target);
+    assert!(first.refreshed[0].changed);
+    assert_eq!(
+        fs::read(fs::read_link(&office_target).unwrap().join("SKILL.md")).unwrap(),
+        super::assets::OFFICE_SKILL
+    );
+    assert!(
+        !directory
+            .path
+            .join("home/.agents/skills/tmux-team")
+            .exists()
+    );
+    assert!(
+        !directory
+            .path
+            .join("home/.agents/skills/tmt-inbox")
+            .exists()
+    );
+    assert_eq!(
+        fs::read(main_source.join("SKILL.md")).unwrap(),
+        b"prior core\n"
+    );
+
+    let second = refresh(&global).unwrap();
+    assert_eq!(second.refreshed.len(), 1);
+    assert!(!second.refreshed[0].changed);
 }
 
 #[test]

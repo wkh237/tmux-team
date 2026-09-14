@@ -23,12 +23,17 @@ const inboxSkill = fs.readFileSync(
   new URL('../skills/tmt-inbox/SKILL.md', import.meta.url),
   'utf8'
 );
+const officeSkill = fs.readFileSync(
+  new URL('../skills/tmt-office/SKILL.md', import.meta.url),
+  'utf8'
+);
 await verifyNativeRuntime({
   executable,
   target: values.target,
   version: values.version,
   skill,
   inboxSkill,
+  officeSkill,
   profileContent: 'Persisted by native executable',
   subject: 'Native executable',
 });

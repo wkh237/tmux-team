@@ -15,6 +15,7 @@ use tmt_adapters::{
     native_install::{self, InstallRequest, Product, UpgradeRequest},
     office_companion::probe_office_companion,
     office_service::{self, ServiceError},
+    skill_installation::{self, ProviderEnvironment},
 };
 use tmt_core::native_install::{Channel, PinAction};
 
@@ -194,6 +195,87 @@ fn install(
     })
 }
 
+fn install_guidance(
+    force: bool,
+    version: &impl std::fmt::Display,
+) -> Result<serde_json::Value, (serde_json::Value, Box<Failure>)> {
+    let empty_report = || json!({"installed": []});
+    let environment = ProviderEnvironment::capture().map_err(|error| {
+        (
+            empty_report(),
+            Box::new(
+                Failure::new(
+                    "OFFICE_SKILLS_FAILED",
+                    format!(
+                        "Office {version} is active, but optional skill installation could not inspect provider paths: {error}"
+                    ),
+                    1,
+                )
+                .caused_by(error),
+            ),
+        )
+    })?;
+    let paths = ConfigPaths::discover().map_err(|error| {
+        (
+            empty_report(),
+            Box::new(
+                Failure::new(
+                    "OFFICE_SKILLS_FAILED",
+                    format!(
+                        "Office {version} is active, but optional skill installation could not resolve managed paths: {error}"
+                    ),
+                    1,
+                )
+                .caused_by(error),
+            ),
+        )
+    })?;
+    match skill_installation::install_office(&environment, &paths.global_dir, force) {
+        Ok(report) => Ok(crate::install_command::report_document(&report)),
+        Err(error) => {
+            let mut report = crate::install_command::report_document(&error.report);
+            if let Some(backup) = &error.pending_backup {
+                report["pendingBackup"] = json!(backup);
+            }
+            Err((
+                report,
+                Box::new(
+                    Failure::new(
+                        "OFFICE_SKILLS_FAILED",
+                        format!(
+                            "Office {version} is active, but optional skill installation failed; user-owned content was preserved. {error}"
+                        ),
+                        1,
+                    )
+                    .caused_by(error),
+                ),
+            ))
+        }
+    }
+}
+
+fn report_partial(
+    mut value: serde_json::Value,
+    skills: serde_json::Value,
+    human: &str,
+    error: Failure,
+    mode: OutputMode,
+) -> Result<u8, Failure> {
+    value["skills"] = skills;
+    value["error"] = error.document()["error"].clone();
+    if mode.json {
+        writeln!(io::stdout().lock(), "{value}")
+            .map_err(|io_error| failure("OFFICE_IO_ERROR", io_error))?;
+    } else {
+        writeln!(io::stdout().lock(), "{human}")
+            .map_err(|io_error| failure("OFFICE_IO_ERROR", io_error))?;
+        error
+            .publish(mode)
+            .map_err(|io_error| failure("OFFICE_IO_ERROR", io_error))?;
+    }
+    Ok(error.status)
+}
+
 pub fn execute(
     prefix: Option<String>,
     operation: OfficeOperation,
@@ -294,7 +376,16 @@ fn run(
                 )? {
                     return Ok(0);
                 }
-                install(&prefix, None, None, Channel::Alpha)?;
+                let installation = install(&prefix, None, None, Channel::Alpha)?;
+                if let Err((skills, error)) = install_guidance(false, &installation.version) {
+                    return report_partial(
+                        json!({"installed":true,"changed":installation.changed,"version":installation.version,"executable":installation.executable}),
+                        skills,
+                        "Office installed; optional agent guidance needs attention.",
+                        *error,
+                        mode,
+                    );
+                }
             }
             let interrupt = tmt_adapters::interrupt::Interrupt::install()
                 .map_err(|e| failure("OFFICE_IO_ERROR", e))?;
@@ -347,6 +438,7 @@ fn run(
         }
         OfficeOperation::Install {
             yes,
+            force,
             archive,
             manifest,
             channel,
@@ -366,9 +458,24 @@ fn run(
                 .or_else(|| current.as_ref().map(|current| current.state.channel))
                 .unwrap_or(Channel::Alpha);
             let result = install(&prefix, archive.as_deref(), manifest.as_deref(), channel)?;
-            report(json!({"installed":true,"changed":result.changed,"version":result.version,"executable":result.executable}), &format!("Office {} installed. Pairing is separate.", result.version), mode).map_err(|e| failure("OFFICE_IO_ERROR", e))
+            let skills = match install_guidance(force, &result.version) {
+                Ok(skills) => skills,
+                Err((skills, error)) => {
+                    return report_partial(
+                        json!({"installed":true,"changed":result.changed,"version":result.version,"executable":result.executable}),
+                        skills,
+                        &format!(
+                            "Office {} installed; optional agent guidance needs attention.",
+                            result.version
+                        ),
+                        *error,
+                        mode,
+                    );
+                }
+            };
+            report(json!({"installed":true,"changed":result.changed,"version":result.version,"executable":result.executable,"skills":skills}), &format!("Office {} installed with optional agent guidance. Pairing is separate.", result.version), mode).map_err(|e| failure("OFFICE_IO_ERROR", e))
         }
-        OfficeOperation::Upgrade { channel } => {
+        OfficeOperation::Upgrade { force, channel } => {
             if !installed(&executable)? {
                 return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
             }
@@ -405,7 +512,22 @@ fn run(
                 )
                 .caused_by(e)
             })?;
-            report(json!({"installed":true,"changed":result.installation.changed,"version":result.installation.version,"skippedPinned":result.skipped_pinned}), &format!("Office {} is current.", result.installation.version), mode).map_err(|e| failure("OFFICE_IO_ERROR", e))
+            let skills = match install_guidance(force, &result.installation.version) {
+                Ok(skills) => skills,
+                Err((skills, error)) => {
+                    return report_partial(
+                        json!({"installed":true,"changed":result.installation.changed,"version":result.installation.version,"skippedPinned":result.skipped_pinned,"executable":result.installation.executable}),
+                        skills,
+                        &format!(
+                            "Office {} is current; optional agent guidance needs attention.",
+                            result.installation.version
+                        ),
+                        *error,
+                        mode,
+                    );
+                }
+            };
+            report(json!({"installed":true,"changed":result.installation.changed,"version":result.installation.version,"skippedPinned":result.skipped_pinned,"skills":skills}), &format!("Office {} and optional agent guidance are current.", result.installation.version), mode).map_err(|e| failure("OFFICE_IO_ERROR", e))
         }
         OfficeOperation::Uninstall { yes } => {
             if !consent(
