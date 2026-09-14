@@ -47,6 +47,17 @@ it('isolates palette customization and never bakes identity text into pixels', (
   expect(avatarArt({ ...appearance, shirtMark: '<script>' })).toEqual(original);
 });
 
+it('preserves the robot visor, illuminated eyes and articulated joints in every hairstyle', () => {
+  for (const hairStyle of PROFILE_CATALOG.hairStyles) {
+    const art = avatarArt({ ...appearance, hairStyle });
+    expect(art.pixels[6]!.slice(5, 11)).toBe('9a99a9');
+    expect(art.pixels[8]!.slice(6, 10)).toBe('bbbb');
+    expect(art.palette[10]).toBe('#a0f2eb');
+    expect(art.pixels[15]![3]).toBe('8');
+    expect(art.pixels[15]![12]).toBe('8');
+  }
+});
+
 it('renders actual unit pixels instead of smooth character geometry and keeps text inert', () => {
   const view = render(
     <svg>

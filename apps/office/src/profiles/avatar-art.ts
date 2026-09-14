@@ -3,27 +3,27 @@ import type { Appearance } from './profile-contract.js';
 // Sixteen by twenty-four source pixels, authored on the grid rather than
 // rasterized from curves. Zero in an overlay preserves the underlying pixel.
 const BODY = [
-  '0000000000000000',
-  '0000011111100000',
+  '0000000110000000',
+  '0000011331100000',
   '0000123333210000',
   '0001233333321000',
+  '0011233333321100',
+  '0012199999912100',
+  '001219a99a912100',
+  '0012199999912100',
+  '001212bbbb212100',
   '0001233333321000',
-  '0001233333321000',
-  '0012233333322100',
-  '001223a33a322100',
-  '0001223333221000',
-  '0000123bb3210000',
-  '0000012222100000',
-  '0000001221000000',
-  '0000116776110000',
-  '0001677777761000',
-  '0016677777766100',
-  '0012677777762100',
-  '0012677777762100',
-  '0012166666612100',
+  '0000112222110000',
+  '0000001881000000',
+  '0001166776611000',
+  '0013677777763100',
+  '0012167777612100',
+  '0018167777618100',
+  '0012167777612100',
+  '0011166666611100',
   '0000118888110000',
   '0000188118810000',
-  '0000181001810000',
+  '0000121001210000',
   '0000181001810000',
   '0001991001991000',
   '0001111001111000',
@@ -72,11 +72,12 @@ const HAIRSTYLES: Record<Appearance['hairStyle'], readonly string[]> = {
   bald: [],
 };
 
-const SKIN = {
-  light: ['#dba887', '#f3c9aa'],
-  warm: ['#bc8358', '#dca77d'],
-  medium: ['#855037', '#a96f50'],
-  deep: ['#493026', '#684431'],
+// Retain stored skinTone choices as robot shell finishes; no profile migration.
+const SHELL = {
+  light: ['#899eac', '#d4e2e9'],
+  warm: ['#92745a', '#cdb291'],
+  medium: ['#526976', '#849da8'],
+  deep: ['#303d4c', '#596b7d'],
 } as const;
 const HAIR = {
   ink: ['#26313a', '#46545e'],
@@ -105,13 +106,13 @@ export function avatarArt(appearance: Appearance) {
     palette: [
       '#00000000',
       '#25333b',
-      ...SKIN[appearance.skinTone],
+      ...SHELL[appearance.skinTone],
       ...HAIR[appearance.hairColor],
       ...SHIRT[appearance.shirtColor],
       '#455568',
       '#27333e',
-      '#25333b',
-      '#784c42',
+      '#a0f2eb',
+      '#708c98',
     ],
   };
 }
