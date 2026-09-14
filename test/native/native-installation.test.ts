@@ -247,7 +247,10 @@ describe('native installation process contract', () => {
 
   it(
     'runs combined edits and worst-case board pages through the installed companion',
-    { timeout: 120_000 },
+    // This scenario installs a debug artifact and launches more than 50 verified
+    // companion commands. Allow aggregate slow-runner cost without increasing
+    // any individual command's 30-second deadline or reducing the full page.
+    { timeout: 240_000 },
     async () => {
       await withSandbox(async (sandbox) => {
         const prefix = installPrefix(sandbox);
