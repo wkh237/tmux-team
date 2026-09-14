@@ -1,14 +1,15 @@
 //! Installation-owned Office data stored beside the existing identity repository.
 
 use rusqlite::{OptionalExtension, params};
-use std::collections::HashMap;
 use tmt_core::office_block::{BlockLayout, LocalBlockLayout, MAX_REVISION, PropPlacement};
 
-use crate::office_prop::{BUILTIN_DIGEST, builtin_pack, parse_prop_reference, validate_pack};
+use crate::office_prop::parse_prop_reference;
 
 use super::{
-    Storage, StorageError, StorageErrorCode, errors::classify,
+    Storage, StorageError, StorageErrorCode,
+    errors::classify,
     identities::with_immediate_transaction,
+    office_prop::{LocalPropCatalogError, LocalPropResolver},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,7 +111,12 @@ impl Storage {
             )
             .optional()
             .map_err(|error| classify(error, "Read local Office block"))?;
-        let snapshot = snapshot(&transaction, identity_id, identity_name, stored)?;
+        let snapshot = snapshot(
+            &mut LocalPropResolver::new(&transaction),
+            identity_id,
+            identity_name,
+            stored,
+        )?;
         transaction
             .commit()
             .map_err(|error| classify(error, "Finish local Office block observation"))?;
@@ -146,12 +152,13 @@ impl Storage {
             .collect::<rusqlite::Result<Vec<_>>>()
             .map_err(|error| classify(error, "Read active local Office block"))?;
         drop(statement);
+        let mut resolver = LocalPropResolver::new(&transaction);
         let snapshots = rows
             .into_iter()
             .map(
                 |(identity_id, identity_name, block_id, revision, layout, updated_at_ms)| {
                     let layout = decode_layout(&layout)?;
-                    let resolutions = resolve_layout(&transaction, &layout)?;
+                    let resolutions = resolve_layout(&layout, &mut resolver)?;
                     Ok(LocalBlockSnapshot {
                         identity_id,
                         identity_name,
@@ -201,7 +208,7 @@ impl Storage {
             .ok_or(LocalOfficeError::IdentityInactive)?;
         let (identity_id, identity_name, block_id, revision, layout, updated_at_ms) = stored;
         let layout = decode_layout(&layout)?;
-        let resolutions = resolve_layout(&transaction, &layout)?;
+        let resolutions = resolve_layout(&layout, &mut LocalPropResolver::new(&transaction))?;
         let snapshot = LocalBlockSnapshot {
             identity_id,
             identity_name,
@@ -278,9 +285,10 @@ impl Storage {
                 .caused_by(error)
             })?;
             let now = current_time_ms()?;
+            let mut resolver = LocalPropResolver::new(transaction);
             let (block_id, revision, updated_at_ms, changed) = match current {
                 None if expected_revision == 0 => {
-                    validate_mutation(transaction, None, layout)?;
+                    validate_mutation(None, layout, &mut resolver)?;
                     transaction
                         .execute(
                             "INSERT OR IGNORE INTO office_local_worlds (singleton, id, created_at_ms) VALUES (1, ?, ?)",
@@ -309,7 +317,7 @@ impl Storage {
                     if expected_revision.checked_add(1) == Some(stored_u64(revision)?)
                         && decode_layout(&stored_layout)? == *layout =>
                 {
-                    let resolutions = resolve_layout(transaction, layout)?;
+                    let resolutions = resolve_layout(layout, &mut resolver)?;
                     return Ok(LocalBlockSnapshot {
                         identity_id: identity_id.to_owned(),
                         identity_name,
@@ -327,7 +335,7 @@ impl Storage {
                 Some((block_id, revision, stored_layout, updated_at_ms))
                     if decode_layout(&stored_layout)? == *layout =>
                 {
-                    let resolutions = resolve_layout(transaction, layout)?;
+                    let resolutions = resolve_layout(layout, &mut resolver)?;
                     return Ok(LocalBlockSnapshot {
                         identity_id: identity_id.to_owned(),
                         identity_name,
@@ -344,7 +352,7 @@ impl Storage {
                 }
                 Some((block_id, stored_revision, stored_layout, _)) => {
                     let current_layout = decode_layout(&stored_layout)?;
-                    validate_mutation(transaction, Some(&current_layout), layout)?;
+                    validate_mutation(Some(&current_layout), layout, &mut resolver)?;
                     let revision = stored_u64(stored_revision)?;
                     let next = revision + 1;
                     let changed = transaction
@@ -369,7 +377,7 @@ impl Storage {
                     (block_id, next, now, true)
                 }
             };
-            let resolutions = resolve_layout(transaction, layout)?;
+            let resolutions = resolve_layout(layout, &mut resolver)?;
             Ok(LocalBlockSnapshot {
                 identity_id: identity_id.to_owned(),
                 identity_name,
@@ -385,7 +393,7 @@ impl Storage {
 }
 
 fn snapshot(
-    connection: &rusqlite::Connection,
+    resolver: &mut LocalPropResolver<'_>,
     identity_id: &str,
     identity_name: String,
     stored: Option<(String, i64, String, i64)>,
@@ -403,7 +411,7 @@ fn snapshot(
         });
     };
     let layout = decode_layout(&layout)?;
-    let resolutions = resolve_layout(connection, &layout)?;
+    let resolutions = resolve_layout(&layout, resolver)?;
     Ok(LocalBlockSnapshot {
         identity_id: identity_id.to_owned(),
         identity_name,
@@ -432,21 +440,14 @@ fn decode_layout(value: &str) -> Result<LocalBlockLayout, LocalOfficeError> {
         .map_err(|_| LocalOfficeError::StoredLayoutInvalid)
 }
 
-#[derive(Clone, Copy)]
-enum PackFailure {
-    Missing,
-    Corrupt,
-}
-
 fn resolve_layout(
-    connection: &rusqlite::Connection,
     layout: &LocalBlockLayout,
+    resolver: &mut LocalPropResolver<'_>,
 ) -> Result<Vec<LocalPropResolution>, LocalOfficeError> {
-    let mut packs = HashMap::new();
     layout
         .objects()
         .iter()
-        .map(|item| match resolve_item(connection, item, &mut packs)? {
+        .map(|item| match resolve_item(item, resolver)? {
             ItemResolution::Available(label) => Ok(LocalPropResolution::Available { label }),
             ItemResolution::Missing
             | ItemResolution::Corrupt
@@ -458,24 +459,20 @@ fn resolve_layout(
 }
 
 fn validate_mutation(
-    connection: &rusqlite::Connection,
     current: Option<&LocalBlockLayout>,
     proposed: &LocalBlockLayout,
+    resolver: &mut LocalPropResolver<'_>,
 ) -> Result<(), LocalOfficeError> {
-    let mut packs = HashMap::new();
-    let mut retained = HashMap::<PropPlacement, usize>::new();
+    let mut retained = std::collections::HashMap::<PropPlacement, usize>::new();
     if let Some(current) = current {
         for item in current.objects() {
-            if !matches!(
-                resolve_item(connection, item, &mut packs)?,
-                ItemResolution::Available(_)
-            ) {
+            if !matches!(resolve_item(item, resolver)?, ItemResolution::Available(_)) {
                 *retained.entry(item.clone()).or_default() += 1;
             }
         }
     }
     for item in proposed.objects() {
-        let resolution = resolve_item(connection, item, &mut packs)?;
+        let resolution = resolve_item(item, resolver)?;
         if matches!(resolution, ItemResolution::Available(_)) {
             continue;
         }
@@ -501,37 +498,13 @@ enum ItemResolution {
 }
 
 fn resolve_item(
-    connection: &rusqlite::Connection,
     item: &PropPlacement,
-    cache: &mut HashMap<String, Result<crate::office_prop::ValidatedPropPack, PackFailure>>,
+    resolver: &mut LocalPropResolver<'_>,
 ) -> Result<ItemResolution, LocalOfficeError> {
     let (digest, key) =
         parse_prop_reference(&item.prop).ok_or(LocalOfficeError::StoredLayoutInvalid)?;
-    if !cache.contains_key(digest) {
-        let pack = if digest == BUILTIN_DIGEST {
-            Ok(builtin_pack())
-        } else {
-            let row = connection
-                .query_row(
-                    "SELECT length(bytes), CASE WHEN length(bytes) <= ? THEN bytes ELSE NULL END FROM office_prop_packs WHERE digest = ?",
-                    params![i64::try_from(crate::office_prop::PACK_INPUT_LIMIT).expect("pack bound fits SQLite"), digest],
-                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, Option<Vec<u8>>>(1)?)),
-                )
-                .optional()
-                .map_err(|error| classify(error, "Resolve local Office prop pack"))?;
-            match row {
-                None => Err(PackFailure::Missing),
-                Some((length, Some(bytes))) if length >= 0 => validate_pack(&bytes)
-                    .ok()
-                    .filter(|pack| pack.digest() == digest)
-                    .ok_or(PackFailure::Corrupt),
-                Some(_) => Err(PackFailure::Corrupt),
-            }
-        };
-        cache.insert(digest.to_owned(), pack);
-    }
-    match cache.get(digest).expect("pack cache populated") {
-        Ok(pack) => match pack.prop(key) {
+    match resolver.resolve(digest) {
+        Ok(resolved) => match resolved.pack.prop(key) {
             Some(prop)
                 if prop.footprint.width == item.footprint_width
                     && prop.footprint.height == item.footprint_height =>
@@ -541,8 +514,10 @@ fn resolve_item(
             Some(_) => Ok(ItemResolution::FootprintMismatch),
             None => Ok(ItemResolution::Missing),
         },
-        Err(PackFailure::Missing) => Ok(ItemResolution::Missing),
-        Err(PackFailure::Corrupt) => Ok(ItemResolution::Corrupt),
+        Err(LocalPropCatalogError::NotFound) => Ok(ItemResolution::Missing),
+        Err(LocalPropCatalogError::Corrupt) => Ok(ItemResolution::Corrupt),
+        Err(LocalPropCatalogError::Storage(error)) => Err(LocalOfficeError::Storage(error)),
+        Err(_) => Err(LocalOfficeError::StoredLayoutInvalid),
     }
 }
 
@@ -574,7 +549,7 @@ fn current_time_ms() -> Result<u64, LocalOfficeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::TestDirectory;
+    use crate::{office_prop::validate_pack, test_support::TestDirectory};
     use tmt_core::office_block::{Furniture, FurnitureAsset};
 
     fn insert_identity(storage: &Storage, id: &str, name: &str, lifetime: &str) {
@@ -587,6 +562,47 @@ mod tests {
                 params![id, name, name, lifetime],
             )
             .unwrap();
+    }
+
+    #[test]
+    fn one_snapshot_resolves_repeated_digest_once_across_validation_and_projection() {
+        let directory = TestDirectory::new();
+        let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+        let pack = validate_pack(br##"{"formatVersion":1,"label":"Cache","credit":"Test","license":"MIT","palette":["#00000000","#ffffffff"],"props":[{"key":"lamp","label":"Lamp","footprint":{"width":1,"height":1},"pixels":["1"]}]}"##).unwrap();
+        storage.install_local_prop_pack(0, &pack).unwrap();
+        let layout = LocalBlockLayout::new(vec![
+            PropPlacement {
+                prop: format!("{}/lamp", pack.digest()),
+                footprint_width: 1,
+                footprint_height: 1,
+                x: 1,
+                y: 1,
+                rotation: 0,
+            },
+            PropPlacement {
+                prop: format!("{}/lamp", pack.digest()),
+                footprint_width: 1,
+                footprint_height: 1,
+                x: 2,
+                y: 2,
+                rotation: 0,
+            },
+        ])
+        .unwrap();
+        let transaction = storage
+            .connection_mut()
+            .unwrap()
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Deferred)
+            .unwrap();
+        {
+            let mut resolver = LocalPropResolver::new(&transaction);
+            validate_mutation(None, &layout, &mut resolver).unwrap();
+            assert_eq!(resolve_layout(&layout, &mut resolver).unwrap().len(), 2);
+            assert_eq!(resolve_layout(&layout, &mut resolver).unwrap().len(), 2);
+            assert_eq!(resolver.database_reads(), 1);
+        }
+        transaction.commit().unwrap();
+        storage.close().unwrap();
     }
 
     #[test]

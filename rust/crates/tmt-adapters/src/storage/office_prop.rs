@@ -2,6 +2,7 @@
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use std::collections::HashMap;
 
 use crate::office_prop::{
     BUILTIN_DIGEST, PACK_INPUT_LIMIT, ValidatedPropPack, builtin_pack, parse_pack_digest,
@@ -68,6 +69,77 @@ pub struct LocalPropResolutionBatch {
     pub catalog_revision: u64,
     pub packs: Vec<LocalPropSnapshot>,
     pub unavailable: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct ResolvedLocalPropPack {
+    pub pack: ValidatedPropPack,
+    pub builtin: bool,
+    pub installed_at_ms: Option<u64>,
+}
+
+enum CachedLocalPropPack {
+    Available(ResolvedLocalPropPack),
+    Missing,
+    Corrupt,
+}
+
+/// One bounded catalog loader and cache for one caller-owned SQLite snapshot.
+pub(super) struct LocalPropResolver<'connection> {
+    connection: &'connection rusqlite::Connection,
+    cache: HashMap<String, CachedLocalPropPack>,
+    #[cfg(test)]
+    database_reads: usize,
+}
+
+impl<'connection> LocalPropResolver<'connection> {
+    pub(super) fn new(connection: &'connection rusqlite::Connection) -> Self {
+        Self {
+            connection,
+            cache: HashMap::new(),
+            #[cfg(test)]
+            database_reads: 0,
+        }
+    }
+
+    pub(super) fn resolve(
+        &mut self,
+        digest: &str,
+    ) -> Result<&ResolvedLocalPropPack, LocalPropCatalogError> {
+        if !self.cache.contains_key(digest) {
+            let loaded = if digest == BUILTIN_DIGEST {
+                CachedLocalPropPack::Available(ResolvedLocalPropPack {
+                    pack: builtin_pack(),
+                    builtin: true,
+                    installed_at_ms: None,
+                })
+            } else {
+                #[cfg(test)]
+                {
+                    self.database_reads += 1;
+                }
+                match load_bounded_row(self.connection, digest)? {
+                    Some(row) => match resolved_from_bounded_row(row) {
+                        Ok(pack) => CachedLocalPropPack::Available(pack),
+                        Err(LocalPropCatalogError::Corrupt) => CachedLocalPropPack::Corrupt,
+                        Err(error) => return Err(error),
+                    },
+                    None => CachedLocalPropPack::Missing,
+                }
+            };
+            self.cache.insert(digest.to_owned(), loaded);
+        }
+        match self.cache.get(digest).expect("prop cache populated") {
+            CachedLocalPropPack::Available(pack) => Ok(pack),
+            CachedLocalPropPack::Missing => Err(LocalPropCatalogError::NotFound),
+            CachedLocalPropPack::Corrupt => Err(LocalPropCatalogError::Corrupt),
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn database_reads(&self) -> usize {
+        self.database_reads
+    }
 }
 
 #[derive(Debug)]
@@ -309,12 +381,9 @@ impl Storage {
             .transaction_with_behavior(TransactionBehavior::Deferred)
             .map_err(|error| classify(error, "Observe local prop catalog"))?;
         let revision = read_state(&transaction)?.revision;
-        let result = if digest == BUILTIN_DIGEST {
-            builtin_snapshot(revision)
-        } else {
-            let row =
-                load_bounded_row(&transaction, digest)?.ok_or(LocalPropCatalogError::NotFound)?;
-            snapshot_from_bounded_row(revision, row)?
+        let result = {
+            let mut resolver = LocalPropResolver::new(&transaction);
+            snapshot_from_resolved(revision, resolver.resolve(digest)?.clone())
         };
         transaction
             .commit()
@@ -339,21 +408,16 @@ impl Storage {
         let revision = read_state(&transaction)?.revision;
         let mut packs = Vec::new();
         let mut unavailable = Vec::new();
-        for digest in digests {
-            let snapshot = if digest == BUILTIN_DIGEST {
-                Ok(builtin_snapshot(revision))
-            } else {
-                match load_bounded_row(&transaction, digest)? {
-                    Some(row) => snapshot_from_bounded_row(revision, row),
-                    None => Err(LocalPropCatalogError::NotFound),
+        {
+            let mut resolver = LocalPropResolver::new(&transaction);
+            for digest in digests {
+                match resolver.resolve(digest) {
+                    Ok(pack) => packs.push(snapshot_from_resolved(revision, pack.clone())),
+                    Err(LocalPropCatalogError::NotFound | LocalPropCatalogError::Corrupt) => {
+                        unavailable.push(digest.clone());
+                    }
+                    Err(error) => return Err(error),
                 }
-            };
-            match snapshot {
-                Ok(snapshot) => packs.push(snapshot),
-                Err(LocalPropCatalogError::NotFound | LocalPropCatalogError::Corrupt) => {
-                    unavailable.push(digest.clone());
-                }
-                Err(error) => return Err(error),
             }
         }
         transaction
@@ -557,10 +621,10 @@ fn has_row_after(
 }
 
 fn load_bounded_row(
-    transaction: &rusqlite::Transaction<'_>,
+    connection: &rusqlite::Connection,
     digest: &str,
 ) -> Result<Option<BoundedRow>, LocalPropCatalogError> {
-    transaction
+    connection
         .query_row(
             "SELECT digest, length(bytes), CASE WHEN length(bytes) <= ? THEN bytes ELSE NULL END, installed_at_ms FROM office_prop_packs WHERE digest = ?",
             params![i64::try_from(PACK_INPUT_LIMIT).expect("pack bound fits SQLite"), digest],
@@ -581,17 +645,34 @@ fn snapshot_from_bounded_row(
     revision: u64,
     row: BoundedRow,
 ) -> Result<LocalPropSnapshot, LocalPropCatalogError> {
+    Ok(snapshot_from_resolved(
+        revision,
+        resolved_from_bounded_row(row)?,
+    ))
+}
+
+fn resolved_from_bounded_row(
+    row: BoundedRow,
+) -> Result<ResolvedLocalPropPack, LocalPropCatalogError> {
     let bytes = row.bytes.ok_or(LocalPropCatalogError::Corrupt)?;
     let pack = validate_pack(&bytes).map_err(|_| LocalPropCatalogError::Corrupt)?;
     if pack.digest() != row.digest {
         return Err(LocalPropCatalogError::Corrupt);
     }
-    Ok(LocalPropSnapshot {
-        catalog_revision: revision,
+    Ok(ResolvedLocalPropPack {
         builtin: false,
         installed_at_ms: Some(stored_u64(row.installed_at_ms)?),
         pack,
     })
+}
+
+fn snapshot_from_resolved(revision: u64, resolved: ResolvedLocalPropPack) -> LocalPropSnapshot {
+    LocalPropSnapshot {
+        catalog_revision: revision,
+        builtin: resolved.builtin,
+        installed_at_ms: resolved.installed_at_ms,
+        pack: resolved.pack,
+    }
 }
 
 fn exclusion_reason(row: &BoundedRow) -> LocalPropExcludedReason {

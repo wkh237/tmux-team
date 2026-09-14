@@ -22,6 +22,54 @@ async function unusedLoopbackPort(): Promise<number> {
   return address.port;
 }
 
+function propState(databasePath: string, digest: string) {
+  const database = new Database(databasePath, { readonly: true });
+  try {
+    const catalogRevision = database
+      .prepare('SELECT revision FROM office_prop_catalog WHERE singleton = 1')
+      .pluck()
+      .get() as number;
+    const candidate = database
+      .prepare(
+        'SELECT digest, bytes, prop_count AS propCount, installed_revision AS installedRevision, installed_at_ms AS installedAtMs FROM office_prop_packs WHERE digest = ?'
+      )
+      .get(digest) as
+      | {
+          digest: string;
+          bytes: Buffer;
+          propCount: number;
+          installedRevision: number;
+          installedAtMs: number;
+        }
+      | undefined;
+    return { catalogRevision, candidate };
+  } finally {
+    database.close();
+  }
+}
+
+function savedBlock(databasePath: string, identityId: string) {
+  const database = new Database(databasePath, { readonly: true });
+  try {
+    const row = database
+      .prepare(
+        'SELECT block_id AS blockId, identity_id AS identityId, revision, layout, updated_at_ms AS updatedAtMs FROM office_local_blocks WHERE identity_id = ?'
+      )
+      .get(identityId) as
+      | {
+          blockId: string;
+          identityId: string;
+          revision: number;
+          layout: string;
+          updatedAtMs: number;
+        }
+      | undefined;
+    return row && { ...row, layoutBytes: Buffer.from(row.layout) };
+  } finally {
+    database.close();
+  }
+}
+
 test('data-only prop reaches catalog, preview, block renderer and placeholder lifecycle', async ({
   browser,
   page,
@@ -32,6 +80,7 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
     const identityName = 'Prop artist';
     const identity = await runCli(sandbox, ['identity', 'create', identityName, '--json']);
     expect(identity.status, identity.stdout).toBe(0);
+    const identityId = (JSON.parse(identity.stdout).identity as { id: string }).id;
     const propFile = path.join(sandbox.root, 'studio.tmtprop.json');
     writeFileSync(
       propFile,
@@ -78,6 +127,18 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
       builtin: false,
       changed: true,
     });
+    const installedState = propState(sandbox.database, digest);
+    expect(installedState).toMatchObject({
+      catalogRevision: 1,
+      candidate: {
+        digest,
+        propCount: 1,
+        installedRevision: 1,
+        installedAtMs: expect.any(Number),
+      },
+    });
+    expect(installedState.candidate!.bytes).toEqual(readFileSync(propFile));
+    expect(installedState.candidate!.installedAtMs).toBeGreaterThan(0);
     const listed = await office(['prop', 'list', '--local']);
     expect(listed.status, listed.stdout).toBe(0);
     expect(JSON.parse(listed.stdout)).toMatchObject({
@@ -119,11 +180,24 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
       layout: { version: 2 },
       resolutions: [{ status: 'available' }, { status: 'available' }],
     });
+    const storedBlock = savedBlock(sandbox.database, identityId);
+    expect(storedBlock).toMatchObject({
+      blockId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      identityId,
+      revision: 1,
+      updatedAtMs: expect.any(Number),
+    });
+    expect(storedBlock!.updatedAtMs).toBeGreaterThan(0);
+    expect(JSON.parse(storedBlock!.layout)).toEqual(JSON.parse(readFileSync(layoutFile, 'utf8')));
 
     let started = await office(['start', '--port', String(await unusedLoopbackPort())]);
     expect(started.status, started.stdout).toBe(0);
     let sessionUrl = JSON.parse(started.stdout).url as string;
     try {
+      const beforePreviews = {
+        prop: propState(sandbox.database, digest),
+        block: savedBlock(sandbox.database, identityId),
+      };
       const preview = await office(['prop', 'preview', '--file', propFile]);
       expect(preview.status, preview.stdout).toBe(0);
       const firstPreview = JSON.parse(preview.stdout);
@@ -149,10 +223,17 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
       expect(limited.status).toBe(1);
       expect(limited.stdout).toContain('OFFICE_PROP_PREVIEW_LIMIT');
       const previewContext = await browser.newContext();
-      const previewPage = await previewContext.newPage();
-      await previewPage.goto(firstPreview.url);
-      await expect(previewPage.getByRole('heading', { name: 'Signal lamp' })).toBeVisible();
-      await previewContext.close();
+      try {
+        const previewPage = await previewContext.newPage();
+        await previewPage.goto(firstPreview.url);
+        await expect(previewPage.getByRole('heading', { name: 'Signal lamp' })).toBeVisible();
+      } finally {
+        await previewContext.close();
+      }
+      expect({
+        prop: propState(sandbox.database, digest),
+        block: savedBlock(sandbox.database, identityId),
+      }).toEqual(beforePreviews);
 
       await page.goto(sessionUrl);
       await expect(page.getByRole('button', { name: 'Signal lamp 1' })).toBeVisible();
@@ -170,6 +251,11 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
 
       const removed = await office(['prop', 'remove', '--local', digest, '--if-revision', '1']);
       expect(removed.status, removed.stdout).toBe(0);
+      expect(propState(sandbox.database, digest)).toEqual({
+        catalogRevision: 2,
+        candidate: undefined,
+      });
+      expect(savedBlock(sandbox.database, identityId)).toEqual(storedBlock);
       await expect(
         page.getByRole('img', { name: `Unavailable prop ${digest.slice(7, 19)}` })
       ).toBeVisible({
@@ -187,6 +273,13 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
         '2',
       ]);
       expect(restored.status, restored.stdout).toBe(0);
+      const restoredState = propState(sandbox.database, digest);
+      expect(restoredState).toMatchObject({
+        catalogRevision: 3,
+        candidate: { digest, propCount: 1, installedRevision: 3 },
+      });
+      expect(restoredState.candidate!.bytes).toEqual(readFileSync(propFile));
+      expect(savedBlock(sandbox.database, identityId)).toEqual(storedBlock);
       await expect(page.locator('rect[fill="#ff5533ff"]')).toHaveCount(5, { timeout: 10_000 });
 
       const database = new Database(sandbox.database);
@@ -197,6 +290,7 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
       } finally {
         database.close();
       }
+      expect(savedBlock(sandbox.database, identityId)).toEqual(storedBlock);
       await expect(
         page.getByRole('img', { name: `Unavailable prop ${digest.slice(7, 19)}` })
       ).toBeVisible({
@@ -208,13 +302,17 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
       started = await office(['start', '--port', String(await unusedLoopbackPort())]);
       expect(started.status, started.stdout).toBe(0);
       sessionUrl = JSON.parse(started.stdout).url;
+      expect(savedBlock(sandbox.database, identityId)).toEqual(storedBlock);
       await page.goto(sessionUrl);
       await expect(
         page.getByRole('img', { name: `Unavailable prop ${digest.slice(7, 19)}` })
       ).toBeVisible();
       await expect(page.getByRole('button', { name: 'Desk 2' })).toBeVisible();
     } finally {
-      await office(['stop']);
+      const stopped = await office(['stop']);
+      expect(stopped.status, stopped.stdout).toBe(0);
+      expect(JSON.parse(stopped.stdout)).toMatchObject({ running: false });
+      expect(typeof JSON.parse(stopped.stdout).changed).toBe('boolean');
     }
   });
 });
