@@ -224,6 +224,22 @@ describe('native installation process contract', () => {
         expect(backup).toBeDefined();
         expect(readFileSync(backup!, 'utf8')).toBe('user-owned Office skill');
         expect(readFileSync(path.join(officeSkillTarget, 'SKILL.md'))).toEqual(officeSkill());
+
+        unlinkSync(officeSkillTarget);
+        writeFileSync(officeSkillTarget, 'second user-owned Office skill');
+        const plainForced = await runCli(
+          sandbox,
+          ['office', '--prefix', prefix, ...args, '--force'],
+          { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+        );
+        expect(plainForced.status, plainForced.stdout + plainForced.stderr).toBe(0);
+        expect(plainForced.stderr).toBe('');
+        expect(plainForced.stdout).toContain(
+          `Installed shared skill 'tmt-office' at ${officeSkillTarget}\n`
+        );
+        const plainBackup = plainForced.stdout.match(/Recoverable backup: (.+)\n/)?.[1];
+        expect(plainBackup).toBeDefined();
+        expect(readFileSync(plainBackup!, 'utf8')).toBe('second user-owned Office skill');
         expect(existsSync(sandbox.database)).toBe(false);
       });
     }

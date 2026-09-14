@@ -45,6 +45,13 @@ an actual verified release or user-supplied artifact pair; never invent a
 download URL. A successful installation does not pair an identity, open a world,
 start a connector, or authorize publication.
 
+Use only a companion explicitly documented as compatible with the installed CLI.
+Office and CLI can share schema state, so an independently updated companion may
+make an older CLI reject that state. When release notes require coordination,
+update the compatible CLI first and keep both artifacts together. Do not infer
+local-service support from downloaded bytes or advertise an unpublished source
+candidate as a public release.
+
 Office install and upgrade also install or refresh this optional skill through
 the existing managed-skill owner. Existing managed custom roots are included.
 An unmanaged `tmt-office` target is preserved unless the user explicitly
@@ -98,7 +105,13 @@ layout, and notes have distinct owners and are not a multi-document transaction.
 
 ## Local Office
 
-The installed companion can serve this installation's local blocks and board on
+These workflows require a compatible companion that actually ships local-service
+support; some published pairs may not have it yet. Verify the installed pair with
+`status` and its documented release notes. If a command reports unsupported or
+incompatible capability, stop and use the coordinated CLI/Office update path;
+do not install a standalone candidate or guess a download URL.
+
+A compatible companion can serve this installation's local blocks and board on
 IPv4 loopback without Firebase or pairing:
 
 ```sh

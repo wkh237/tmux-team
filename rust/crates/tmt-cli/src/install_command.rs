@@ -38,6 +38,29 @@ pub(crate) fn report_document(report: &InstallReport) -> Value {
     value
 }
 
+pub(crate) fn write_report_human(
+    report: &InstallReport,
+    output: &mut impl Write,
+) -> io::Result<()> {
+    for item in &report.installed {
+        writeln!(
+            output,
+            "{} {} skill '{}' at {}",
+            if item.changed { "Installed" } else { "Current" },
+            item.agent.map_or("shared", |agent| agent.as_str()),
+            item.name,
+            item.target.display()
+        )?;
+        for backup in item.backup.iter().chain(&item.legacy_backups) {
+            writeln!(output, "Recoverable backup: {}", backup.display())?;
+        }
+    }
+    for warning in &report.warnings {
+        writeln!(output, "Warning: {warning}")?;
+    }
+    Ok(())
+}
+
 fn run(
     provider: Option<&str>,
     directory: Option<&str>,
@@ -70,22 +93,7 @@ pub fn execute(
         let value = report_document(&report);
         writeln!(output, "{value}")?;
     } else {
-        for item in &report.installed {
-            writeln!(
-                output,
-                "{} {} skill '{}' at {}",
-                if item.changed { "Installed" } else { "Current" },
-                item.agent.map_or("shared", |agent| agent.as_str()),
-                item.name,
-                item.target.display()
-            )?;
-            for backup in item.backup.iter().chain(&item.legacy_backups) {
-                writeln!(output, "Recoverable backup: {}", backup.display())?;
-            }
-        }
-        for warning in &report.warnings {
-            writeln!(output, "Warning: {warning}")?;
-        }
+        write_report_human(&report, &mut output)?;
         writeln!(
             output,
             "Reload or restart your agent to use the current skill. Existing conversations can read tmt learn --skill."

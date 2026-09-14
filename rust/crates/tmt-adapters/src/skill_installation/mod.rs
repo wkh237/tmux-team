@@ -135,6 +135,46 @@ fn managed_link(target: &Path, assets: &assets::SkillAssets) -> io::Result<Optio
     Ok(assets.owns(&source).then_some(source))
 }
 
+struct PublicationContext<'a> {
+    assets: &'a assets::SkillAssets,
+    force: bool,
+    report: &'a mut InstallReport,
+    pending_backup: &'a mut Option<PathBuf>,
+}
+
+fn publish_managed_target(
+    context: &mut PublicationContext<'_>,
+    target: &Path,
+    source: &Path,
+    name: &'static str,
+    agent: Option<Provider>,
+    publish: &mut impl FnMut(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
+    let prior = managed_link(target, context.assets)?;
+    let changed = prior.as_deref() != Some(source);
+    if changed {
+        if prior.is_none() && files::exists(target)? {
+            if !context.force {
+                return Err(io::Error::other(format!(
+                    "Refusing to replace existing unmanaged path: {} (use --force)",
+                    target.display()
+                )));
+            }
+            *context.pending_backup = Some(files::backup(target)?);
+        }
+        publish(target, source)?;
+    }
+    context.report.installed.push(InstalledSkill {
+        name,
+        agent,
+        target: target.to_path_buf(),
+        changed,
+        backup: context.pending_backup.take(),
+        legacy_backups: Vec::new(),
+    });
+    Ok(())
+}
+
 /// Materialize and publish only requested integrations. The lock covers all
 /// cooperating native installers; this is not a hostile-filesystem sandbox.
 pub fn install(
@@ -204,29 +244,21 @@ fn install_office_with_publisher(
             }
             let (_, _, source) = assets.materialize_bundle()?;
             registry::remember(&global, targets.keys().cloned())?;
+            let mut context = PublicationContext {
+                assets: &assets,
+                force,
+                report: &mut report,
+                pending_backup: &mut pending_backup,
+            };
             for (target, agent) in targets {
-                let prior = managed_link(&target, &assets)?;
-                let changed = prior.as_ref() != Some(&source);
-                if changed {
-                    if prior.is_none() && files::exists(&target)? {
-                        if !force {
-                            return Err(io::Error::other(format!(
-                                "Refusing to replace existing unmanaged path: {} (use --force)",
-                                target.display()
-                            )));
-                        }
-                        pending_backup = Some(files::backup(&target)?);
-                    }
-                    publish(&target, &source)?;
-                }
-                report.installed.push(InstalledSkill {
-                    name: "tmt-office",
+                publish_managed_target(
+                    &mut context,
+                    &target,
+                    &source,
+                    "tmt-office",
                     agent,
-                    target,
-                    changed,
-                    backup: pending_backup.take(),
-                    legacy_backups: Vec::new(),
-                });
+                    &mut publish,
+                )?;
             }
             Ok(())
         })
@@ -274,30 +306,22 @@ fn install_with_publisher(
             registry::read(&global)?;
             let (main_source, inbox_source, _) = assets.materialize_bundle()?;
             registry::remember(&global, targets.iter().map(|(_, target, _)| target.clone()))?;
+            let mut context = PublicationContext {
+                assets: &assets,
+                force,
+                report: &mut report,
+                pending_backup: &mut pending_backup,
+            };
             for (agent, target, inbox) in targets {
                 let source = if inbox { &inbox_source } else { &main_source };
-                let prior = managed_link(&target, &assets)?;
-                let changed = prior.as_ref() != Some(source);
-                if changed {
-                    if prior.is_none() && files::exists(&target)? {
-                        if !force {
-                            return Err(io::Error::other(format!(
-                                "Refusing to replace existing unmanaged path: {} (use --force)",
-                                target.display()
-                            )));
-                        }
-                        pending_backup = Some(files::backup(&target)?);
-                    }
-                    publish(&target, source)?;
-                }
-                report.installed.push(InstalledSkill {
-                    name: if inbox { "tmt-inbox" } else { "tmux-team" },
+                publish_managed_target(
+                    &mut context,
+                    &target,
+                    source,
+                    if inbox { "tmt-inbox" } else { "tmux-team" },
                     agent,
-                    target: target.clone(),
-                    changed,
-                    backup: pending_backup.take(),
-                    legacy_backups: Vec::new(),
-                });
+                    &mut publish,
+                )?;
                 if !inbox && let Some(agent) = agent {
                     for legacy in env.legacy_targets(agent) {
                         if !files::exists(&legacy)?
@@ -308,14 +332,15 @@ fn install_with_publisher(
                         if force {
                             files::safe_target(assets.root(), &legacy)?;
                             let backup = files::backup(&legacy)?;
-                            report
+                            context
+                                .report
                                 .installed
                                 .last_mut()
                                 .expect("published skill")
                                 .legacy_backups
                                 .push(backup);
                         } else {
-                            report.warnings.push(format!("Legacy {} guidance found at {}; keeping it. Inspect before running tmt install {} --force.", agent.as_str(), legacy.display(), agent.as_str()));
+                            context.report.warnings.push(format!("Legacy {} guidance found at {}; keeping it. Inspect before running tmt install {} --force.", agent.as_str(), legacy.display(), agent.as_str()));
                         }
                     }
                 }
