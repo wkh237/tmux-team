@@ -83,6 +83,15 @@ fn main() -> ExitCode {
                         tmt_adapters::office_prop::execute(operation, &input)
                     } else if matches!(
                         operation,
+                        OfficeInvocation::LocalAvatarValidate
+                            | OfficeInvocation::LocalAvatarInstall
+                            | OfficeInvocation::LocalAvatarRemove
+                            | OfficeInvocation::LocalAvatarList
+                            | OfficeInvocation::LocalAvatarShow
+                    ) {
+                        tmt_adapters::office_avatar::execute(operation, &input)
+                    } else if matches!(
+                        operation,
                         OfficeInvocation::LocalProfileShow | OfficeInvocation::LocalProfileApply
                     ) {
                         tmt_adapters::office_profile::execute(operation, &input)
@@ -124,6 +133,13 @@ fn input_sentinel_limit(operation: OfficeInvocation) -> u64 {
         180_001
     } else if matches!(
         operation,
+        OfficeInvocation::LocalAvatarValidate | OfficeInvocation::LocalAvatarInstall
+    ) {
+        u64::try_from(tmt_adapters::office_avatar::PROTOCOL_INPUT_LIMIT)
+            .expect("avatar input bound fits u64")
+            + 1
+    } else if matches!(
+        operation,
         OfficeInvocation::LocalBlockShow | OfficeInvocation::LocalBlockApply
     ) {
         u64::try_from(tmt_core::office_block::LOCAL_PROTOCOL_LIMIT)
@@ -159,6 +175,10 @@ mod input_limit_tests {
         assert_eq!(
             input_sentinel_limit(OfficeInvocation::LocalPropInstall),
             180_001
+        );
+        assert_eq!(
+            input_sentinel_limit(OfficeInvocation::LocalAvatarInstall),
+            u64::try_from(tmt_adapters::office_avatar::PROTOCOL_INPUT_LIMIT).unwrap() + 1
         );
         assert_eq!(
             input_sentinel_limit(OfficeInvocation::BoardCategories),

@@ -1,14 +1,12 @@
 //! SQLite-backed local Office prop catalog with revision CAS and bounded reads.
 
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use std::collections::HashMap;
 
 use crate::office_prop::{
-    BUILTIN_DIGEST, CATALOG_CURSOR_MAX_BYTES, PACK_INPUT_LIMIT, ValidatedPropPack, builtin_pack,
-    parse_pack_digest, validate_pack,
+    BUILTIN_DIGEST, PACK_INPUT_LIMIT, ValidatedPropPack, builtin_pack, parse_pack_digest,
+    validate_pack,
 };
-use tmt_core::limits::MAX_JS_SAFE_INTEGER;
 
 use super::{Storage, StorageError, StorageErrorCode, errors::classify};
 
@@ -201,11 +199,7 @@ impl Storage {
             .map_err(|error| classify(error, "Acquire local prop catalog lock"))?;
         let state = read_state(&transaction)?;
         if expected_revision != state.revision {
-            if state.previous_kind.as_deref() == Some("install")
-                && state.previous_digest.as_deref() == Some(candidate.digest())
-                && state.previous_base_revision == Some(expected_revision)
-                && state.previous_result_revision == Some(state.revision)
-            {
+            if state.recognizes("install", candidate.digest(), expected_revision) {
                 let stored = load_bounded_row(&transaction, candidate.digest())?
                     .ok_or(LocalPropCatalogError::RevisionConflict)?;
                 let snapshot = snapshot_from_bounded_row(state.revision, stored)?;
@@ -264,9 +258,7 @@ impl Storage {
             return Err(LocalPropCatalogError::Limit);
         }
         let next = state
-            .revision
-            .checked_add(1)
-            .filter(|revision| *revision <= MAX_JS_SAFE_INTEGER)
+            .next_revision()
             .ok_or(LocalPropCatalogError::RevisionExhausted)?;
         transaction
             .execute(
@@ -320,10 +312,7 @@ impl Storage {
             .map_err(|error| classify(error, "Acquire local prop catalog lock"))?;
         let state = read_state(&transaction)?;
         if expected_revision != state.revision {
-            if state.previous_kind.as_deref() == Some("remove")
-                && state.previous_digest.as_deref() == Some(digest)
-                && state.previous_base_revision == Some(expected_revision)
-                && state.previous_result_revision == Some(state.revision)
+            if state.recognizes("remove", digest, expected_revision)
                 && !row_exists(&transaction, digest)?
             {
                 transaction
@@ -350,9 +339,7 @@ impl Storage {
             });
         }
         let next = state
-            .revision
-            .checked_add(1)
-            .filter(|revision| *revision <= MAX_JS_SAFE_INTEGER)
+            .next_revision()
             .ok_or(LocalPropCatalogError::RevisionExhausted)?;
         transaction
             .execute("DELETE FROM office_prop_packs WHERE digest = ?", [digest])
@@ -517,15 +504,6 @@ impl Storage {
     }
 }
 
-#[derive(Debug)]
-struct CatalogState {
-    revision: u64,
-    previous_kind: Option<String>,
-    previous_digest: Option<String>,
-    previous_base_revision: Option<u64>,
-    previous_result_revision: Option<u64>,
-}
-
 #[derive(Debug, Clone)]
 struct BoundedRow {
     digest: String,
@@ -536,7 +514,7 @@ struct BoundedRow {
 
 fn read_state(
     transaction: &rusqlite::Transaction<'_>,
-) -> Result<CatalogState, LocalPropCatalogError> {
+) -> Result<super::catalog_replay::CatalogReplayState, LocalPropCatalogError> {
     let (revision, previous_kind, previous_digest, previous_base_revision, previous_result_revision) = transaction
         .query_row(
             "SELECT revision, previous_kind, previous_digest, previous_base_revision, previous_result_revision FROM office_prop_catalog WHERE singleton = 1",
@@ -544,7 +522,7 @@ fn read_state(
             |row| Ok((row.get::<_, i64>(0)?, row.get(1)?, row.get(2)?, row.get::<_, Option<i64>>(3)?, row.get::<_, Option<i64>>(4)?)),
         )
         .map_err(|error| classify(error, "Read local prop catalog revision"))?;
-    Ok(CatalogState {
+    Ok(super::catalog_replay::CatalogReplayState {
         revision: stored_u64(revision)?,
         previous_kind,
         previous_digest,
@@ -703,45 +681,11 @@ fn builtin_snapshot(revision: u64) -> LocalPropSnapshot {
 }
 
 fn encode_cursor(revision: u64, digest: &str) -> Result<String, LocalPropCatalogError> {
-    let hex = parse_pack_digest(digest).ok_or(LocalPropCatalogError::CursorInvalid)?;
-    let mut bytes = Vec::with_capacity(41);
-    bytes.push(1);
-    bytes.extend_from_slice(&revision.to_be_bytes());
-    for pair in hex.as_bytes().chunks_exact(2) {
-        let text = std::str::from_utf8(pair).map_err(|_| LocalPropCatalogError::CursorInvalid)?;
-        bytes.push(u8::from_str_radix(text, 16).map_err(|_| LocalPropCatalogError::CursorInvalid)?);
-    }
-    let encoded = URL_SAFE_NO_PAD.encode(bytes);
-    debug_assert_eq!(encoded.len(), CATALOG_CURSOR_MAX_BYTES);
-    Ok(encoded)
+    super::catalog_cursor::encode(1, revision, digest).ok_or(LocalPropCatalogError::CursorInvalid)
 }
 
 fn decode_cursor(value: &str) -> Result<(u64, String), LocalPropCatalogError> {
-    if value.contains('=') {
-        return Err(LocalPropCatalogError::CursorInvalid);
-    }
-    let bytes = URL_SAFE_NO_PAD
-        .decode(value)
-        .map_err(|_| LocalPropCatalogError::CursorInvalid)?;
-    if bytes.len() != 41 || bytes[0] != 1 {
-        return Err(LocalPropCatalogError::CursorInvalid);
-    }
-    let revision = u64::from_be_bytes(
-        bytes[1..9]
-            .try_into()
-            .map_err(|_| LocalPropCatalogError::CursorInvalid)?,
-    );
-    if revision > MAX_JS_SAFE_INTEGER {
-        return Err(LocalPropCatalogError::CursorInvalid);
-    }
-    let digest = format!(
-        "sha256:{}",
-        bytes[9..]
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>()
-    );
-    Ok((revision, digest))
+    super::catalog_cursor::decode(1, value).ok_or(LocalPropCatalogError::CursorInvalid)
 }
 
 fn stored_u64(value: i64) -> Result<u64, LocalPropCatalogError> {

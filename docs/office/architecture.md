@@ -129,6 +129,15 @@ cursors use their own encoded-envelope bound. Preview responses must echo the ex
 candidate digest and the exact private loopback preview ID, URL and browser token;
 the client applies bounded connect, read and write deadlines.
 
+Schema 17 adds the independent installation-owned avatar catalog defined by
+`contracts/office/avatar-pack-v1.md`. Avatar packs use strict 16×24 indexed rasters,
+their own framed digest, revision singleton, cursor domain and 64-pack/256-avatar quotas.
+Only narrow indexed-art predicates, replay recognition, cursor encoding and the typed
+expiring preview lifecycle are shared with props. The catalog does not join furniture or
+profiles, and this foundation does not select profile art or define unavailable-selection
+fallback. The SPA preview validates its projection before passing custom art to the same
+`Avatar` composition and inert `IndexedRaster` used by retained robot art.
+
 The local discussion board follows the same companion boundary without sharing
 the block model. `tmt-core::office_board` owns its bounded values, actors,
 receipts and cursor policy; schema 14 and `storage::office_board` own the single

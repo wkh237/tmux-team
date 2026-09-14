@@ -70,6 +70,12 @@ tmt office prop install --local --file pack.tmtprop.json --if-revision 0 --json
 tmt office prop remove --local sha256:<digest> --if-revision 1 --json
 tmt office prop list --local --json
 tmt office prop show --local sha256:<digest> --json
+tmt office avatar validate --file bot.tmtavatar.json --json
+tmt office avatar preview --file bot.tmtavatar.json --json
+tmt office avatar install --local --file bot.tmtavatar.json --if-revision 0 --json
+tmt office avatar remove --local sha256:<digest> --if-revision 1 --json
+tmt office avatar list --local --json
+tmt office avatar show --local sha256:<digest> --json
 tmt office stop
 ```
 
@@ -104,6 +110,11 @@ Local prop validation and catalog commands follow the single data-only owner in
 already-running local service and never starts it implicitly. The optional
 `tmt-prop-create` guidance is installed through the existing Office managed-skill
 path; it is not a second installer or executable extension.
+
+Local avatar validation, catalog, and expiring preview follow
+[`avatar-pack-v1.md`](../../contracts/office/avatar-pack-v1.md) and use a separate
+revision/cursor namespace. This foundation does not yet add profile selection,
+unavailable-art fallback, or installed creator guidance.
 
 With `--json`, successful start returns `running:true`, `changed`, `reused`, `url`
 and `version`; stop returns `running:false` and `changed`. Local block success returns

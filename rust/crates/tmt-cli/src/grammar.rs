@@ -387,6 +387,7 @@ fn office_commands() -> Command {
             ),
         )
         .subcommand(office_prop_commands())
+        .subcommand(office_avatar_commands())
         .subcommand(office_board_commands())
         .subcommand(office_scope(
             office(
@@ -500,6 +501,61 @@ fn office_prop_commands() -> Command {
         .subcommand(
             local(office("show", "Show one local or built-in prop pack"))
                 .arg(operand("prop-digest", true)),
+        )
+}
+
+fn office_avatar_commands() -> Command {
+    let local = |command: Command| {
+        command.arg(
+            Arg::new("local")
+                .long("local")
+                .required(true)
+                .action(ArgAction::SetTrue),
+        )
+    };
+    let revision = |command: Command| {
+        command.arg(
+            Arg::new("if-revision")
+                .long("if-revision")
+                .required(true)
+                .value_parser(
+                    clap::value_parser!(u64).range(0..=tmt_core::limits::MAX_JS_SAFE_INTEGER),
+                ),
+        )
+    };
+    office("avatar", "Manage local data-only Office avatar packs")
+        .subcommand(
+            office("validate", "Validate one bounded data-only avatar pack")
+                .arg(Arg::new("file").long("file").required(true)),
+        )
+        .subcommand(
+            office(
+                "preview",
+                "Preview one avatar pack in the running local Office",
+            )
+            .arg(Arg::new("file").long("file").required(true)),
+        )
+        .subcommand(revision(local(
+            office("install", "Install one avatar pack into the local catalog")
+                .arg(Arg::new("file").long("file").required(true)),
+        )))
+        .subcommand(revision(local(
+            office("remove", "Remove one installed avatar pack")
+                .arg(operand("avatar-digest", true)),
+        )))
+        .subcommand(
+            local(office("list", "List the local avatar catalog"))
+                .arg(
+                    Arg::new("avatar-limit")
+                        .long("limit")
+                        .default_value("20")
+                        .value_parser(clap::value_parser!(u64).range(1..=20)),
+                )
+                .arg(Arg::new("cursor").long("cursor")),
+        )
+        .subcommand(
+            local(office("show", "Show one installed avatar pack"))
+                .arg(operand("avatar-digest", true)),
         )
 }
 

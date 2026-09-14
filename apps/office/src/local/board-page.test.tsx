@@ -61,6 +61,9 @@ function runtime(): LocalRuntime {
     preview: async () => {
       throw new Error('Preview not used by board tests.');
     },
+    avatarPreview: async () => {
+      throw new Error('Avatar preview not used by board tests.');
+    },
     dispose: () => undefined,
     board: {
       categories: vi.fn(async () => ({

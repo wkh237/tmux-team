@@ -1,9 +1,12 @@
 mod bindings;
+pub(crate) mod catalog_cursor;
+mod catalog_replay;
 mod errors;
 mod identities;
 mod identity_hooks;
 mod identity_metadata;
 mod migrations;
+mod office_avatar;
 mod office_board;
 mod office_local;
 mod office_profile;
@@ -23,6 +26,10 @@ use std::{
 
 pub use errors::{StorageError, StorageErrorCode};
 use errors::{classify, incompatible};
+pub use office_avatar::{
+    LocalAvatarCatalogError, LocalAvatarCatalogList, LocalAvatarExcluded,
+    LocalAvatarExcludedReason, LocalAvatarMutation, LocalAvatarSnapshot,
+};
 pub use office_board::local_owner_actor;
 pub use office_local::{LocalBlockSnapshot, LocalOfficeError, LocalPropResolution};
 pub use office_profile::{LocalProfileError, LocalProfileMutation, LocalProfileSnapshot};

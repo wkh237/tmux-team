@@ -7,7 +7,9 @@ The core-owned `OfficeInvocation` has exact operations `probe`, `capabilities`, 
 `pair-poll`, `pair-status`, `unpair`, `inspect`, `sync`, `block-show`, `block-apply`,
 `local-block-show`, `local-block-apply`, `local-profile-show`, `local-profile-apply`,
 `local-prop-validate`, `local-prop-install`, `local-prop-remove`, `local-prop-list`,
-`local-prop-show`, `board-post`, `board-list`, `board-show`, `board-reply`, `board-edit`,
+`local-prop-show`, `local-avatar-validate`, `local-avatar-install`,
+`local-avatar-remove`, `local-avatar-list`, `local-avatar-show`, `board-post`,
+`board-list`, `board-show`, `board-reply`, `board-edit`,
 `board-delete` and `board-categories`. Its argument vector is
 `__tmt-office`, `1`, `<operation>`. Unknown versions, operations,
 extra arguments and non-UTF-8 arguments fail with exit 1, empty stdout and a brief
@@ -94,13 +96,15 @@ Local block v2 operations use a separate core-owned 64 KiB private JSON ceiling 
 both requests and replies. This accommodates the bounded 16-object prop projection
 and its escaped resolution labels without raising remote v1 or unrelated operations.
 
-Local profile and prop operations use their exact bounded contracts rather than
+Local profile, prop, and avatar operations use their exact bounded contracts rather than
 the remote block envelope. Profile source files are bounded to 8 KiB while their
 private companion JSON remains under the legacy 4096-byte ceiling. Prop candidate
 payloads carry validated data-only bytes through the private child boundary and
 remain bounded to the 128 KiB source limit plus encoding overhead; catalog reads
 return exact allowlisted projections. See [profile v1](profile-v1.md),
-[prop pack v1](prop-pack-v1.md), and [local block v2](block-v2.md).
+[prop pack v1](prop-pack-v1.md), [avatar pack v1](avatar-pack-v1.md), and
+[local block v2](block-v2.md). Avatar candidate payloads use a separate 32 KiB source
+limit plus base64/JSON overhead and an independent typed catalog/cursor namespace.
 
 Pairing and inspect operations consume one bounded JSON object on stdin (4096 bytes):
 `world`, `identityId`, `emulator` and `readOnly`, with no unknown or duplicate

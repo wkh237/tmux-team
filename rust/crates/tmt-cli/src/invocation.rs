@@ -97,6 +97,7 @@ pub enum OfficeOperation {
         operation: OfficeProfileOperation,
     },
     Prop(OfficePropOperation),
+    Avatar(OfficeAvatarOperation),
     Board(OfficeBoardOperation),
     Unpair {
         world: String,
@@ -220,6 +221,16 @@ pub enum OfficeProfileOperation {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum OfficePropOperation {
+    Validate { file: String },
+    Preview { file: String },
+    Install { file: String, if_revision: u64 },
+    Remove { digest: String, if_revision: u64 },
+    List { limit: u64, cursor: Option<String> },
+    Show { digest: String },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum OfficeAvatarOperation {
     Validate { file: String },
     Preview { file: String },
     Install { file: String, if_revision: u64 },

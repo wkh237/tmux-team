@@ -175,6 +175,12 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         | ["office", "prop", "remove"]
         | ["office", "prop", "list"]
         | ["office", "prop", "show"]
+        | ["office", "avatar", "validate"]
+        | ["office", "avatar", "preview"]
+        | ["office", "avatar", "install"]
+        | ["office", "avatar", "remove"]
+        | ["office", "avatar", "list"]
+        | ["office", "avatar", "show"]
         | ["office", "board", "post"]
         | ["office", "board", "list"]
         | ["office", "board", "show"]
@@ -186,6 +192,45 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         | ["office", "uninstall"] => Invocation::Office {
             prefix: text(m, "prefix"),
             operation: match path.last().copied() {
+                Some("validate") if path.get(1) == Some(&"avatar") => {
+                    OfficeOperation::Avatar(OfficeAvatarOperation::Validate {
+                        file: required(m, "file"),
+                    })
+                }
+                Some("preview") if path.get(1) == Some(&"avatar") => {
+                    OfficeOperation::Avatar(OfficeAvatarOperation::Preview {
+                        file: required(m, "file"),
+                    })
+                }
+                Some("install") if path.get(1) == Some(&"avatar") => {
+                    OfficeOperation::Avatar(OfficeAvatarOperation::Install {
+                        file: required(m, "file"),
+                        if_revision: *m
+                            .get_one::<u64>("if-revision")
+                            .expect("grammar supplies avatar revision"),
+                    })
+                }
+                Some("remove") if path.get(1) == Some(&"avatar") => {
+                    OfficeOperation::Avatar(OfficeAvatarOperation::Remove {
+                        digest: required(m, "avatar-digest"),
+                        if_revision: *m
+                            .get_one::<u64>("if-revision")
+                            .expect("grammar supplies avatar revision"),
+                    })
+                }
+                Some("list") if path.get(1) == Some(&"avatar") => {
+                    OfficeOperation::Avatar(OfficeAvatarOperation::List {
+                        limit: *m
+                            .get_one::<u64>("avatar-limit")
+                            .expect("grammar supplies avatar list limit"),
+                        cursor: text(m, "cursor"),
+                    })
+                }
+                Some("show") if path.get(1) == Some(&"avatar") => {
+                    OfficeOperation::Avatar(OfficeAvatarOperation::Show {
+                        digest: required(m, "avatar-digest"),
+                    })
+                }
                 Some("validate") if path.get(1) == Some(&"prop") => {
                     OfficeOperation::Prop(OfficePropOperation::Validate {
                         file: required(m, "file"),

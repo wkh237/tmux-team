@@ -32,6 +32,13 @@ pub enum OfficeError {
     PropNotFound,
     PropLimit,
     PropBuiltin,
+    AvatarInvalid,
+    AvatarCorrupt,
+    AvatarNotFound,
+    AvatarLimit,
+    AvatarCatalogRevisionConflict,
+    AvatarCatalogCursorInvalid,
+    AvatarCatalogCursorStale,
     CatalogRevisionConflict,
     CatalogCursorInvalid,
     CatalogCursorStale,
@@ -58,6 +65,13 @@ impl OfficeError {
             Self::PropNotFound => "OFFICE_PROP_NOT_FOUND",
             Self::PropLimit => "OFFICE_PROP_LIMIT",
             Self::PropBuiltin => "OFFICE_PROP_BUILTIN",
+            Self::AvatarInvalid => "OFFICE_AVATAR_INVALID",
+            Self::AvatarCorrupt => "OFFICE_AVATAR_CORRUPT",
+            Self::AvatarNotFound => "OFFICE_AVATAR_NOT_FOUND",
+            Self::AvatarLimit => "OFFICE_AVATAR_LIMIT",
+            Self::AvatarCatalogRevisionConflict => "OFFICE_AVATAR_CATALOG_REVISION_CONFLICT",
+            Self::AvatarCatalogCursorInvalid => "OFFICE_AVATAR_CATALOG_CURSOR_INVALID",
+            Self::AvatarCatalogCursorStale => "OFFICE_AVATAR_CATALOG_CURSOR_STALE",
             Self::CatalogRevisionConflict => "OFFICE_CATALOG_REVISION_CONFLICT",
             Self::CatalogCursorInvalid => "OFFICE_CATALOG_CURSOR_INVALID",
             Self::CatalogCursorStale => "OFFICE_CATALOG_CURSOR_STALE",
@@ -84,6 +98,13 @@ impl OfficeError {
             Self::PropNotFound,
             Self::PropLimit,
             Self::PropBuiltin,
+            Self::AvatarInvalid,
+            Self::AvatarCorrupt,
+            Self::AvatarNotFound,
+            Self::AvatarLimit,
+            Self::AvatarCatalogRevisionConflict,
+            Self::AvatarCatalogCursorInvalid,
+            Self::AvatarCatalogCursorStale,
             Self::CatalogRevisionConflict,
             Self::CatalogCursorInvalid,
             Self::CatalogCursorStale,
@@ -124,6 +145,11 @@ pub enum OfficeInvocation {
     LocalPropRemove,
     LocalPropList,
     LocalPropShow,
+    LocalAvatarValidate,
+    LocalAvatarInstall,
+    LocalAvatarRemove,
+    LocalAvatarList,
+    LocalAvatarShow,
     BoardPost,
     BoardList,
     BoardShow,
@@ -171,6 +197,23 @@ impl OfficeInvocation {
             Self::LocalPropRemove => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "local-prop-remove"],
             Self::LocalPropList => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "local-prop-list"],
             Self::LocalPropShow => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "local-prop-show"],
+            Self::LocalAvatarValidate => [
+                "__tmt-office",
+                OFFICE_PROTOCOL_VERSION,
+                "local-avatar-validate",
+            ],
+            Self::LocalAvatarInstall => [
+                "__tmt-office",
+                OFFICE_PROTOCOL_VERSION,
+                "local-avatar-install",
+            ],
+            Self::LocalAvatarRemove => [
+                "__tmt-office",
+                OFFICE_PROTOCOL_VERSION,
+                "local-avatar-remove",
+            ],
+            Self::LocalAvatarList => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "local-avatar-list"],
+            Self::LocalAvatarShow => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "local-avatar-show"],
             Self::BoardPost => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "board-post"],
             Self::BoardList => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "board-list"],
             Self::BoardShow => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "board-show"],
@@ -202,6 +245,11 @@ impl OfficeInvocation {
             Self::LocalPropRemove,
             Self::LocalPropList,
             Self::LocalPropShow,
+            Self::LocalAvatarValidate,
+            Self::LocalAvatarInstall,
+            Self::LocalAvatarRemove,
+            Self::LocalAvatarList,
+            Self::LocalAvatarShow,
             Self::BoardPost,
             Self::BoardList,
             Self::BoardShow,
@@ -338,6 +386,27 @@ mod tests {
         for (name, operation) in [
             ("local-profile-show", OfficeInvocation::LocalProfileShow),
             ("local-profile-apply", OfficeInvocation::LocalProfileApply),
+        ] {
+            assert_eq!(operation.arguments(), ["__tmt-office", "1", name]);
+            assert_eq!(
+                OfficeInvocation::parse(&operation.arguments()),
+                Ok(operation)
+            );
+            assert!(OfficeInvocation::parse(&["__tmt-office", "2", name]).is_err());
+        }
+    }
+
+    #[test]
+    fn local_avatar_operations_have_exact_versioned_arguments() {
+        for (name, operation) in [
+            (
+                "local-avatar-validate",
+                OfficeInvocation::LocalAvatarValidate,
+            ),
+            ("local-avatar-install", OfficeInvocation::LocalAvatarInstall),
+            ("local-avatar-remove", OfficeInvocation::LocalAvatarRemove),
+            ("local-avatar-list", OfficeInvocation::LocalAvatarList),
+            ("local-avatar-show", OfficeInvocation::LocalAvatarShow),
         ] {
             assert_eq!(operation.arguments(), ["__tmt-office", "1", name]);
             assert_eq!(

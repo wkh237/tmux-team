@@ -3,6 +3,8 @@ import { BlockConflict, defaultCatalog, validLayout } from '../blocks/block-cont
 import type { Block, BlockPort, Furniture } from '../blocks/block-contract.js';
 import { BUILTIN_DIGEST, decodePropPack } from '../props/prop-contract.js';
 import type { CatalogPack } from '../props/prop-contract.js';
+import { decodeAvatarPack } from '../avatars/avatar-contract.js';
+import type { CatalogAvatarPack } from '../avatars/avatar-contract.js';
 import {
   decodeBoardList,
   decodeBoardShow,
@@ -49,6 +51,7 @@ export interface LocalRuntime {
   board: LocalBoardPort;
   list(): Promise<LocalBlockProjection[]>;
   preview(previewId: string): Promise<CatalogPack>;
+  avatarPreview(previewId: string): Promise<CatalogAvatarPack>;
   dispose(): void;
 }
 
@@ -398,6 +401,24 @@ export function startLocalRuntime(location: Location): LocalRuntime {
         )
           throw new Error('Invalid prop preview.');
         return { digest: record.digest, pack: decodePropPack(record.pack) };
+      });
+    },
+    async avatarPreview(previewId) {
+      if (!/^[A-Za-z0-9_-]{43}$/.test(previewId)) throw new Error('Invalid avatar preview ID.');
+      const { response, value } = await jsonRequest(
+        `/api/v1/local/avatar-previews/${encodeURIComponent(previewId)}`
+      );
+      return checked(response, value, (candidate) => {
+        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate))
+          throw new Error('Invalid avatar preview.');
+        const record = candidate as Record<string, unknown>;
+        if (
+          Object.keys(record).sort().join(',') !== 'digest,pack' ||
+          typeof record.digest !== 'string' ||
+          !/^sha256:[0-9a-f]{64}$/.test(record.digest)
+        )
+          throw new Error('Invalid avatar preview.');
+        return { digest: record.digest, pack: decodeAvatarPack(record.pack) };
       });
     },
     async list() {

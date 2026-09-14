@@ -3,7 +3,6 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use std::{collections::HashSet, path::Path};
 use tmt_core::office_protocol::{OfficeError, OfficeInvocation};
 
@@ -11,11 +10,11 @@ pub const PACK_INPUT_LIMIT: usize = 128 * 1024;
 pub const PACK_PROP_LIMIT: usize = 16;
 pub const PACK_PIXEL_LIMIT: usize = 65_536;
 pub const PROP_PIXEL_LIMIT: usize = 4_096;
-pub const PROP_LABEL_LIMIT: usize = 80;
+pub const PROP_LABEL_LIMIT: usize = crate::indexed_art::LABEL_LIMIT;
 /// Version byte + catalog revision + digest, encoded as unpadded base64url.
-pub const CATALOG_CURSOR_MAX_BYTES: usize = 55;
+pub const CATALOG_CURSOR_MAX_BYTES: usize = crate::storage::catalog_cursor::ENCODED_MAX_BYTES;
 pub const RASTER_LIMIT: usize = 64;
-pub const PALETTE_LIMIT: usize = 16;
+pub const PALETTE_LIMIT: usize = crate::indexed_art::PALETTE_LIMIT;
 pub const FOOTPRINT_LIMIT: u8 = 8;
 pub const BUILTIN_DIGEST: &str = tmt_core::office_block::BUILTIN_PROP_PACK_DIGEST;
 pub const BUILTIN_BYTES: &[u8] =
@@ -158,115 +157,60 @@ pub fn command_pack_input(pack: &ValidatedPropPack) -> Value {
 }
 
 pub fn framed_digest(bytes: &[u8]) -> String {
-    let mut digest = Sha256::new();
-    digest.update(DIGEST_DOMAIN);
-    digest.update((bytes.len() as u64).to_be_bytes());
-    digest.update(bytes);
-    let digest = digest.finalize();
-    let hex = digest
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    format!("sha256:{hex}")
+    format!(
+        "sha256:{}",
+        crate::content_digest::framed_sha256(DIGEST_DOMAIN, bytes)
+    )
 }
 
 pub fn parse_pack_digest(value: &str) -> Option<&str> {
-    value.strip_prefix("sha256:").filter(|digest| {
-        digest.len() == 64
-            && digest
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-    })
+    value
+        .strip_prefix("sha256:")
+        .filter(|digest| crate::content_digest::is_sha256(digest))
 }
 
 pub fn parse_prop_reference(value: &str) -> Option<(&str, &str)> {
     let (digest, key) = value.split_once('/')?;
     parse_pack_digest(digest)?;
-    valid_key(key).then_some((digest, key))
+    crate::indexed_art::valid_key(key).then_some((digest, key))
 }
 
 fn validate_document(pack: &PropPack) -> Result<usize, PropPackError> {
     if pack.format_version != 1
-        || !valid_text(&pack.label, PROP_LABEL_LIMIT)
-        || !valid_text(&pack.credit, 120)
-        || pack.license.is_empty()
-        || pack.license.len() > 64
-        || !pack
-            .license
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b".+-".contains(&byte))
-        || !(1..=PALETTE_LIMIT).contains(&pack.palette.len())
-        || pack.palette.first().map(String::as_str) != Some("#00000000")
+        || !crate::indexed_art::valid_text(&pack.label, PROP_LABEL_LIMIT)
+        || !crate::indexed_art::valid_text(&pack.credit, crate::indexed_art::CREDIT_LIMIT)
+        || !crate::indexed_art::valid_license(&pack.license)
+        || !crate::indexed_art::valid_palette(&pack.palette)
         || !(1..=PACK_PROP_LIMIT).contains(&pack.props.len())
     {
         return Err(PropPackError::Invalid);
     }
-    for color in pack.palette.iter().skip(1) {
-        if !valid_opaque_color(color) {
-            return Err(PropPackError::Invalid);
-        }
-    }
     let mut keys = HashSet::with_capacity(pack.props.len());
     let mut total = 0usize;
     for prop in &pack.props {
-        if !valid_key(&prop.key)
+        if !crate::indexed_art::valid_key(&prop.key)
             || !keys.insert(prop.key.as_str())
-            || !valid_text(&prop.label, PROP_LABEL_LIMIT)
+            || !crate::indexed_art::valid_text(&prop.label, PROP_LABEL_LIMIT)
             || !(1..=FOOTPRINT_LIMIT).contains(&prop.footprint.width)
             || !(1..=FOOTPRINT_LIMIT).contains(&prop.footprint.height)
             || !(1..=RASTER_LIMIT).contains(&prop.pixels.len())
         {
             return Err(PropPackError::Invalid);
         }
-        let width = prop.pixels.first().map(String::len).unwrap_or_default();
-        if !(1..=RASTER_LIMIT).contains(&width) {
-            return Err(PropPackError::Invalid);
-        }
-        let count = width
-            .checked_mul(prop.pixels.len())
-            .filter(|count| *count <= PROP_PIXEL_LIMIT)
-            .ok_or(PropPackError::Invalid)?;
-        for row in &prop.pixels {
-            if row.len() != width
-                || !row.bytes().all(|byte| {
-                    let index = match byte {
-                        b'0'..=b'9' => byte - b'0',
-                        b'a'..=b'f' => byte - b'a' + 10,
-                        _ => return false,
-                    };
-                    usize::from(index) < pack.palette.len()
-                })
-            {
-                return Err(PropPackError::Invalid);
-            }
-        }
+        let count = crate::indexed_art::validate_raster(
+            &prop.pixels,
+            pack.palette.len(),
+            None,
+            None,
+            RASTER_LIMIT,
+            PROP_PIXEL_LIMIT,
+        )
+        .ok_or(PropPackError::Invalid)?;
         total = total.checked_add(count).ok_or(PropPackError::Invalid)?;
     }
     (total <= PACK_PIXEL_LIMIT)
         .then_some(total)
         .ok_or(PropPackError::Invalid)
-}
-
-fn valid_text(value: &str, max_bytes: usize) -> bool {
-    !value.is_empty() && value.len() <= max_bytes && !value.chars().any(char::is_control)
-}
-
-fn valid_key(value: &str) -> bool {
-    (1..=32).contains(&value.len())
-        && value.bytes().enumerate().all(|(index, byte)| match byte {
-            b'a'..=b'z' => true,
-            b'0'..=b'9' | b'-' => index > 0,
-            _ => false,
-        })
-}
-
-fn valid_opaque_color(value: &str) -> bool {
-    value.len() == 9
-        && value.starts_with('#')
-        && value[1..]
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        && value.ends_with("ff")
 }
 
 #[derive(Deserialize)]

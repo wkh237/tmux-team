@@ -176,6 +176,151 @@ pub fn invoke_local_office_prop(
     Ok(Ok(value))
 }
 
+pub fn invoke_local_office_avatar(
+    executable: &Path,
+    operation: OfficeInvocation,
+    input: &serde_json::Value,
+    deadline: Instant,
+) -> io::Result<Result<serde_json::Value, OfficeError>> {
+    if !matches!(
+        operation,
+        OfficeInvocation::LocalAvatarValidate
+            | OfficeInvocation::LocalAvatarInstall
+            | OfficeInvocation::LocalAvatarRemove
+            | OfficeInvocation::LocalAvatarList
+            | OfficeInvocation::LocalAvatarShow
+    ) {
+        return Err(invalid_pairing());
+    }
+    let input = serde_json::to_vec(input)?;
+    if input.len() > crate::office_avatar::PROTOCOL_INPUT_LIMIT {
+        return Err(invalid_pairing());
+    }
+    let bytes = match invoke_json_bounded(
+        executable,
+        operation,
+        &input,
+        deadline,
+        crate::office_avatar::PROTOCOL_OUTPUT_LIMIT,
+    ) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+            return Ok(Err(OfficeError::Busy));
+        }
+        Err(error) => return Err(error),
+    };
+    let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| invalid_pairing())?;
+    let object = value.as_object().ok_or_else(invalid_pairing)?;
+    if object.len() == 1
+        && let Some(error) = value["error"].as_str().and_then(OfficeError::parse)
+    {
+        return Ok(Err(error));
+    }
+    if !valid_local_avatar_reply(operation, &value) {
+        return Err(invalid_pairing());
+    }
+    Ok(Ok(value))
+}
+
+fn valid_local_avatar_reply(operation: OfficeInvocation, value: &serde_json::Value) -> bool {
+    match operation {
+        OfficeInvocation::LocalAvatarValidate => valid_avatar_pack_projection(value, &[]),
+        OfficeInvocation::LocalAvatarInstall => {
+            valid_avatar_pack_projection(value, &["catalogRevision", "installedAtMs", "changed"])
+                && safe_u64(&value["catalogRevision"])
+                && value["installedAtMs"].as_u64().is_some_and(|time| time > 0)
+                && value["changed"].is_boolean()
+        }
+        OfficeInvocation::LocalAvatarRemove => {
+            exact_object(value, &["digest", "catalogRevision", "changed"])
+                && valid_avatar_digest(&value["digest"])
+                && safe_u64(&value["catalogRevision"])
+                && value["changed"].is_boolean()
+        }
+        OfficeInvocation::LocalAvatarShow => {
+            valid_avatar_pack_projection(value, &["catalogRevision", "installedAtMs"])
+                && safe_u64(&value["catalogRevision"])
+                && value["installedAtMs"].as_u64().is_some_and(|time| time > 0)
+        }
+        OfficeInvocation::LocalAvatarList => {
+            exact_object(
+                value,
+                &["catalogRevision", "packs", "excluded", "nextCursor"],
+            ) && safe_u64(&value["catalogRevision"])
+                && value["packs"].as_array().is_some_and(|items| {
+                    items.len() <= 20
+                        && items.iter().all(|item| {
+                            valid_avatar_pack_projection(
+                                item,
+                                &["catalogRevision", "installedAtMs"],
+                            ) && item["catalogRevision"] == value["catalogRevision"]
+                                && item["installedAtMs"].as_u64().is_some_and(|time| time > 0)
+                        })
+                })
+                && value["excluded"].as_array().is_some_and(|items| {
+                    items.len() <= 20
+                        && items.iter().all(|item| {
+                            exact_object(item, &["digest", "reason"])
+                                && valid_avatar_digest(&item["digest"])
+                                && matches!(
+                                    item["reason"].as_str(),
+                                    Some("oversized" | "digestMismatch" | "invalidDocument")
+                                )
+                        })
+                })
+                && prop_cursor_value(&value["nextCursor"])
+        }
+        _ => false,
+    }
+}
+
+fn valid_avatar_pack_projection(value: &serde_json::Value, extra: &[&str]) -> bool {
+    let mut fields = vec![
+        "digest",
+        "formatVersion",
+        "label",
+        "credit",
+        "license",
+        "fileBytes",
+        "cellCount",
+        "avatars",
+    ];
+    fields.extend_from_slice(extra);
+    exact_object(value, &fields)
+        && valid_avatar_digest(&value["digest"])
+        && value["formatVersion"].as_u64() == Some(1)
+        && valid_indexed_text(&value["label"], crate::indexed_art::LABEL_LIMIT)
+        && valid_indexed_text(&value["credit"], crate::indexed_art::CREDIT_LIMIT)
+        && value["license"]
+            .as_str()
+            .is_some_and(crate::indexed_art::valid_license)
+        && value["fileBytes"]
+            .as_u64()
+            .is_some_and(|bytes| (1..=32 * 1024).contains(&bytes))
+        && value["cellCount"]
+            .as_u64()
+            .is_some_and(|cells| (384..=6_144).contains(&cells))
+        && value["avatars"].as_array().is_some_and(|avatars| {
+            !avatars.is_empty() && avatars.len() <= 16 && avatars.iter().all(valid_avatar_summary)
+        })
+}
+fn valid_avatar_summary(value: &serde_json::Value) -> bool {
+    exact_object(value, &["key", "label", "raster"])
+        && value["key"]
+            .as_str()
+            .is_some_and(crate::indexed_art::valid_key)
+        && valid_indexed_text(&value["label"], crate::indexed_art::LABEL_LIMIT)
+        && exact_object(&value["raster"], &["width", "height"])
+        && value["raster"]["width"].as_u64() == Some(16)
+        && value["raster"]["height"].as_u64() == Some(24)
+}
+fn valid_avatar_digest(value: &serde_json::Value) -> bool {
+    value
+        .as_str()
+        .and_then(crate::office_avatar::parse_pack_digest)
+        .is_some()
+}
+
 fn valid_local_prop_reply(operation: OfficeInvocation, value: &serde_json::Value) -> bool {
     match operation {
         OfficeInvocation::LocalPropValidate => valid_prop_pack_projection(value, &[]),
@@ -276,14 +421,11 @@ fn valid_prop_pack_projection(value: &serde_json::Value, extra: &[&str]) -> bool
     exact_object(value, &fields)
         && valid_prop_digest(&value["digest"])
         && value["formatVersion"].as_u64() == Some(1)
-        && bounded_safe_text(&value["label"], 80)
-        && bounded_safe_text(&value["credit"], 120)
-        && value["license"].as_str().is_some_and(|text| {
-            (1..=64).contains(&text.len())
-                && text
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || b".+-".contains(&byte))
-        })
+        && valid_indexed_text(&value["label"], crate::indexed_art::LABEL_LIMIT)
+        && valid_indexed_text(&value["credit"], crate::indexed_art::CREDIT_LIMIT)
+        && value["license"]
+            .as_str()
+            .is_some_and(crate::indexed_art::valid_license)
         && value["fileBytes"]
             .as_u64()
             .is_some_and(|bytes| (1..=128 * 1024).contains(&bytes))
@@ -297,15 +439,10 @@ fn valid_prop_pack_projection(value: &serde_json::Value, extra: &[&str]) -> bool
 
 fn valid_prop_summary(value: &serde_json::Value) -> bool {
     exact_object(value, &["key", "label", "footprint", "raster"])
-        && value["key"].as_str().is_some_and(|key| {
-            (1..=32).contains(&key.len())
-                && key.bytes().enumerate().all(|(index, byte)| match byte {
-                    b'a'..=b'z' => true,
-                    b'0'..=b'9' | b'-' => index > 0,
-                    _ => false,
-                })
-        })
-        && bounded_safe_text(&value["label"], 80)
+        && value["key"]
+            .as_str()
+            .is_some_and(crate::indexed_art::valid_key)
+        && valid_indexed_text(&value["label"], crate::indexed_art::LABEL_LIMIT)
         && valid_dimensions(&value["footprint"], 8)
         && valid_dimensions(&value["raster"], 64)
 }
@@ -327,10 +464,10 @@ fn valid_prop_digest(value: &serde_json::Value) -> bool {
         .is_some()
 }
 
-fn bounded_safe_text(value: &serde_json::Value, limit: usize) -> bool {
-    value.as_str().is_some_and(|text| {
-        (1..=limit).contains(&text.len()) && !text.chars().any(char::is_control)
-    })
+fn valid_indexed_text(value: &serde_json::Value, limit: usize) -> bool {
+    value
+        .as_str()
+        .is_some_and(|text| crate::indexed_art::valid_text(text, limit))
 }
 
 fn exact_object(value: &serde_json::Value, fields: &[&str]) -> bool {
@@ -1310,6 +1447,58 @@ mod pairing_tests {
             OfficeInvocation::LocalPropList,
             &cursor_list
         ));
+    }
+
+    #[test]
+    fn local_avatar_replies_use_the_shared_indexed_art_bounds() {
+        let pack = serde_json::json!({
+            "digest":"sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "formatVersion":1,
+            "label":"Avatar pack",
+            "credit":"Test",
+            "license":"MIT",
+            "fileBytes":128,
+            "cellCount":384,
+            "avatars":[{
+                "key":"signal-bot",
+                "label":"Signal bot",
+                "raster":{"width":16,"height":24}
+            }]
+        });
+        assert!(valid_local_avatar_reply(
+            OfficeInvocation::LocalAvatarValidate,
+            &pack
+        ));
+        let mut maximum_key = pack.clone();
+        maximum_key["avatars"][0]["key"] =
+            serde_json::json!("a".repeat(crate::indexed_art::KEY_LIMIT));
+        assert!(valid_local_avatar_reply(
+            OfficeInvocation::LocalAvatarValidate,
+            &maximum_key
+        ));
+        for invalid in [
+            {
+                let mut value = pack.clone();
+                value["avatars"][0]["key"] =
+                    serde_json::json!("a".repeat(crate::indexed_art::KEY_LIMIT + 1));
+                value
+            },
+            {
+                let mut value = pack.clone();
+                value["label"] = serde_json::json!("bad\nlabel");
+                value
+            },
+            {
+                let mut value = pack.clone();
+                value["license"] = serde_json::json!("MIT OR Apache-2.0");
+                value
+            },
+        ] {
+            assert!(!valid_local_avatar_reply(
+                OfficeInvocation::LocalAvatarValidate,
+                &invalid
+            ));
+        }
     }
 
     #[test]

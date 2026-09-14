@@ -6,6 +6,7 @@ pub mod config;
 mod content_digest;
 #[cfg(unix)]
 mod file_lock;
+mod indexed_art;
 #[cfg(unix)]
 pub mod interrupt;
 mod json_document;
@@ -13,6 +14,8 @@ mod json_document;
 pub mod native_install;
 #[cfg(unix)]
 pub mod notes;
+#[cfg(unix)]
+pub mod office_avatar;
 #[cfg(unix)]
 pub mod office_block;
 pub mod office_board;

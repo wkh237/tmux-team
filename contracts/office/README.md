@@ -35,6 +35,13 @@ layout/renderer owner.
 value and full-capacity conformance source. Raw JSON duplicate-key admission remains a
 Rust file-reader proof because JavaScript object decoding occurs after JSON parsing.
 
+The local [avatar pack v1](avatar-pack-v1.md) contract owns strict data-only character
+art admission, its independent installation catalog, and expiring local preview.
+[`avatar-pack-vectors.json`](avatar-pack-vectors.json) is the shared Rust/Office
+projection source; the exact-byte sample freezes the separately framed avatar digest.
+This foundation does not add profile selection, fallback state, remote publication, or
+creator guidance.
+
 ## Single source of truth
 
 The [native companion handshake](native-companion.md) is an implemented internal

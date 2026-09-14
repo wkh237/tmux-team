@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { calibrateTmuxTripwire } from './tmux-tripwire.js';
+import { EXPECTED_NATIVE_SCHEMA_VERSION } from './storage-fixture.js';
 import {
   expectError,
   expectJsonSuccess,
@@ -765,7 +766,11 @@ describe('native durable identity process boundary', () => {
       withDatabase(sandbox.database, (database) => {
         database
           .prepare('INSERT INTO _migrations (version, name, applied_at) VALUES (?, ?, ?)')
-          .run(17, 'unsupported future migration', '2026-01-07T00:00:00.000Z');
+          .run(
+            EXPECTED_NATIVE_SCHEMA_VERSION + 1,
+            'unsupported future migration',
+            '2026-01-07T00:00:00.000Z'
+          );
       });
       const result = await runCli(sandbox, ['identity', 'show', created.canonicalName, '--json']);
       expect(result.status).toBe(1);
@@ -781,7 +786,7 @@ describe('native durable identity process boundary', () => {
         history: [
           ...before.history,
           {
-            version: 17,
+            version: EXPECTED_NATIVE_SCHEMA_VERSION + 1,
             name: 'unsupported future migration',
             applied_at: '2026-01-07T00:00:00.000Z',
           },

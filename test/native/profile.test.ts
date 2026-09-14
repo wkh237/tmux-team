@@ -11,6 +11,7 @@ import {
   type Sandbox,
 } from '../support/cli-process.js';
 import { calibrateTmuxTripwire } from './tmux-tripwire.js';
+import { EXPECTED_NATIVE_SCHEMA_VERSION } from './storage-fixture.js';
 
 async function json(sandbox: Sandbox, args: string[]): Promise<unknown> {
   const result = await runCli(sandbox, [...args, '--json']);
@@ -125,9 +126,11 @@ describe('native role and preamble process contracts', () => {
       let history: unknown[];
       let identities: unknown[];
       try {
-        writer.exec(
-          "INSERT INTO _migrations VALUES (17, 'future migration', '2026-01-01T00:00:00.000Z')"
-        );
+        writer
+          .prepare(
+            "INSERT INTO _migrations VALUES (?, 'future migration', '2026-01-01T00:00:00.000Z')"
+          )
+          .run(EXPECTED_NATIVE_SCHEMA_VERSION + 1);
         history = writer.prepare('SELECT * FROM _migrations ORDER BY version').all();
         identities = writer.prepare('SELECT * FROM identities ORDER BY id').all();
       } finally {

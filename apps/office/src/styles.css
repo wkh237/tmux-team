@@ -19,10 +19,28 @@
   background: var(--floor);
 }
 
-.prop-preview-grid svg {
+.prop-preview-grid article > svg {
   display: block;
   width: 100%;
   min-height: 8rem;
+  image-rendering: pixelated;
+}
+.avatar-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 16rem));
+  justify-content: center;
+  gap: 1rem;
+}
+.avatar-preview-grid article {
+  padding: 1rem;
+  border: 1px solid var(--grid);
+  border-radius: 0.75rem;
+  background: var(--floor);
+}
+.avatar-preview-grid article > svg {
+  display: block;
+  width: 100%;
+  min-height: 14rem;
   image-rendering: pixelated;
 }
 * {
