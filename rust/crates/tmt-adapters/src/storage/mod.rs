@@ -24,7 +24,7 @@ use std::{
 pub use errors::{StorageError, StorageErrorCode};
 use errors::{classify, incompatible};
 pub use office_board::local_owner_actor;
-pub use office_local::{LocalBlockSnapshot, LocalOfficeError};
+pub use office_local::{LocalBlockSnapshot, LocalOfficeError, LocalPropResolution};
 pub use office_profile::{LocalProfileError, LocalProfileMutation, LocalProfileSnapshot};
 pub use office_prop::{
     LocalPropCatalogError, LocalPropCatalogList, LocalPropMutation, LocalPropSnapshot,

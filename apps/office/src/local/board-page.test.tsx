@@ -58,6 +58,9 @@ function runtime(): LocalRuntime {
       },
     },
     list: async () => [],
+    preview: async () => {
+      throw new Error('Preview not used by board tests.');
+    },
     dispose: () => undefined,
     board: {
       categories: vi.fn(async () => ({

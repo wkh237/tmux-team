@@ -12,7 +12,7 @@ use std::{
 };
 use tmt_adapters::{
     interrupt::Interrupt,
-    office_block::read_layout_file,
+    office_block::{read_layout_file, read_local_layout_file},
     office_companion::{PairingCall, invoke_local_office_block, invoke_office_block},
 };
 
@@ -36,12 +36,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
             block_id,
             file,
             if_revision,
-        } => {
-            // Read and validate the complete bounded input before crossing the
-            // companion boundary; this command never overwrites the input file.
-            let layout = read_layout_file(Path::new(&file)).map_err(pairing_error)?;
-            (block_id, Some((layout, if_revision)))
-        }
+        } => (block_id, Some((file, if_revision))),
     };
     let identity = resolve_identity(selector.as_deref())?;
     let interrupt = Interrupt::install().map_err(unavailable)?;
@@ -60,14 +55,17 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
                 emulator,
                 read_only: false,
             };
-            let snapshot = match edit {
-                Some((layout, revision)) => invoke_office_block(
-                    executable,
-                    &call,
-                    block_id.as_deref(),
-                    Some((&layout, revision)),
-                    deadline,
-                ),
+            let snapshot = match edit.as_ref() {
+                Some((file, revision)) => {
+                    let layout = read_layout_file(Path::new(file)).map_err(pairing_error)?;
+                    invoke_office_block(
+                        executable,
+                        &call,
+                        block_id.as_deref(),
+                        Some((&layout, *revision)),
+                        deadline,
+                    )
+                }
                 None => invoke_office_block(executable, &call, block_id.as_deref(), None, deadline),
             }
             .map_err(remote_unavailable)?
@@ -76,13 +74,16 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
         }
         OfficeBlockTarget::Local => {
             let editing = edit.is_some();
-            let result = match edit {
-                Some((layout, revision)) => invoke_local_office_block(
-                    executable,
-                    &identity.id,
-                    Some((&layout, revision)),
-                    deadline,
-                ),
+            let result = match edit.as_ref() {
+                Some((file, revision)) => {
+                    let layout = read_local_layout_file(Path::new(file)).map_err(pairing_error)?;
+                    invoke_local_office_block(
+                        executable,
+                        &identity.id,
+                        Some((&layout, *revision)),
+                        deadline,
+                    )
+                }
                 None => invoke_local_office_block(executable, &identity.id, None, deadline),
             };
             result

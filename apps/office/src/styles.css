@@ -5,6 +5,26 @@
   font-synthesis: none;
   line-height: 1.6;
 }
+
+.prop-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 1rem;
+}
+
+.prop-preview-grid article {
+  padding: 1rem;
+  border: 1px solid var(--grid);
+  border-radius: 0.75rem;
+  background: var(--floor);
+}
+
+.prop-preview-grid svg {
+  display: block;
+  width: 100%;
+  min-height: 8rem;
+  image-rendering: pixelated;
+}
 * {
   box-sizing: border-box;
 }

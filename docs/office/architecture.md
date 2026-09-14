@@ -114,9 +114,15 @@ exclude it, so a same-name replacement inherits nothing. The SPA profile port an
 commands both call this owner. Presence is a separate binding observation: offline saved
 identities remain editable but are never drawn as present in the room.
 
-Schema 16 adds the installation-owned local prop catalog defined by
+The #238 source implementation adds schema 16 and the installation-owned local prop catalog defined by
 `contracts/office/prop-pack-v1.md`. Embedded built-ins remain outside mutable rows and
 quotas; installed exact bytes use one revisioned SQLite owner and request-scoped validation.
+This source capability is not evidence that a separately installed companion release
+contains it; use the verified release and native installation records for availability.
+`tmt-adapters::office_prop` owns the one byte/JSON/semantic validation path used by
+CLI, SQLite revalidation, and preview; reusable placement, reference, footprint,
+rotation, and room-bound rules remain in `tmt-core::office_block` without adding a
+second codec or generic extension framework.
 
 The local discussion board follows the same companion boundary without sharing
 the block model. `tmt-core::office_board` owns its bounded values, actors,

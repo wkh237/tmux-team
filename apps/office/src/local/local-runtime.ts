@@ -1,6 +1,8 @@
 import { createContext } from 'react';
-import { BlockConflict, validLayout } from '../blocks/block-contract.js';
+import { BlockConflict, defaultCatalog, validLayout } from '../blocks/block-contract.js';
 import type { Block, BlockPort, Furniture } from '../blocks/block-contract.js';
+import { BUILTIN_DIGEST, decodePropPack } from '../props/prop-contract.js';
+import type { CatalogPack } from '../props/prop-contract.js';
 import {
   decodeBoardList,
   decodeBoardShow,
@@ -35,8 +37,10 @@ export interface LocalBlockProjection {
   identityId: string;
   identityName: string;
   revision: number;
-  objects: Furniture[];
+  layout: { version: 2; objects: Furniture[] };
+  resolutions: unknown[];
   updatedAtMs: number;
+  changed?: boolean;
 }
 
 export interface LocalRuntime {
@@ -44,6 +48,7 @@ export interface LocalRuntime {
   profiles: ProfilePort;
   board: LocalBoardPort;
   list(): Promise<LocalBlockProjection[]>;
+  preview(previewId: string): Promise<CatalogPack>;
   dispose(): void;
 }
 
@@ -159,13 +164,15 @@ export function startLocalRuntime(location: Location): LocalRuntime {
     });
     return checked(response, value, decode);
   }
-  function decode(value: unknown): LocalBlockProjection {
+  function decode(value: unknown, editing = false): LocalBlockProjection {
     if (!value || typeof value !== 'object' || Array.isArray(value))
       throw new Error('Invalid block.');
     const record = value as Record<string, unknown>;
     if (
       Object.keys(record).sort().join(',') !==
-      'blockId,exists,identityId,identityName,objects,revision,updatedAtMs'
+      (editing
+        ? 'blockId,changed,exists,identityId,identityName,layout,resolutions,revision,updatedAtMs'
+        : 'blockId,exists,identityId,identityName,layout,resolutions,revision,updatedAtMs')
     )
       throw new Error('Invalid block.');
     const block = record as unknown as LocalBlockProjection;
@@ -180,10 +187,69 @@ export function startLocalRuntime(location: Location): LocalRuntime {
       block.revision <= 0 ||
       !Number.isSafeInteger(block.updatedAtMs) ||
       block.updatedAtMs <= 0 ||
-      !validLayout(block.objects)
+      !block.layout ||
+      block.layout.version !== 2 ||
+      !validLayout(block.layout.objects) ||
+      !Array.isArray(block.resolutions) ||
+      block.resolutions.length !== block.layout.objects.length ||
+      (editing && typeof block.changed !== 'boolean')
     )
       throw new Error('Invalid block.');
     return block;
+  }
+  async function catalogFor(objects: Furniture[], lifetime?: AbortSignal): Promise<CatalogPack[]> {
+    const digests = Array.from(
+      new Set(
+        objects
+          .map((item) => item.prop.split('/')[0]!)
+          .filter((digest) => digest !== BUILTIN_DIGEST)
+      )
+    );
+    if (digests.length === 0) return defaultCatalog();
+    const { response, value } = await jsonRequest(
+      '/api/v1/local/props/resolve',
+      { method: 'POST', body: JSON.stringify({ digests }) },
+      lifetime
+    );
+    return checked(response, value, (candidate) => {
+      if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate))
+        throw new Error('Invalid prop catalog.');
+      const record = candidate as Record<string, unknown>;
+      if (
+        Object.keys(record).sort().join(',') !== 'catalogRevision,packs,unavailable' ||
+        !Number.isSafeInteger(record.catalogRevision) ||
+        !Array.isArray(record.packs) ||
+        !Array.isArray(record.unavailable)
+      )
+        throw new Error('Invalid prop catalog.');
+      const packs = record.packs.map((entry) => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry))
+          throw new Error('Invalid prop catalog entry.');
+        const item = entry as Record<string, unknown>;
+        if (
+          Object.keys(item).sort().join(',') !== 'digest,pack' ||
+          typeof item.digest !== 'string' ||
+          !/^sha256:[0-9a-f]{64}$/.test(item.digest)
+        )
+          throw new Error('Invalid prop catalog entry.');
+        return { digest: item.digest, pack: decodePropPack(item.pack) };
+      });
+      if (
+        !record.unavailable.every(
+          (digest): digest is string =>
+            typeof digest === 'string' && /^sha256:[0-9a-f]{64}$/.test(digest)
+        )
+      )
+        throw new Error('Invalid unavailable prop catalog entry.');
+      const returned = [...packs.map((pack) => pack.digest), ...record.unavailable];
+      if (
+        new Set(returned).size !== returned.length ||
+        returned.length !== digests.length ||
+        returned.some((digest) => !digests.includes(digest))
+      )
+        throw new Error('Invalid prop catalog resolution.');
+      return [...defaultCatalog(), ...packs];
+    });
   }
   const blocks: BlockPort = {
     watch(blockId, changed, failed) {
@@ -201,11 +267,13 @@ export function startLocalRuntime(location: Location): LocalRuntime {
           );
           if (!response.ok) throw new LocalHttpError(response.status);
           const block = decode(value);
+          const catalog = await catalogFor(block.layout.objects, lifetime.signal);
           if (!active || disposed) return;
           changed({
             revision: block.revision,
-            objects: block.objects,
+            objects: block.layout.objects,
             updatedAtMs: block.updatedAtMs,
+            catalog,
           });
           delay = 2_000;
         } catch (error) {
@@ -232,13 +300,19 @@ export function startLocalRuntime(location: Location): LocalRuntime {
         `/api/v1/local/blocks/${encodeURIComponent(blockId)}`,
         {
           method: 'PUT',
-          body: JSON.stringify({ expectedRevision: revision, objects }),
+          body: JSON.stringify({ expectedRevision: revision, layout: { version: 2, objects } }),
         }
       );
       if (response.status === 409) throw new BlockConflict();
       if (!response.ok) throw new Error(`Local Office save failed (${response.status}).`);
-      const block = decode(value);
-      return { revision: block.revision, objects: block.objects, updatedAtMs: block.updatedAtMs };
+      const block = decode(value, true);
+      const catalog = await catalogFor(block.layout.objects);
+      return {
+        revision: block.revision,
+        objects: block.layout.objects,
+        updatedAtMs: block.updatedAtMs,
+        catalog,
+      };
     },
   };
   const board: LocalBoardPort = {
@@ -308,11 +382,29 @@ export function startLocalRuntime(location: Location): LocalRuntime {
     blocks,
     board,
     profiles,
+    async preview(previewId) {
+      if (!/^[A-Za-z0-9_-]{43}$/.test(previewId)) throw new Error('Invalid prop preview ID.');
+      const { response, value } = await jsonRequest(
+        `/api/v1/local/prop-previews/${encodeURIComponent(previewId)}`
+      );
+      return checked(response, value, (candidate) => {
+        if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate))
+          throw new Error('Invalid prop preview.');
+        const record = candidate as Record<string, unknown>;
+        if (
+          Object.keys(record).sort().join(',') !== 'digest,pack' ||
+          typeof record.digest !== 'string' ||
+          !/^sha256:[0-9a-f]{64}$/.test(record.digest)
+        )
+          throw new Error('Invalid prop preview.');
+        return { digest: record.digest, pack: decodePropPack(record.pack) };
+      });
+    },
     async list() {
       const { response, value } = await jsonRequest('/api/v1/local/blocks');
       if (!response.ok) throw new LocalHttpError(response.status);
       if (!Array.isArray(value)) throw new Error('Invalid local Office projection.');
-      return value.map(decode);
+      return value.map((item) => decode(item));
     },
     dispose() {
       disposed = true;

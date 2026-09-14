@@ -7,6 +7,7 @@ import { OfficeApp } from '../office-app.js';
 import { createOfficeRouter } from '../router.js';
 import { createWorldState } from './world-state.js';
 import type { World } from './world-contract.js';
+import { builtinFurniture } from '../blocks/block-contract.js';
 import type { Furniture } from '../blocks/block-contract.js';
 
 it('reconfirmed admission retains the mounted editor draft until an explicit save', async () => {
@@ -82,7 +83,7 @@ it('reconfirmed admission retains the mounted editor draft until an explicit sav
     await user.click(screen.getByRole('button', { name: 'Save layout' }));
     await screen.findByText('Saved · revision 1', { exact: true });
     expect(apply).toHaveBeenCalledExactlyOnceWith(world.id, 0, [
-      { asset: 'desk', x: 14, y: 14, rotation: 0 },
+      builtinFurniture('desk', 14, 14, 0),
     ]);
     await act(async () => admit(false));
     expect(screen.queryByRole('region', { name: 'Office block editor' })).toBeNull();

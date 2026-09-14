@@ -63,6 +63,13 @@ pub struct LocalPropCatalogList {
     pub next_cursor: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalPropResolutionBatch {
+    pub catalog_revision: u64,
+    pub packs: Vec<LocalPropSnapshot>,
+    pub unavailable: Vec<String>,
+}
+
 #[derive(Debug)]
 pub enum LocalPropCatalogError {
     Storage(StorageError),
@@ -127,12 +134,12 @@ impl Storage {
                 && state.previous_base_revision == Some(expected_revision)
                 && state.previous_result_revision == Some(state.revision)
             {
-                let stored = load_exact_row(&transaction, candidate.digest())?
+                let stored = load_bounded_row(&transaction, candidate.digest())?
                     .ok_or(LocalPropCatalogError::RevisionConflict)?;
-                if stored.bytes != candidate.bytes() {
+                let snapshot = snapshot_from_bounded_row(state.revision, stored)?;
+                if snapshot.pack.bytes() != candidate.bytes() {
                     return Err(LocalPropCatalogError::Corrupt);
                 }
-                let snapshot = snapshot_from_row(state.revision, stored)?;
                 transaction
                     .commit()
                     .map_err(|error| classify(error, "Finish local prop install retry"))?;
@@ -162,11 +169,11 @@ impl Storage {
             });
         }
 
-        if let Some(stored) = load_exact_row(&transaction, candidate.digest())? {
-            if stored.bytes != candidate.bytes() {
+        if let Some(stored) = load_bounded_row(&transaction, candidate.digest())? {
+            let snapshot = snapshot_from_bounded_row(state.revision, stored)?;
+            if snapshot.pack.bytes() != candidate.bytes() {
                 return Err(LocalPropCatalogError::Corrupt);
             }
-            let snapshot = snapshot_from_row(state.revision, stored)?;
             transaction
                 .commit()
                 .map_err(|error| classify(error, "Finish local prop install no-op"))?;
@@ -315,6 +322,50 @@ impl Storage {
         Ok(result)
     }
 
+    pub fn resolve_local_prop_packs(
+        &mut self,
+        digests: &[String],
+    ) -> Result<LocalPropResolutionBatch, LocalPropCatalogError> {
+        if digests
+            .iter()
+            .any(|digest| parse_pack_digest(digest).is_none())
+        {
+            return Err(LocalPropCatalogError::Invalid);
+        }
+        let transaction = self
+            .connection_mut()?
+            .transaction_with_behavior(TransactionBehavior::Deferred)
+            .map_err(|error| classify(error, "Observe local prop catalog"))?;
+        let revision = read_state(&transaction)?.revision;
+        let mut packs = Vec::new();
+        let mut unavailable = Vec::new();
+        for digest in digests {
+            let snapshot = if digest == BUILTIN_DIGEST {
+                Ok(builtin_snapshot(revision))
+            } else {
+                match load_bounded_row(&transaction, digest)? {
+                    Some(row) => snapshot_from_bounded_row(revision, row),
+                    None => Err(LocalPropCatalogError::NotFound),
+                }
+            };
+            match snapshot {
+                Ok(snapshot) => packs.push(snapshot),
+                Err(LocalPropCatalogError::NotFound | LocalPropCatalogError::Corrupt) => {
+                    unavailable.push(digest.clone());
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        transaction
+            .commit()
+            .map_err(|error| classify(error, "Finish local prop catalog observation"))?;
+        Ok(LocalPropResolutionBatch {
+            catalog_revision: revision,
+            packs,
+            unavailable,
+        })
+    }
+
     pub fn list_local_prop_packs(
         &mut self,
         limit: usize,
@@ -411,12 +462,6 @@ struct CatalogState {
     previous_result_revision: Option<u64>,
 }
 
-#[derive(Debug)]
-struct ExactRow {
-    bytes: Vec<u8>,
-    installed_at_ms: u64,
-}
-
 #[derive(Debug, Clone)]
 struct BoundedRow {
     digest: String,
@@ -511,27 +556,6 @@ fn has_row_after(
         .map_err(|error| classify(error, "Find next local prop catalog row").into())
 }
 
-fn load_exact_row(
-    transaction: &rusqlite::Transaction<'_>,
-    digest: &str,
-) -> Result<Option<ExactRow>, LocalPropCatalogError> {
-    let row = transaction
-        .query_row(
-            "SELECT bytes, installed_at_ms FROM office_prop_packs WHERE digest = ?",
-            [digest],
-            |row| Ok((row.get::<_, Vec<u8>>(0)?, row.get::<_, i64>(1)?)),
-        )
-        .optional()
-        .map_err(|error| classify(error, "Read local prop catalog row"))?;
-    row.map(|(bytes, installed_at_ms)| {
-        Ok(ExactRow {
-            bytes,
-            installed_at_ms: stored_u64(installed_at_ms)?,
-        })
-    })
-    .transpose()
-}
-
 fn load_bounded_row(
     transaction: &rusqlite::Transaction<'_>,
     digest: &str,
@@ -551,19 +575,6 @@ fn load_bounded_row(
         )
         .optional()
         .map_err(|error| classify(error, "Read bounded local prop catalog row").into())
-}
-
-fn snapshot_from_row(
-    revision: u64,
-    row: ExactRow,
-) -> Result<LocalPropSnapshot, LocalPropCatalogError> {
-    let pack = validate_pack(&row.bytes).map_err(|_| LocalPropCatalogError::Corrupt)?;
-    Ok(LocalPropSnapshot {
-        catalog_revision: revision,
-        builtin: false,
-        installed_at_ms: Some(row.installed_at_ms),
-        pack,
-    })
 }
 
 fn snapshot_from_bounded_row(
@@ -726,6 +737,82 @@ mod tests {
             Err(LocalPropCatalogError::NotFound)
         ));
         storage.close().unwrap();
+    }
+
+    #[test]
+    fn install_noop_and_retry_bound_corrupt_same_digest_rows() {
+        let oversized = vec![b' '; PACK_INPUT_LIMIT + 1];
+
+        let current_directory = TestDirectory::new();
+        let mut current = Storage::open(current_directory.path.join("state.db")).unwrap();
+        let pack = custom("Current");
+        current
+            .connection()
+            .unwrap()
+            .execute_batch("PRAGMA ignore_check_constraints = ON")
+            .unwrap();
+        current
+            .connection()
+            .unwrap()
+            .execute(
+                "INSERT INTO office_prop_packs (digest, bytes, prop_count, installed_revision, installed_at_ms) VALUES (?, ?, 1, 0, 1)",
+                params![pack.digest(), oversized],
+            )
+            .unwrap();
+        current
+            .connection()
+            .unwrap()
+            .execute_batch("PRAGMA ignore_check_constraints = OFF")
+            .unwrap();
+        assert!(matches!(
+            current.install_local_prop_pack(0, &pack),
+            Err(LocalPropCatalogError::Corrupt)
+        ));
+        assert_eq!(
+            current
+                .connection()
+                .unwrap()
+                .query_row("SELECT revision FROM office_prop_catalog", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+
+        let retry_directory = TestDirectory::new();
+        let mut retry = Storage::open(retry_directory.path.join("state.db")).unwrap();
+        let pack = custom("Retry");
+        retry.install_local_prop_pack(0, &pack).unwrap();
+        retry
+            .connection()
+            .unwrap()
+            .execute_batch("PRAGMA ignore_check_constraints = ON")
+            .unwrap();
+        retry
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE office_prop_packs SET bytes = ? WHERE digest = ?",
+                params![vec![b' '; PACK_INPUT_LIMIT + 1], pack.digest()],
+            )
+            .unwrap();
+        retry
+            .connection()
+            .unwrap()
+            .execute_batch("PRAGMA ignore_check_constraints = OFF")
+            .unwrap();
+        assert!(matches!(
+            retry.install_local_prop_pack(0, &pack),
+            Err(LocalPropCatalogError::Corrupt)
+        ));
+        assert_eq!(
+            retry
+                .connection()
+                .unwrap()
+                .query_row("SELECT revision FROM office_prop_catalog", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
     }
 
     #[test]

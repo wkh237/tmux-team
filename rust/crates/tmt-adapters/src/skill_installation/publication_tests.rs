@@ -98,7 +98,7 @@ fn failed_office_publication_preserves_a_recoverable_backup_and_can_retry() {
     assert!(failure.to_string().contains(backup.to_str().unwrap()));
 
     let retry = install_office(&env, &global, false).unwrap();
-    assert_eq!(retry.installed.len(), 1);
+    assert_eq!(retry.installed.len(), 2);
     assert!(retry.installed[0].changed);
     assert!(fs::symlink_metadata(&target).unwrap().is_symlink());
     assert_eq!(

@@ -1,54 +1,43 @@
 import { useId } from 'react';
 import type { Furniture } from './block-contract.js';
-import { BLOCK_SIZE, footprint, FURNITURE } from './block-contract.js';
+import { BLOCK_SIZE, defaultCatalog, footprint } from './block-contract.js';
 import { Avatar } from '../profiles/avatar.js';
 import type { Appearance } from '../profiles/profile-contract.js';
+import type { CatalogPack } from '../props/prop-contract.js';
+import { indexedProp } from '../props/prop-contract.js';
+import { IndexedProp } from '../props/indexed-prop.js';
 
-/** Only curated vector primitives render here; stored data cannot supply markup. */
-function Sprite({ item }: { item: Furniture }) {
-  const { width, height } = FURNITURE[item.asset];
+function ResolvedProp({ item, catalog }: { item: Furniture; catalog: CatalogPack[] }) {
+  const [digest, key] = item.prop.split('/');
+  const digestPrefix = digest?.startsWith('sha256:')
+    ? digest.slice('sha256:'.length, 'sha256:'.length + 12)
+    : '000000000000';
+  const pack = catalog.find((candidate) => candidate.digest === digest)?.pack;
+  const prop = pack && key ? indexedProp(pack, key) : undefined;
   const size = footprint(item);
   return (
     <g
-      transform={`translate(${item.x + size.width / 2} ${item.y + size.height / 2}) rotate(${item.rotation * 90}) translate(${-width / 2} ${-height / 2})`}
+      transform={`translate(${item.x + size.width / 2} ${item.y + size.height / 2}) rotate(${item.rotation * 90}) translate(${-item.footprint.width / 2} ${-item.footprint.height / 2})`}
     >
-      {item.asset === 'desk' && (
-        <>
-          <rect x="0.2" y="0.3" width="3.6" height="1.6" fill="var(--wood-dark)" />
-          <rect width="4" height="1.5" rx="0.15" fill="var(--wood)" />
-          <rect x="1.4" y="0.2" width="1.3" height="0.75" rx="0.08" fill="var(--ink)" />
-          <rect x="1.55" y="0.3" width="1" height="0.45" fill="var(--screen)" />
-          <rect x="1.5" y="1.05" width="1.1" height="0.25" fill="var(--paper)" />
-        </>
-      )}
-      {item.asset === 'chair' && (
-        <>
-          <rect x="0.3" y="0.3" width="1.4" height="1.5" rx="0.3" fill="var(--ink)" />
-          <rect x="0.3" y="0.2" width="1.4" height="0.5" rx="0.2" fill="var(--blue-dark)" />
-          <rect x="0.4" y="0.8" width="1.2" height="0.8" rx="0.2" fill="var(--blue)" />
-        </>
-      )}
-      {item.asset === 'plant' && (
-        <>
-          <rect x="0.5" y="1" width="1" height="0.8" rx="0.15" fill="var(--clay)" />
-          <path d="M1 1.4 C-0.5 0.5 0.2 -0.4 1 0.8 C1.9 -0.5 2.8 0.6 1 1.4" fill="var(--leaf)" />
-          <path d="M1 1.5 V0.5" stroke="var(--leaf-dark)" strokeWidth="0.1" />
-        </>
-      )}
-      {item.asset === 'rug' && (
-        <>
-          <rect width="6" height="4" rx="0.15" fill="var(--rug)" />
+      {pack && prop ? (
+        <IndexedProp pack={pack} prop={prop} />
+      ) : (
+        <g role="img" aria-label={`Unavailable prop ${digestPrefix}`}>
           <rect
-            x="0.3"
-            y="0.3"
-            width="5.4"
-            height="3.4"
-            fill="none"
-            stroke="var(--paper)"
-            strokeWidth="0.12"
+            width={item.footprint.width}
+            height={item.footprint.height}
+            fill="var(--floor)"
+            stroke="var(--selection)"
+            strokeWidth="0.15"
+            strokeDasharray="0.3 0.2"
           />
-          <path d="M1 2 H5 M3 1 V3" stroke="var(--rug-dark)" strokeWidth="0.15" />
-        </>
+          <text x="0.25" y="0.65" fontSize="0.45" fill="var(--ink)">
+            Unavailable prop
+          </text>
+          <text x="0.25" y="1.2" fontSize="0.32" fill="var(--ink)" opacity="0.65">
+            {digestPrefix}
+          </text>
+        </g>
       )}
     </g>
   );
@@ -60,19 +49,21 @@ export function BlockScene({
   select,
   move,
   avatar,
+  catalog = defaultCatalog(),
 }: {
   objects: Furniture[];
   selected: number | null;
   select: (index: number) => void;
   move: (x: number, y: number) => void;
   avatar?: { appearance: Appearance; name: string; displayLabel?: string };
+  catalog?: CatalogPack[];
 }) {
   const pattern = useId();
   return (
     <svg
       className="block-scene"
       viewBox={`-1 -1 ${BLOCK_SIZE + 2} ${BLOCK_SIZE + 2}`}
-      role="img"
+      role="group"
       aria-label="Office layout, 32 by 32 tiles. Use the furniture controls to edit."
       onClick={(event) => {
         const matrix = event.currentTarget.getScreenCTM();
@@ -99,7 +90,7 @@ export function BlockScene({
               select(index);
             }}
           >
-            <Sprite item={item} />
+            <ResolvedProp item={item} catalog={catalog} />
             {selected === index && (
               <rect
                 x={item.x - 0.1}

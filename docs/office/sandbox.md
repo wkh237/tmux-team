@@ -1,9 +1,10 @@
 # Data-only Office sandbox
 
-Status: proposed data-only sandbox; the fixed catalog, local block path and
-remote pairing/assignment path are implemented, but custom-prop authoring and
-exploration APIs are not shipped. [Architecture](architecture.md)
-describes current behavior; [commands](commands.md) owns proposed CLI syntax.
+Status: the #238 source branch implements bounded local data-only prop creation,
+catalog, preview, placement, and placeholders. Installed availability still
+requires a coordinated verified release; remote publication and exploration APIs
+remain proposals. [Architecture](architecture.md) describes current behavior;
+[commands](commands.md) owns implemented and proposed CLI syntax.
 
 The local-first M1 path can use the fixed catalog through direct local block
 commands or the optional loopback UI without Firebase, remote pairing or a

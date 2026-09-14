@@ -55,6 +55,15 @@ function officeSkill(): Buffer {
   );
 }
 
+function propCreateSkill(): Buffer {
+  return readFileSync(
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../skills/tmt-prop-create/SKILL.md'
+    )
+  );
+}
+
 function inboxTarget(target: string): string {
   return path.join(path.dirname(target), 'tmt-inbox');
 }
@@ -138,6 +147,10 @@ describe('native installation process contract', () => {
       expect(officeGuidance.status).toBe(0);
       expect(officeGuidance.stderr).toBe('');
       expect(officeGuidance.stdout).toBe(officeSkill().toString('utf8'));
+      const propGuidance = await runCli(moved, ['learn', '--skill', 'tmt-prop-create']);
+      expect(propGuidance.status).toBe(0);
+      expect(propGuidance.stderr).toBe('');
+      expect(propGuidance.stdout).toBe(propCreateSkill().toString('utf8'));
       expect(existsSync(sandbox.localConfig)).toBe(false);
       expect(existsSync(sandbox.globalDir)).toBe(false);
 

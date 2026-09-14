@@ -1,8 +1,8 @@
 # Local data-only prop pack v1
 
-Status: proposed contract for #238. No command, catalog, preview, or custom-prop
-renderer described here is shipped until this contract and its implementation
-pass review. Remote publication and world admission remain M2.
+Status: implemented in the #238 source branch after contract review. Installed
+availability still requires a coordinated verified release. Remote publication
+and world admission remain M2.
 
 ## Boundary
 
@@ -62,14 +62,14 @@ and #238 does not introduce a second general JSON framework. Literal vectors
 cover duplicates in the envelope, footprint, and prop objects in Rust and
 TypeScript.
 
-| Value                               | Limit |
-| ----------------------------------- | ----: |
-| Complete UTF-8 file                 | 128 KiB |
-| Props                               | 1 through 16 |
-| Total palette-index characters      | 65,536 |
-| Palette-index characters per prop   | 1 through 4,096 |
-| Raster width or height              | 1 through 64 |
-| Palette entries                     | 1 through 16 |
+| Value                               |             Limit |
+| ----------------------------------- | ----------------: |
+| Complete UTF-8 file                 |           128 KiB |
+| Props                               |      1 through 16 |
+| Total palette-index characters      |            65,536 |
+| Palette-index characters per prop   |   1 through 4,096 |
+| Raster width or height              |      1 through 64 |
+| Palette entries                     |      1 through 16 |
 | Unrotated footprint width or height | 1 through 8 tiles |
 
 `label`, `credit`, and each prop `label` are plain single-line Unicode strings.

@@ -5,7 +5,8 @@ use serde_json::{Value, json};
 use std::path::Path;
 use tmt_core::{
     office_block::{
-        BLOCK_SIZE, BlockLayout, Furniture, FurnitureAsset, INPUT_LIMIT, MAX_REVISION, OBJECT_LIMIT,
+        BLOCK_SIZE, BlockLayout, Furniture, FurnitureAsset, INPUT_LIMIT, LocalBlockLayout,
+        MAX_REVISION, OBJECT_LIMIT, PropPlacement,
     },
     office_protocol::OfficeError,
 };
@@ -29,6 +30,37 @@ struct ObjectInput {
     x: u8,
     y: u8,
     rotation: u8,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum LocalLayoutInput {
+    V2(LocalLayoutV2Input),
+    V1(LayoutInput),
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct LocalLayoutV2Input {
+    version: u8,
+    objects: Vec<PropPlacementInput>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PropPlacementInput {
+    prop: String,
+    footprint: FootprintInput,
+    x: u8,
+    y: u8,
+    rotation: u8,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FootprintInput {
+    width: u8,
+    height: u8,
 }
 
 fn validated_objects(objects: Vec<ObjectInput>) -> Result<BlockLayout, OfficeError> {
@@ -59,6 +91,54 @@ pub fn decode_layout(bytes: &[u8]) -> Result<BlockLayout, OfficeError> {
     let input: LayoutInput =
         serde_json::from_slice(bytes).map_err(|_| OfficeError::LayoutInvalid)?;
     input.validate()
+}
+
+pub fn read_local_layout_file(path: &Path) -> Result<LocalBlockLayout, OfficeError> {
+    let bytes =
+        crate::bounded_file::read(path, INPUT_LIMIT).map_err(|_| OfficeError::LayoutInvalid)?;
+    decode_local_layout(&bytes)
+}
+
+pub fn decode_local_layout(bytes: &[u8]) -> Result<LocalBlockLayout, OfficeError> {
+    if bytes.len() > INPUT_LIMIT {
+        return Err(OfficeError::LayoutInvalid);
+    }
+    match serde_json::from_slice::<LocalLayoutInput>(bytes)
+        .map_err(|_| OfficeError::LayoutInvalid)?
+    {
+        LocalLayoutInput::V1(input) => input
+            .validate()
+            .map(|layout| LocalBlockLayout::from_legacy(&layout)),
+        LocalLayoutInput::V2(input) if input.version == 2 => {
+            let objects = input
+                .objects
+                .into_iter()
+                .map(|object| PropPlacement {
+                    prop: object.prop,
+                    footprint_width: object.footprint.width,
+                    footprint_height: object.footprint.height,
+                    x: object.x,
+                    y: object.y,
+                    rotation: object.rotation,
+                })
+                .collect();
+            LocalBlockLayout::new(objects).map_err(|_| OfficeError::LayoutInvalid)
+        }
+        LocalLayoutInput::V2(_) => Err(OfficeError::LayoutInvalid),
+    }
+}
+
+pub fn local_layout_value(layout: &LocalBlockLayout) -> Value {
+    json!({
+        "version":2,
+        "objects":layout.objects().iter().map(|object| json!({
+            "prop":object.prop,
+            "footprint":{"width":object.footprint_width,"height":object.footprint_height},
+            "x":object.x,
+            "y":object.y,
+            "rotation":object.rotation
+        })).collect::<Vec<_>>()
+    })
 }
 
 pub fn layout_value(layout: &BlockLayout) -> Value {

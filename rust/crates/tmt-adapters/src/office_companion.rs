@@ -71,7 +71,7 @@ pub fn invoke_office_pairing(
 pub fn invoke_local_office_block(
     executable: &Path,
     identity_id: &str,
-    edit: Option<(&tmt_core::office_block::BlockLayout, u64)>,
+    edit: Option<(&tmt_core::office_block::LocalBlockLayout, u64)>,
     deadline: Instant,
 ) -> io::Result<Result<serde_json::Value, OfficeError>> {
     let mut input = serde_json::json!({"identityId": identity_id});
@@ -79,7 +79,7 @@ pub fn invoke_local_office_block(
         if revision >= tmt_core::office_block::MAX_REVISION {
             return Ok(Err(OfficeError::LayoutInvalid));
         }
-        input["layout"] = crate::office_block::layout_value(layout);
+        input["layout"] = crate::office_block::local_layout_value(layout);
         input["expectedRevision"] = serde_json::json!(revision);
         OfficeInvocation::LocalBlockApply
     } else {
@@ -93,7 +93,7 @@ pub fn invoke_local_office_block(
         }
         Err(error) => return Err(error),
     };
-    decode_local_block_reply(&bytes, identity_id)
+    decode_local_block_reply(&bytes, identity_id, edit.is_some())
 }
 
 pub fn invoke_local_office_profile(
@@ -125,6 +125,209 @@ pub fn invoke_local_office_profile(
         Err(error) => return Err(error),
     };
     decode_local_profile_reply(&bytes, identity_id, edit.is_some())
+}
+
+pub fn invoke_local_office_prop(
+    executable: &Path,
+    operation: OfficeInvocation,
+    input: &serde_json::Value,
+    deadline: Instant,
+) -> io::Result<Result<serde_json::Value, OfficeError>> {
+    if !matches!(
+        operation,
+        OfficeInvocation::LocalPropValidate
+            | OfficeInvocation::LocalPropInstall
+            | OfficeInvocation::LocalPropRemove
+            | OfficeInvocation::LocalPropList
+            | OfficeInvocation::LocalPropShow
+    ) {
+        return Err(invalid_pairing());
+    }
+    let input = serde_json::to_vec(input)?;
+    if input.len() > 180_000 {
+        return Err(invalid_pairing());
+    }
+    let bytes = match invoke_json_bounded(executable, operation, &input, deadline, 131_072) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+            return Ok(Err(OfficeError::Busy));
+        }
+        Err(error) => return Err(error),
+    };
+    let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| invalid_pairing())?;
+    let object = value.as_object().ok_or_else(invalid_pairing)?;
+    if object.len() == 1
+        && let Some(error) = value["error"].as_str().and_then(OfficeError::parse)
+    {
+        return Ok(Err(error));
+    }
+    if !valid_local_prop_reply(operation, &value) {
+        return Err(invalid_pairing());
+    }
+    Ok(Ok(value))
+}
+
+fn valid_local_prop_reply(operation: OfficeInvocation, value: &serde_json::Value) -> bool {
+    match operation {
+        OfficeInvocation::LocalPropValidate => valid_prop_pack_projection(value, &[]),
+        OfficeInvocation::LocalPropInstall => {
+            valid_prop_pack_projection(
+                value,
+                &["builtin", "catalogRevision", "installedAtMs", "changed"],
+            ) && value["builtin"].is_boolean()
+                && safe_u64(&value["catalogRevision"])
+                && valid_install_time(value)
+                && value["changed"].is_boolean()
+        }
+        OfficeInvocation::LocalPropRemove => {
+            exact_object(value, &["digest", "catalogRevision", "changed"])
+                && valid_prop_digest(&value["digest"])
+                && safe_u64(&value["catalogRevision"])
+                && value["changed"].is_boolean()
+        }
+        OfficeInvocation::LocalPropShow => {
+            valid_prop_pack_projection(value, &["builtin", "catalogRevision", "installedAtMs"])
+                && value["builtin"].is_boolean()
+                && safe_u64(&value["catalogRevision"])
+                && valid_install_time(value)
+        }
+        OfficeInvocation::LocalPropList => {
+            exact_object(
+                value,
+                &[
+                    "catalogRevision",
+                    "builtins",
+                    "packs",
+                    "excluded",
+                    "nextCursor",
+                ],
+            ) && safe_u64(&value["catalogRevision"])
+                && value["builtins"].as_array().is_some_and(|items| {
+                    items.len() == 1
+                        && items.iter().all(|item| {
+                            valid_prop_snapshot_projection(item)
+                                && item["builtin"].as_bool() == Some(true)
+                                && item["installedAtMs"].is_null()
+                                && item["catalogRevision"] == value["catalogRevision"]
+                        })
+                })
+                && value["packs"].as_array().is_some_and(|items| {
+                    items.len() <= 20
+                        && items.iter().all(|item| {
+                            valid_prop_snapshot_projection(item)
+                                && item["builtin"].as_bool() == Some(false)
+                                && item["installedAtMs"].as_u64().is_some_and(|time| time > 0)
+                                && item["catalogRevision"] == value["catalogRevision"]
+                        })
+                })
+                && value["excluded"].as_array().is_some_and(|items| {
+                    items.len() <= 20
+                        && items.iter().all(|item| {
+                            exact_object(item, &["digest", "reason"])
+                                && valid_prop_digest(&item["digest"])
+                                && matches!(
+                                    item["reason"].as_str(),
+                                    Some("oversized" | "digestMismatch" | "invalidDocument")
+                                )
+                        })
+                })
+                && cursor_value(&value["nextCursor"])
+        }
+        _ => false,
+    }
+}
+
+fn valid_prop_snapshot_projection(value: &serde_json::Value) -> bool {
+    valid_prop_pack_projection(value, &["builtin", "catalogRevision", "installedAtMs"])
+        && value["builtin"].is_boolean()
+        && safe_u64(&value["catalogRevision"])
+        && (value["installedAtMs"].is_null() || safe_u64(&value["installedAtMs"]))
+}
+
+fn valid_install_time(value: &serde_json::Value) -> bool {
+    match value["builtin"].as_bool() {
+        Some(true) => value["installedAtMs"].is_null(),
+        Some(false) => value["installedAtMs"].as_u64().is_some_and(|time| time > 0),
+        None => false,
+    }
+}
+
+fn valid_prop_pack_projection(value: &serde_json::Value, extra: &[&str]) -> bool {
+    let mut fields = vec![
+        "digest",
+        "formatVersion",
+        "label",
+        "credit",
+        "license",
+        "fileBytes",
+        "pixelCount",
+        "props",
+    ];
+    fields.extend_from_slice(extra);
+    exact_object(value, &fields)
+        && valid_prop_digest(&value["digest"])
+        && value["formatVersion"].as_u64() == Some(1)
+        && bounded_safe_text(&value["label"], 80)
+        && bounded_safe_text(&value["credit"], 120)
+        && value["license"].as_str().is_some_and(|text| {
+            (1..=64).contains(&text.len())
+                && text
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b".+-".contains(&byte))
+        })
+        && value["fileBytes"]
+            .as_u64()
+            .is_some_and(|bytes| (1..=128 * 1024).contains(&bytes))
+        && value["pixelCount"]
+            .as_u64()
+            .is_some_and(|pixels| (1..=65_536).contains(&pixels))
+        && value["props"].as_array().is_some_and(|props| {
+            !props.is_empty() && props.len() <= 16 && props.iter().all(valid_prop_summary)
+        })
+}
+
+fn valid_prop_summary(value: &serde_json::Value) -> bool {
+    exact_object(value, &["key", "label", "footprint", "raster"])
+        && value["key"].as_str().is_some_and(|key| {
+            (1..=32).contains(&key.len())
+                && key.bytes().enumerate().all(|(index, byte)| match byte {
+                    b'a'..=b'z' => true,
+                    b'0'..=b'9' | b'-' => index > 0,
+                    _ => false,
+                })
+        })
+        && bounded_safe_text(&value["label"], 80)
+        && valid_dimensions(&value["footprint"], 8)
+        && valid_dimensions(&value["raster"], 64)
+}
+
+fn valid_dimensions(value: &serde_json::Value, limit: u64) -> bool {
+    exact_object(value, &["width", "height"])
+        && value["width"]
+            .as_u64()
+            .is_some_and(|size| (1..=limit).contains(&size))
+        && value["height"]
+            .as_u64()
+            .is_some_and(|size| (1..=limit).contains(&size))
+}
+
+fn valid_prop_digest(value: &serde_json::Value) -> bool {
+    value
+        .as_str()
+        .and_then(crate::office_prop::parse_pack_digest)
+        .is_some()
+}
+
+fn bounded_safe_text(value: &serde_json::Value, limit: usize) -> bool {
+    value.as_str().is_some_and(|text| {
+        (1..=limit).contains(&text.len()) && !text.chars().any(char::is_control)
+    })
+}
+
+fn exact_object(value: &serde_json::Value, fields: &[&str]) -> bool {
+    value.as_object().is_some_and(|object| {
+        object.len() == fields.len() && fields.iter().all(|field| object.contains_key(*field))
+    })
 }
 
 fn decode_local_profile_reply(
@@ -483,6 +686,7 @@ fn require_board_capability<T>(bytes: &[u8], dispatch: impl FnOnce() -> T) -> io
 fn decode_local_block_reply(
     bytes: &[u8],
     identity_id: &str,
+    editing: bool,
 ) -> io::Result<Result<serde_json::Value, OfficeError>> {
     if bytes.len() > 4096 {
         return Err(invalid_pairing());
@@ -494,18 +698,21 @@ fn decode_local_block_reply(
     {
         return Ok(Err(error));
     }
-    if object.len() != 7
-        || ![
-            "exists",
-            "identityId",
-            "identityName",
-            "blockId",
-            "revision",
-            "objects",
-            "updatedAtMs",
-        ]
-        .iter()
-        .all(|key| object.contains_key(*key))
+    let mut expected = vec![
+        "exists",
+        "identityId",
+        "identityName",
+        "blockId",
+        "revision",
+        "layout",
+        "resolutions",
+        "updatedAtMs",
+    ];
+    if editing {
+        expected.push("changed");
+    }
+    if object.len() != expected.len()
+        || !expected.iter().all(|key| object.contains_key(*key))
         || value["identityId"].as_str() != Some(identity_id)
         || value["identityName"].as_str().is_none_or(str::is_empty)
         || value["revision"].as_u64().is_none()
@@ -535,8 +742,24 @@ fn decode_local_block_reply(
     {
         return Err(invalid_pairing());
     }
-    let layout = serde_json::to_vec(&serde_json::json!({"objects": value["objects"]}))?;
-    crate::office_block::decode_layout(&layout).map_err(|_| invalid_pairing())?;
+    let layout = serde_json::to_vec(&value["layout"])?;
+    let layout =
+        crate::office_block::decode_local_layout(&layout).map_err(|_| invalid_pairing())?;
+    let resolutions = value["resolutions"]
+        .as_array()
+        .ok_or_else(invalid_pairing)?;
+    if resolutions.len() != layout.objects().len()
+        || resolutions.iter().enumerate().any(|(index, resolution)| {
+            resolution["index"].as_u64() != Some(index as u64)
+                || !matches!(
+                    resolution["status"].as_str(),
+                    Some("available" | "unavailable")
+                )
+        })
+        || (editing && value["changed"].as_bool().is_none())
+    {
+        return Err(invalid_pairing());
+    }
     Ok(Ok(value))
 }
 
@@ -918,11 +1141,12 @@ mod pairing_tests {
             "identityName": "Alice",
             "blockId": block_id,
             "revision": 1,
-            "objects": [],
+            "layout": {"version":2,"objects":[]},
+            "resolutions": [],
             "updatedAtMs": 1
         });
         assert!(
-            decode_local_block_reply(existing.to_string().as_bytes(), identity_id)
+            decode_local_block_reply(existing.to_string().as_bytes(), identity_id, false)
                 .unwrap()
                 .is_ok()
         );
@@ -932,22 +1156,77 @@ mod pairing_tests {
             "identityName": "Alice",
             "blockId": null,
             "revision": 0,
-            "objects": [],
+            "layout": {"version":2,"objects":[]},
+            "resolutions": [],
             "updatedAtMs": 0
         });
         assert!(
-            decode_local_block_reply(missing.to_string().as_bytes(), identity_id)
+            decode_local_block_reply(missing.to_string().as_bytes(), identity_id, false)
                 .unwrap()
                 .is_ok()
         );
         for invalid in [
-            serde_json::json!({"exists":true,"identityId":identity_id,"identityName":"Alice","blockId":block_id,"revision":0,"objects":[],"updatedAtMs":1}),
-            serde_json::json!({"exists":false,"identityId":identity_id,"identityName":"Alice","blockId":17,"revision":0,"objects":[],"updatedAtMs":0}),
-            serde_json::json!({"exists":false,"identityId":identity_id,"identityName":"","blockId":null,"revision":0,"objects":[],"updatedAtMs":0}),
-            serde_json::json!({"exists":false,"identityId":identity_id,"identityName":"Alice","blockId":null,"revision":0,"objects":[],"updatedAtMs":0,"token":"private"}),
+            serde_json::json!({"exists":true,"identityId":identity_id,"identityName":"Alice","blockId":block_id,"revision":0,"layout":{"version":2,"objects":[]},"resolutions":[],"updatedAtMs":1}),
+            serde_json::json!({"exists":false,"identityId":identity_id,"identityName":"Alice","blockId":17,"revision":0,"layout":{"version":2,"objects":[]},"resolutions":[],"updatedAtMs":0}),
+            serde_json::json!({"exists":false,"identityId":identity_id,"identityName":"","blockId":null,"revision":0,"layout":{"version":2,"objects":[]},"resolutions":[],"updatedAtMs":0}),
+            serde_json::json!({"exists":false,"identityId":identity_id,"identityName":"Alice","blockId":null,"revision":0,"layout":{"version":2,"objects":[]},"resolutions":[],"updatedAtMs":0,"token":"private"}),
         ] {
-            assert!(decode_local_block_reply(invalid.to_string().as_bytes(), identity_id).is_err());
+            assert!(
+                decode_local_block_reply(invalid.to_string().as_bytes(), identity_id, false)
+                    .is_err()
+            );
         }
+    }
+
+    #[test]
+    fn local_prop_replies_are_exact_and_bounded() {
+        let pack = serde_json::json!({
+            "digest":"sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "formatVersion":1,
+            "label":"Lamp pack",
+            "credit":"Test",
+            "license":"MIT",
+            "fileBytes":128,
+            "pixelCount":1,
+            "props":[{
+                "key":"lamp",
+                "label":"Lamp",
+                "footprint":{"width":1,"height":1},
+                "raster":{"width":1,"height":1}
+            }]
+        });
+        assert!(valid_local_prop_reply(
+            OfficeInvocation::LocalPropValidate,
+            &pack
+        ));
+        let mut installed = pack.clone();
+        installed["builtin"] = serde_json::json!(false);
+        installed["catalogRevision"] = serde_json::json!(1);
+        installed["installedAtMs"] = serde_json::json!(1);
+        installed["changed"] = serde_json::json!(true);
+        assert!(valid_local_prop_reply(
+            OfficeInvocation::LocalPropInstall,
+            &installed
+        ));
+        installed["unexpected"] = serde_json::json!(true);
+        assert!(!valid_local_prop_reply(
+            OfficeInvocation::LocalPropInstall,
+            &installed
+        ));
+        let list = serde_json::json!({
+            "catalogRevision":0,
+            "builtins":[{
+                "digest":pack["digest"], "formatVersion":1, "label":"Built-ins",
+                "credit":"TMT", "license":"MIT", "fileBytes":128, "pixelCount":1,
+                "props":pack["props"], "builtin":true, "catalogRevision":0,
+                "installedAtMs":null
+            }],
+            "packs":[], "excluded":[], "nextCursor":null
+        });
+        assert!(valid_local_prop_reply(
+            OfficeInvocation::LocalPropList,
+            &list
+        ));
     }
 
     #[test]

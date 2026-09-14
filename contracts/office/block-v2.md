@@ -1,8 +1,8 @@
 # Local block layout v2
 
-Status: proposed local successor contract for #238. It is not shipped and does
-not change the immutable remote [block v1](block-v1.md) contract or Firestore
-Rules. Version 2 extends the existing local block owner with immutable prop
+Status: implemented in the #238 source branch; installed availability still
+requires a coordinated verified release. It does not change the immutable remote
+[block v1](block-v1.md) contract or Firestore Rules. Version 2 extends the existing local block owner with immutable prop
 references while preserving its 32×32 room, ordered paint model, 16-object limit,
 revision semantics, identity ownership, and one storage row per block.
 
@@ -143,10 +143,10 @@ Block-v2 fixtures pin its exact JSON bytes and digest and map legacy assets:
 
 | v1 asset | Built-in prop key |
 | -------- | ----------------- |
-| `desk`   | `desk` |
-| `chair`  | `chair` |
-| `plant`  | `plant` |
-| `rug`    | `rug` |
+| `desk`   | `desk`            |
+| `chair`  | `chair`           |
+| `plant`  | `plant`           |
+| `rug`    | `rug`             |
 
 Legacy SQLite token lists and v1 command input map to these digest-pinned
 placements with their existing footprints. A read performs that mapping only in

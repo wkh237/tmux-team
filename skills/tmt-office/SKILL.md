@@ -52,10 +52,11 @@ update the compatible CLI first and keep both artifacts together. Do not infer
 local-service support from downloaded bytes or advertise an unpublished source
 candidate as a public release.
 
-Office install and upgrade also install or refresh this optional skill through
-the existing managed-skill owner. Existing managed custom roots are included.
-An unmanaged `tmt-office` target is preserved unless the user explicitly
-authorizes `--force`, which creates a recoverable backup. Binary activation can
+Office install and upgrade also install or refresh this optional skill and the
+data-only `tmt-prop-create` guidance through the existing managed-skill owner.
+Existing managed custom roots are included. An unmanaged optional target is
+preserved unless the user explicitly authorizes `--force`, which creates a
+recoverable backup. Binary activation can
 succeed before skill publication fails; report both parts truthfully and retry
 the same install or upgrade selection after resolving the stated conflict. Keep
 any reported `skills.pendingBackup` path available for recovery.

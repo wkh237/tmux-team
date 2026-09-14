@@ -5,8 +5,10 @@ schema. It grants no Office access and does not replace pairing.
 
 The core-owned `OfficeInvocation` has exact operations `probe`, `capabilities`, `pair-begin`,
 `pair-poll`, `pair-status`, `unpair`, `inspect`, `sync`, `block-show`, `block-apply`,
-`local-block-show`, `local-block-apply`, `board-post`, `board-list`, `board-show`,
-`board-reply`, `board-edit`, `board-delete` and `board-categories`. Its argument vector is
+`local-block-show`, `local-block-apply`, `local-profile-show`, `local-profile-apply`,
+`local-prop-validate`, `local-prop-install`, `local-prop-remove`, `local-prop-list`,
+`local-prop-show`, `board-post`, `board-list`, `board-show`, `board-reply`, `board-edit`,
+`board-delete` and `board-categories`. Its argument vector is
 `__tmt-office`, `1`, `<operation>`. Unknown versions, operations,
 extra arguments and non-UTF-8 arguments fail with exit 1, empty stdout and a brief
 stderr diagnostic. There is no arbitrary argv forwarding or shell evaluation.
@@ -66,10 +68,11 @@ pairing, remote availability, granted capabilities or service startup.
 literal positive/negative test vectors. The separate `tmt-office` executable
 depends on core and the shared adapters, with Office-specific deployment decoding
 enabled only for that consumer. Its probe performs no Firebase, SQLite, network
-or credential-store operations. Local cargo-dist packaging is
-available; no public release has been published. Synthetic archive process tests
-exercise the real compiled companion. The independent native artifact verifier
-separately checks actual Office archives; neither constitutes public publication.
+or credential-store operations. Local cargo-dist packaging is available, while
+public availability remains whatever the repository's current verified release
+page and native installation guidance state. Synthetic archive process tests exercise
+the real compiled companion. The independent native artifact verifier separately
+checks actual Office archives; neither constitutes public publication.
 
 ## Pairing operations
 
@@ -86,6 +89,13 @@ lock contention; unclassified process/transport failures after launch never
 become a busy/no-write claim.
 Unsupported operations from older companions
 are failures, never evidence of a saved layout. See [block v1](block-v1.md).
+
+Local profile and prop operations use their exact bounded contracts rather than
+the remote block envelope. Profile payloads are bounded to 8 KiB. Prop candidate
+payloads carry validated data-only bytes through the private child boundary and
+remain bounded to the 128 KiB source limit plus encoding overhead; catalog reads
+return exact allowlisted projections. See [profile v1](profile-v1.md),
+[prop pack v1](prop-pack-v1.md), and [local block v2](block-v2.md).
 
 Pairing and inspect operations consume one bounded JSON object on stdin (4096 bytes):
 `world`, `identityId`, `emulator` and `readOnly`, with no unknown or duplicate

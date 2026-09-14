@@ -2,6 +2,7 @@ import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 import { BlockContext } from '../blocks/block-view.js';
+import { builtinFurniture } from '../blocks/block-contract.js';
 import type { Block, BlockPort } from '../blocks/block-contract.js';
 import { OfficeSpaces, SpaceContext } from './space-view.js';
 import type { SpacePort } from './space-contract.js';
@@ -13,7 +14,7 @@ it('switching targets disposes the old editor and late saves cannot replace home
   let finish!: (block: Block) => void;
   const home: BlockPort = {
     watch: (_world, next) => {
-      next({ revision: 3, objects: [{ asset: 'plant', x: 1, y: 1, rotation: 0 }], updatedAtMs: 1 });
+      next({ revision: 3, objects: [builtinFurniture('plant', 1, 1, 0)], updatedAtMs: 1 });
       return homeStop;
     },
     apply: vi.fn(async () => {
@@ -66,7 +67,7 @@ it('switching targets disposes the old editor and late saves cannot replace home
     await user.click(screen.getByRole('button', { name: 'Add desk' }));
     await user.click(screen.getByRole('button', { name: 'Save layout' }));
     expect(retained.apply).toHaveBeenCalledExactlyOnceWith(world.id, 0, [
-      { asset: 'desk', x: 14, y: 14, rotation: 0 },
+      builtinFurniture('desk', 14, 14, 0),
     ]);
     await user.click(screen.getByRole('button', { name: 'Open home block' }));
     expect(retainedStop).toHaveBeenCalledOnce();

@@ -74,6 +74,15 @@ fn main() -> ExitCode {
                         tmt_adapters::office_local::execute(operation, &input)
                     } else if matches!(
                         operation,
+                        OfficeInvocation::LocalPropValidate
+                            | OfficeInvocation::LocalPropInstall
+                            | OfficeInvocation::LocalPropRemove
+                            | OfficeInvocation::LocalPropList
+                            | OfficeInvocation::LocalPropShow
+                    ) {
+                        tmt_adapters::office_prop::execute(operation, &input)
+                    } else if matches!(
+                        operation,
                         OfficeInvocation::LocalProfileShow | OfficeInvocation::LocalProfileApply
                     ) {
                         tmt_adapters::office_profile::execute(operation, &input)
@@ -110,6 +119,11 @@ fn main() -> ExitCode {
 fn input_sentinel_limit(operation: OfficeInvocation) -> u64 {
     if matches!(
         operation,
+        OfficeInvocation::LocalPropValidate | OfficeInvocation::LocalPropInstall
+    ) {
+        180_001
+    } else if matches!(
+        operation,
         OfficeInvocation::BoardPost
             | OfficeInvocation::BoardList
             | OfficeInvocation::BoardShow
@@ -135,6 +149,10 @@ mod input_limit_tests {
             4_097
         );
         assert_eq!(input_sentinel_limit(OfficeInvocation::BoardPost), 65_537);
+        assert_eq!(
+            input_sentinel_limit(OfficeInvocation::LocalPropInstall),
+            180_001
+        );
         assert_eq!(
             input_sentinel_limit(OfficeInvocation::BoardCategories),
             65_537

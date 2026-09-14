@@ -781,7 +781,7 @@ describe('native SQLite lifecycle compatibility', () => {
           if (kind === 'renamed')
             writer.exec("UPDATE _migrations SET name = 'unknown' WHERE version = 2");
           else if (kind === 'gap') writer.exec('DELETE FROM _migrations WHERE version = 2');
-          else writer.exec("INSERT INTO _migrations VALUES (16, 'future', 'timestamp')");
+          else writer.exec("INSERT INTO _migrations VALUES (17, 'future', 'timestamp')");
         } finally {
           writer.close();
         }

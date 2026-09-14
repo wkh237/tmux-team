@@ -386,6 +386,7 @@ fn office_commands() -> Command {
                 ),
             ),
         )
+        .subcommand(office_prop_commands())
         .subcommand(office_board_commands())
         .subcommand(office_scope(
             office(
@@ -445,6 +446,60 @@ fn office_commands() -> Command {
                 "Deactivate Office without deleting retained data",
             )
             .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue)),
+        )
+}
+
+fn office_prop_commands() -> Command {
+    let local = |command: Command| {
+        command.arg(
+            Arg::new("local")
+                .long("local")
+                .required(true)
+                .action(ArgAction::SetTrue),
+        )
+    };
+    let revision = |command: Command| {
+        command.arg(
+            Arg::new("if-revision")
+                .long("if-revision")
+                .required(true)
+                .value_parser(
+                    clap::value_parser!(u64).range(0..=tmt_core::limits::MAX_JS_SAFE_INTEGER),
+                ),
+        )
+    };
+    office("prop", "Manage local data-only Office prop packs")
+        .subcommand(
+            office("validate", "Validate one bounded data-only prop pack")
+                .arg(Arg::new("file").long("file").required(true)),
+        )
+        .subcommand(
+            office(
+                "preview",
+                "Preview one prop pack in the running local Office",
+            )
+            .arg(Arg::new("file").long("file").required(true)),
+        )
+        .subcommand(revision(local(
+            office("install", "Install one prop pack into the local catalog")
+                .arg(Arg::new("file").long("file").required(true)),
+        )))
+        .subcommand(revision(local(
+            office("remove", "Remove one installed prop pack").arg(operand("prop-digest", true)),
+        )))
+        .subcommand(
+            local(office("list", "List the local prop catalog"))
+                .arg(
+                    Arg::new("prop-limit")
+                        .long("limit")
+                        .default_value("20")
+                        .value_parser(clap::value_parser!(u64).range(1..=20)),
+                )
+                .arg(Arg::new("cursor").long("cursor")),
+        )
+        .subcommand(
+            local(office("show", "Show one local or built-in prop pack"))
+                .arg(operand("prop-digest", true)),
         )
 }
 
@@ -677,7 +732,7 @@ fn option(id: &'static str) -> Arg {
             .help("Print an exact bundled skill (default: tmux-team)")
             .num_args(0..=1)
             .default_missing_value("tmux-team")
-            .value_parser(["tmux-team", "tmt-inbox", "tmt-office"]),
+            .value_parser(["tmux-team", "tmt-inbox", "tmt-office", "tmt-prop-create"]),
         "global" => flag("Edit global settings").short('g'),
         "config" => value("Unsupported path override").hide(true),
         "team" => value("Retired scope").hide(true),

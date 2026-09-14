@@ -42,6 +42,10 @@ fn office_target(target: &Path) -> PathBuf {
     target.parent().unwrap().join("tmt-office")
 }
 
+fn prop_create_target(target: &Path) -> PathBuf {
+    target.parent().unwrap().join("tmt-prop-create")
+}
+
 #[test]
 fn neutral_install_is_exact_repeat_noop_and_records_one_target() {
     let (_directory, environment, global, home) = fixture();
@@ -87,7 +91,7 @@ fn custom_install_uses_exact_target_and_does_not_invent_provider() {
 }
 
 #[test]
-fn office_install_adds_only_optional_guidance_to_detected_and_managed_custom_roots() {
+fn office_install_adds_optional_guidance_to_detected_and_managed_custom_roots() {
     let (directory, environment, global, home) = fixture();
     let custom_root = PathBuf::from("custom skills");
     install(&environment, &global, None, Some(&custom_root), false).unwrap();
@@ -105,28 +109,30 @@ fn office_install_adds_only_optional_guidance_to_detected_and_managed_custom_roo
         office_targets,
         [
             home.join(".agents/skills/tmt-office"),
+            home.join(".agents/skills/tmt-prop-create"),
             office_target(&custom_core),
+            prop_create_target(&custom_core),
         ]
         .into_iter()
         .collect()
     );
-    assert!(
-        first
-            .installed
-            .iter()
-            .all(|item| { item.name == "tmt-office" && item.changed && item.backup.is_none() })
-    );
+    assert!(first.installed.iter().all(|item| {
+        matches!(item.name, "tmt-office" | "tmt-prop-create")
+            && item.changed
+            && item.backup.is_none()
+    }));
     for target in office_targets {
+        let name = target.file_name().unwrap().to_str().unwrap();
         assert_eq!(
             fs::read(assert_link(&target).join("SKILL.md")).unwrap(),
-            bundled_skill_named("tmt-office").unwrap()
+            bundled_skill_named(name).unwrap()
         );
     }
     assert!(custom_core.exists());
     assert!(!home.join(".agents/skills/tmux-team").exists());
 
     let second = install_office(&environment, &global, false).unwrap();
-    assert_eq!(second.installed.len(), 2);
+    assert_eq!(second.installed.len(), 4);
     assert!(second.installed.iter().all(|item| !item.changed));
 }
 
@@ -142,7 +148,7 @@ fn office_install_preserves_unmanaged_target_until_force_creates_a_backup() {
     assert_eq!(fs::read(&target).unwrap(), b"user-owned office guidance");
 
     let forced = install_office(&environment, &global, true).unwrap();
-    assert_eq!(forced.installed.len(), 1);
+    assert_eq!(forced.installed.len(), 2);
     let backup = forced.installed[0].backup.as_ref().unwrap();
     assert_eq!(fs::read(backup).unwrap(), b"user-owned office guidance");
     assert!(backup.starts_with(home.join(".agents/.tmt-skill-backups")));
@@ -167,13 +173,22 @@ fn office_install_uses_the_detected_provider_root() {
     );
 
     let report = install_office(&environment, &global, false).unwrap();
-    assert_eq!(report.installed.len(), 1);
-    assert_eq!(report.installed[0].agent, Some(Provider::Claude));
+    assert_eq!(report.installed.len(), 2);
+    assert!(
+        report
+            .installed
+            .iter()
+            .all(|item| item.agent == Some(Provider::Claude))
+    );
     assert_eq!(
         report.installed[0].target,
         home.join(".claude/skills/tmt-office")
     );
     assert!(!home.join(".agents/skills/tmt-office").exists());
+    assert_eq!(
+        report.installed[1].target,
+        home.join(".claude/skills/tmt-prop-create")
+    );
 }
 
 #[test]

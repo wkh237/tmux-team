@@ -1,8 +1,11 @@
 //! Strict data-only Office prop-pack validation and immutable references.
 
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{collections::HashSet, path::Path};
+use tmt_core::office_protocol::{OfficeError, OfficeInvocation};
 
 pub const PACK_INPUT_LIMIT: usize = 128 * 1024;
 pub const PACK_PROP_LIMIT: usize = 16;
@@ -11,8 +14,7 @@ pub const PROP_PIXEL_LIMIT: usize = 4_096;
 pub const RASTER_LIMIT: usize = 64;
 pub const PALETTE_LIMIT: usize = 16;
 pub const FOOTPRINT_LIMIT: u8 = 8;
-pub const BUILTIN_DIGEST: &str =
-    "sha256:e1eee20d47773c45ca17058ffad33f3a1ed8ded2c85c88d15706676b894419d8";
+pub const BUILTIN_DIGEST: &str = tmt_core::office_block::BUILTIN_PROP_PACK_DIGEST;
 pub const BUILTIN_BYTES: &[u8] =
     include_bytes!("../../../../contracts/office/builtin-props-v1.tmtprop.json");
 
@@ -75,26 +77,53 @@ impl ValidatedPropPack {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum PropPackError {
     Invalid,
     TooLarge,
+    Io(std::io::Error),
 }
+
+impl PartialEq for PropPackError {
+    fn eq(&self, other: &Self) -> bool {
+        matches!(
+            (self, other),
+            (Self::Invalid, Self::Invalid)
+                | (Self::TooLarge, Self::TooLarge)
+                | (Self::Io(_), Self::Io(_))
+        )
+    }
+}
+
+impl Eq for PropPackError {}
 
 impl std::fmt::Display for PropPackError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(match self {
             Self::Invalid => "Invalid Office prop pack.",
             Self::TooLarge => "Office prop pack exceeds 128 KiB.",
+            Self::Io(_) => "Could not read the Office prop pack file.",
         })
     }
 }
 
-impl std::error::Error for PropPackError {}
+impl std::error::Error for PropPackError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 pub fn read_pack_file(path: &Path) -> Result<ValidatedPropPack, PropPackError> {
     let bytes =
-        crate::bounded_file::read(path, PACK_INPUT_LIMIT).map_err(|_| PropPackError::TooLarge)?;
+        crate::bounded_file::read_no_follow(path, PACK_INPUT_LIMIT).map_err(
+            |error| match error {
+                crate::bounded_file::FileReadError::TooLarge => PropPackError::TooLarge,
+                crate::bounded_file::FileReadError::Io(error) => PropPackError::Io(error),
+            },
+        )?;
     validate_pack(&bytes)
 }
 
@@ -119,6 +148,10 @@ pub fn builtin_pack() -> ValidatedPropPack {
     let pack = validate_pack(BUILTIN_BYTES).expect("embedded prop pack is a reviewed fixture");
     assert_eq!(pack.digest(), BUILTIN_DIGEST);
     pack
+}
+
+pub fn command_pack_input(pack: &ValidatedPropPack) -> Value {
+    json!({"bytes":STANDARD.encode(pack.bytes())})
 }
 
 pub fn framed_digest(bytes: &[u8]) -> String {
@@ -233,6 +266,162 @@ fn valid_opaque_color(value: &str) -> bool {
         && value.ends_with("ff")
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PropCommandInput {
+    #[serde(default)]
+    bytes: Option<String>,
+    #[serde(default)]
+    digest: Option<String>,
+    #[serde(default)]
+    expected_revision: Option<u64>,
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    cursor: Option<String>,
+}
+
+pub fn execute(operation: OfficeInvocation, input: &[u8]) -> Vec<u8> {
+    serde_json::to_vec(
+        &execute_inner(operation, input).unwrap_or_else(|error| json!({"error":error.code()})),
+    )
+    .unwrap_or_else(|_| br#"{"error":"OFFICE_PROP_CORRUPT"}"#.to_vec())
+}
+
+fn execute_inner(operation: OfficeInvocation, input: &[u8]) -> Result<Value, OfficeError> {
+    if input.len() > 180_000 {
+        return Err(OfficeError::PropInvalid);
+    }
+    let input: PropCommandInput =
+        serde_json::from_slice(input).map_err(|_| OfficeError::PropInvalid)?;
+    if operation == OfficeInvocation::LocalPropValidate {
+        let candidate = command_pack(&input)?;
+        return Ok(pack_projection(&candidate));
+    }
+    let paths =
+        crate::config::ConfigPaths::discover().map_err(|_| OfficeError::CredentialsUnavailable)?;
+    let mut storage = crate::storage::Storage::open(paths.database).map_err(storage_prop_error)?;
+    let result = match operation {
+        OfficeInvocation::LocalPropInstall => {
+            let candidate = command_pack(&input)?;
+            let revision = input.expected_revision.ok_or(OfficeError::PropInvalid)?;
+            storage
+                .install_local_prop_pack(revision, &candidate)
+                .map(|mutation| mutation_projection(mutation, true))
+                .map_err(catalog_error)
+        }
+        OfficeInvocation::LocalPropRemove => {
+            let digest = input.digest.as_deref().ok_or(OfficeError::PropInvalid)?;
+            let revision = input.expected_revision.ok_or(OfficeError::PropInvalid)?;
+            storage
+                .remove_local_prop_pack(revision, digest)
+                .map(|mutation| mutation_projection(mutation, false))
+                .map_err(catalog_error)
+        }
+        OfficeInvocation::LocalPropList => storage
+            .list_local_prop_packs(input.limit.unwrap_or(20), input.cursor.as_deref())
+            .map(list_projection)
+            .map_err(catalog_error),
+        OfficeInvocation::LocalPropShow => storage
+            .show_local_prop_pack(input.digest.as_deref().ok_or(OfficeError::PropInvalid)?)
+            .map(snapshot_projection)
+            .map_err(catalog_error),
+        _ => Err(OfficeError::CredentialsInvalid),
+    };
+    let close = storage.close().map_err(storage_prop_error);
+    match (result, close) {
+        (Err(error), _) => Err(error),
+        (Ok(value), Ok(())) => Ok(value),
+        (Ok(_), Err(error)) => Err(error),
+    }
+}
+
+fn command_pack(input: &PropCommandInput) -> Result<ValidatedPropPack, OfficeError> {
+    let encoded = input.bytes.as_deref().ok_or(OfficeError::PropInvalid)?;
+    if encoded.len() > 174_764 {
+        return Err(OfficeError::PropInvalid);
+    }
+    let bytes = STANDARD
+        .decode(encoded)
+        .map_err(|_| OfficeError::PropInvalid)?;
+    validate_pack(&bytes).map_err(|_| OfficeError::PropInvalid)
+}
+
+fn pack_projection(pack: &ValidatedPropPack) -> Value {
+    json!({
+        "digest":pack.digest(),
+        "formatVersion":pack.pack().format_version,
+        "label":pack.pack().label,
+        "credit":pack.pack().credit,
+        "license":pack.pack().license,
+        "fileBytes":pack.bytes().len(),
+        "pixelCount":pack.pixel_count(),
+        "props":pack.pack().props.iter().map(|prop| json!({
+            "key":prop.key,
+            "label":prop.label,
+            "footprint":prop.footprint,
+            "raster":{"width":prop.pixels[0].len(),"height":prop.pixels.len()}
+        })).collect::<Vec<_>>()
+    })
+}
+
+fn snapshot_projection(snapshot: crate::storage::LocalPropSnapshot) -> Value {
+    let mut value = pack_projection(&snapshot.pack);
+    value["builtin"] = json!(snapshot.builtin);
+    value["catalogRevision"] = json!(snapshot.catalog_revision);
+    value["installedAtMs"] = snapshot
+        .installed_at_ms
+        .map_or(Value::Null, |value| json!(value));
+    value
+}
+
+fn mutation_projection(mutation: crate::storage::LocalPropMutation, include_pack: bool) -> Value {
+    if include_pack {
+        let mut value = snapshot_projection(mutation.snapshot.expect("install returns a snapshot"));
+        value["changed"] = json!(mutation.changed);
+        value
+    } else {
+        json!({
+            "digest":mutation.digest,
+            "catalogRevision":mutation.catalog_revision,
+            "changed":mutation.changed
+        })
+    }
+}
+
+fn list_projection(list: crate::storage::LocalPropCatalogList) -> Value {
+    json!({
+        "catalogRevision":list.catalog_revision,
+        "builtins":list.builtins.into_iter().map(snapshot_projection).collect::<Vec<_>>(),
+        "packs":list.packs.into_iter().map(snapshot_projection).collect::<Vec<_>>(),
+        "excluded":list.excluded.into_iter().map(|excluded| json!({
+            "digest":excluded.digest,
+            "reason":excluded.reason.code()
+        })).collect::<Vec<_>>(),
+        "nextCursor":list.next_cursor
+    })
+}
+
+fn catalog_error(error: crate::storage::LocalPropCatalogError) -> OfficeError {
+    use crate::storage::LocalPropCatalogError as Error;
+    match error {
+        Error::Invalid => OfficeError::PropInvalid,
+        Error::Corrupt => OfficeError::PropCorrupt,
+        Error::NotFound => OfficeError::PropNotFound,
+        Error::Limit => OfficeError::PropLimit,
+        Error::Builtin => OfficeError::PropBuiltin,
+        Error::RevisionConflict | Error::RevisionExhausted => OfficeError::CatalogRevisionConflict,
+        Error::CursorInvalid => OfficeError::CatalogCursorInvalid,
+        Error::CursorStale => OfficeError::CatalogCursorStale,
+        Error::Storage(error) => storage_prop_error(error),
+    }
+}
+
+fn storage_prop_error(error: impl std::error::Error) -> OfficeError {
+    let _ = error;
+    OfficeError::CredentialsUnavailable
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -241,7 +430,7 @@ mod tests {
     fn embedded_pack_has_independently_frozen_identity_and_legacy_geometry() {
         let pack = builtin_pack();
         assert_eq!(pack.digest(), BUILTIN_DIGEST);
-        assert_eq!(pack.bytes().len(), 988);
+        assert_eq!(pack.bytes().len(), 1_563);
         assert_eq!(
             pack.pack()
                 .props
@@ -277,11 +466,34 @@ mod tests {
     #[test]
     fn typed_decode_rejects_duplicate_and_unknown_fields() {
         for bytes in [
-            br##"{"formatVersion":1,"formatVersion":1,"label":"x","credit":"y","license":"MIT","palette":["#00000000"],"props":[]}"##.as_slice(),
-            br##"{"formatVersion":1,"label":"x","credit":"y","license":"MIT","palette":["#00000000"],"props":[],"extra":true}"##,
+            br##"{"formatVersion":1,"formatVersion":1,"label":"x","credit":"y","license":"MIT","palette":["#00000000","#ffffffff"],"props":[{"key":"lamp","label":"Lamp","footprint":{"width":1,"height":1},"pixels":["1"]}]}"##.as_slice(),
+            br##"{"formatVersion":1,"label":"x","credit":"y","license":"MIT","palette":["#00000000","#ffffffff"],"props":[{"key":"lamp","label":"Lamp","footprint":{"width":1,"height":1},"pixels":["1"]}],"extra":true}"##,
+            br##"{"formatVersion":1,"label":"x","credit":"y","license":"MIT","palette":["#00000000","#ffffffff"],"props":[{"key":"lamp","key":"lamp","label":"Lamp","footprint":{"width":1,"height":1},"pixels":["1"]}]}"##,
+            br##"{"formatVersion":1,"label":"x","credit":"y","license":"MIT","palette":["#00000000","#ffffffff"],"props":[{"key":"lamp","label":"Lamp","footprint":{"width":1,"width":1,"height":1},"pixels":["1"]}]}"##,
         ] {
             assert_eq!(validate_pack(bytes), Err(PropPackError::Invalid));
         }
+    }
+
+    #[test]
+    fn file_acquisition_is_bounded_regular_and_no_follow() {
+        let directory = crate::test_support::TestDirectory::new();
+        let regular = directory.path.join("pack.json");
+        std::fs::write(&regular, BUILTIN_BYTES).unwrap();
+        assert_eq!(read_pack_file(&regular).unwrap().digest(), BUILTIN_DIGEST);
+        assert!(matches!(
+            read_pack_file(&directory.path.join("missing.json")),
+            Err(PropPackError::Io(_))
+        ));
+        let oversized = directory.path.join("oversized.json");
+        std::fs::write(&oversized, vec![b' '; PACK_INPUT_LIMIT + 1]).unwrap();
+        assert!(matches!(
+            read_pack_file(&oversized),
+            Err(PropPackError::TooLarge)
+        ));
+        let link = directory.path.join("link.json");
+        std::os::unix::fs::symlink(&regular, &link).unwrap();
+        assert!(matches!(read_pack_file(&link), Err(PropPackError::Io(_))));
     }
 
     #[test]
