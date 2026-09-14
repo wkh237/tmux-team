@@ -91,18 +91,21 @@ kept under TMT's local state by identity UUID, so pane loss, renaming a tmux
 window, or working offline does not move it. Temporary identities are rejected.
 TMT creates an empty private file on first use and never overwrites later edits.
 
-## One skill, no plugin
+## Skills, no plugin
 
 `tmt install` supports Claude Code, Codex, Gemini, agy, Pi and OpenCode. If none
-is detected, it installs the shared skill. Use `tmt install --dir <skills-root>`
+is detected, it installs the shared core skills. Use `tmt install --dir <skills-root>`
 for another discovery folder. No plugin or separate `/team` command is needed;
 Claude Code can invoke the skill as `/tmux-team`.
 
 For an existing conversation, ask the agent to read `tmt learn --skill` after
 updating. Installation does not reload a running agent. See the
-[provider guide](skills/README.md) and [canonical skill](skills/tmux-team/SKILL.md).
-Explicit Office setup manages a separate optional
-[`tmt-office` skill](skills/tmt-office/SKILL.md); core installation does not add it.
+[provider guide](skills/README.md) and
+[canonical collaboration skill](skills/tmux-team/SKILL.md). Core installation
+manages the `tmux-team` and `tmt-inbox` skills. Explicit Office setup separately
+manages the optional [`tmt-office`](skills/tmt-office/SKILL.md) and
+[`tmt-prop-create`](skills/tmt-prop-create/SKILL.md) skills; core installation
+does not add them.
 
 ## Boundaries worth knowing
 

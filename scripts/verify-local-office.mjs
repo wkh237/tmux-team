@@ -223,7 +223,7 @@ try {
   const repositoryTitle =
     'Repository coordination: durable browser review across a deliberately long title';
   const repositoryBody =
-    'This long plain-text discussion verifies the rendered Office board against the real local service.\n\nIt keeps line breaks, stays readable at a narrow viewport, and exposes the moderation action without interpreting markup.';
+    'This long plain-text discussion verifies the rendered Office board against the real local service.\n\nIt keeps line breaks, stays readable at a narrow viewport, and exposes the moderation action without interpreting markup.\n\n<script>window.__tmtBoardScriptRan = true</script>';
   const repositoryCreated = officeCommand([
     'board',
     'post',
@@ -357,6 +357,19 @@ try {
   await page.getByRole('heading', { name: 'Office board' }).waitFor();
   await page.getByRole('heading', { name: 'Persistent review' }).waitFor();
   await page.getByText('Survives service restart.').waitFor();
+  await page
+    .locator('.board-conversation .board-entry')
+    .filter({ hasText: 'Persistent review' })
+    .getByText(/Alice · revision 1/)
+    .waitFor();
+  assert.equal(await page.getByRole('heading', { name: repositoryTitle }).count(), 0);
+  assert.equal(
+    await page
+      .locator('.board-index')
+      .getByRole('button', { name: new RegExp(repositoryTitle) })
+      .count(),
+    0
+  );
   const replyForm = page.locator('.board-reply-form');
   await replyForm.getByLabel('Message').fill('Owner reply created through the rendered board.');
   await replyForm.getByRole('button', { name: 'Reply as owner' }).click();
@@ -379,6 +392,16 @@ try {
   await page.getByLabel('Category').selectOption(`repository:${repositoryId}`);
   await page.getByRole('heading', { name: repositoryTitle }).waitFor();
   await page.getByText(repositoryBody).waitFor();
+  assert.equal(await page.getByRole('heading', { name: 'Persistent review' }).count(), 0);
+  assert.equal(
+    await page
+      .locator('.board-index')
+      .getByRole('button', { name: /Persistent review/ })
+      .count(),
+    0
+  );
+  assert.equal(await page.locator('script').filter({ hasText: '__tmtBoardScriptRan' }).count(), 0);
+  assert.equal(await page.evaluate(() => window.__tmtBoardScriptRan), undefined);
   const desktopScreenshot = process.env.TMT_TEST_BOARD_DESKTOP_SCREENSHOT;
   const narrowScreenshot = process.env.TMT_TEST_BOARD_NARROW_SCREENSHOT;
   if (desktopScreenshot) {
@@ -394,22 +417,22 @@ try {
   await page.getByRole('button', { name: 'Moderate delete' }).click();
   await page.getByText('Deleted entry').waitFor();
 
+  let ownerFollowUpEntry;
   const changedBoard = new Database(path.join(state, 'tmux-team.db'), { readonly: true });
   try {
-    assert.deepEqual(
-      changedBoard
-        .prepare(
-          "SELECT author_kind, title, body, revision, deleted FROM office_board_entries WHERE title = 'Owner follow-up edited'"
-        )
-        .get(),
-      {
-        author_kind: 'owner',
-        title: 'Owner follow-up edited',
-        body: 'Owner edit persisted through restart.',
-        revision: 2,
-        deleted: 0,
-      }
-    );
+    ownerFollowUpEntry = changedBoard
+      .prepare(
+        "SELECT id, author_kind, title, body, revision, deleted FROM office_board_entries WHERE title = 'Owner follow-up edited'"
+      )
+      .get();
+    assert.deepEqual(ownerFollowUpEntry, {
+      id: ownerFollowUpEntry.id,
+      author_kind: 'owner',
+      title: 'Owner follow-up edited',
+      body: 'Owner edit persisted through restart.',
+      revision: 2,
+      deleted: 0,
+    });
     assert.deepEqual(
       changedBoard
         .prepare(
@@ -436,6 +459,104 @@ try {
   } finally {
     changedBoard.close();
   }
+
+  const cliAfterBrowser = officeCommand([
+    'board',
+    'show',
+    ownerFollowUpEntry.id,
+    '--reply-limit',
+    '20',
+  ]);
+  assert.equal(cliAfterBrowser.thread.author.kind, 'owner');
+  assert.equal(cliAfterBrowser.thread.title, 'Owner follow-up edited');
+  assert.equal(cliAfterBrowser.thread.body, 'Owner edit persisted through restart.');
+  assert.equal(cliAfterBrowser.thread.revision, 2);
+  const cliThreadAfterBrowser = officeCommand([
+    'board',
+    'show',
+    boardCreated.threadId,
+    '--reply-limit',
+    '20',
+  ]);
+  assert.equal(cliThreadAfterBrowser.thread.author.kind, 'identity');
+  assert.equal(cliThreadAfterBrowser.thread.author.name, 'Alice');
+  assert(
+    cliThreadAfterBrowser.replies.some(
+      (reply) =>
+        reply.author.kind === 'owner' &&
+        reply.body === 'Owner reply created through the rendered board.'
+    )
+  );
+
+  const boardBeforeStale = new Database(path.join(state, 'tmux-team.db'), { readonly: true });
+  let staleSnapshot;
+  try {
+    staleSnapshot = {
+      entry: boardBeforeStale
+        .prepare('SELECT * FROM office_board_entries WHERE id = ?')
+        .get(ownerFollowUpEntry.id),
+      boardRevision: boardBeforeStale
+        .prepare('SELECT revision FROM office_board_state WHERE singleton = 1')
+        .get().revision,
+    };
+  } finally {
+    boardBeforeStale.close();
+  }
+  const staleBoardEdit = await fetch(
+    `${origin}/api/v1/local/board/entries/${ownerFollowUpEntry.id}`,
+    {
+      method: 'PUT',
+      headers: { ...headers, Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: 'Stale overwrite',
+        body: 'This must not commit.',
+        ifRevision: 1,
+        operationId: randomUUID(),
+      }),
+    }
+  );
+  assert.equal(staleBoardEdit.status, 409);
+  assert.equal((await staleBoardEdit.json()).error, 'BOARD_REVISION_CONFLICT');
+  const boardAfterStale = new Database(path.join(state, 'tmux-team.db'), { readonly: true });
+  try {
+    assert.deepEqual(
+      {
+        entry: boardAfterStale
+          .prepare('SELECT * FROM office_board_entries WHERE id = ?')
+          .get(ownerFollowUpEntry.id),
+        boardRevision: boardAfterStale
+          .prepare('SELECT revision FROM office_board_state WHERE singleton = 1')
+          .get().revision,
+      },
+      staleSnapshot
+    );
+  } finally {
+    boardAfterStale.close();
+  }
+
+  const cliReplyBody = 'Identity reply created through a fresh CLI process.';
+  const cliReply = officeCommand([
+    'board',
+    'reply',
+    boardCreated.threadId,
+    '--identity',
+    'Alice',
+    '--body',
+    cliReplyBody,
+  ]);
+  assert.equal(cliReply.revision, 1);
+  await page.getByLabel('Category').selectOption('general');
+  const generalThreadButton = page.getByRole('button', { name: /Persistent review/ });
+  await generalThreadButton.waitFor();
+  assert.equal(await page.getByRole('heading', { name: repositoryTitle }).count(), 0);
+  await generalThreadButton.click();
+  await page.getByText(cliReplyBody).waitFor();
+  await page
+    .locator('.board-entry')
+    .filter({ hasText: cliReplyBody })
+    .getByText(/Alice · revision 1/)
+    .waitFor();
+  assert(browserRequests.every((url) => new URL(url).hostname === '127.0.0.1'));
   await browser.close();
   browser = undefined;
 
@@ -556,6 +677,8 @@ try {
   );
   browser = await launchBrowser();
   const reopened = await browser.newPage();
+  const reopenedBrowserRequests = [];
+  reopened.on('request', (request) => reopenedBrowserRequests.push(request.url()));
   await reopened.goto(restarted.url);
   assert.equal(new URL(reopened.url()).hash, '');
   const restartedToken = tokenFrom(restarted.url);
@@ -577,7 +700,8 @@ try {
     reopenedBoard.value.replies[0].body,
     'Owner reply created through the rendered board.'
   );
-  assert.equal(reopenedBoard.value.boardRevision, 6);
+  assert(reopenedBoard.value.replies.some((reply) => reply.body === cliReplyBody));
+  assert.equal(reopenedBoard.value.boardRevision, 7);
   await reopened.getByText('Saved · revision 4').waitFor();
   await reopened.getByRole('link', { name: 'Board' }).click();
   await reopened.getByRole('heading', { name: 'Owner follow-up edited' }).waitFor();
@@ -589,6 +713,7 @@ try {
       'repository:example.com/Organization/Office-Discussion-Board-With-A-Long-Category'
     );
   await reopened.getByText('Deleted entry').waitFor();
+  assert(reopenedBrowserRequests.every((url) => new URL(url).hostname === '127.0.0.1'));
   await browser.close();
   browser = undefined;
 
@@ -611,7 +736,8 @@ try {
   assert.equal(officeCommand(['status']).service.running, false);
   const recovered = officeCommand(['start']);
   assert.equal(recovered.running, true);
-  officeCommand(['stop']);
+  assert.equal(officeCommand(['stop']).changed, true);
+  assert.equal(fs.existsSync(receiptPath), false);
 
   const occupied = net.createServer();
   await new Promise((resolve) => occupied.listen(0, '127.0.0.1', resolve));

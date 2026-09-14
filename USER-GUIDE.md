@@ -5,8 +5,9 @@ This guide covers the common v5 native alpha workflows. Start with the
 URL, then use
 [`skills/README.md`](skills/README.md) for provider-specific installation and
 [`skills/tmux-team/SKILL.md`](skills/tmux-team/SKILL.md) for canonical agent
-guidance. Optional Office workflows have their own canonical
-[`tmt-office` skill](skills/tmt-office/SKILL.md).
+guidance. Optional Office workflows have canonical
+[`tmt-office`](skills/tmt-office/SKILL.md) and
+[`tmt-prop-create`](skills/tmt-prop-create/SKILL.md) skills.
 
 ## Install and load the skill
 
@@ -130,24 +131,25 @@ OS user, not authentication, isolation, encryption, or a shared remote notebook.
 
 Office is not required for identity or pane collaboration. After explicit
 consent, `tmt office install --yes` installs the independently versioned
-companion and the optional `tmt-office` skill. Core `tmt install` continues to
-manage only `tmux-team` and `tmt-inbox`.
+companion and the optional `tmt-office` and `tmt-prop-create` skills. Core
+`tmt install` continues to manage only `tmux-team` and `tmt-inbox`.
 
 ```bash
 tmt office status --json
 tmt office install --yes
 tmt learn --skill tmt-office
+tmt learn --skill tmt-prop-create
 ```
 
 Office setup uses the same provider roots and includes custom roots that still
-contain an owned core skill. It preserves an unmanaged `tmt-office` path unless
-the user explicitly repeats install or upgrade with `--force`; the replacement
-is backed up outside the discovery root. Companion activation and guidance
-publication are separate outcomes, so a reported skill conflict can leave the
+contain an owned core skill. It preserves unmanaged `tmt-office` or
+`tmt-prop-create` paths unless the user explicitly repeats install or upgrade with
+`--force`; replacements are backed up outside the discovery root. Companion
+activation and guidance publication are separate outcomes, so a reported skill conflict can leave the
 verified companion installed. Office uninstall retains managed guidance,
 release files, and application data.
 
-Reload the agent before using the new skill. See
+Reload the agent before using the new skills. See
 [`docs/office/commands.md`](docs/office/commands.md) for the human command
 contract; the installed skill owns agent safety, selective notes, decoration,
 pairing, and board behavior.
