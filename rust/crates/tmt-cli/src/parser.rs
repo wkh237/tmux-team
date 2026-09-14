@@ -167,11 +167,79 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         | ["office", "sync"]
         | ["office", "block", "show"]
         | ["office", "block", "apply"]
+        | ["office", "board", "post"]
+        | ["office", "board", "list"]
+        | ["office", "board", "show"]
+        | ["office", "board", "reply"]
+        | ["office", "board", "edit"]
+        | ["office", "board", "delete"]
         | ["office", "install"]
         | ["office", "upgrade"]
         | ["office", "uninstall"] => Invocation::Office {
             prefix: text(m, "prefix"),
             operation: match path.last().copied() {
+                Some("post") if path.get(1) == Some(&"board") => {
+                    OfficeOperation::Board(OfficeBoardOperation::Post {
+                        category: board_category(m),
+                        actor: board_actor(m),
+                        title: required(m, "title"),
+                        body: board_body(m)?.expect("required board body"),
+                        operation_id: text(m, "operation-id"),
+                    })
+                }
+                Some("list") if path.get(1) == Some(&"board") => {
+                    OfficeOperation::Board(OfficeBoardOperation::List {
+                        category: board_category(m),
+                        view: required(m, "view"),
+                        author_id: text(m, "author-id"),
+                        owner: flag(m, "owner"),
+                        since: text(m, "since"),
+                        limit: *m
+                            .get_one::<u32>("board-limit")
+                            .expect("grammar supplies board limit"),
+                        cursor: text(m, "cursor"),
+                    })
+                }
+                Some("show") if path.get(1) == Some(&"board") => {
+                    OfficeOperation::Board(OfficeBoardOperation::Show {
+                        thread_id: required(m, "thread-id"),
+                        reply_limit: *m
+                            .get_one::<u32>("reply-limit")
+                            .expect("grammar supplies reply limit"),
+                        reply_cursor: text(m, "reply-cursor"),
+                    })
+                }
+                Some("reply") if path.get(1) == Some(&"board") => {
+                    OfficeOperation::Board(OfficeBoardOperation::Reply {
+                        thread_id: required(m, "thread-id"),
+                        actor: board_actor(m),
+                        body: board_body(m)?.expect("required board body"),
+                        operation_id: text(m, "operation-id"),
+                    })
+                }
+                Some("edit") if path.get(1) == Some(&"board") => {
+                    OfficeOperation::Board(OfficeBoardOperation::Edit {
+                        entry_id: required(m, "entry-id"),
+                        actor: board_actor(m),
+                        title: text(m, "title"),
+                        body: board_body(m)?,
+                        if_revision: *m
+                            .get_one::<u64>("if-revision")
+                            .expect("grammar supplies board revision"),
+                        operation_id: text(m, "operation-id"),
+                    })
+                }
+                Some("delete") if path.get(1) == Some(&"board") => {
+                    OfficeOperation::Board(OfficeBoardOperation::Delete {
+                        entry_id: required(m, "entry-id"),
+                        actor: board_actor(m),
+                        moderate: flag(m, "moderate"),
+                        if_revision: *m
+                            .get_one::<u64>("if-revision")
+                            .expect("grammar supplies board revision"),
+                        operation_id: text(m, "operation-id"),
+                    })
+                }
                 Some("sync") => OfficeOperation::Sync,
                 Some("show") if path.get(1) == Some(&"block") => OfficeOperation::Block {
                     target: office_block_target(m),
@@ -483,6 +551,29 @@ fn office_block_target(matches: &ArgMatches) -> OfficeBlockTarget {
             world: required(matches, "world"),
             emulator: flag(matches, "emulator"),
         }
+    }
+}
+
+fn board_category(matches: &ArgMatches) -> BoardCategorySelection {
+    match text(matches, "repo") {
+        Some(name) => BoardCategorySelection::Repository(name),
+        None => BoardCategorySelection::General,
+    }
+}
+fn board_actor(matches: &ArgMatches) -> BoardActorSelection {
+    if flag(matches, "owner") {
+        BoardActorSelection::Owner
+    } else {
+        BoardActorSelection::Identity(text(matches, "identity"))
+    }
+}
+fn board_body(matches: &ArgMatches) -> Result<Option<ContentInput>, String> {
+    match (text(matches, "body"), text(matches, "file")) {
+        (Some(body), None) => Ok(Some(ContentInput::Inline(body))),
+        (None, Some(file)) if file == "-" => Ok(Some(ContentInput::Stdin)),
+        (None, Some(file)) => Ok(Some(ContentInput::File(file))),
+        (None, None) => Ok(None),
+        _ => Err("Select exactly one of --body or --file.".into()),
     }
 }
 

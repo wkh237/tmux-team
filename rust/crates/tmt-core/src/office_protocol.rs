@@ -5,6 +5,7 @@ use semver::Version;
 pub const OFFICE_PROTOCOL_VERSION: &str = "1";
 pub const OFFICE_PROTOCOL_OUTPUT_LIMIT: usize = 1024;
 pub const OFFICE_HOOK_BATCH_LIMIT: usize = 16;
+pub const OFFICE_BOARD_CAPABILITY: &str = "office_board_v1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct OfficeSyncReport {
@@ -78,6 +79,7 @@ impl std::error::Error for OfficeError {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OfficeInvocation {
     Probe,
+    Capabilities,
     PairBegin,
     PairPoll,
     PairStatus,
@@ -88,12 +90,20 @@ pub enum OfficeInvocation {
     BlockApply,
     LocalBlockShow,
     LocalBlockApply,
+    BoardPost,
+    BoardList,
+    BoardShow,
+    BoardReply,
+    BoardEdit,
+    BoardDelete,
+    BoardCategories,
 }
 
 impl OfficeInvocation {
     pub fn arguments(self) -> [&'static str; 3] {
         match self {
             Self::Probe => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "probe"],
+            Self::Capabilities => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "capabilities"],
             Self::PairBegin => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "pair-begin"],
             Self::PairPoll => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "pair-poll"],
             Self::PairStatus => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "pair-status"],
@@ -104,12 +114,20 @@ impl OfficeInvocation {
             Self::BlockApply => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "block-apply"],
             Self::LocalBlockShow => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "local-block-show"],
             Self::LocalBlockApply => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "local-block-apply"],
+            Self::BoardPost => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "board-post"],
+            Self::BoardList => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "board-list"],
+            Self::BoardShow => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "board-show"],
+            Self::BoardReply => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "board-reply"],
+            Self::BoardEdit => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "board-edit"],
+            Self::BoardDelete => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "board-delete"],
+            Self::BoardCategories => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "board-categories"],
         }
     }
 
     pub fn parse(arguments: &[&str]) -> Result<Self, &'static str> {
         [
             Self::Probe,
+            Self::Capabilities,
             Self::PairBegin,
             Self::PairPoll,
             Self::PairStatus,
@@ -120,10 +138,32 @@ impl OfficeInvocation {
             Self::BlockApply,
             Self::LocalBlockShow,
             Self::LocalBlockApply,
+            Self::BoardPost,
+            Self::BoardList,
+            Self::BoardShow,
+            Self::BoardReply,
+            Self::BoardEdit,
+            Self::BoardDelete,
+            Self::BoardCategories,
         ]
         .into_iter()
         .find(|operation| arguments == operation.arguments())
         .ok_or("Unsupported Office invocation or protocol version.")
+    }
+}
+
+pub fn encode_office_capabilities() -> String {
+    format!("TMT-OFFICE-CAPABILITIES/{OFFICE_PROTOCOL_VERSION}\n{OFFICE_BOARD_CAPABILITY}\n")
+}
+
+pub fn decode_office_capabilities(bytes: &[u8]) -> Result<(), &'static str> {
+    if bytes.len() > OFFICE_PROTOCOL_OUTPUT_LIMIT {
+        return Err("Office capabilities exceed their bound.");
+    }
+    if bytes == encode_office_capabilities().as_bytes() {
+        Ok(())
+    } else {
+        Err("Invalid or unsupported Office capabilities.")
     }
 }
 
@@ -172,6 +212,23 @@ mod tests {
     }
 
     #[test]
+    fn capabilities_are_exact_bounded_and_fail_closed() {
+        assert_eq!(
+            decode_office_capabilities(encode_office_capabilities().as_bytes()),
+            Ok(())
+        );
+        for bytes in [
+            b"TMT-OFFICE-CAPABILITIES/1\n".as_slice(),
+            b"TMT-OFFICE-CAPABILITIES/1\noffice_board_v1\noffice_board_v1\n",
+            b"TMT-OFFICE-CAPABILITIES/1\nunknown\n",
+            b"TMT-OFFICE-CAPABILITIES/1\noffice_board_v1\nunknown\n",
+        ] {
+            assert!(decode_office_capabilities(bytes).is_err());
+        }
+        assert!(decode_office_capabilities(&vec![b'x'; OFFICE_PROTOCOL_OUTPUT_LIMIT + 1]).is_err());
+    }
+
+    #[test]
     fn pairing_operations_have_exact_versioned_arguments() {
         for (name, operation) in [
             ("pair-begin", OfficeInvocation::PairBegin),
@@ -190,6 +247,25 @@ mod tests {
             );
             assert!(OfficeInvocation::parse(&["__tmt-office", "2", name]).is_err());
             assert!(OfficeInvocation::parse(&["__tmt-office", "1", name, "extra"]).is_err());
+        }
+    }
+
+    #[test]
+    fn board_operations_have_exact_versioned_arguments() {
+        for (name, operation) in [
+            ("board-post", OfficeInvocation::BoardPost),
+            ("board-list", OfficeInvocation::BoardList),
+            ("board-show", OfficeInvocation::BoardShow),
+            ("board-reply", OfficeInvocation::BoardReply),
+            ("board-edit", OfficeInvocation::BoardEdit),
+            ("board-delete", OfficeInvocation::BoardDelete),
+            ("board-categories", OfficeInvocation::BoardCategories),
+        ] {
+            assert_eq!(operation.arguments(), ["__tmt-office", "1", name]);
+            assert_eq!(
+                OfficeInvocation::parse(&operation.arguments()),
+                Ok(operation)
+            );
         }
     }
 

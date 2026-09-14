@@ -765,7 +765,7 @@ describe('native durable identity process boundary', () => {
       withDatabase(sandbox.database, (database) => {
         database
           .prepare('INSERT INTO _migrations (version, name, applied_at) VALUES (?, ?, ?)')
-          .run(14, 'unsupported future migration', '2026-01-07T00:00:00.000Z');
+          .run(15, 'unsupported future migration', '2026-01-07T00:00:00.000Z');
       });
       const result = await runCli(sandbox, ['identity', 'show', created.canonicalName, '--json']);
       expect(result.status).toBe(1);
@@ -781,7 +781,7 @@ describe('native durable identity process boundary', () => {
         history: [
           ...before.history,
           {
-            version: 14,
+            version: 15,
             name: 'unsupported future migration',
             applied_at: '2026-01-07T00:00:00.000Z',
           },

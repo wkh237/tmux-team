@@ -15,6 +15,7 @@ mod native_install_command;
 mod native_upgrade_command;
 mod notes_command;
 mod office_block_command;
+mod office_board_command;
 mod office_command;
 mod office_pairing_command;
 mod output;

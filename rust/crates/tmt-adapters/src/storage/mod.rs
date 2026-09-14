@@ -4,6 +4,7 @@ mod identities;
 mod identity_hooks;
 mod identity_metadata;
 mod migrations;
+mod office_board;
 mod office_local;
 mod profiles;
 mod requests;
@@ -20,6 +21,7 @@ use std::{
 
 pub use errors::{StorageError, StorageErrorCode};
 use errors::{classify, incompatible};
+pub use office_board::local_owner_actor;
 pub use office_local::{LocalBlockSnapshot, LocalOfficeError};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

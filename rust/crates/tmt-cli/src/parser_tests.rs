@@ -11,7 +11,7 @@ fn args(values: &[&str]) -> Vec<OsString> {
 
 #[test]
 fn office_pairing_has_bounded_typed_options_and_retains_unqualified_status() {
-    use crate::invocation::OfficeOperation;
+    use crate::invocation::{BoardActorSelection, OfficeBoardOperation, OfficeOperation};
     let world = "https://office.example/worlds/abcdefghijklmnopqrst";
     assert_eq!(
         parsed(&["office", "unpair", "--world", world, "--identity", "Alice"]).invocation,
@@ -46,6 +46,33 @@ fn office_pairing_has_bounded_typed_options_and_retains_unqualified_status() {
                 read_only: true,
                 timeout_seconds: 12
             }
+        }
+    );
+    assert_eq!(
+        parsed(&[
+            "office",
+            "board",
+            "edit",
+            "11111111-1111-4111-8111-111111111111",
+            "--owner",
+            "--title",
+            "new title",
+            "--body",
+            "new body",
+            "--if-revision",
+            "2"
+        ])
+        .invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Board(OfficeBoardOperation::Edit {
+                entry_id: "11111111-1111-4111-8111-111111111111".into(),
+                actor: BoardActorSelection::Owner,
+                title: Some("new title".into()),
+                body: Some(ContentInput::Inline("new body".into())),
+                if_revision: 2,
+                operation_id: None
+            })
         }
     );
     assert_eq!(
@@ -86,6 +113,123 @@ fn office_pairing_has_bounded_typed_options_and_retains_unqualified_status() {
         vec!["office", "status", "--world", world, "--read-only"],
     ] {
         assert_eq!(parse_error(&input).code, "USAGE_ERROR");
+    }
+}
+
+#[test]
+fn office_board_grammar_preserves_exact_inputs_and_actor_category_choices() {
+    use crate::invocation::{
+        BoardActorSelection, BoardCategorySelection, OfficeBoardOperation, OfficeOperation,
+    };
+    assert_eq!(
+        parsed(&[
+            "office",
+            "board",
+            "post",
+            "--repo",
+            "origin",
+            "--identity",
+            "Alice",
+            "--title",
+            "--literal",
+            "--body",
+            "line\ttext",
+            "--operation-id",
+            "11111111-1111-4111-8111-111111111111"
+        ])
+        .invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Board(OfficeBoardOperation::Post {
+                category: BoardCategorySelection::Repository("origin".into()),
+                actor: BoardActorSelection::Identity(Some("Alice".into())),
+                title: "--literal".into(),
+                body: ContentInput::Inline("line\ttext".into()),
+                operation_id: Some("11111111-1111-4111-8111-111111111111".into())
+            })
+        }
+    );
+    assert_eq!(
+        parsed(&[
+            "office",
+            "board",
+            "reply",
+            "22222222-2222-4222-8222-222222222222",
+            "--owner",
+            "--file",
+            "-"
+        ])
+        .invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Board(OfficeBoardOperation::Reply {
+                thread_id: "22222222-2222-4222-8222-222222222222".into(),
+                actor: BoardActorSelection::Owner,
+                body: ContentInput::Stdin,
+                operation_id: None
+            })
+        }
+    );
+    for argv in [
+        &[
+            "office",
+            "board",
+            "post",
+            "--general",
+            "--owner",
+            "--title",
+            "t",
+        ] as &[&str],
+        &[
+            "office",
+            "board",
+            "post",
+            "--general",
+            "--repo",
+            "origin",
+            "--owner",
+            "--title",
+            "t",
+            "--body",
+            "b",
+        ],
+        &[
+            "office",
+            "board",
+            "post",
+            "--general",
+            "--owner",
+            "--identity",
+            "Alice",
+            "--title",
+            "t",
+            "--body",
+            "b",
+        ],
+        &[
+            "office",
+            "board",
+            "edit",
+            "11111111-1111-4111-8111-111111111111",
+            "--owner",
+            "--if-revision",
+            "1",
+        ],
+        &[
+            "office",
+            "board",
+            "edit",
+            "11111111-1111-4111-8111-111111111111",
+            "--owner",
+            "--body",
+            "b",
+            "--file",
+            "body.txt",
+            "--if-revision",
+            "1",
+        ],
+    ] {
+        assert!(parse(&args(argv)).is_err(), "accepted {argv:?}");
     }
 }
 

@@ -242,12 +242,18 @@ fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> 
                 active_identity(&paths, &identity.id)?;
                 Ok(json!({"state":"credential"}))
             }
-            OfficeInvocation::Probe | OfficeInvocation::Sync => {
+            OfficeInvocation::Probe | OfficeInvocation::Capabilities | OfficeInvocation::Sync => {
                 Err(OfficeError::CredentialsInvalid)
             }
-            OfficeInvocation::LocalBlockShow | OfficeInvocation::LocalBlockApply => {
-                Err(OfficeError::CredentialsInvalid)
-            }
+            OfficeInvocation::LocalBlockShow
+            | OfficeInvocation::LocalBlockApply
+            | OfficeInvocation::BoardPost
+            | OfficeInvocation::BoardList
+            | OfficeInvocation::BoardShow
+            | OfficeInvocation::BoardReply
+            | OfficeInvocation::BoardEdit
+            | OfficeInvocation::BoardDelete
+            | OfficeInvocation::BoardCategories => Err(OfficeError::CredentialsInvalid),
         }
     };
     if operation == OfficeInvocation::PairStatus {

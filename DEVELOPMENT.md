@@ -381,7 +381,7 @@ TMT_TEST_STORAGE_PROBE='{"executable":"/absolute/checkout/rust/target/debug/exam
 
 The suite covers grammar, configuration-before-effects, identity metadata and
 binding lifecycle, role/preamble, response/receipts, exchanges/attention, inbox listening, talk,
-managed skills and native installation. It uses bounded process budgets,
+local Office board grammar/persistence, managed skills and native installation. It uses bounded process budgets,
 task-owned files and independent SQL/schema oracles. Frozen migration fixtures
 and provenance under `test/fixtures/storage-history/` are immutable evidence;
 do not generate expected data with the implementation under test.

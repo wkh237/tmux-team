@@ -30,7 +30,12 @@ export function OfficeShell(): ReactElement {
         </Link>
         <nav aria-label="Main navigation">
           {local ? (
-            <Link to="/local">Local office</Link>
+            <>
+              <Link to="/local" activeOptions={{ exact: true }}>
+                Local office
+              </Link>
+              <Link to="/local/board">Board</Link>
+            </>
           ) : (
             <>
               <Link to="/" activeOptions={{ exact: true }}>
@@ -71,7 +76,7 @@ export function OfficeShell(): ReactElement {
         {showNotes && (
           <p id="preview-notes">
             {local
-              ? 'This private loopback view edits only active blocks owned by this TMT installation. It does not publish, import or adopt remote Office state.'
+              ? 'This private loopback view edits installation-local blocks and board discussions. It does not publish, import or adopt remote Office state.'
               : session
                 ? 'Approved users can create private worlds. No local TMT data or agent execution is connected.'
                 : 'This shell does not create a world, read local TMT data or send work to agents. Choose an explicit connected mode to sign in.'}

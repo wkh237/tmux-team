@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -179,6 +180,190 @@ describe('native installation process contract', () => {
       });
     }
   );
+
+  it(
+    'runs combined edits and worst-case board pages through the installed companion',
+    { timeout: 120_000 },
+    async () => {
+      await withSandbox(async (sandbox) => {
+        const prefix = installPrefix(sandbox);
+        const fixture = await createArtifact(sandbox, '0.1.0-alpha.2', new Uint8Array(), 'office');
+        const office = (args: string[], outputLimitBytes = 1024 * 1024) =>
+          runCli(sandbox, ['office', '--prefix', prefix, ...args, '--json'], {
+            deadlineMs: 30_000,
+            outputLimitBytes,
+          });
+        const installed = await office([
+          'install',
+          '--yes',
+          '--archive',
+          fixture.archive,
+          '--manifest',
+          fixture.manifest,
+        ]);
+        expect(installed.status, installed.stdout + installed.stderr).toBe(0);
+        expect((await runCli(sandbox, ['identity', 'create', 'Alice', '--json'])).status).toBe(0);
+        const created = parseWholeStdout(
+          await office([
+            'board',
+            'post',
+            '--general',
+            '--identity',
+            'Alice',
+            '--title',
+            'before',
+            '--body',
+            'before',
+          ])
+        ) as { entryId: string };
+        const edited = await office([
+          'board',
+          'edit',
+          created.entryId,
+          '--identity',
+          'Alice',
+          '--title',
+          'after title',
+          '--body',
+          'after body',
+          '--if-revision',
+          '1',
+        ]);
+        expect(edited.status, edited.stdout + edited.stderr).toBe(0);
+        const shown = parseWholeStdout(await office(['board', 'show', created.entryId])) as {
+          thread: { title: string; body: string };
+        };
+        expect(shown.thread).toMatchObject({ title: 'after title', body: 'after body' });
+
+        const worst = parseWholeStdout(
+          await office([
+            'board',
+            'post',
+            '--general',
+            '--identity',
+            'Alice',
+            '--title',
+            'worst',
+            '--body',
+            '\t'.repeat(16_384),
+          ])
+        ) as { threadId: string };
+        for (let index = 0; index < 50; index += 1) {
+          const reply = await office([
+            'board',
+            'reply',
+            worst.threadId,
+            '--identity',
+            'Alice',
+            '--body',
+            '\t'.repeat(8_192),
+          ]);
+          expect(reply.status, `reply ${index}: ${reply.stdout}${reply.stderr}`).toBe(0);
+        }
+        const page = await office(
+          ['board', 'show', worst.threadId, '--reply-limit', '50'],
+          2 * 1024 * 1024
+        );
+        expect(page.status, page.stdout + page.stderr).toBe(0);
+        const document = parseWholeStdout(page) as {
+          thread: { body: string };
+          replies: { body: string }[];
+        };
+        expect(document.thread.body).toHaveLength(16_384);
+        expect(document.replies).toHaveLength(50);
+        expect(document.replies.every((reply) => reply.body.length === 8_192)).toBe(true);
+      });
+    }
+  );
+
+  it('retains a generated operation ID across a companion storage uncertainty and replay', async () => {
+    await withSandbox(async (sandbox) => {
+      const prefix = installPrefix(sandbox);
+      const companion = path.join(sandbox.root, 'storage-uncertain-office');
+      writeFileSync(
+        companion,
+        `#!/bin/sh
+control="\${0%/lib/tmt-office/releases/*}/storage-uncertain-operation"
+case "$3" in
+probe) printf 'TMT-OFFICE/1\\n0.1.0-alpha.2\\n' ;;
+capabilities) printf 'TMT-OFFICE-CAPABILITIES/1\\noffice_board_v1\\n' ;;
+board-post)
+  input="$(cat)"
+  operation_id="$(printf '%s' "$input" | sed -n 's/.*"operationId":"\\([^"]*\\)".*/\\1/p')"
+  if [ ! -f "$control" ]; then
+    printf '%s' "$operation_id" > "$control"
+    printf '{"error":"STORAGE_ERROR"}'
+  elif [ "$(cat "$control")" = "$operation_id" ]; then
+    printf '{"entryId":"11111111-1111-4111-8111-111111111111","threadId":"11111111-1111-4111-8111-111111111111","revision":1,"created":true,"operationId":"%s"}' "$operation_id"
+  else
+    printf '{"error":"BOARD_IDEMPOTENCY_CONFLICT"}'
+  fi
+  ;;
+*) exit 1 ;;
+esac
+`
+      );
+      chmodSync(companion, 0o755);
+      const fixture = await createArtifact(
+        sandbox,
+        '0.1.0-alpha.2',
+        new Uint8Array(),
+        'office',
+        companion
+      );
+      const office = (args: string[]) =>
+        runCli(sandbox, ['office', '--prefix', prefix, ...args, '--json'], {
+          deadlineMs: 30_000,
+        });
+      expect(
+        (
+          await office([
+            'install',
+            '--yes',
+            '--archive',
+            fixture.archive,
+            '--manifest',
+            fixture.manifest,
+          ])
+        ).status
+      ).toBe(0);
+
+      const mutation = [
+        'board',
+        'post',
+        '--general',
+        '--owner',
+        '--title',
+        'possibly committed',
+        '--body',
+        'exact body',
+      ];
+      const firstAttempt = await office(mutation);
+      expect(firstAttempt.status).toBe(1);
+      const uncertain = expectError(firstAttempt, 'OFFICE_LOCAL_UNCERTAIN');
+      const message = (uncertain.error as { message: string }).message;
+      const match = message.match(
+        /--operation-id ([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.$/
+      );
+      expect(match).not.toBeNull();
+      const operationId = match![1];
+      expect(readFileSync(path.join(prefix, 'storage-uncertain-operation'), 'utf8')).toBe(
+        operationId
+      );
+
+      const replay = parseWholeStdout(await office([...mutation, '--operation-id', operationId]));
+      expect(replay).toEqual({
+        entryId: '11111111-1111-4111-8111-111111111111',
+        threadId: '11111111-1111-4111-8111-111111111111',
+        revision: 1,
+        created: true,
+        operationId,
+      });
+      expect(parseWholeStdout(await office([...mutation, '--operation-id', operationId]))).toEqual(
+        replay
+      );
+    });
+  });
 
   it(
     'installs Office explicitly without changing CLI bytes, receipts or application state',

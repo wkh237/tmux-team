@@ -92,6 +92,7 @@ pub enum OfficeOperation {
         identity: Option<String>,
         operation: OfficeBlockOperation,
     },
+    Board(OfficeBoardOperation),
     Unpair {
         world: String,
         identity: Option<String>,
@@ -125,6 +126,64 @@ pub enum OfficeOperation {
     },
     Uninstall {
         yes: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BoardActorSelection {
+    Owner,
+    Identity(Option<String>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BoardCategorySelection {
+    General,
+    Repository(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum OfficeBoardOperation {
+    Post {
+        category: BoardCategorySelection,
+        actor: BoardActorSelection,
+        title: String,
+        body: ContentInput,
+        operation_id: Option<String>,
+    },
+    List {
+        category: BoardCategorySelection,
+        view: String,
+        author_id: Option<String>,
+        owner: bool,
+        since: Option<String>,
+        limit: u32,
+        cursor: Option<String>,
+    },
+    Show {
+        thread_id: String,
+        reply_limit: u32,
+        reply_cursor: Option<String>,
+    },
+    Reply {
+        thread_id: String,
+        actor: BoardActorSelection,
+        body: ContentInput,
+        operation_id: Option<String>,
+    },
+    Edit {
+        entry_id: String,
+        actor: BoardActorSelection,
+        title: Option<String>,
+        body: Option<ContentInput>,
+        if_revision: u64,
+        operation_id: Option<String>,
+    },
+    Delete {
+        entry_id: String,
+        actor: BoardActorSelection,
+        moderate: bool,
+        if_revision: u64,
+        operation_id: Option<String>,
     },
 }
 

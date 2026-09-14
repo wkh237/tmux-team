@@ -47,6 +47,75 @@ describe('local Office runtime', () => {
     runtime.dispose();
   });
 
+  it('uses the same in-memory browser credential for typed board operations', async () => {
+    const operationId = '33333333-3333-4333-8333-333333333333';
+    const fetch = vi.fn(async (path: string, _init?: RequestInit) => {
+      if (path.endsWith('/categories/list'))
+        return new Response(
+          JSON.stringify({
+            categories: [{ kind: 'general' }],
+            nextCursor: null,
+            boardRevision: 0,
+          }),
+          { status: 200 }
+        );
+      if (path.endsWith('/threads/list'))
+        return new Response(JSON.stringify({ threads: [], nextCursor: null, boardRevision: 0 }), {
+          status: 200,
+        });
+      return new Response(
+        JSON.stringify({
+          entryId: '11111111-1111-4111-8111-111111111111',
+          threadId: '11111111-1111-4111-8111-111111111111',
+          revision: 1,
+          created: true,
+          operationId,
+        }),
+        { status: 200 }
+      );
+    });
+    vi.stubGlobal('fetch', fetch);
+    const runtime = startLocalRuntime(window.location);
+    await expect(runtime.board.categories()).resolves.toMatchObject({ boardRevision: 0 });
+    await runtime.board.list({
+      category: { kind: 'general' },
+      author: { kind: 'identity', identityId: '22222222-2222-4222-8222-222222222222' },
+    });
+    await runtime.board.post({
+      category: { kind: 'general' },
+      title: 'Status',
+      body: 'Plain text',
+      operationId,
+    });
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      '/api/v1/local/board/categories/list',
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      })
+    );
+    const list = fetch.mock.calls[1];
+    expect(list?.[0]).toBe('/api/v1/local/board/threads/list');
+    expect(JSON.parse(String(list?.[1]?.body)).author).toEqual({
+      kind: 'identity',
+      identityId: '22222222-2222-4222-8222-222222222222',
+    });
+    const post = fetch.mock.calls[2];
+    expect(post?.[0]).toBe('/api/v1/local/board/threads');
+    expect(JSON.parse(String(post?.[1]?.body))).toEqual({
+      category: { kind: 'general' },
+      title: 'Status',
+      body: 'Plain text',
+      operationId,
+    });
+    expect(JSON.parse(String(post?.[1]?.body))).not.toHaveProperty('actor');
+    runtime.dispose();
+  });
+
   it('preserves drafts through transient backoff and aborts an active poll on disposal', async () => {
     vi.useFakeTimers();
     let calls = 0;

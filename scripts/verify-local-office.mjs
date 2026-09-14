@@ -10,6 +10,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 
+const require = createRequire(import.meta.url);
+const Database = require('better-sqlite3');
+
 const cli = process.env.TMT_TEST_CLI;
 const office = process.env.TMT_TEST_OFFICE;
 assert(cli && office, 'TMT_TEST_CLI and TMT_TEST_OFFICE are required');
@@ -25,8 +28,25 @@ for (const directory of [home, bin, cwd]) fs.mkdirSync(directory, { recursive: t
 const env = { ...process.env, HOME: home, TMUX_TEAM_HOME: state };
 let browser;
 
+function fixtureCommand(program, args) {
+  const result = spawnSync(program, args, { cwd, env, encoding: 'utf8' });
+  assert.equal(
+    result.status,
+    0,
+    `fixture command failed: ${program} ${args.join(' ')}\nstdout: ${result.stdout}\nstderr: ${result.stderr}`
+  );
+}
+
+fixtureCommand('git', ['init', '--quiet']);
+fixtureCommand('git', [
+  'remote',
+  'add',
+  'origin',
+  'https://Example.COM/Organization/Office-Discussion-Board-With-A-Long-Category.git',
+]);
+
 async function launchBrowser() {
-  const entry = createRequire(import.meta.url).resolve('@playwright/test', {
+  const entry = require.resolve('@playwright/test', {
     paths: [process.env.TMT_TEST_PLAYWRIGHT_ROOT ?? path.join(process.cwd(), 'apps/office')],
   });
   const loaded = await import(pathToFileURL(entry).href);
@@ -164,6 +184,62 @@ try {
   assert.equal(created.exists, true);
   assert.equal(created.revision, 1);
 
+  // The board one-shot path must work through the verified companion while the
+  // local HTTP service is stopped, then persist independently in shared SQLite.
+  assert.equal(officeCommand(['status']).service.running, false);
+  const boardCreated = officeCommand([
+    'board',
+    'post',
+    '--general',
+    '--identity',
+    'Alice',
+    '--title',
+    'Persistent review',
+    '--body',
+    'Survives service restart.',
+  ]);
+  const repositoryTitle =
+    'Repository coordination: durable browser review across a deliberately long title';
+  const repositoryBody =
+    'This long plain-text discussion verifies the rendered Office board against the real local service.\n\nIt keeps line breaks, stays readable at a narrow viewport, and exposes the moderation action without interpreting markup.';
+  const repositoryCreated = officeCommand([
+    'board',
+    'post',
+    '--repo',
+    'origin',
+    '--identity',
+    'Alice',
+    '--title',
+    repositoryTitle,
+    '--body',
+    repositoryBody,
+  ]);
+  const boardDatabase = new Database(path.join(state, 'tmux-team.db'), { readonly: true });
+  try {
+    assert.deepEqual(
+      boardDatabase
+        .prepare(
+          'SELECT id, thread_id, revision, title, body, deleted FROM office_board_entries WHERE id = ?'
+        )
+        .get(boardCreated.entryId),
+      {
+        id: boardCreated.entryId,
+        thread_id: boardCreated.threadId,
+        revision: 1,
+        title: 'Persistent review',
+        body: 'Survives service restart.',
+        deleted: 0,
+      }
+    );
+    assert.equal(
+      boardDatabase.prepare('SELECT revision FROM office_board_state WHERE singleton = 1').get()
+        .revision,
+      2
+    );
+  } finally {
+    boardDatabase.close();
+  }
+
   const started = officeCommand(['start']);
   assert.equal(started.running, true);
   assert.equal(started.changed, true);
@@ -215,6 +291,21 @@ try {
   page.on('request', (request) => browserRequests.push(request.url()));
   await page.goto(started.url);
   assert.equal(new URL(page.url()).hash, '');
+  const browserBoard = await page.evaluate(
+    async ({ threadId, token }) => {
+      const response = await fetch('/api/v1/local/board/threads/show', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threadId, replyLimit: 20, replyCursor: null }),
+      });
+      return { status: response.status, value: await response.json() };
+    },
+    { threadId: boardCreated.threadId, token: firstToken }
+  );
+  assert.equal(browserBoard.status, 200);
+  assert.equal(browserBoard.value.thread.title, 'Persistent review');
+  assert.equal(browserBoard.value.thread.body, 'Survives service restart.');
+  assert.equal(browserBoard.value.boardRevision, 2);
   await page.getByText('Saved · revision 1').waitFor();
   await page.getByRole('button', { name: 'Add plant' }).click();
   await page.getByRole('button', { name: 'Save layout' }).click();
@@ -224,6 +315,92 @@ try {
   assert.equal(browserSaved.revision, 2);
   assert.equal(browserSaved.objects.length, 2);
   assert(browserSaved.objects.some((object) => object.asset === 'plant'));
+
+  // Continue through the actual rendered board. These interactions use the
+  // authenticated runtime installed by the local shell, not an in-memory API mock.
+  await page.getByRole('link', { name: 'Board' }).click();
+  await page.getByRole('heading', { name: 'Office board' }).waitFor();
+  await page.getByRole('heading', { name: 'Persistent review' }).waitFor();
+  await page.getByText('Survives service restart.').waitFor();
+  const replyForm = page.locator('.board-reply-form');
+  await replyForm.getByLabel('Message').fill('Owner reply created through the rendered board.');
+  await replyForm.getByRole('button', { name: 'Reply as owner' }).click();
+  await page.getByText('Owner reply created through the rendered board.').waitFor();
+
+  await page.getByRole('button', { name: 'New post' }).click();
+  const newPost = page.locator('.board-index .board-compose');
+  await newPost.getByLabel('Title').fill('Owner follow-up');
+  await newPost.getByLabel('Message').fill('Owner post before editing.');
+  await newPost.getByRole('button', { name: 'Post as owner' }).click();
+  await page.getByRole('heading', { name: 'Owner follow-up' }).waitFor();
+  await page.getByRole('button', { name: 'Edit' }).click();
+  const editForm = page.locator('.board-conversation .board-entry form');
+  await editForm.getByLabel('Title').fill('Owner follow-up edited');
+  await editForm.getByLabel('Message').fill('Owner edit persisted through restart.');
+  await editForm.getByRole('button', { name: 'Save edit' }).click();
+  await page.getByRole('heading', { name: 'Owner follow-up edited' }).waitFor();
+
+  const repositoryId = 'example.com/Organization/Office-Discussion-Board-With-A-Long-Category';
+  await page.getByLabel('Category').selectOption(`repository:${repositoryId}`);
+  await page.getByRole('heading', { name: repositoryTitle }).waitFor();
+  await page.getByText(repositoryBody).waitFor();
+  const desktopScreenshot = process.env.TMT_TEST_BOARD_DESKTOP_SCREENSHOT;
+  const narrowScreenshot = process.env.TMT_TEST_BOARD_NARROW_SCREENSHOT;
+  if (desktopScreenshot) {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.screenshot({ path: desktopScreenshot, fullPage: true });
+  }
+  if (narrowScreenshot) {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: narrowScreenshot, fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+  }
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Moderate delete' }).click();
+  await page.getByText('Deleted entry').waitFor();
+
+  const changedBoard = new Database(path.join(state, 'tmux-team.db'), { readonly: true });
+  try {
+    assert.deepEqual(
+      changedBoard
+        .prepare(
+          "SELECT author_kind, title, body, revision, deleted FROM office_board_entries WHERE title = 'Owner follow-up edited'"
+        )
+        .get(),
+      {
+        author_kind: 'owner',
+        title: 'Owner follow-up edited',
+        body: 'Owner edit persisted through restart.',
+        revision: 2,
+        deleted: 0,
+      }
+    );
+    assert.deepEqual(
+      changedBoard
+        .prepare(
+          'SELECT author_kind, body, deleted FROM office_board_entries WHERE thread_id = ? AND is_root = 0'
+        )
+        .get(boardCreated.threadId),
+      {
+        author_kind: 'owner',
+        body: 'Owner reply created through the rendered board.',
+        deleted: 0,
+      }
+    );
+    assert.deepEqual(
+      changedBoard
+        .prepare('SELECT title, body, deleted FROM office_board_entries WHERE id = ?')
+        .get(repositoryCreated.entryId),
+      { title: null, body: null, deleted: 1 }
+    );
+    assert.equal(
+      changedBoard.prepare('SELECT revision FROM office_board_state WHERE singleton = 1').get()
+        .revision,
+      6
+    );
+  } finally {
+    changedBoard.close();
+  }
   await browser.close();
   browser = undefined;
 
@@ -346,7 +523,37 @@ try {
   const reopened = await browser.newPage();
   await reopened.goto(restarted.url);
   assert.equal(new URL(reopened.url()).hash, '');
+  const restartedToken = tokenFrom(restarted.url);
+  const reopenedBoard = await reopened.evaluate(
+    async ({ threadId, token }) => {
+      const response = await fetch('/api/v1/local/board/threads/show', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threadId, replyLimit: 20, replyCursor: null }),
+      });
+      return { status: response.status, value: await response.json() };
+    },
+    { threadId: boardCreated.threadId, token: restartedToken }
+  );
+  assert.equal(reopenedBoard.status, 200);
+  assert.equal(reopenedBoard.value.thread.title, 'Persistent review');
+  assert.equal(reopenedBoard.value.thread.body, 'Survives service restart.');
+  assert.equal(
+    reopenedBoard.value.replies[0].body,
+    'Owner reply created through the rendered board.'
+  );
+  assert.equal(reopenedBoard.value.boardRevision, 6);
   await reopened.getByText('Saved · revision 4').waitFor();
+  await reopened.getByRole('link', { name: 'Board' }).click();
+  await reopened.getByRole('heading', { name: 'Owner follow-up edited' }).waitFor();
+  await reopened.getByRole('button', { name: /Persistent review/ }).click();
+  await reopened.getByText('Owner reply created through the rendered board.').waitFor();
+  await reopened
+    .getByLabel('Category')
+    .selectOption(
+      'repository:example.com/Organization/Office-Discussion-Board-With-A-Long-Category'
+    );
+  await reopened.getByText('Deleted entry').waitFor();
   await browser.close();
   browser = undefined;
 
