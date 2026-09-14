@@ -17,7 +17,8 @@ explicit; no implicit pairing, publication or fallback to a remote world.
 
 ## Input
 
-Apply replaces this complete exact object; unknown or missing fields reject:
+Apply replaces this complete object; unknown or missing required fields reject. The optional
+`avatarRef` shown below may instead be omitted or `null` to select the default robot:
 
 ```json
 {
@@ -29,7 +30,8 @@ Apply replaces this complete exact object; unknown or missing fields reject:
     "skinTone": "medium",
     "shirtColor": "blue",
     "shirtMark": "AI"
-  }
+  },
+  "avatarRef": "sha256:<64 lowercase hex>/<avatar-key>"
 }
 ```
 
@@ -38,8 +40,9 @@ Apply replaces this complete exact object; unknown or missing fields reject:
 is at most 16 UTF-8 bytes, including an empty string, short text or emoji.
 Other control characters reject; label and mark also reject LF and TAB. Never
 truncate, interpret markup or load resources from these strings. Render them as
-plain text with a bounded visual area and accessible full text. No image, URL,
-path, SVG, executable content or arbitrary color field exists. File input is
+plain text with a bounded visual area and accessible full text. No URL, path, SVG,
+executable content or arbitrary color field exists. `avatarRef` is only the immutable local
+catalog grammar defined by [avatar pack v1](avatar-pack-v1.md). File input is
 bounded to 8 KiB before parsing.
 
 Catalog identifiers are case-sensitive:
@@ -59,6 +62,13 @@ Persist one independent profile row per immutable identity UUID, with revision,
 canonical profile and update time. Do not embed it in layout JSON, identity
 metadata, role instructions or the Markdown notebook.
 
+Changing to a different non-null avatar reference requires an installed, valid pack and key.
+Admission and the profile write occur in one immediate transaction. The exact current
+reference may be retained during unrelated edits even when its pack is missing or corrupt.
+Catalog removal never rewrites profiles; rendering falls back to the stored default appearance.
+Reinstalling the exact bytes restores the art without a profile write, revision or timestamp
+change.
+
 Without a stored override, show returns `exists:false`, revision 0 and a
 deterministic default without writing. Defaults use the UUID's first three
 decoded bytes modulo the ordered hair-style, skin-tone and shirt-color catalogs;
@@ -73,7 +83,8 @@ lookup keys; show the actual identity name alongside a customized label.
 
 ## Writes and lifetime
 
-Reuse the existing immediate transaction and active-identity check. Revisions
+Reuse the existing immediate transaction, active-identity check and avatar-catalog admission.
+Revisions
 are JavaScript-safe positive integers for stored rows. Revision 0 creates the
 first explicit override at 1, including an explicit save of the default.
 At the expected revision, identical canonical content is a no-op. At expected+1,
@@ -93,10 +104,12 @@ Add a typed profile port to the existing local runtime, sharing authentication,
 origin checks and cancellation. Native and browser mutations invoke the same
 domain service. Preserve block response compatibility and independent revisions.
 
-Active identities without layouts appear in a read-only avatar preview/selector;
+Active identities without layouts appear in the avatar preview/selector;
 do not create a persisted block on discovery. Reuse a curated avatar renderer for
-preview and scene. Hair/clothing/mark differences and the name above the avatar
-must be visibly legible. Offline saved identities are not presented as online.
+preview and scene. Custom art owns its palette, so default appearance controls remain stored
+but disabled while a custom reference is selected. `shirtMark`, identity name and display
+label remain independent inert overlays. Missing or corrupt selected art shows the saved
+default robot and an explicit unavailable status. Offline saved identities are not presented as online.
 Draft edits do not write until Save and survive refresh/conflict/uncertainty.
 Furniture selection remains independent. Movement and social sessions are #179.
 

@@ -2,6 +2,7 @@ import { useId } from 'react';
 import type { Furniture } from './block-contract.js';
 import { BLOCK_SIZE, defaultCatalog, footprint } from './block-contract.js';
 import { Avatar } from '../profiles/avatar.js';
+import type { AvatarArt } from '../profiles/avatar.js';
 import type { Appearance } from '../profiles/profile-contract.js';
 import type { CatalogPack } from '../props/prop-contract.js';
 import { resolvedProp } from '../props/prop-contract.js';
@@ -63,7 +64,12 @@ export function BlockScene({
   selected: number | null;
   select: (index: number) => void;
   move: (x: number, y: number) => void;
-  avatar?: { appearance: Appearance; name: string; displayLabel?: string };
+  avatar?: {
+    appearance: Appearance;
+    name: string;
+    displayLabel?: string;
+    customArt?: AvatarArt;
+  };
   catalog?: CatalogPack[];
 }) {
   const pattern = useId();
@@ -119,6 +125,7 @@ export function BlockScene({
           appearance={avatar.appearance}
           name={avatar.name}
           displayLabel={avatar.displayLabel}
+          customArt={avatar.customArt}
           x={16}
           y={15}
         />

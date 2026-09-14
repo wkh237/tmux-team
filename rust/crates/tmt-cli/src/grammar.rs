@@ -788,7 +788,13 @@ fn option(id: &'static str) -> Arg {
             .help("Print an exact bundled skill (default: tmux-team)")
             .num_args(0..=1)
             .default_missing_value("tmux-team")
-            .value_parser(["tmux-team", "tmt-inbox", "tmt-office", "tmt-prop-create"]),
+            .value_parser([
+                "tmux-team",
+                "tmt-inbox",
+                "tmt-office",
+                "tmt-prop-create",
+                "tmt-avatar-create",
+            ]),
         "global" => flag("Edit global settings").short('g'),
         "config" => value("Unsupported path override").hide(true),
         "team" => value("Retired scope").hide(true),

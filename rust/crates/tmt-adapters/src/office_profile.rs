@@ -107,6 +107,7 @@ fn profile_error(error: LocalProfileError) -> OfficeError {
             OfficeError::RevisionConflict
         }
         LocalProfileError::ProfileInvalid => OfficeError::ProfileInvalid,
+        LocalProfileError::AvatarUnavailable => OfficeError::AvatarNotFound,
         LocalProfileError::StoredProfileInvalid => OfficeError::CredentialsInvalid,
         LocalProfileError::Storage(error) => storage_error(error),
     }

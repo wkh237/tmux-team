@@ -23,6 +23,7 @@ pub struct LocalProfile {
     pub display_label: String,
     pub description: String,
     pub appearance: Appearance,
+    pub avatar_ref: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -35,6 +36,7 @@ pub enum ProfileError {
     InvalidSkinTone,
     InvalidShirtColor,
     InvalidShirtMark,
+    InvalidAvatarReference,
 }
 
 impl LocalProfile {
@@ -49,7 +51,13 @@ impl LocalProfile {
             .map_err(|_| ProfileError::InvalidSkinTone)?;
         member(&self.appearance.shirt_color, &SHIRT_COLORS)
             .map_err(|_| ProfileError::InvalidShirtColor)?;
-        text(&self.appearance.shirt_mark, 16, false).map_err(|_| ProfileError::InvalidShirtMark)
+        text(&self.appearance.shirt_mark, 16, false).map_err(|_| ProfileError::InvalidShirtMark)?;
+        if self.avatar_ref.as_deref().is_some_and(|value| {
+            crate::office_art_reference::parse_office_art_reference(value).is_none()
+        }) {
+            return Err(ProfileError::InvalidAvatarReference);
+        }
+        Ok(())
     }
 }
 
@@ -72,6 +80,7 @@ pub fn deterministic_default(identity_id: &str) -> Result<LocalProfile, ProfileE
             shirt_color: SHIRT_COLORS[usize::from(bytes[2]) % SHIRT_COLORS.len()].into(),
             shirt_mark: String::new(),
         },
+        avatar_ref: None,
     })
 }
 
@@ -107,6 +116,7 @@ mod tests {
                 shirt_color: value["appearance"]["shirtColor"].as_str().unwrap().into(),
                 shirt_mark: value["appearance"]["shirtMark"].as_str().unwrap().into(),
             },
+            avatar_ref: value["avatarRef"].as_str().map(Into::into),
         }
     }
 
@@ -137,6 +147,12 @@ mod tests {
         assert_eq!(profile.validate(), Ok(()));
         profile.appearance.hair_style = "random".into();
         assert_eq!(profile.validate(), Err(ProfileError::InvalidHairStyle));
+        profile.appearance.hair_style = "short".into();
+        profile.avatar_ref = Some("https://example.test/avatar".into());
+        assert_eq!(
+            profile.validate(),
+            Err(ProfileError::InvalidAvatarReference)
+        );
     }
 
     #[test]

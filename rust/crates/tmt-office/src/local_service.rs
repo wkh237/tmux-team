@@ -34,6 +34,7 @@ const HEADER_LIMIT: usize = 16 * 1024;
 const BODY_LIMIT: usize = 64 * 1024;
 const PREVIEW_LIMIT: usize = 4;
 const PREVIEW_LIFETIME: Duration = Duration::from_secs(5 * 60);
+const AVATAR_CATALOG_OUTPUT_LIMIT: usize = 256 * 1024;
 const MAX_CONNECTIONS: usize = 16;
 const REQUEST_DEADLINE: Duration = Duration::from_secs(3);
 const RESPONSE_DEADLINE: Duration = Duration::from_secs(15);
@@ -561,6 +562,9 @@ fn api(
     if request.path.starts_with("/api/v1/local/board/") {
         return board_api(stream, request, paths, receipt);
     }
+    if request.method == "GET" && request.path == "/api/v1/local/avatar-catalog" {
+        return avatar_catalog_api(stream, paths);
+    }
     if request.path == "/api/v1/local/profiles"
         || request.path.starts_with("/api/v1/local/profiles/")
     {
@@ -702,6 +706,60 @@ fn api(
         );
     }
     response(stream, status, "application/json", &body)
+}
+
+fn avatar_catalog_api(stream: &mut TcpStream, paths: &ConfigPaths) -> io::Result<()> {
+    let mut storage = match Storage::open(&paths.database) {
+        Ok(storage) => storage,
+        Err(_) => {
+            return response(
+                stream,
+                500,
+                "application/json",
+                br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+            );
+        }
+    };
+    let mut cursor = None;
+    let mut revision = None;
+    let mut packs = Vec::new();
+    loop {
+        let page = match storage.list_local_avatar_packs(20, cursor.as_deref()) {
+            Ok(page) if revision.is_none_or(|value| value == page.catalog_revision) => page,
+            _ => {
+                let _ = storage.close();
+                return response(
+                    stream,
+                    500,
+                    "application/json",
+                    br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+                );
+            }
+        };
+        revision = Some(page.catalog_revision);
+        packs.extend(
+            page.packs.into_iter().map(
+                |snapshot| json!({"digest":snapshot.pack.digest(),"pack":snapshot.pack.pack()}),
+            ),
+        );
+        cursor = page.next_cursor;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    let body = serde_json::to_vec(&json!({
+        "catalogRevision":revision.unwrap_or(0),
+        "packs":packs
+    }))?;
+    if body.len() > AVATAR_CATALOG_OUTPUT_LIMIT || storage.close().is_err() {
+        return response(
+            stream,
+            500,
+            "application/json",
+            br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+        );
+    }
+    response(stream, 200, "application/json", &body)
 }
 
 fn profile_api(
@@ -871,6 +929,9 @@ fn profile_api(
     let (status, body) = match result {
         Ok(profile) => (200, serde_json::to_vec(&profile)?),
         Err(LocalProfileError::ProfileInvalid) => (400, br#"{"error":"PROFILE_INVALID"}"#.to_vec()),
+        Err(LocalProfileError::AvatarUnavailable) => {
+            (409, br#"{"error":"AVATAR_UNAVAILABLE"}"#.to_vec())
+        }
         Err(LocalProfileError::RevisionConflict | LocalProfileError::RevisionExhausted) => {
             (409, br#"{"error":"REVISION_CONFLICT"}"#.to_vec())
         }
@@ -1525,6 +1586,12 @@ mod tests {
         .unwrap()
         .identity
         .id;
+        let avatar = validate_avatar_pack(include_bytes!(
+            "../../../../contracts/office/avatar-pack-v1-sample.tmtavatar.json"
+        ))
+        .unwrap();
+        storage.install_local_avatar_pack(0, &avatar).unwrap();
+        let avatar_ref = format!("{}/{}", avatar.digest(), avatar.pack().avatars[0].key);
         storage.close().unwrap();
         let receipt = ServiceReceipt {
             schema_version: 1,
@@ -1558,7 +1625,22 @@ mod tests {
         let missing = call_api(get, &paths, &receipt);
         assert!(missing.starts_with("HTTP/1.1 200"));
         assert!(missing.contains("\"exists\":false"));
-        let profile = json!({"displayLabel":"","description":"Architecture review","appearance":{"hairStyle":"short","hairColor":"ink","skinTone":"medium","shirtColor":"blue","shirtMark":"AI"}});
+        let catalog = call_api(
+            Request {
+                method: "GET".into(),
+                path: "/api/v1/local/avatar-catalog".into(),
+                headers: headers(),
+                body: vec![],
+            },
+            &paths,
+            &receipt,
+        );
+        assert!(catalog.starts_with("HTTP/1.1 200"));
+        let catalog_body = response_value(&catalog);
+        assert_eq!(catalog_body["catalogRevision"], 1);
+        assert_eq!(catalog_body["packs"].as_array().unwrap().len(), 1);
+        assert_eq!(catalog_body["packs"][0]["digest"], avatar.digest());
+        let profile = json!({"displayLabel":"","description":"Architecture review","appearance":{"hairStyle":"short","hairColor":"ink","skinTone":"medium","shirtColor":"blue","shirtMark":"AI"},"avatarRef":avatar_ref});
         let rejected = Request {
             method: "PUT".into(),
             path: format!("/api/v1/local/profiles/{id}"),
@@ -1606,7 +1688,7 @@ mod tests {
         let noop_body = json_body(&call_api(noop, &paths, &receipt));
         assert_eq!(noop_body["changed"], false);
         assert_eq!(noop_body["updatedAtMs"], created_at);
-        let updated_profile = json!({"displayLabel":"Lead","description":"Architecture review","appearance":{"hairStyle":"short","hairColor":"ink","skinTone":"medium","shirtColor":"blue","shirtMark":"AI"}});
+        let updated_profile = json!({"displayLabel":"Lead","description":"Architecture review","appearance":{"hairStyle":"short","hairColor":"ink","skinTone":"medium","shirtColor":"blue","shirtMark":"AI"},"avatarRef":avatar_ref});
         let update = Request {
             method: "PUT".into(),
             path: format!("/api/v1/local/profiles/{id}"),
@@ -1617,6 +1699,20 @@ mod tests {
         let updated_body = json_body(&call_api(update, &paths, &receipt));
         assert_eq!(updated_body["revision"], 2);
         assert_eq!(updated_body["changed"], true);
+        let unavailable_profile = json!({"displayLabel":"Lead","description":"Architecture review","appearance":{"hairStyle":"short","hairColor":"ink","skinTone":"medium","shirtColor":"blue","shirtMark":"AI"},"avatarRef":format!("sha256:{}/missing", "0".repeat(64))});
+        let unavailable = Request {
+            method: "PUT".into(),
+            path: format!("/api/v1/local/profiles/{id}"),
+            headers: headers(),
+            body: serde_json::to_vec(&json!({"expectedRevision":2,"profile":unavailable_profile}))
+                .unwrap(),
+        };
+        let unavailable_response = call_api(unavailable, &paths, &receipt);
+        assert!(unavailable_response.starts_with("HTTP/1.1 409"));
+        assert_eq!(
+            response_value(&unavailable_response)["error"],
+            "AVATAR_UNAVAILABLE"
+        );
         let stale = Request {
             method: "PUT".into(),
             path: format!("/api/v1/local/profiles/{id}"),
@@ -1632,6 +1728,8 @@ mod tests {
         };
         let listed = call_api(list, &paths, &receipt);
         assert!(listed.contains("\"online\":false"));
+        assert!(listed.contains(&avatar_ref));
+
         std::fs::remove_dir_all(root).unwrap();
     }
 

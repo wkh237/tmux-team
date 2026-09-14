@@ -109,7 +109,11 @@ Presentation profiles follow the same local-only composition without joining the
 model. `tmt-core::office_profile` owns the exact catalog, safe-text bounds and UUID-byte
 default. Schema 15 stores one optional canonical override per immutable identity UUID;
 reads do not materialize defaults. Immediate transactions implement create, no-op,
-exact-retry and conflict semantics. Retirement retains the row while active projections
+exact-retry and conflict semantics. The optional immutable avatar reference is admitted
+against the installation-owned catalog in the same transaction as the profile write.
+Removing or corrupting a selected pack never rewrites the profile: the SPA renders its
+stored robot defaults, and exact reinstall restores the custom art at the same profile
+revision. Retirement retains the row while active projections
 exclude it, so a same-name replacement inherits nothing. The SPA profile port and native
 commands both call this owner. Presence is a separate binding observation: offline saved
 identities remain editable but are never drawn as present in the room.
@@ -133,10 +137,12 @@ Schema 17 adds the independent installation-owned avatar catalog defined by
 `contracts/office/avatar-pack-v1.md`. Avatar packs use strict 16×24 indexed rasters,
 their own framed digest, revision singleton, cursor domain and 64-pack/256-avatar quotas.
 Only narrow indexed-art predicates, replay recognition, cursor encoding and the typed
-expiring preview lifecycle are shared with props. The catalog does not join furniture or
-profiles, and this foundation does not select profile art or define unavailable-selection
-fallback. The SPA preview validates its projection before passing custom art to the same
-`Avatar` composition and inert `IndexedRaster` used by retained robot art.
+expiring preview lifecycle are shared with props. The catalog does not join furniture.
+Profiles refer to an installed avatar by immutable digest/key, while catalog removal leaves
+that profile value untouched. The authenticated SPA loads one bounded catalog projection at
+startup, resolves the selected art before render and passes it to the same `Avatar`
+composition and inert `IndexedRaster` used by retained robot art; there is no per-frame
+storage or network lookup.
 
 The local discussion board follows the same companion boundary without sharing
 the block model. `tmt-core::office_board` owns its bounded values, actors,

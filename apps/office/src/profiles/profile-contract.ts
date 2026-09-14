@@ -1,3 +1,5 @@
+import { validImmutableArtReference } from '../rendering/immutable-art-reference.js';
+
 export const PROFILE_CATALOG = {
   hairStyles: ['short', 'bob', 'curls', 'tied', 'bald'],
   hairColors: ['ink', 'brown', 'gold', 'silver'],
@@ -20,6 +22,7 @@ export interface Profile {
   displayLabel: string;
   description: string;
   appearance: Appearance;
+  avatarRef?: string;
 }
 export interface ProfileSnapshot {
   identityId: string;
@@ -41,6 +44,11 @@ export class ProfileConflict extends Error {
     super('This profile changed. Your draft is preserved; review the latest saved profile.');
   }
 }
+export class ProfileAvatarUnavailable extends Error {
+  constructor() {
+    super('The selected avatar is no longer installed. Your draft is preserved.');
+  }
+}
 export interface ProfilePort {
   list(): Promise<ProfileProjection[]>;
   show(identityId: string): Promise<ProfileSnapshot>;
@@ -58,7 +66,12 @@ const plain = (value: string, max: number, multiline: boolean) =>
 export function validProfile(value: unknown): value is Profile {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const profile = value as Record<string, unknown>;
-  if (Object.keys(profile).sort().join(',') !== 'appearance,description,displayLabel') return false;
+  const keys = Object.keys(profile).sort().join(',');
+  if (
+    keys !== 'appearance,description,displayLabel' &&
+    keys !== 'appearance,avatarRef,description,displayLabel'
+  )
+    return false;
   if (
     !profile.appearance ||
     typeof profile.appearance !== 'object' ||
@@ -80,7 +93,8 @@ export function validProfile(value: unknown): value is Profile {
     PROFILE_CATALOG.hairStyles.includes(appearance.hairStyle as HairStyle) &&
     PROFILE_CATALOG.hairColors.includes(appearance.hairColor as HairColor) &&
     PROFILE_CATALOG.skinTones.includes(appearance.skinTone as SkinTone) &&
-    PROFILE_CATALOG.shirtColors.includes(appearance.shirtColor as ShirtColor)
+    PROFILE_CATALOG.shirtColors.includes(appearance.shirtColor as ShirtColor) &&
+    (profile.avatarRef === undefined || validImmutableArtReference(profile.avatarRef))
   );
 }
 export function decodeProfileSnapshot(value: unknown): ProfileSnapshot {

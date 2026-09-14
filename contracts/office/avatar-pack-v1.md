@@ -1,8 +1,7 @@
 # Office avatar pack v1
 
-Status: implemented for strict local admission, catalog storage, and preview. Profile
-selection and unavailable-selection fallback are defined by the parent design but are
-not part of this foundation contract.
+Status: implemented for strict local admission, catalog storage, preview, profile selection
+and unavailable-selection fallback.
 
 An avatar pack is one UTF-8 `.tmtavatar.json` regular file of at most 32 KiB. Readers
 must not follow symbolic links and reject a UTF-8 BOM, invalid UTF-8, duplicate JSON
@@ -35,6 +34,13 @@ avatar protocol; they never change the prop catalog revision.
 Preview requires an already-running authenticated loopback Office service, is bounded
 and expiring, and does not install a pack or alter a profile. Raster data is validated
 before reaching the inert indexed renderer; labels and credits remain untrusted text.
+
+The optional profile `avatarRef` is exactly `<digest>/<key>`. Selecting a new reference
+requires the installed catalog row and key in the same immediate transaction as the profile
+write. Removing a pack never edits profiles. A retained missing or corrupt reference renders
+the profile's stored default robot appearance, and exact reinstall restores the art without a
+profile revision change. The browser receives one bounded authenticated catalog projection at
+startup; animation, movement, arbitrary URLs and runtime plugins are outside this contract.
 
 [`avatar-pack-vectors.json`](avatar-pack-vectors.json) contains shared projection
 values. It does not claim to test duplicate-member, raw-byte, file-kind, or symlink

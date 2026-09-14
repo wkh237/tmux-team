@@ -3,6 +3,15 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { PROFILE_CATALOG, ProfileConflict } from './profile-contract.js';
 import type { Profile, ProfileMutation, ProfilePort, ProfileSnapshot } from './profile-contract.js';
 import { ProfilePanel } from './profile-view.js';
+import { decodeAvatarCatalog } from '../avatars/avatar-catalog.js';
+import avatarVectors from '../../../../contracts/office/avatar-pack-vectors.json';
+
+const avatarDigest = `sha256:${'1'.repeat(64)}`;
+const avatarRef = `${avatarDigest}/signal-bot`;
+const avatarCatalog = decodeAvatarCatalog({
+  catalogRevision: 1,
+  packs: [{ digest: avatarDigest, pack: avatarVectors.packCases[0]!.value }],
+});
 
 const snapshot: ProfileSnapshot = {
   identityId: '22222222-2222-4222-8222-222222222222',
@@ -154,4 +163,62 @@ it('keeps full accessible text in bounded labels without distorting glyphs', () 
   expect(document.querySelector('img')).toBeNull();
   expect(document.querySelector('.profile-preview title')?.textContent).toContain(displayLabel);
   expect(document.querySelector('.profile-preview title')?.textContent).toContain('設計團隊 🚀');
+});
+
+it('uses custom art while retaining default controls and the independent shirt mark', async () => {
+  const selected = {
+    ...snapshot,
+    profile: { ...snapshot.profile, avatarRef },
+  };
+  const apply = vi.fn<ProfilePort['apply']>(async (_id, _revision, profile) =>
+    mutation({ ...snapshot, revision: 3, profile }, true)
+  );
+  const port: ProfilePort = { list: async () => [], show: async () => selected, apply };
+  render(
+    <ProfilePanel
+      initial={selected}
+      port={port}
+      avatarCatalog={avatarCatalog}
+      changed={() => undefined}
+    />
+  );
+  expect(screen.getByText('Avatar · Signal bots · Signal bot')).toBeTruthy();
+  expect(screen.getByLabelText('Hair style').matches(':disabled')).toBe(true);
+  expect(screen.getByLabelText('Shirt mark').matches(':disabled')).toBe(false);
+  expect(document.querySelector('.profile-preview rect')?.getAttribute('fill')).toBe('#ffffffff');
+
+  fireEvent.change(screen.getByLabelText('Avatar art'), { target: { value: '' } });
+  expect(screen.getByLabelText('Hair style').matches(':disabled')).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Save appearance' }));
+  await waitFor(() => expect(apply).toHaveBeenCalled());
+  const saved = apply.mock.calls[0]?.[2];
+  expect(saved).not.toHaveProperty('avatarRef');
+  expect(saved?.appearance).toEqual(snapshot.profile.appearance);
+});
+
+it('retains an unavailable selection and renders the saved default fallback', () => {
+  const unavailable = {
+    ...snapshot,
+    profile: { ...snapshot.profile, avatarRef: `${avatarDigest}/missing` },
+  };
+  const port: ProfilePort = {
+    list: async () => [],
+    show: async () => unavailable,
+    apply: async () => mutation(unavailable),
+  };
+  render(
+    <ProfilePanel
+      initial={unavailable}
+      port={port}
+      avatarCatalog={avatarCatalog}
+      changed={() => undefined}
+    />
+  );
+  expect(screen.getByText('Avatar · unavailable, showing saved default appearance')).toBeTruthy();
+  expect((screen.getByLabelText('Avatar art') as HTMLSelectElement).value).toBe(
+    `${avatarDigest}/missing`
+  );
+  expect(document.querySelector('.profile-preview rect')?.getAttribute('fill')).not.toBe(
+    '#ffffffff'
+  );
 });

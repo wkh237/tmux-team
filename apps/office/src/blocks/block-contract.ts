@@ -1,5 +1,6 @@
 import { BUILTIN_DIGEST, BUILTIN_PACK } from '../props/prop-contract.js';
 import type { CatalogPack, Footprint } from '../props/prop-contract.js';
+import { validImmutableArtReference } from '../rendering/immutable-art-reference.js';
 
 export const BLOCK_SIZE = 32;
 export const OBJECT_LIMIT = 16;
@@ -46,8 +47,7 @@ export function validFurniture(value: unknown): value is Furniture {
   if (
     Object.keys(item).length !== 5 ||
     !['prop', 'footprint', 'x', 'y', 'rotation'].every((field) => Object.hasOwn(item, field)) ||
-    typeof item.prop !== 'string' ||
-    !/^sha256:[0-9a-f]{64}\/[a-z][a-z0-9-]{0,31}$/.test(item.prop) ||
+    !validImmutableArtReference(item.prop) ||
     !item.footprint ||
     typeof item.footprint !== 'object' ||
     Array.isArray(item.footprint) ||

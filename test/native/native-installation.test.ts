@@ -42,6 +42,10 @@ function propCreateSkill(): Buffer {
   return readFileSync(path.resolve('skills/tmt-prop-create/SKILL.md'));
 }
 
+function avatarCreateSkill(): Buffer {
+  return readFileSync(path.resolve('skills/tmt-avatar-create/SKILL.md'));
+}
+
 async function install(
   sandbox: Sandbox,
   fixture: ArtifactFixture,
@@ -149,6 +153,11 @@ describe('native installation process contract', () => {
           skills: {
             installed: [
               {
+                skill: 'tmt-avatar-create',
+                target: path.join(sandbox.home, '.agents', 'skills', 'tmt-avatar-create'),
+                changed: true,
+              },
+              {
                 skill: 'tmt-office',
                 target: path.join(sandbox.home, '.agents', 'skills', 'tmt-office'),
                 changed: true,
@@ -163,11 +172,15 @@ describe('native installation process contract', () => {
         });
         const officeSkillTarget = path.join(sandbox.home, '.agents', 'skills', 'tmt-office');
         const propSkillTarget = path.join(sandbox.home, '.agents', 'skills', 'tmt-prop-create');
+        const avatarSkillTarget = path.join(sandbox.home, '.agents', 'skills', 'tmt-avatar-create');
         expect(readFileSync(path.join(realpathSync(officeSkillTarget), 'SKILL.md'))).toEqual(
           officeSkill()
         );
         expect(readFileSync(path.join(realpathSync(propSkillTarget), 'SKILL.md'))).toEqual(
           propCreateSkill()
+        );
+        expect(readFileSync(path.join(realpathSync(avatarSkillTarget), 'SKILL.md'))).toEqual(
+          avatarCreateSkill()
         );
         expect(existsSync(path.join(sandbox.home, '.agents', 'skills', 'tmux-team'))).toBe(false);
         expect(existsSync(path.join(sandbox.home, '.agents', 'skills', 'tmt-inbox'))).toBe(false);
@@ -195,6 +208,7 @@ describe('native installation process contract', () => {
           changed: false,
           skills: {
             installed: [
+              { skill: 'tmt-avatar-create', changed: false },
               { skill: 'tmt-office', changed: false },
               { skill: 'tmt-prop-create', changed: false },
             ],
@@ -214,6 +228,7 @@ describe('native installation process contract', () => {
         });
         expect(readFileSync(path.join(officeSkillTarget, 'SKILL.md'))).toEqual(officeSkill());
         expect(readFileSync(path.join(propSkillTarget, 'SKILL.md'))).toEqual(propCreateSkill());
+        expect(readFileSync(path.join(avatarSkillTarget, 'SKILL.md'))).toEqual(avatarCreateSkill());
         expect(readFileSync(path.join(releases, release, 'tmt-office')).equals(payload)).toBe(true);
         expectError(await office(['status']), 'OFFICE_NOT_INSTALLED');
         expect(parseWholeStdout(await office(['uninstall', '--yes']))).toMatchObject({
@@ -226,7 +241,9 @@ describe('native installation process contract', () => {
           installed: true,
           changed: true,
           version: '0.1.0-alpha.2',
-          skills: { installed: [] },
+          skills: {
+            installed: [{ skill: 'tmt-avatar-create', changed: false }],
+          },
         });
         expect(readFileSync(officeSkillTarget, 'utf8')).toBe('user-owned Office skill');
         expect(parseWholeStdout(await office(['status']))).toMatchObject({ installed: true });
@@ -236,13 +253,15 @@ describe('native installation process contract', () => {
           changed: false,
           skills: {
             installed: [
+              { skill: 'tmt-avatar-create', changed: false },
               { skill: 'tmt-office', changed: true },
               { skill: 'tmt-prop-create', changed: false },
             ],
           },
         });
-        const backup = (recovered.skills as { installed: Array<{ backup?: string }> }).installed[0]
-          .backup;
+        const backup = (
+          recovered.skills as { installed: Array<{ skill: string; backup?: string }> }
+        ).installed.find((item) => item.skill === 'tmt-office')?.backup;
         expect(backup).toBeDefined();
         expect(readFileSync(backup!, 'utf8')).toBe('user-owned Office skill');
         expect(readFileSync(path.join(officeSkillTarget, 'SKILL.md'))).toEqual(officeSkill());

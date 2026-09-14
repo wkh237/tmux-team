@@ -105,16 +105,28 @@ requires `--local`. An identical apply at the current revision is a no-op; an ex
 at the preceding revision returns the committed snapshot. Other stale revisions return
 `OFFICE_REVISION_CONFLICT`. After an uncertain write, reread before retrying.
 
+Profiles may include `"avatarRef":"sha256:<digest>/<key>"`. Omit the member or set it to
+`null` to use the saved default robot appearance. Selecting a new reference requires that
+exact pack and key in the local avatar catalog; otherwise apply returns
+`OFFICE_AVATAR_NOT_FOUND` without changing the profile. A currently retained reference may
+still be saved while editing unrelated fields after its pack is removed or becomes corrupt.
+Removal does not rewrite profiles, and reinstalling the exact pack restores custom art
+without changing the profile revision.
+
 Local prop validation and catalog commands follow the single data-only owner in
 [`prop-pack-v1.md`](../../contracts/office/prop-pack-v1.md). Preview requires the
 already-running local service and never starts it implicitly. The optional
 `tmt-prop-create` guidance is installed through the existing Office managed-skill
 path; it is not a second installer or executable extension.
 
-Local avatar validation, catalog, and expiring preview follow
+Local avatar validation, catalog, expiring preview and profile selection follow
 [`avatar-pack-v1.md`](../../contracts/office/avatar-pack-v1.md) and use a separate
-revision/cursor namespace. This foundation does not yet add profile selection,
-unavailable-art fallback, or installed creator guidance.
+revision/cursor namespace. The optional `tmt-avatar-create` guidance is installed with the
+Office skills and explains the exact validate, preview, install and profile-apply workflow.
+The browser selector
+shows default, available custom and unavailable-fallback states; default palette controls are
+disabled while a custom reference is selected, while identity text and `shirtMark` remain
+independent overlays.
 
 With `--json`, successful start returns `running:true`, `changed`, `reused`, `url`
 and `version`; stop returns `running:false` and `changed`. Local block success returns

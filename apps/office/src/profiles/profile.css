@@ -50,6 +50,7 @@
 .profile-fields label {
   display: grid;
   gap: 7px;
+  min-width: 0;
 }
 .profile-fields {
   gap: 14px;
@@ -61,6 +62,8 @@
 .profile-fields input,
 .profile-fields textarea,
 .profile-fields select {
+  min-width: 0;
+  width: 100%;
   font: inherit;
   padding: 9px;
   border: 1px solid #aebbad;
@@ -75,6 +78,27 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+.profile-default-options {
+  min-width: 0;
+  border: 1px solid #cbd5c8;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+}
+
+.profile-default-options legend {
+  padding: 0 0.35rem;
+}
+
+.profile-default-options p,
+.avatar-status {
+  color: #58685d;
+  font-size: 0.85rem;
+}
+
+.avatar-status-unavailable {
+  color: #9b4a32;
 }
 .profile-actions {
   display: flex;

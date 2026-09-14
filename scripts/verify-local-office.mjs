@@ -55,6 +55,17 @@ async function launchBrowser() {
   return chromium.launch({ channel: process.env.TMT_TEST_BROWSER_CHANNEL ?? 'chrome' });
 }
 
+async function assertNoHorizontalOverflow(page) {
+  const widths = await page.evaluate(() => ({
+    viewport: window.innerWidth,
+    document: document.documentElement.scrollWidth,
+  }));
+  assert(
+    widths.document <= widths.viewport,
+    `horizontal overflow: document ${widths.document}px exceeds viewport ${widths.viewport}px`
+  );
+}
+
 function sha256(file) {
   return createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
@@ -245,6 +256,33 @@ try {
   assert.equal(installedAvatar.catalogRevision, 1);
   assertAvatarProjection(installedAvatar);
   assertAvatarProjection(officeCommand(['avatar', 'show', '--local', avatarDigest]));
+  const implicitProfile = officeCommand(['profile', 'show', '--local', '--identity', 'Alice']);
+  assert.equal(implicitProfile.exists, false);
+  const selectedProfileFile = path.join(root, 'profile-with-custom-avatar.json');
+  const selectedProfile = {
+    ...implicitProfile.profile,
+    displayLabel: 'Signal lead',
+    appearance: { ...implicitProfile.profile.appearance, shirtMark: 'AI' },
+    avatarRef: `${avatarDigest}/signal-bot`,
+  };
+  fs.writeFileSync(selectedProfileFile, JSON.stringify(selectedProfile));
+  const appliedProfile = officeCommand([
+    'profile',
+    'apply',
+    '--local',
+    '--identity',
+    'Alice',
+    '--file',
+    selectedProfileFile,
+    '--if-revision',
+    '0',
+  ]);
+  assert.equal(appliedProfile.changed, true);
+  assert.equal(appliedProfile.revision, 1);
+  assert.equal(appliedProfile.profile.avatarRef, `${avatarDigest}/signal-bot`);
+  const selectedProfileRows = avatarStorageSnapshot().profiles;
+  assert.equal(selectedProfileRows.length, 1);
+  assert.equal(JSON.parse(selectedProfileRows[0].profile).avatarRef, `${avatarDigest}/signal-bot`);
   const missing = officeCommand(['block', 'show', '--local', '--identity', 'Alice']);
   assert.equal(missing.exists, false);
   assert.equal(missing.revision, 0);
@@ -404,6 +442,37 @@ try {
     await page.screenshot({ path: avatarNarrowScreenshot, fullPage: true });
     await page.setViewportSize({ width: 1440, height: 1000 });
   }
+  const avatarCatalogRequestCount = () =>
+    browserRequests.filter((url) => new URL(url).pathname === '/api/v1/local/avatar-catalog')
+      .length;
+  await page.goto(started.url);
+  await page.getByText('Avatar · Signal bots · Signal bot').waitFor();
+  assert.equal(new URL(page.url()).hash, '');
+  assert.equal(await page.getByLabel('Avatar art').inputValue(), `${avatarDigest}/signal-bot`);
+  assert.equal(await page.getByLabel('Hair style').isDisabled(), true);
+  assert.equal(await page.getByLabel('Shirt mark').isEnabled(), true);
+  const profilePixels = await page
+    .locator('.profile-preview .profile-avatar rect')
+    .evaluateAll((nodes) => nodes.map((node) => [...node.attributes].map((item) => item.value)));
+  const scenePixels = await page
+    .locator('.block-scene .profile-avatar rect')
+    .evaluateAll((nodes) => nodes.map((node) => [...node.attributes].map((item) => item.value)));
+  assert(profilePixels.length > 0);
+  assert.deepEqual(scenePixels, []);
+  assert.equal(avatarCatalogRequestCount(), 1);
+  const profileDesktopScreenshot = process.env.TMT_TEST_PROFILE_DESKTOP_SCREENSHOT;
+  const profileNarrowScreenshot = process.env.TMT_TEST_PROFILE_NARROW_SCREENSHOT;
+  const profileFallbackScreenshot = process.env.TMT_TEST_PROFILE_FALLBACK_SCREENSHOT;
+  if (profileDesktopScreenshot) {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.screenshot({ path: profileDesktopScreenshot, fullPage: true });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await assertNoHorizontalOverflow(page);
+  if (profileNarrowScreenshot) {
+    await page.screenshot({ path: profileNarrowScreenshot, fullPage: true });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
   const removedAvatar = officeCommand([
     'avatar',
     'remove',
@@ -415,8 +484,36 @@ try {
   assert.equal(removedAvatar.changed, true);
   assert.equal(removedAvatar.catalogRevision, 2);
   assert.equal(officeCommand(['avatar', 'list', '--local']).packs.length, 0);
+  await page.goto('about:blank');
   await page.goto(started.url);
+  await page.getByText('Avatar · unavailable, showing saved default appearance').waitFor();
   assert.equal(new URL(page.url()).hash, '');
+  assert.equal(await page.getByLabel('Avatar art').inputValue(), `${avatarDigest}/signal-bot`);
+  assert.deepEqual(avatarStorageSnapshot().profiles, selectedProfileRows);
+  assert.equal(avatarCatalogRequestCount(), 2);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await assertNoHorizontalOverflow(page);
+  if (profileFallbackScreenshot) {
+    await page.screenshot({ path: profileFallbackScreenshot, fullPage: true });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const reinstalledAvatar = officeCommand([
+    'avatar',
+    'install',
+    '--local',
+    '--file',
+    avatarSample,
+    '--if-revision',
+    '2',
+  ]);
+  assert.equal(reinstalledAvatar.changed, true);
+  assert.equal(reinstalledAvatar.catalogRevision, 3);
+  assert.deepEqual(avatarStorageSnapshot().profiles, selectedProfileRows);
+  await page.goto('about:blank');
+  await page.goto(started.url);
+  await page.getByText('Avatar · Signal bots · Signal bot').waitFor();
+  assert.equal(new URL(page.url()).hash, '');
+  assert.equal(avatarCatalogRequestCount(), 3);
   const browserBoard = await page.evaluate(
     async ({ threadId, token }) => {
       const response = await fetch('/api/v1/local/board/threads/show', {
@@ -432,7 +529,7 @@ try {
   assert.equal(browserBoard.value.thread.title, 'Persistent review');
   assert.equal(browserBoard.value.thread.body, 'Survives service restart.');
   assert.equal(browserBoard.value.boardRevision, 2);
-  await page.getByText('Saved · revision 1').waitFor();
+  await page.locator('.block-heading').getByText('Saved · revision 1').waitFor();
   await page.getByRole('button', { name: 'Add plant' }).click();
   await page.getByRole('button', { name: 'Save layout' }).click();
   await page.getByText('Saved · revision 2').waitFor();
@@ -798,6 +895,19 @@ try {
   assert(reopenedBoard.value.replies.some((reply) => reply.body === cliReplyBody));
   assert.equal(reopenedBoard.value.boardRevision, 7);
   await reopened.getByText('Saved · revision 4').waitFor();
+  await reopened.getByText('Avatar · Signal bots · Signal bot').waitFor();
+  assert.equal(await reopened.getByLabel('Avatar art').inputValue(), `${avatarDigest}/signal-bot`);
+  const reopenedProfilePixels = await reopened
+    .locator('.profile-preview .profile-avatar rect')
+    .evaluateAll((nodes) => nodes.map((node) => [...node.attributes].map((item) => item.value)));
+  assert.deepEqual(reopenedProfilePixels, profilePixels);
+  assert.equal(
+    reopenedBrowserRequests.filter(
+      (url) => new URL(url).pathname === '/api/v1/local/avatar-catalog'
+    ).length,
+    1
+  );
+  assert.deepEqual(avatarStorageSnapshot().profiles, selectedProfileRows);
   await reopened.getByRole('link', { name: 'Board' }).click();
   await reopened.getByRole('heading', { name: 'Owner follow-up edited' }).waitFor();
   await reopened.getByRole('button', { name: /Persistent review/ }).click();
@@ -872,11 +982,49 @@ try {
   assert.doesNotThrow(() => process.kill(process.pid, 0));
   fs.unlinkSync(receiptPath);
 
+  const beforeReset = officeCommand(['profile', 'show', '--local', '--identity', 'Alice']);
+  assert.equal(beforeReset.revision, 1);
+  const resetProfileFile = path.join(root, 'profile-default-reset.json');
+  fs.writeFileSync(resetProfileFile, JSON.stringify({ ...beforeReset.profile, avatarRef: null }));
+  const resetProfile = officeCommand([
+    'profile',
+    'apply',
+    '--local',
+    '--identity',
+    'Alice',
+    '--file',
+    resetProfileFile,
+    '--if-revision',
+    '1',
+  ]);
+  assert.equal(resetProfile.revision, 2);
+  assert.equal(Object.hasOwn(resetProfile.profile, 'avatarRef'), false);
+  assert.deepEqual(resetProfile.profile.appearance, beforeReset.profile.appearance);
+  const retriedResetProfile = officeCommand([
+    'profile',
+    'apply',
+    '--local',
+    '--identity',
+    'Alice',
+    '--file',
+    resetProfileFile,
+    '--if-revision',
+    '1',
+  ]);
+  assert.equal(retriedResetProfile.changed, false);
+  assert.equal(retriedResetProfile.revision, resetProfile.revision);
+  assert.equal(retriedResetProfile.updatedAtMs, resetProfile.updatedAtMs);
+  assert.deepEqual(retriedResetProfile.profile, resetProfile.profile);
+
   command(['rm', 'Alice', '--force']);
   command(['identity', 'create', 'Alice']);
   const replacement = officeCommand(['block', 'show', '--local', '--identity', 'Alice']);
   assert.equal(replacement.exists, false);
   assert.notEqual(replacement.identityId, created.identityId);
+  const replacementProfile = officeCommand(['profile', 'show', '--local', '--identity', 'Alice']);
+  assert.equal(replacementProfile.exists, false);
+  assert.equal(replacementProfile.revision, 0);
+  assert.notEqual(replacementProfile.identityId, appliedProfile.identityId);
   assert.equal(officeCommand(['stop']).changed, false);
   console.log('Verified offline local Office lifecycle, shared revisions and loopback security.');
 } finally {

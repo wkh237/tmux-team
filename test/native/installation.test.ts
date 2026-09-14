@@ -64,6 +64,15 @@ function propCreateSkill(): Buffer {
   );
 }
 
+function avatarCreateSkill(): Buffer {
+  return readFileSync(
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../skills/tmt-avatar-create/SKILL.md'
+    )
+  );
+}
+
 function inboxTarget(target: string): string {
   return path.join(path.dirname(target), 'tmt-inbox');
 }
@@ -162,8 +171,24 @@ describe('native installation process contract', () => {
         '`.layout`',
       ])
         expect(propGuidance.stdout).toContain(required);
+      const avatarGuidance = await runCli(moved, ['learn', '--skill', 'tmt-avatar-create']);
+      expect(avatarGuidance.status).toBe(0);
+      expect(avatarGuidance.stderr).toBe('');
+      expect(avatarGuidance.stdout).toBe(avatarCreateSkill().toString('utf8'));
+      expect(avatarGuidance.stdout).not.toContain('contracts/office/');
+      for (const required of [
+        '"formatVersion": 1',
+        'tmt office avatar validate --file',
+        'tmt office avatar list --local',
+        'tmt office avatar install --local',
+        'tmt office profile apply --local',
+        'tmt office avatar remove --local',
+        'maintained `Avatar` composition',
+      ])
+        expect(avatarGuidance.stdout).toContain(required);
       for (const required of [
         '`tmt-prop-create`',
+        '`tmt-avatar-create`',
         'tmt office prop list --local',
         'tmt office prop install --local',
         'tmt office prop remove --local',

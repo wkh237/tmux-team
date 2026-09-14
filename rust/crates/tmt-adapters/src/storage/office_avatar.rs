@@ -433,6 +433,29 @@ fn load_snapshot(
         .map(|row| snapshot_from_row(revision, row))
         .transpose()
 }
+
+pub(super) fn reference_available(
+    connection: &rusqlite::Connection,
+    value: &str,
+) -> Result<bool, StorageError> {
+    let Some((digest, key)) = tmt_core::office_art_reference::parse_office_art_reference(value)
+    else {
+        return Ok(false);
+    };
+    match load_snapshot(connection, 0, digest) {
+        Ok(Some(snapshot)) => Ok(snapshot
+            .pack
+            .pack()
+            .avatars
+            .iter()
+            .any(|avatar| avatar.key == key)),
+        Ok(None)
+        | Err(LocalAvatarCatalogError::Corrupt)
+        | Err(LocalAvatarCatalogError::Invalid) => Ok(false),
+        Err(LocalAvatarCatalogError::Storage(error)) => Err(error),
+        Err(_) => Ok(false),
+    }
+}
 fn snapshot_from_row(
     revision: u64,
     row: BoundedRow,
