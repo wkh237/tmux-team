@@ -18,6 +18,7 @@ mod office_block_command;
 mod office_board_command;
 mod office_command;
 mod office_pairing_command;
+mod office_profile_command;
 mod output;
 mod parser;
 mod profile_command;

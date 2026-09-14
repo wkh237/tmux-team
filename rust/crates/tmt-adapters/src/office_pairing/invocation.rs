@@ -247,6 +247,8 @@ fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> 
             }
             OfficeInvocation::LocalBlockShow
             | OfficeInvocation::LocalBlockApply
+            | OfficeInvocation::LocalProfileShow
+            | OfficeInvocation::LocalProfileApply
             | OfficeInvocation::BoardPost
             | OfficeInvocation::BoardList
             | OfficeInvocation::BoardShow

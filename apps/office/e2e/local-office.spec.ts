@@ -1,15 +1,77 @@
 import { expect, test } from '@playwright/test';
 import type { Request } from '@playwright/test';
 
-test('offline local composition renders and conditionally edits the shared block port', async ({
+test('offline local composition renders and conditionally edits shared profile and block ports', async ({
   page,
-}) => {
+}, testInfo) => {
   const token = 'a'.repeat(43);
   const blockId = '11111111-1111-4111-8111-111111111111';
   let revision = 1;
+  let profileRevision = 0;
   let objects = [{ asset: 'desk', x: 4, y: 6, rotation: 0 }];
+  let profile = {
+    displayLabel: '',
+    description: 'Architecture review',
+    appearance: {
+      hairStyle: 'curls',
+      hairColor: 'silver',
+      skinTone: 'deep',
+      shirtColor: 'plum',
+      shirtMark: 'AI',
+    },
+  };
+  const catalog = {
+    hairStyles: ['short', 'bob', 'curls', 'tied', 'bald'],
+    hairColors: ['ink', 'brown', 'gold', 'silver'],
+    skinTones: ['light', 'warm', 'medium', 'deep'],
+    shirtColors: ['blue', 'green', 'clay', 'plum', 'gold', 'ink'],
+  };
   const requests: string[] = [];
   page.on('request', (request) => requests.push(request.url()));
+  await page.route('**/api/v1/local/profiles', async (route) => {
+    expect(route.request().headers().authorization).toBe(`Bearer ${token}`);
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify([
+        {
+          identityId: '22222222-2222-4222-8222-222222222222',
+          identityName: 'Alice',
+          exists: profileRevision > 0,
+          revision: profileRevision,
+          profile,
+          updatedAtMs: profileRevision || null,
+          catalog,
+          online: true,
+        },
+      ]),
+    });
+  });
+  await page.route(
+    '**/api/v1/local/profiles/22222222-2222-4222-8222-222222222222',
+    async (route) => {
+      expect(route.request().headers().authorization).toBe(`Bearer ${token}`);
+      if (route.request().method() === 'PUT') {
+        expect(route.request().headers().origin).toBe('http://127.0.0.1:4176');
+        const input = route.request().postDataJSON();
+        if (input.expectedRevision !== profileRevision)
+          return route.fulfill({ status: 409, body: '{"error":"REVISION_CONFLICT"}' });
+        profileRevision += 1;
+        profile = input.profile;
+      }
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          identityId: '22222222-2222-4222-8222-222222222222',
+          identityName: 'Alice',
+          exists: profileRevision > 0,
+          revision: profileRevision,
+          profile,
+          updatedAtMs: profileRevision || null,
+          catalog,
+        }),
+      });
+    }
+  );
   await page.route('**/api/v1/local/blocks', async (route) => {
     expect(route.request().headers().authorization).toBe(`Bearer ${token}`);
     await route.fulfill({
@@ -58,10 +120,19 @@ test('offline local composition renders and conditionally edits the shared block
   await expect(page).toHaveURL('http://127.0.0.1:4176/local');
   await expect(page.getByRole('heading', { name: 'Your local office' })).toBeVisible();
   await expect(page.getByText('Saved · revision 1')).toBeVisible();
+  await expect(page.locator('.profile-preview .avatar-name')).toHaveText('Alice');
+  await expect(page.locator('.profile-preview .avatar-mark')).toHaveText('AI');
+  await page.getByLabel('Shirt mark').fill('UX');
+  await page.getByRole('button', { name: 'Save appearance' }).click();
+  await expect(page.getByText('Saved · revision 1')).toHaveCount(2);
+  await page.screenshot({ path: testInfo.outputPath('profile-desktop.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: testInfo.outputPath('profile-narrow.png'), fullPage: true });
   await page.getByRole('button', { name: 'Add plant' }).click();
   await page.getByRole('button', { name: 'Save layout' }).click();
   await expect(page.getByText('Saved · revision 2')).toBeVisible();
   expect(objects).toHaveLength(2);
+  expect(profile.appearance.shirtMark).toBe('UX');
   expect(requests.every((url) => new URL(url).hostname === '127.0.0.1')).toBe(true);
 });
 

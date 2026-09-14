@@ -105,6 +105,15 @@ the adapter accepts only exact IPv4 loopback requests. This is a local browser
 adapter, not a work connector: it does not receive or dispatch remote work and
 does not execute CLI work.
 
+Presentation profiles follow the same local-only composition without joining the block
+model. `tmt-core::office_profile` owns the exact catalog, safe-text bounds and UUID-byte
+default. Schema 15 stores one optional canonical override per immutable identity UUID;
+reads do not materialize defaults. Immediate transactions implement create, no-op,
+exact-retry and conflict semantics. Retirement retains the row while active projections
+exclude it, so a same-name replacement inherits nothing. The SPA profile port and native
+commands both call this owner. Presence is a separate binding observation: offline saved
+identities remain editable but are never drawn as present in the room.
+
 The local discussion board follows the same companion boundary without sharing
 the block model. `tmt-core::office_board` owns its bounded values, actors,
 receipts and cursor policy; schema 14 and `storage::office_board` own the single

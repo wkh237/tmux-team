@@ -167,6 +167,8 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         | ["office", "sync"]
         | ["office", "block", "show"]
         | ["office", "block", "apply"]
+        | ["office", "profile", "show"]
+        | ["office", "profile", "apply"]
         | ["office", "board", "post"]
         | ["office", "board", "list"]
         | ["office", "board", "show"]
@@ -257,6 +259,19 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                         if_revision: *m
                             .get_one::<u64>("if-revision")
                             .expect("grammar supplies block revision"),
+                    },
+                },
+                Some("show") if path.get(1) == Some(&"profile") => OfficeOperation::Profile {
+                    identity: text(m, "identity"),
+                    operation: OfficeProfileOperation::Show,
+                },
+                Some("apply") if path.get(1) == Some(&"profile") => OfficeOperation::Profile {
+                    identity: text(m, "identity"),
+                    operation: OfficeProfileOperation::Apply {
+                        file: required(m, "file"),
+                        if_revision: *m
+                            .get_one::<u64>("if-revision")
+                            .expect("grammar supplies profile revision"),
                     },
                 },
                 Some("unpair") => OfficeOperation::Unpair {

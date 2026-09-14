@@ -563,6 +563,107 @@ fn office_block_commands_are_typed_and_scoped() {
 }
 
 #[test]
+fn office_profile_commands_are_local_typed_and_revision_bounded() {
+    use crate::invocation::{OfficeOperation, OfficeProfileOperation};
+    assert_eq!(
+        parse(&args(&[
+            "office",
+            "profile",
+            "show",
+            "--local",
+            "--identity",
+            "Alice",
+            "--json"
+        ]))
+        .unwrap(),
+        Parsed {
+            invocation: Invocation::Office {
+                operation: OfficeOperation::Profile {
+                    identity: Some("Alice".into()),
+                    operation: OfficeProfileOperation::Show
+                },
+                prefix: None
+            },
+            mode: OutputMode { json: true }
+        }
+    );
+    assert_eq!(
+        parse(&args(&[
+            "office",
+            "profile",
+            "apply",
+            "--local",
+            "--identity",
+            "Alice",
+            "--file",
+            "profile.json",
+            "--if-revision",
+            "0",
+            "--json"
+        ]))
+        .unwrap()
+        .invocation,
+        Invocation::Office {
+            operation: OfficeOperation::Profile {
+                identity: Some("Alice".into()),
+                operation: OfficeProfileOperation::Apply {
+                    file: "profile.json".into(),
+                    if_revision: 0
+                }
+            },
+            prefix: None
+        }
+    );
+    let maximum = tmt_core::office_profile::MAX_REVISION.to_string();
+    assert_eq!(
+        parsed(&[
+            "office",
+            "profile",
+            "apply",
+            "--local",
+            "--file",
+            "profile.json",
+            "--if-revision",
+            &maximum,
+        ])
+        .invocation,
+        Invocation::Office {
+            operation: OfficeOperation::Profile {
+                identity: None,
+                operation: OfficeProfileOperation::Apply {
+                    file: "profile.json".into(),
+                    if_revision: tmt_core::office_profile::MAX_REVISION,
+                },
+            },
+            prefix: None,
+        }
+    );
+    let above_maximum = (tmt_core::office_profile::MAX_REVISION + 1).to_string();
+    for invalid in [
+        vec!["office", "profile", "show"],
+        vec![
+            "office",
+            "profile",
+            "show",
+            "--world",
+            "https://example.test",
+        ],
+        vec![
+            "office",
+            "profile",
+            "apply",
+            "--local",
+            "--file",
+            "p.json",
+            "--if-revision",
+            &above_maximum,
+        ],
+    ] {
+        assert!(parse(&args(&invalid)).is_err());
+    }
+}
+
+#[test]
 fn native_upgrade_alias_and_selection_share_one_typed_contract() {
     for command in ["upgrade", "update"] {
         let invocation = parsed(&[

@@ -119,6 +119,12 @@
 .block-editor [role='alert'] {
   color: #9b2c2c;
 }
+.block-scene .avatar-name {
+  font-size: 1.4px;
+}
+.block-scene .avatar-mark {
+  font-size: 1.15px;
+}
 @media (max-width: 760px) {
   .block-workbench {
     grid-template-columns: 1fr;

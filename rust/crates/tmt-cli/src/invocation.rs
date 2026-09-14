@@ -92,6 +92,10 @@ pub enum OfficeOperation {
         identity: Option<String>,
         operation: OfficeBlockOperation,
     },
+    Profile {
+        identity: Option<String>,
+        operation: OfficeProfileOperation,
+    },
     Board(OfficeBoardOperation),
     Unpair {
         world: String,
@@ -205,6 +209,12 @@ pub enum OfficeBlockOperation {
         file: String,
         if_revision: u64,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum OfficeProfileOperation {
+    Show,
+    Apply { file: String, if_revision: u64 },
 }
 
 #[derive(Debug, Clone, PartialEq)]

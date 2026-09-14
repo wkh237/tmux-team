@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BlockConflict } from '../blocks/block-contract.js';
 import { createBlockState } from '../blocks/block-state.js';
 import { startLocalRuntime } from './local-runtime.js';
+import { PROFILE_CATALOG, ProfileConflict } from '../profiles/profile-contract.js';
 
 const token = 'a'.repeat(43);
 const block = {
@@ -113,6 +114,49 @@ describe('local Office runtime', () => {
       operationId,
     });
     expect(JSON.parse(String(post?.[1]?.body))).not.toHaveProperty('actor');
+    runtime.dispose();
+  });
+
+  it('reads and conditionally writes typed local profiles with the same browser credential', async () => {
+    const snapshot = {
+      identityId: block.identityId,
+      identityName: 'Alice',
+      exists: false,
+      revision: 0,
+      profile: {
+        displayLabel: '',
+        description: '',
+        appearance: {
+          hairStyle: 'short',
+          hairColor: 'ink',
+          skinTone: 'medium',
+          shirtColor: 'blue',
+          shirtMark: 'AI',
+        },
+      },
+      updatedAtMs: null,
+      catalog: PROFILE_CATALOG,
+    } as const;
+    const fetch = vi.fn(async (path: string, init?: RequestInit) => {
+      if (init?.method === 'PUT')
+        return new Response('{"error":"REVISION_CONFLICT"}', { status: 409 });
+      return new Response(
+        JSON.stringify(path.endsWith('/profiles') ? [{ ...snapshot, online: false }] : snapshot),
+        { status: 200 }
+      );
+    });
+    vi.stubGlobal('fetch', fetch);
+    const runtime = startLocalRuntime(window.location);
+    await expect(runtime.profiles.list()).resolves.toEqual([{ ...snapshot, online: false }]);
+    await expect(runtime.profiles.show(block.identityId)).resolves.toEqual(snapshot);
+    await expect(
+      runtime.profiles.apply(block.identityId, 0, snapshot.profile)
+    ).rejects.toBeInstanceOf(ProfileConflict);
+    expect(fetch.mock.calls[2]?.[0]).toBe(`/api/v1/local/profiles/${block.identityId}`);
+    expect(JSON.parse(String(fetch.mock.calls[2]?.[1]?.body))).toEqual({
+      expectedRevision: 0,
+      profile: snapshot.profile,
+    });
     runtime.dispose();
   });
 

@@ -295,6 +295,12 @@ profile/layout/notebook independence, board disclosure and installed-guidance
 checks. Preserve real request/response and storage owners; no terminal-output
 completion fallback or second memory store.
 
+For local presentation-profile changes, run the shared profile vectors in Rust and
+Office, SQLite create/no-op/retry/conflict plus retirement tests, companion/CLI and
+protected loopback route tests, and the real local CLI→SQLite→browser→restart flow.
+Capture desktop and narrow screenshots and inspect name, hair, clothing, mark and
+offline-presence legibility. No cloud account or remote publication is part of this gate.
+
 Run the complete applicable local gates before pushing the reviewed commit.
 Record commands, results, exact commit, limitations and cleanup in its PR/issue.
 Do not use repeated CI pushes for local debugging. Existing required CI gates

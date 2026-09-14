@@ -1,6 +1,8 @@
 import { useId } from 'react';
 import type { Furniture } from './block-contract.js';
 import { BLOCK_SIZE, footprint, FURNITURE } from './block-contract.js';
+import { Avatar } from '../profiles/avatar.js';
+import type { Appearance } from '../profiles/profile-contract.js';
 
 /** Only curated vector primitives render here; stored data cannot supply markup. */
 function Sprite({ item }: { item: Furniture }) {
@@ -57,11 +59,13 @@ export function BlockScene({
   selected,
   select,
   move,
+  avatar,
 }: {
   objects: Furniture[];
   selected: number | null;
   select: (index: number) => void;
   move: (x: number, y: number) => void;
+  avatar?: { appearance: Appearance; name: string };
 }) {
   const pattern = useId();
   return (
@@ -111,6 +115,7 @@ export function BlockScene({
           </g>
         );
       })}
+      {avatar && <Avatar appearance={avatar.appearance} name={avatar.name} x={16} y={15} />}
     </svg>
   );
 }

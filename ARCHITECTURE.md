@@ -122,6 +122,10 @@ handshake; `tmt-adapters::office_companion` verifies active installation ownersh
 and starts the existing bounded subprocess under the installer lock, then waits
 outside that lock and validates the version selected at launch.
 Its contract is [native companion handshake](contracts/office/native-companion.md).
+Local presentation profiles are a separate UUID-owned resource: `tmt-core::office_profile`
+owns the literal catalog, text bounds and deterministic default; SQLite schema 15 owns
+only the canonical override and CAS revision. Native commands and authenticated loopback
+HTTP reuse that owner. Layout, role, notes, identity and presence are never profile fields.
 The public `office` subtree composes installation, identity resolution and bounded
 pairing observation, never credentials or HTTP. `office_pairing` separates wire
 values, remote Auth/resource access, vault access, local installation metadata,
