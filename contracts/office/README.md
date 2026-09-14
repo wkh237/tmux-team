@@ -26,6 +26,11 @@ UUID-owned profile resource. [`profile-v1.vectors.json`](profile-v1.vectors.json
 literal Rust/Office conformance source for its catalog, deterministic defaults and safe
 validation examples. It is independent from block layout, role, notes and presence.
 
+The proposed [data-only prop pack v1](prop-pack-v1.md) and local
+[block layout v2](block-v2.md) freeze #238's file, digest, catalog, placement,
+placeholder and built-in migration boundary before implementation. They are not
+shipped commands, a remote catalog, or a second layout/renderer owner.
+
 ## Single source of truth
 
 The [native companion handshake](native-companion.md) is an implemented internal
