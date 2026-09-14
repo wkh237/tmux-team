@@ -264,17 +264,21 @@ same retained block and corroborate it in the browser and independent database;
 seeded grants or a browser-only claim do not substitute for that chain. Keep
 the former cached credential's denial and unchanged layout as separate assertions.
 
-The M1 acceptance target is a causal local flow: actual native CLI and Office
-companion -> browser owner approval -> scoped credential use -> durable resource
-change -> visible browser result. Use deterministic mock agents, isolated real
-tmux where relevant, Playwright Chromium and demo-project Auth/Firestore
-emulators. Extend the existing fixture owners as each feature ships, not a
-parallel mock implementation of TMT. Independent database observations must
-corroborate UI and command results. Separate green layer suites are not proof of
-this integrated flow. The native pairing browser scenario covers acquisition and
-scoped reads. `native-decoration.spec.ts` adds real block show/apply, independent
-stored tokens/revisions, visible scene geometry, exact retry without timestamp
-changes, invalid input, conflicting local callers and read-only/revoked authority.
+M1 acceptance uses causal flows through the actual runtime owners. Remote pairing
+uses the native CLI and Office companion -> browser owner approval -> scoped
+credential use -> durable resource change -> visible browser result, with
+demo-project Auth/Firestore emulators. The offline local flow instead uses the
+native CLI and companion -> authenticated loopback browser -> shared SQLite ->
+service restart; browser approval, cloud credentials and Firebase emulators are
+not local prerequisites. Use deterministic mock agents, isolated real tmux where
+relevant and Playwright Chromium. Extend the existing fixture owners as each
+feature ships, not a parallel mock implementation of TMT. Independent database
+observations must corroborate UI and command results. Separate green layer suites
+are not proof of an integrated flow. The native pairing browser scenario covers
+acquisition and scoped reads. `native-decoration.spec.ts` adds real remote block
+show/apply, independent stored tokens/revisions, visible scene geometry, exact
+retry without timestamp changes, invalid input, conflicting local callers and
+read-only/revoked authority.
 Local callers share fail-fast locks: pre-execution contention reports `OFFICE_BUSY`;
 retrying the original intent after the winner must conflict without another write.
 This is not proof of a Firestore precondition race. The existing browser transaction and Rules suites retain that
@@ -300,6 +304,15 @@ Office, SQLite create/no-op/retry/conflict plus retirement tests, companion/CLI 
 protected loopback route tests, and the real local CLI→SQLite→browser→restart flow.
 Capture desktop and narrow screenshots and inspect name, hair, clothing, mark and
 offline-presence legibility. No cloud account or remote publication is part of this gate.
+
+For local discussion-board changes, extend `scripts/verify-local-office.mjs`: use
+one-shot CLI mutations while the service is stopped, the rendered browser through
+the real loopback API, a fresh CLI read and independent SQLite observations. Cover
+category isolation, inert text and attribution, board-specific stale revisions with
+unchanged storage, owner moderation tombstones, CLI replies visible after browser
+refresh, restart durability, rotated-token rejection, loopback-only traffic and an
+asserted stopped service. No browser route interception or cloud approval is part of
+this local gate.
 
 Run the complete applicable local gates before pushing the reviewed commit.
 Record commands, results, exact commit, limitations and cleanup in its PR/issue.
