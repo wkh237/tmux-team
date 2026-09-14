@@ -10,6 +10,7 @@ import {
   type Sandbox,
 } from '../support/cli-process.js';
 import {
+  EXPECTED_NATIVE_SCHEMA_VERSION,
   FIXTURE_ATTEMPT_COUNT,
   FIXTURE_FINAL_BODY,
   FIXTURE_FINAL_REQUEST_ID,
@@ -49,12 +50,12 @@ function table(snapshot: ReturnType<typeof storageSnapshot>, name: string) {
   return found!;
 }
 
-function expectNativeSchema16(
+function expectNativeSchema(
   reference: ReturnType<typeof storageSnapshot>,
   migrated: ReturnType<typeof storageSnapshot>
 ): void {
   expect(migrated.migrations.slice(0, 8)).toEqual(reference.migrations);
-  expect(migrated.migrations).toHaveLength(16);
+  expect(migrated.migrations).toHaveLength(EXPECTED_NATIVE_SCHEMA_VERSION);
   expect(migrated.migrations[8]).toEqual({
     version: 9,
     name: 'add identity lifetimes and reusable retired names',
@@ -87,6 +88,10 @@ function expectNativeSchema16(
     version: 16,
     name: 'add installation-owned local Office prop catalog',
   });
+  expect(migrated.migrations[16]).toEqual({
+    version: 17,
+    name: 'add installation-owned local Office avatar catalog',
+  });
   expect(migrated.tables.map(({ name }) => name)).toEqual(
     [
       ...reference.tables.map(({ name }) => name),
@@ -97,12 +102,33 @@ function expectNativeSchema16(
       'office_local_profiles',
       'office_prop_catalog',
       'office_prop_packs',
+      'office_avatar_catalog',
+      'office_avatar_packs',
       'office_board_entries',
       'office_board_operations',
       'office_board_state',
       'request_recipient_attention_identities',
     ].sort()
   );
+  expect(table(migrated, 'office_avatar_catalog').rows).toEqual([
+    {
+      singleton: 1,
+      revision: 0,
+      previous_kind: null,
+      previous_digest: null,
+      previous_base_revision: null,
+      previous_result_revision: null,
+    },
+  ]);
+  const avatars = table(migrated, 'office_avatar_packs');
+  expect(avatars.rows).toEqual([]);
+  expect(avatars.columns.map(({ name }) => name)).toEqual([
+    'digest',
+    'bytes',
+    'avatar_count',
+    'installed_revision',
+    'installed_at_ms',
+  ]);
   const hooks = table(migrated, 'identity_hooks');
   expect(hooks.rows).toEqual([]);
   expect(hooks.columns).toEqual([
@@ -202,6 +228,7 @@ function expectNativeSchema16(
     { version: 14, name: migrated.migrations[13]!.name },
     { version: 15, name: migrated.migrations[14]!.name },
     { version: 16, name: migrated.migrations[15]!.name },
+    { version: 17, name: migrated.migrations[16]!.name },
   ]);
 
   const oldAttempts = table(reference, 'request_attempts');
@@ -265,7 +292,7 @@ function expectNativeSchema16(
 
 describe('native SQLite lifecycle compatibility', () => {
   it.each(Array.from({ length: 9 }, (_, version) => version))(
-    'upgrades closed TypeScript schema %i to schema 12 without changing durable data',
+    'upgrades closed TypeScript schema %i to the current native schema without changing durable data',
     async (version) => {
       await withSandbox(async (sandbox) => {
         const reference = path.join(sandbox.root, 'reference', 'state.db');
@@ -278,7 +305,7 @@ describe('native SQLite lifecycle compatibility', () => {
         expect(parseWholeStdout(result)).toEqual({
           path: sandbox.database,
           open: true,
-          schemaVersion: 16,
+          schemaVersion: EXPECTED_NATIVE_SCHEMA_VERSION,
           journalMode: 'wal',
           foreignKeys: true,
           busyTimeoutMs: 5000,
@@ -286,7 +313,7 @@ describe('native SQLite lifecycle compatibility', () => {
           fts5: true,
         });
         const migrated = storageSnapshot(sandbox.database);
-        expectNativeSchema16(storageSnapshot(reference), migrated);
+        expectNativeSchema(storageSnapshot(reference), migrated);
         if (version >= 5) {
           const responses = migrated.tables.find(
             (table) => table.name === 'request_responses'
@@ -317,7 +344,7 @@ describe('native SQLite lifecycle compatibility', () => {
           );
         }
         const timestamps = migrationTimestamps(sandbox.database);
-        expect(timestamps).toHaveLength(16);
+        expect(timestamps).toHaveLength(EXPECTED_NATIVE_SCHEMA_VERSION);
         expect(timestamps.slice(0, version)).toEqual(originalTimestamps);
         for (const timestamp of timestamps) {
           expect(timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -343,10 +370,10 @@ describe('native SQLite lifecycle compatibility', () => {
         expect(result.status).toBe('fulfilled');
         if (result.status === 'fulfilled') {
           expect(result.value.status, result.value.stdout).toBe(0);
-          expect(parseWholeStdout(result.value).schemaVersion).toBe(16);
+          expect(parseWholeStdout(result.value).schemaVersion).toBe(EXPECTED_NATIVE_SCHEMA_VERSION);
         }
       }
-      expectNativeSchema16(storageSnapshot(reference), storageSnapshot(sandbox.database));
+      expectNativeSchema(storageSnapshot(reference), storageSnapshot(sandbox.database));
     });
   });
 
@@ -550,7 +577,9 @@ describe('native SQLite lifecycle compatibility', () => {
         repair.close();
       }
       expect((await runStorage(sandbox)).status).toBe(0);
-      expect(parseWholeStdout(await runStorage(sandbox))).toMatchObject({ schemaVersion: 16 });
+      expect(parseWholeStdout(await runStorage(sandbox))).toMatchObject({
+        schemaVersion: EXPECTED_NATIVE_SCHEMA_VERSION,
+      });
     });
   });
 
@@ -774,14 +803,19 @@ describe('native SQLite lifecycle compatibility', () => {
         if (kind === 'future') {
           const upgraded = await runStorage(sandbox);
           expect(upgraded.status).toBe(0);
-          expect(parseWholeStdout(upgraded)).toMatchObject({ schemaVersion: 16 });
+          expect(parseWholeStdout(upgraded)).toMatchObject({
+            schemaVersion: EXPECTED_NATIVE_SCHEMA_VERSION,
+          });
         }
         const writer = new Database(sandbox.database);
         try {
           if (kind === 'renamed')
             writer.exec("UPDATE _migrations SET name = 'unknown' WHERE version = 2");
           else if (kind === 'gap') writer.exec('DELETE FROM _migrations WHERE version = 2');
-          else writer.exec("INSERT INTO _migrations VALUES (17, 'future', 'timestamp')");
+          else
+            writer
+              .prepare("INSERT INTO _migrations VALUES (?, 'future', 'timestamp')")
+              .run(EXPECTED_NATIVE_SCHEMA_VERSION + 1);
         } finally {
           writer.close();
         }
@@ -839,7 +873,7 @@ describe('native SQLite lifecycle compatibility', () => {
       }
       expect(storageSnapshot(sandbox.database)).toEqual(before);
       expect((await runStorage(sandbox)).status).toBe(0);
-      expectNativeSchema16(storageSnapshot(reference), storageSnapshot(sandbox.database));
+      expectNativeSchema(storageSnapshot(reference), storageSnapshot(sandbox.database));
     });
   }, 15_000);
 });

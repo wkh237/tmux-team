@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import Database from 'better-sqlite3';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { initializeHistoricalDatabase } from './storage-fixture.js';
+import { EXPECTED_NATIVE_SCHEMA_VERSION, initializeHistoricalDatabase } from './storage-fixture.js';
 import { installTmuxTripwire } from './tmux-tripwire.js';
 import {
   expectError,
@@ -442,7 +442,7 @@ describe('native reply/result process contract', () => {
         body,
         submission.submittedAtMs
       );
-      expect(schemaVersion(sandbox.database)).toBe(16);
+      expect(schemaVersion(sandbox.database)).toBe(EXPECTED_NATIVE_SCHEMA_VERSION);
     }));
 
   it(

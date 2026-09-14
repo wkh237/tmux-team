@@ -425,6 +425,10 @@ local Office board grammar/persistence, managed skills and native installation. 
 task-owned files and independent SQL/schema oracles. Frozen migration fixtures
 and provenance under `test/fixtures/storage-history/` are immutable evidence;
 do not generate expected data with the implementation under test.
+For schema changes, update the independent native schema expectation in
+`test/native/storage-fixture.ts` and the explicit migration/table assertions,
+then run this complete process suite before pushing. Rust storage tests do not
+replace process-level migration and future-version rejection tests.
 
 `test/native/inbox.test.ts` owns the real no-tmux queue -> bounded listen ->
 detail/receipt -> reply -> result path. It uses isolated SQLite, verifies compact

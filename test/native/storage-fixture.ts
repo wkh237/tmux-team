@@ -3,6 +3,9 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
+// Independent process-test oracle; do not derive it from the runtime under test.
+export const EXPECTED_NATIVE_SCHEMA_VERSION = 17;
+
 export const FIXTURE_IDENTITY_ID = 'identity-known';
 export const FIXTURE_MISSING_IDENTITY_ID = 'identity-missing';
 export const FIXTURE_ATTEMPT_COUNT = 205;
