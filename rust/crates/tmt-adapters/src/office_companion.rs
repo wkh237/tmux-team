@@ -86,7 +86,16 @@ pub fn invoke_local_office_block(
         OfficeInvocation::LocalBlockShow
     };
     let input = serde_json::to_vec(&input)?;
-    let bytes = match invoke_json(executable, operation, &input, deadline) {
+    if input.len() > tmt_core::office_block::LOCAL_PROTOCOL_LIMIT {
+        return Err(invalid_pairing());
+    }
+    let bytes = match invoke_json_bounded(
+        executable,
+        operation,
+        &input,
+        deadline,
+        tmt_core::office_block::LOCAL_PROTOCOL_LIMIT,
+    ) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
             return Ok(Err(OfficeError::Busy));
@@ -231,7 +240,7 @@ fn valid_local_prop_reply(operation: OfficeInvocation, value: &serde_json::Value
                                 )
                         })
                 })
-                && cursor_value(&value["nextCursor"])
+                && prop_cursor_value(&value["nextCursor"])
         }
         _ => false,
     }
@@ -501,6 +510,12 @@ fn cursor_value(value: &serde_json::Value) -> bool {
             .as_str()
             .is_some_and(|s| !s.is_empty() && s.len() <= tmt_core::office_board::CURSOR_MAX_BYTES)
 }
+fn prop_cursor_value(value: &serde_json::Value) -> bool {
+    value.is_null()
+        || value.as_str().is_some_and(|s| {
+            !s.is_empty() && s.len() <= crate::office_prop::CATALOG_CURSOR_MAX_BYTES
+        })
+}
 fn category_value(value: &serde_json::Value) -> bool {
     exact_keys(value, &["kind"]) && value["kind"] == "general"
         || exact_keys(value, &["kind", "repositoryId"])
@@ -688,7 +703,7 @@ fn decode_local_block_reply(
     identity_id: &str,
     editing: bool,
 ) -> io::Result<Result<serde_json::Value, OfficeError>> {
-    if bytes.len() > 4096 {
+    if bytes.len() > tmt_core::office_block::LOCAL_PROTOCOL_LIMIT {
         return Err(invalid_pairing());
     }
     let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| invalid_pairing())?;
@@ -1179,6 +1194,61 @@ mod pairing_tests {
     }
 
     #[test]
+    fn full_capacity_local_block_reply_exceeds_legacy_bound_but_stays_bounded() {
+        let identity_id = "11111111-1111-4111-8111-111111111111";
+        let block_id = "22222222-2222-4222-8222-222222222222";
+        let digest = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
+        let prop = format!("{digest}/{}", "p".repeat(32));
+        let objects = (0..tmt_core::office_block::OBJECT_LIMIT)
+            .map(|index| {
+                serde_json::json!({
+                    "prop": prop,
+                    "footprint":{"width":1,"height":1},
+                    "x": index,
+                    "y": 0,
+                    "rotation": 0
+                })
+            })
+            .collect::<Vec<_>>();
+        let resolutions = (0..tmt_core::office_block::OBJECT_LIMIT)
+            .map(|index| {
+                serde_json::json!({
+                    "index":index,
+                    "status":"available",
+                    "label":"\\".repeat(crate::office_prop::PROP_LABEL_LIMIT)
+                })
+            })
+            .collect::<Vec<_>>();
+        let reply = serde_json::json!({
+            "exists": true,
+            "identityId": identity_id,
+            "identityName": "Alice",
+            "blockId": block_id,
+            "revision": 1,
+            "layout": {"version":2,"objects":objects},
+            "resolutions": resolutions,
+            "updatedAtMs": 1,
+            "changed": true
+        });
+        let bytes = serde_json::to_vec(&reply).unwrap();
+        assert!(bytes.len() > 4_096);
+        assert!(bytes.len() <= tmt_core::office_block::LOCAL_PROTOCOL_LIMIT);
+        assert!(
+            decode_local_block_reply(&bytes, identity_id, true)
+                .unwrap()
+                .is_ok()
+        );
+        assert!(
+            decode_local_block_reply(
+                &vec![b' '; tmt_core::office_block::LOCAL_PROTOCOL_LIMIT + 1],
+                identity_id,
+                true
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn local_prop_replies_are_exact_and_bounded() {
         let pack = serde_json::json!({
             "digest":"sha256:1111111111111111111111111111111111111111111111111111111111111111",
@@ -1226,6 +1296,19 @@ mod pairing_tests {
         assert!(valid_local_prop_reply(
             OfficeInvocation::LocalPropList,
             &list
+        ));
+        let mut cursor_list = list.clone();
+        cursor_list["nextCursor"] =
+            serde_json::json!("x".repeat(crate::office_prop::CATALOG_CURSOR_MAX_BYTES));
+        assert!(valid_local_prop_reply(
+            OfficeInvocation::LocalPropList,
+            &cursor_list
+        ));
+        cursor_list["nextCursor"] =
+            serde_json::json!("x".repeat(crate::office_prop::CATALOG_CURSOR_MAX_BYTES + 1));
+        assert!(!valid_local_prop_reply(
+            OfficeInvocation::LocalPropList,
+            &cursor_list
         ));
     }
 

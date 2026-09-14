@@ -5,8 +5,8 @@ use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use std::collections::HashMap;
 
 use crate::office_prop::{
-    BUILTIN_DIGEST, PACK_INPUT_LIMIT, ValidatedPropPack, builtin_pack, parse_pack_digest,
-    validate_pack,
+    BUILTIN_DIGEST, CATALOG_CURSOR_MAX_BYTES, PACK_INPUT_LIMIT, ValidatedPropPack, builtin_pack,
+    parse_pack_digest, validate_pack,
 };
 use tmt_core::limits::MAX_JS_SAFE_INTEGER;
 
@@ -711,7 +711,9 @@ fn encode_cursor(revision: u64, digest: &str) -> Result<String, LocalPropCatalog
         let text = std::str::from_utf8(pair).map_err(|_| LocalPropCatalogError::CursorInvalid)?;
         bytes.push(u8::from_str_radix(text, 16).map_err(|_| LocalPropCatalogError::CursorInvalid)?);
     }
-    Ok(URL_SAFE_NO_PAD.encode(bytes))
+    let encoded = URL_SAFE_NO_PAD.encode(bytes);
+    debug_assert_eq!(encoded.len(), CATALOG_CURSOR_MAX_BYTES);
+    Ok(encoded)
 }
 
 fn decode_cursor(value: &str) -> Result<(u64, String), LocalPropCatalogError> {

@@ -6,8 +6,10 @@ pub const BLOCK_SIZE: u8 = 32;
 pub const OBJECT_LIMIT: usize = 16;
 /// The largest revision exactly representable by a JavaScript number.
 pub const MAX_REVISION: u64 = crate::limits::MAX_JS_SAFE_INTEGER;
+/// Shared finite transport ceiling for canonical local block v2 requests and replies.
+pub const LOCAL_PROTOCOL_LIMIT: usize = 65_536;
 /// The maximum input size reserved for bounded block documents.
-pub const INPUT_LIMIT: usize = 65_536;
+pub const INPUT_LIMIT: usize = LOCAL_PROTOCOL_LIMIT;
 pub const BUILTIN_PROP_PACK_DIGEST: &str =
     "sha256:5aa6a2d239d7111586abc06be799b2a1ec2ca46619752a90ae08a13e414afb6a";
 

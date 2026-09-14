@@ -124,6 +124,13 @@ fn input_sentinel_limit(operation: OfficeInvocation) -> u64 {
         180_001
     } else if matches!(
         operation,
+        OfficeInvocation::LocalBlockShow | OfficeInvocation::LocalBlockApply
+    ) {
+        u64::try_from(tmt_core::office_block::LOCAL_PROTOCOL_LIMIT)
+            .expect("local block input bound fits u64")
+            + 1
+    } else if matches!(
+        operation,
         OfficeInvocation::BoardPost
             | OfficeInvocation::BoardList
             | OfficeInvocation::BoardShow
@@ -142,11 +149,11 @@ fn input_sentinel_limit(operation: OfficeInvocation) -> u64 {
 mod input_limit_tests {
     use super::*;
     #[test]
-    fn legacy_operations_remain_4k_and_board_operations_are_64k() {
+    fn operation_specific_input_sentinels_preserve_legacy_bounds() {
         assert_eq!(input_sentinel_limit(OfficeInvocation::PairBegin), 4_097);
         assert_eq!(
             input_sentinel_limit(OfficeInvocation::LocalBlockApply),
-            4_097
+            u64::try_from(tmt_core::office_block::LOCAL_PROTOCOL_LIMIT).unwrap() + 1
         );
         assert_eq!(input_sentinel_limit(OfficeInvocation::BoardPost), 65_537);
         assert_eq!(

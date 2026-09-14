@@ -82,6 +82,13 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
     expect(identity.status, identity.stdout).toBe(0);
     const identityId = (JSON.parse(identity.stdout).identity as { id: string }).id;
     const propFile = path.join(sandbox.root, 'studio.tmtprop.json');
+    const fullLabel = '\\'.repeat(80);
+    const capacityProps = Array.from({ length: 14 }, (_, index) => ({
+      key: `prop-${String(index).padStart(27, '0')}`,
+      label: fullLabel,
+      footprint: { width: 1, height: 1 },
+      pixels: ['1'],
+    }));
     writeFileSync(
       propFile,
       JSON.stringify({
@@ -97,6 +104,7 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
             footprint: { width: 2, height: 2 },
             pixels: ['010', '111', '010'],
           },
+          ...capacityProps,
         ],
       })
     );
@@ -132,7 +140,7 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
       catalogRevision: 1,
       candidate: {
         digest,
-        propCount: 1,
+        propCount: 15,
         installedRevision: 1,
         installedAtMs: expect.any(Number),
       },
@@ -159,6 +167,13 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
             y: 6,
             rotation: 0,
           },
+          ...capacityProps.map((prop, index) => ({
+            prop: `${digest}/${prop.key}`,
+            footprint: prop.footprint,
+            x: index,
+            y: 2,
+            rotation: 0,
+          })),
           builtinFurniture('desk', 10, 10, 0),
         ],
       })
@@ -175,11 +190,24 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
       '0',
     ]);
     expect(block.status, block.stdout).toBe(0);
+    expect(Buffer.byteLength(block.stdout)).toBeGreaterThan(4_096);
     expect(JSON.parse(block.stdout)).toMatchObject({
       revision: 1,
       layout: { version: 2 },
-      resolutions: [{ status: 'available' }, { status: 'available' }],
+      resolutions: Array.from({ length: 16 }, () => ({ status: 'available' })),
     });
+    expect(JSON.parse(block.stdout).layout.objects).toHaveLength(16);
+    expect(JSON.parse(block.stdout).resolutions).toHaveLength(16);
+    const shown = await office(['block', 'show', '--local', '--identity', identityName]);
+    expect(shown.status, shown.stdout).toBe(0);
+    expect(Buffer.byteLength(shown.stdout)).toBeGreaterThan(4_096);
+    expect(JSON.parse(shown.stdout)).toMatchObject({
+      revision: 1,
+      layout: { version: 2 },
+      resolutions: Array.from({ length: 16 }, () => ({ status: 'available' })),
+    });
+    expect(JSON.parse(shown.stdout).layout.objects).toHaveLength(16);
+    expect(JSON.parse(shown.stdout).resolutions).toHaveLength(16);
     const storedBlock = savedBlock(sandbox.database, identityId);
     expect(storedBlock).toMatchObject({
       blockId: expect.stringMatching(/^[0-9a-f-]{36}$/),
@@ -237,8 +265,8 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
 
       await page.goto(sessionUrl);
       await expect(page.getByRole('button', { name: 'Signal lamp 1' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Desk 2' })).toBeVisible();
-      await expect(page.locator('rect[fill="#ff5533ff"]')).toHaveCount(5);
+      await expect(page.getByRole('button', { name: 'Desk 16' })).toBeVisible();
+      await expect(page.locator('rect[fill="#ff5533ff"]')).toHaveCount(19);
       await page.screenshot({
         path: testInfo.outputPath('builtin-custom-props-desktop.png'),
         fullPage: true,
@@ -257,11 +285,11 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
       });
       expect(savedBlock(sandbox.database, identityId)).toEqual(storedBlock);
       await expect(
-        page.getByRole('img', { name: `Unavailable prop ${digest.slice(7, 19)}` })
+        page.getByRole('img', { name: `Unavailable prop ${digest.slice(7, 19)}` }).first()
       ).toBeVisible({
         timeout: 10_000,
       });
-      await expect(page.getByRole('button', { name: 'Desk 2' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Desk 16' })).toBeVisible();
 
       const restored = await office([
         'prop',
@@ -276,11 +304,11 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
       const restoredState = propState(sandbox.database, digest);
       expect(restoredState).toMatchObject({
         catalogRevision: 3,
-        candidate: { digest, propCount: 1, installedRevision: 3 },
+        candidate: { digest, propCount: 15, installedRevision: 3 },
       });
       expect(restoredState.candidate!.bytes).toEqual(readFileSync(propFile));
       expect(savedBlock(sandbox.database, identityId)).toEqual(storedBlock);
-      await expect(page.locator('rect[fill="#ff5533ff"]')).toHaveCount(5, { timeout: 10_000 });
+      await expect(page.locator('rect[fill="#ff5533ff"]')).toHaveCount(19, { timeout: 10_000 });
 
       const database = new Database(sandbox.database);
       try {
@@ -292,11 +320,11 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
       }
       expect(savedBlock(sandbox.database, identityId)).toEqual(storedBlock);
       await expect(
-        page.getByRole('img', { name: `Unavailable prop ${digest.slice(7, 19)}` })
+        page.getByRole('img', { name: `Unavailable prop ${digest.slice(7, 19)}` }).first()
       ).toBeVisible({
         timeout: 10_000,
       });
-      await expect(page.getByRole('button', { name: 'Desk 2' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Desk 16' })).toBeVisible();
 
       expect((await office(['stop'])).status).toBe(0);
       started = await office(['start', '--port', String(await unusedLoopbackPort())]);
@@ -305,9 +333,9 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
       expect(savedBlock(sandbox.database, identityId)).toEqual(storedBlock);
       await page.goto(sessionUrl);
       await expect(
-        page.getByRole('img', { name: `Unavailable prop ${digest.slice(7, 19)}` })
+        page.getByRole('img', { name: `Unavailable prop ${digest.slice(7, 19)}` }).first()
       ).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Desk 2' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Desk 16' })).toBeVisible();
     } finally {
       const stopped = await office(['stop']);
       expect(stopped.status, stopped.stdout).toBe(0);

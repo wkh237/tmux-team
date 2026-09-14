@@ -11,6 +11,9 @@ pub const PACK_INPUT_LIMIT: usize = 128 * 1024;
 pub const PACK_PROP_LIMIT: usize = 16;
 pub const PACK_PIXEL_LIMIT: usize = 65_536;
 pub const PROP_PIXEL_LIMIT: usize = 4_096;
+pub const PROP_LABEL_LIMIT: usize = 80;
+/// Version byte + catalog revision + digest, encoded as unpadded base64url.
+pub const CATALOG_CURSOR_MAX_BYTES: usize = 55;
 pub const RASTER_LIMIT: usize = 64;
 pub const PALETTE_LIMIT: usize = 16;
 pub const FOOTPRINT_LIMIT: u8 = 8;
@@ -184,7 +187,7 @@ pub fn parse_prop_reference(value: &str) -> Option<(&str, &str)> {
 
 fn validate_document(pack: &PropPack) -> Result<usize, PropPackError> {
     if pack.format_version != 1
-        || !valid_text(&pack.label, 80)
+        || !valid_text(&pack.label, PROP_LABEL_LIMIT)
         || !valid_text(&pack.credit, 120)
         || pack.license.is_empty()
         || pack.license.len() > 64
@@ -208,7 +211,7 @@ fn validate_document(pack: &PropPack) -> Result<usize, PropPackError> {
     for prop in &pack.props {
         if !valid_key(&prop.key)
             || !keys.insert(prop.key.as_str())
-            || !valid_text(&prop.label, 80)
+            || !valid_text(&prop.label, PROP_LABEL_LIMIT)
             || !(1..=FOOTPRINT_LIMIT).contains(&prop.footprint.width)
             || !(1..=FOOTPRINT_LIMIT).contains(&prop.footprint.height)
             || !(1..=RASTER_LIMIT).contains(&prop.pixels.len())

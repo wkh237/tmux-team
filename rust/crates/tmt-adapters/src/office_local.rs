@@ -28,7 +28,7 @@ pub fn execute(operation: OfficeInvocation, input: &[u8]) -> Vec<u8> {
 }
 
 fn execute_inner(operation: OfficeInvocation, input: &[u8]) -> Result<Value, OfficeError> {
-    if input.len() > 4096 {
+    if input.len() > tmt_core::office_block::LOCAL_PROTOCOL_LIMIT {
         return Err(OfficeError::LayoutInvalid);
     }
     let input: LocalBlockInput =
