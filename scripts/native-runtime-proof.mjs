@@ -189,6 +189,7 @@ export async function verifyNativeRuntime({
   version,
   skill,
   inboxSkill,
+  officeSkill,
   profileContent,
   subject,
   product = 'cli',
@@ -257,17 +258,24 @@ export async function verifyNativeRuntime({
     }
     assert.equal(typeof skill, 'string', 'CLI runtime proof requires the canonical skill');
     assert.equal(typeof inboxSkill, 'string', 'CLI runtime proof requires the inbox skill');
+    assert.equal(typeof officeSkill, 'string', 'CLI runtime proof requires the Office skill');
     const json = (args) => JSON.parse(run([...args, '--json']));
     const globalRoot = path.join(xdg, 'tmux-team');
     assert.equal(run(['--version']).trim(), version, `${subject} version mismatch`);
     assertBenchmarkHelp(run(['--help']));
     assert.equal(run(['learn', '--skill']), skill, `${subject} embedded skill mismatch`);
+    assert.equal(
+      run(['learn', '--skill', 'tmt-office']),
+      officeSkill,
+      `${subject} embedded Office skill mismatch`
+    );
     assert(!fs.existsSync(xdg), 'Read-only runtime commands must not initialize config state');
     const customRoot = path.join(cwd, 'custom skills');
     fs.mkdirSync(customRoot);
     const targetRoot = fs.realpathSync(customRoot);
     const targetPath = path.join(targetRoot, 'tmux-team');
     const inboxTargetPath = path.join(targetRoot, 'tmt-inbox');
+    const officeTargetPath = path.join(targetRoot, 'tmt-office');
     const installed = [
       { skill: 'tmux-team', target: targetPath, content: skill },
       { skill: 'tmt-inbox', target: inboxTargetPath, content: inboxSkill },
@@ -279,6 +287,10 @@ export async function verifyNativeRuntime({
         changed: true,
       })),
     });
+    assert(
+      !fs.existsSync(officeTargetPath),
+      'Core skill installation must not expose optional Office guidance'
+    );
     const managedAssets = path.join(fs.realpathSync(globalRoot), 'skill-assets');
     const sources = installed.map(({ skill: name, target, content }) => {
       assert(fs.lstatSync(target).isSymbolicLink(), `${name} must be a managed link`);

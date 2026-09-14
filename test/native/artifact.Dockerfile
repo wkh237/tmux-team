@@ -29,6 +29,7 @@ COPY test/support/performance-contract.mjs test/support/performance-contract.mjs
 COPY scripts/native-bootstrap.mjs scripts/native-bootstrap.sh scripts/generate-native-bootstrap.mjs scripts/verify-native-bootstrap.mjs scripts/
 COPY skills/tmux-team/SKILL.md expected-skill.md
 COPY skills/tmt-inbox/SKILL.md skills/tmt-inbox/SKILL.md
+COPY skills/tmt-office/SKILL.md skills/tmt-office/SKILL.md
 COPY --from=build /workspace/native-manifest.json ./
 COPY --from=build /workspace/rust/target/native-notices/THIRD-PARTY-NOTICES.txt expected-notices.txt
 COPY LICENSE expected-license.txt

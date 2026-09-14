@@ -146,7 +146,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         [] | ["help"] | ["team"] => Invocation::Help,
         ["completion"] => Invocation::Completion(text(m, "shell")),
         ["learn"] => Invocation::Learn {
-            skill: flag(m, "skill"),
+            skill: text(m, "skill"),
         },
         ["init"] => Invocation::Init,
         ["whoami"] => Invocation::Whoami,
@@ -288,12 +288,14 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 },
                 Some("install") => OfficeOperation::Install {
                     yes: flag(m, "yes"),
+                    force: flag(m, "force"),
                     archive: text(m, "archive"),
                     manifest: text(m, "manifest"),
                     channel: text(m, "channel")
                         .and_then(|value| tmt_core::native_install::Channel::parse(&value)),
                 },
                 Some("upgrade") => OfficeOperation::Upgrade {
+                    force: flag(m, "force"),
                     channel: text(m, "channel")
                         .and_then(|value| tmt_core::native_install::Channel::parse(&value)),
                 },

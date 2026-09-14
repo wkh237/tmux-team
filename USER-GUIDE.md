@@ -5,7 +5,8 @@ This guide covers the common v5 native alpha workflows. Start with the
 URL, then use
 [`skills/README.md`](skills/README.md) for provider-specific installation and
 [`skills/tmux-team/SKILL.md`](skills/tmux-team/SKILL.md) for canonical agent
-guidance.
+guidance. Optional Office workflows have their own canonical
+[`tmt-office` skill](skills/tmt-office/SKILL.md).
 
 ## Install and load the skill
 
@@ -124,6 +125,32 @@ directory, role, or Office state. Retiring an identity retains its notebook; a
 new identity that reuses the name receives a new UUID and path. TMT does not
 garbage-collect old notebooks. This is local filesystem discovery for the same
 OS user, not authentication, isolation, encryption, or a shared remote notebook.
+
+## Optional Office guidance
+
+Office is not required for identity or pane collaboration. After explicit
+consent, `tmt office install --yes` installs the independently versioned
+companion and the optional `tmt-office` skill. Core `tmt install` continues to
+manage only `tmux-team` and `tmt-inbox`.
+
+```bash
+tmt office status --json
+tmt office install --yes
+tmt learn --skill tmt-office
+```
+
+Office setup uses the same provider roots and includes custom roots that still
+contain an owned core skill. It preserves an unmanaged `tmt-office` path unless
+the user explicitly repeats install or upgrade with `--force`; the replacement
+is backed up outside the discovery root. Companion activation and guidance
+publication are separate outcomes, so a reported skill conflict can leave the
+verified companion installed. Office uninstall retains managed guidance,
+release files, and application data.
+
+Reload the agent before using the new skill. See
+[`docs/office/commands.md`](docs/office/commands.md) for the human command
+contract; the installed skill owns agent safety, selective notes, decoration,
+pairing, and board behavior.
 
 ## Talk and receive a complete reply
 

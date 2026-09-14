@@ -15,6 +15,7 @@ use tmt_adapters::{
     native_install::{self, InstallRequest, Product, UpgradeRequest},
     office_companion::probe_office_companion,
     office_service::{self, ServiceError},
+    skill_installation::{self, ProviderEnvironment},
 };
 use tmt_core::native_install::{Channel, PinAction};
 
@@ -194,6 +195,146 @@ fn install(
     })
 }
 
+fn install_guidance(
+    force: bool,
+    version: &impl std::fmt::Display,
+) -> Result<skill_installation::InstallReport, GuidanceFailure> {
+    let environment = ProviderEnvironment::capture().map_err(|error| {
+        GuidanceFailure {
+            report: skill_installation::InstallReport::default(),
+            pending_backup: None,
+            error: Box::new(
+                Failure::new(
+                    "OFFICE_SKILLS_FAILED",
+                    format!(
+                        "Office {version} is active, but optional skill installation could not inspect provider paths: {error}"
+                    ),
+                    1,
+                )
+                .caused_by(error),
+            ),
+        }
+    })?;
+    let paths = ConfigPaths::discover().map_err(|error| {
+        GuidanceFailure {
+            report: skill_installation::InstallReport::default(),
+            pending_backup: None,
+            error: Box::new(
+                Failure::new(
+                    "OFFICE_SKILLS_FAILED",
+                    format!(
+                        "Office {version} is active, but optional skill installation could not resolve managed paths: {error}"
+                    ),
+                    1,
+                )
+                .caused_by(error),
+            ),
+        }
+    })?;
+    match skill_installation::install_office(&environment, &paths.global_dir, force) {
+        Ok(report) => Ok(report),
+        Err(mut error) => {
+            let detail = error.to_string();
+            let report = std::mem::take(&mut error.report);
+            let pending_backup = error.pending_backup.take();
+            Err(GuidanceFailure {
+                report,
+                pending_backup,
+                error: Box::new(
+                    Failure::new(
+                        "OFFICE_SKILLS_FAILED",
+                        format!(
+                            "Office {version} is active, but optional skill installation failed; user-owned content was preserved. {detail}"
+                        ),
+                        1,
+                    )
+                    .caused_by(error),
+                ),
+            })
+        }
+    }
+}
+
+struct GuidanceFailure {
+    report: skill_installation::InstallReport,
+    pending_backup: Option<PathBuf>,
+    error: Box<Failure>,
+}
+
+fn guidance_document(
+    report: &skill_installation::InstallReport,
+    pending_backup: Option<&Path>,
+) -> serde_json::Value {
+    let mut value = crate::install_command::report_document(report);
+    if let Some(backup) = pending_backup {
+        value["pendingBackup"] = json!(backup);
+    }
+    value
+}
+
+fn write_guidance_human(
+    report: &skill_installation::InstallReport,
+    pending_backup: Option<&Path>,
+    output: &mut impl Write,
+) -> io::Result<()> {
+    crate::install_command::write_report_human(report, output)?;
+    if let Some(backup) = pending_backup {
+        writeln!(
+            output,
+            "Failed target's recoverable backup: {}",
+            backup.display()
+        )?;
+    }
+    Ok(())
+}
+
+fn report_guidance(
+    mut value: serde_json::Value,
+    skills: &skill_installation::InstallReport,
+    human: &str,
+    mode: OutputMode,
+) -> Result<u8, Failure> {
+    value["skills"] = guidance_document(skills, None);
+    let mut output = io::stdout().lock();
+    if mode.json {
+        writeln!(output, "{value}").map_err(|io_error| failure("OFFICE_IO_ERROR", io_error))?;
+    } else {
+        writeln!(output, "{human}").map_err(|io_error| failure("OFFICE_IO_ERROR", io_error))?;
+        write_guidance_human(skills, None, &mut output)
+            .map_err(|io_error| failure("OFFICE_IO_ERROR", io_error))?;
+    }
+    Ok(0)
+}
+
+fn report_partial(
+    mut value: serde_json::Value,
+    guidance: GuidanceFailure,
+    human: &str,
+    mode: OutputMode,
+) -> Result<u8, Failure> {
+    value["skills"] = guidance_document(&guidance.report, guidance.pending_backup.as_deref());
+    value["error"] = guidance.error.document()["error"].clone();
+    if mode.json {
+        writeln!(io::stdout().lock(), "{value}")
+            .map_err(|io_error| failure("OFFICE_IO_ERROR", io_error))?;
+    } else {
+        let mut output = io::stdout().lock();
+        writeln!(output, "{human}").map_err(|io_error| failure("OFFICE_IO_ERROR", io_error))?;
+        write_guidance_human(
+            &guidance.report,
+            guidance.pending_backup.as_deref(),
+            &mut output,
+        )
+        .map_err(|io_error| failure("OFFICE_IO_ERROR", io_error))?;
+        drop(output);
+        guidance
+            .error
+            .publish(mode)
+            .map_err(|io_error| failure("OFFICE_IO_ERROR", io_error))?;
+    }
+    Ok(guidance.error.status)
+}
+
 pub fn execute(
     prefix: Option<String>,
     operation: OfficeOperation,
@@ -294,7 +435,15 @@ fn run(
                 )? {
                     return Ok(0);
                 }
-                install(&prefix, None, None, Channel::Alpha)?;
+                let installation = install(&prefix, None, None, Channel::Alpha)?;
+                if let Err(guidance) = install_guidance(false, &installation.version) {
+                    return report_partial(
+                        json!({"installed":true,"changed":installation.changed,"version":installation.version,"executable":installation.executable}),
+                        guidance,
+                        "Office installed; optional agent guidance needs attention.",
+                        mode,
+                    );
+                }
             }
             let interrupt = tmt_adapters::interrupt::Interrupt::install()
                 .map_err(|e| failure("OFFICE_IO_ERROR", e))?;
@@ -347,6 +496,7 @@ fn run(
         }
         OfficeOperation::Install {
             yes,
+            force,
             archive,
             manifest,
             channel,
@@ -366,9 +516,31 @@ fn run(
                 .or_else(|| current.as_ref().map(|current| current.state.channel))
                 .unwrap_or(Channel::Alpha);
             let result = install(&prefix, archive.as_deref(), manifest.as_deref(), channel)?;
-            report(json!({"installed":true,"changed":result.changed,"version":result.version,"executable":result.executable}), &format!("Office {} installed. Pairing is separate.", result.version), mode).map_err(|e| failure("OFFICE_IO_ERROR", e))
+            let skills = match install_guidance(force, &result.version) {
+                Ok(skills) => skills,
+                Err(guidance) => {
+                    return report_partial(
+                        json!({"installed":true,"changed":result.changed,"version":result.version,"executable":result.executable}),
+                        guidance,
+                        &format!(
+                            "Office {} installed; optional agent guidance needs attention.",
+                            result.version
+                        ),
+                        mode,
+                    );
+                }
+            };
+            report_guidance(
+                json!({"installed":true,"changed":result.changed,"version":result.version,"executable":result.executable}),
+                &skills,
+                &format!(
+                    "Office {} installed with optional agent guidance. Pairing is separate.",
+                    result.version
+                ),
+                mode,
+            )
         }
-        OfficeOperation::Upgrade { channel } => {
+        OfficeOperation::Upgrade { force, channel } => {
             if !installed(&executable)? {
                 return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
             }
@@ -405,7 +577,29 @@ fn run(
                 )
                 .caused_by(e)
             })?;
-            report(json!({"installed":true,"changed":result.installation.changed,"version":result.installation.version,"skippedPinned":result.skipped_pinned}), &format!("Office {} is current.", result.installation.version), mode).map_err(|e| failure("OFFICE_IO_ERROR", e))
+            let skills = match install_guidance(force, &result.installation.version) {
+                Ok(skills) => skills,
+                Err(guidance) => {
+                    return report_partial(
+                        json!({"installed":true,"changed":result.installation.changed,"version":result.installation.version,"skippedPinned":result.skipped_pinned,"executable":result.installation.executable}),
+                        guidance,
+                        &format!(
+                            "Office {} is current; optional agent guidance needs attention.",
+                            result.installation.version
+                        ),
+                        mode,
+                    );
+                }
+            };
+            report_guidance(
+                json!({"installed":true,"changed":result.installation.changed,"version":result.installation.version,"skippedPinned":result.skipped_pinned,"executable":result.installation.executable}),
+                &skills,
+                &format!(
+                    "Office {} and optional agent guidance are current.",
+                    result.installation.version
+                ),
+                mode,
+            )
         }
         OfficeOperation::Uninstall { yes } => {
             if !consent(
@@ -424,5 +618,60 @@ fn run(
             )
             .map_err(|e| failure("OFFICE_IO_ERROR", e))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tmt_adapters::skill_installation::{InstallReport, InstalledSkill};
+
+    fn installed(target: &str, backup: Option<&str>) -> InstalledSkill {
+        InstalledSkill {
+            name: "tmt-office",
+            agent: None,
+            target: PathBuf::from(target),
+            changed: true,
+            backup: backup.map(PathBuf::from),
+            legacy_backups: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn guidance_renderers_keep_successful_and_partial_recovery_evidence() {
+        let forced = InstallReport {
+            installed: vec![installed("/skills/tmt-office", Some("/backups/forced"))],
+            warnings: Vec::new(),
+        };
+        assert_eq!(
+            guidance_document(&forced, None),
+            json!({"installed":[{"skill":"tmt-office","target":"/skills/tmt-office","changed":true,"backup":"/backups/forced"}]})
+        );
+        let mut human = Vec::new();
+        write_guidance_human(&forced, None, &mut human).unwrap();
+        let human = String::from_utf8(human).unwrap();
+        assert!(human.contains("Installed shared skill 'tmt-office' at /skills/tmt-office"));
+        assert!(human.contains("Recoverable backup: /backups/forced"));
+
+        let partial = InstallReport {
+            installed: vec![
+                installed("/skills/first/tmt-office", None),
+                installed("/skills/second/tmt-office", Some("/backups/second")),
+            ],
+            warnings: Vec::new(),
+        };
+        assert_eq!(
+            guidance_document(&partial, Some(Path::new("/backups/pending"))),
+            json!({"installed":[
+                {"skill":"tmt-office","target":"/skills/first/tmt-office","changed":true},
+                {"skill":"tmt-office","target":"/skills/second/tmt-office","changed":true,"backup":"/backups/second"}
+            ],"pendingBackup":"/backups/pending"})
+        );
+        let mut human = Vec::new();
+        write_guidance_human(&partial, Some(Path::new("/backups/pending")), &mut human).unwrap();
+        let human = String::from_utf8(human).unwrap();
+        assert!(human.contains("/skills/first/tmt-office"));
+        assert!(human.contains("Recoverable backup: /backups/second"));
+        assert!(human.contains("Failed target's recoverable backup: /backups/pending"));
     }
 }

@@ -82,7 +82,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.native == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -121,6 +121,10 @@ jobs:
       - name: Install test dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Verify embedded local Office companion
+        env:
+          # This rebuild replaces the companion used by native process fixtures.
+          # Keep its debug-info policy consistent with their initial build.
+          CARGO_PROFILE_DEV_DEBUG: 0
         run: |
           pnpm office:build:local
           cd rust
@@ -134,7 +138,7 @@ jobs:
           TMT_TEST_CLI: '{"executable":"${{ github.workspace }}/rust/target/debug/tmt","args":[]}'
           TMT_TEST_STORAGE_PROBE: '{"executable":"${{ github.workspace }}/rust/target/debug/examples/storage-probe","args":[]}'
         run: |
-          pnpm test:native
+          pnpm test:native --reporter=verbose
 
   unit-tests:
     name: Unit tests

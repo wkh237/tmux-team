@@ -3,10 +3,13 @@
 use std::io::{self, Write};
 use tmt_core::skill_provider::Provider;
 
-pub fn execute(skill: bool) -> io::Result<u8> {
+pub fn execute(skill: Option<&str>) -> io::Result<u8> {
     let mut output = io::stdout().lock();
-    if skill {
-        output.write_all(tmt_adapters::skill_installation::bundled_skill())?;
+    if let Some(skill) = skill {
+        output.write_all(
+            tmt_adapters::skill_installation::bundled_skill_named(skill)
+                .expect("grammar validates bundled skill name"),
+        )?;
     } else {
         writeln!(
             output,

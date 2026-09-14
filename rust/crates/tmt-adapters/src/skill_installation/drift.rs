@@ -13,6 +13,7 @@ pub fn inspect_local_drift(env: &ProviderEnvironment, global: &Path) -> io::Resu
     let assets = SkillAssets::new(&files::resolved(global)?);
     let current = assets.source();
     let inbox_current = assets.inbox_source();
+    let office_current = assets.office_source();
     let mut seen = BTreeSet::new();
     let mut drift = Vec::new();
     for provider in Provider::ALL {
@@ -21,14 +22,21 @@ pub fn inspect_local_drift(env: &ProviderEnvironment, global: &Path) -> io::Resu
             .parent()
             .expect("skill target parent")
             .join("tmt-inbox");
-        for (path, legacy, expected) in [(target, false, &current), (inbox, false, &inbox_current)]
-            .into_iter()
-            .chain(
-                env.legacy_targets(provider)
-                    .into_iter()
-                    .map(|path| (path, true, &current)),
-            )
-        {
+        let office = target
+            .parent()
+            .expect("skill target parent")
+            .join("tmt-office");
+        for (path, legacy, expected) in [
+            (target, false, &current),
+            (inbox, false, &inbox_current),
+            (office, false, &office_current),
+        ]
+        .into_iter()
+        .chain(
+            env.legacy_targets(provider)
+                .into_iter()
+                .map(|path| (path, true, &current)),
+        ) {
             if !seen.insert(path.clone()) || !files::exists(&path)? {
                 continue;
             }
@@ -43,7 +51,10 @@ pub fn inspect_local_drift(env: &ProviderEnvironment, global: &Path) -> io::Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{skill_installation::install, test_support::TestDirectory};
+    use crate::{
+        skill_installation::{install, install_office},
+        test_support::TestDirectory,
+    };
     use std::fs;
 
     #[test]
@@ -84,5 +95,31 @@ mod tests {
             b"invalid"
         );
         assert!(!global.join("state.db").exists());
+    }
+
+    #[test]
+    fn optional_office_drift_is_reported_only_after_its_target_exists() {
+        let root = TestDirectory::new();
+        let home = root.path.join("home");
+        fs::create_dir(&home).unwrap();
+        let global = root.path.join("global");
+        let env = ProviderEnvironment::from_parts(
+            home.clone(),
+            root.path.clone(),
+            Vec::new(),
+            None,
+            None,
+            None,
+            None,
+        );
+        install(&env, &global, None, None, false).unwrap();
+        assert!(inspect_local_drift(&env, &global).unwrap().is_empty());
+        install_office(&env, &global, false).unwrap();
+        assert!(inspect_local_drift(&env, &global).unwrap().is_empty());
+
+        let target = home.join(".agents/skills/tmt-office");
+        fs::remove_file(&target).unwrap();
+        std::os::unix::fs::symlink(home.join("missing-office-skill"), &target).unwrap();
+        assert_eq!(inspect_local_drift(&env, &global).unwrap(), vec![target]);
     }
 }

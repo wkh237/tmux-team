@@ -24,7 +24,17 @@ pub fn bundled_skill() -> &'static [u8] {
     assets::SKILL
 }
 
+pub fn bundled_skill_named(name: &str) -> Option<&'static [u8]> {
+    match name {
+        "tmux-team" => Some(assets::SKILL),
+        "tmt-inbox" => Some(assets::INBOX_SKILL),
+        "tmt-office" => Some(assets::OFFICE_SKILL),
+        _ => None,
+    }
+}
+
 use std::{
+    collections::BTreeMap,
     error::Error,
     fmt, fs, io,
     path::{Path, PathBuf},
@@ -125,6 +135,46 @@ fn managed_link(target: &Path, assets: &assets::SkillAssets) -> io::Result<Optio
     Ok(assets.owns(&source).then_some(source))
 }
 
+struct PublicationContext<'a> {
+    assets: &'a assets::SkillAssets,
+    force: bool,
+    report: &'a mut InstallReport,
+    pending_backup: &'a mut Option<PathBuf>,
+}
+
+fn publish_managed_target(
+    context: &mut PublicationContext<'_>,
+    target: &Path,
+    source: &Path,
+    name: &'static str,
+    agent: Option<Provider>,
+    publish: &mut impl FnMut(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
+    let prior = managed_link(target, context.assets)?;
+    let changed = prior.as_deref() != Some(source);
+    if changed {
+        if prior.is_none() && files::exists(target)? {
+            if !context.force {
+                return Err(io::Error::other(format!(
+                    "Refusing to replace existing unmanaged path: {} (use --force)",
+                    target.display()
+                )));
+            }
+            *context.pending_backup = Some(files::backup(target)?);
+        }
+        publish(target, source)?;
+    }
+    context.report.installed.push(InstalledSkill {
+        name,
+        agent,
+        target: target.to_path_buf(),
+        changed,
+        backup: context.pending_backup.take(),
+        legacy_backups: Vec::new(),
+    });
+    Ok(())
+}
+
 /// Materialize and publish only requested integrations. The lock covers all
 /// cooperating native installers; this is not a hostile-filesystem sandbox.
 pub fn install(
@@ -135,6 +185,92 @@ pub fn install(
     force: bool,
 ) -> Result<InstallReport, InstallFailure> {
     install_with_publisher(env, global, provider, directory, force, files::link)
+}
+
+/// Install the optional Office guidance into detected provider roots and any
+/// custom root that still contains an owned core skill. Explicit Office setup
+/// may add this sibling; ordinary core installation and binary refresh do not.
+pub fn install_office(
+    env: &ProviderEnvironment,
+    global: &Path,
+    force: bool,
+) -> Result<InstallReport, InstallFailure> {
+    install_office_with_publisher(env, global, force, files::link)
+}
+
+fn install_office_with_publisher(
+    env: &ProviderEnvironment,
+    global: &Path,
+    force: bool,
+    mut publish: impl FnMut(&Path, &Path) -> io::Result<()>,
+) -> Result<InstallReport, InstallFailure> {
+    let mut report = InstallReport::default();
+    let mut pending_backup = None;
+    let pending = (|| {
+        let discovered = selected(env, None, None)?;
+        let global = files::resolved(global)?;
+        let assets = assets::SkillAssets::new(&global);
+        registry::read(&global)?;
+        files::with_lock(&global, || {
+            let mut targets = BTreeMap::<PathBuf, Option<Provider>>::new();
+            for (agent, main) in &discovered {
+                targets.insert(
+                    main.parent()
+                        .expect("skill target parent")
+                        .join("tmt-office"),
+                    *agent,
+                );
+            }
+            for registered in registry::read(&global)? {
+                let Some(name) = registered.file_name().and_then(|name| name.to_str()) else {
+                    continue;
+                };
+                if !matches!(name, "tmux-team" | "tmt-inbox")
+                    || managed_link(&registered, &assets)?.is_none()
+                {
+                    continue;
+                }
+                targets
+                    .entry(
+                        registered
+                            .parent()
+                            .expect("registered skill target parent")
+                            .join("tmt-office"),
+                    )
+                    .or_insert(None);
+            }
+            for target in targets.keys() {
+                files::safe_target(assets.root(), target)?;
+            }
+            let (_, _, source) = assets.materialize_bundle()?;
+            registry::remember(&global, targets.keys().cloned())?;
+            let mut context = PublicationContext {
+                assets: &assets,
+                force,
+                report: &mut report,
+                pending_backup: &mut pending_backup,
+            };
+            for (target, agent) in targets {
+                publish_managed_target(
+                    &mut context,
+                    &target,
+                    &source,
+                    "tmt-office",
+                    agent,
+                    &mut publish,
+                )?;
+            }
+            Ok(())
+        })
+    })();
+    match pending {
+        Ok(()) => Ok(report),
+        Err(cause) => Err(InstallFailure {
+            cause,
+            report,
+            pending_backup,
+        }),
+    }
 }
 
 // Keep publication at the existing file boundary so failure tests exercise the
@@ -168,32 +304,24 @@ fn install_with_publisher(
         }
         files::with_lock(&global, || {
             registry::read(&global)?;
-            let (main_source, inbox_source) = assets.materialize_bundle()?;
+            let (main_source, inbox_source, _) = assets.materialize_bundle()?;
             registry::remember(&global, targets.iter().map(|(_, target, _)| target.clone()))?;
+            let mut context = PublicationContext {
+                assets: &assets,
+                force,
+                report: &mut report,
+                pending_backup: &mut pending_backup,
+            };
             for (agent, target, inbox) in targets {
                 let source = if inbox { &inbox_source } else { &main_source };
-                let prior = managed_link(&target, &assets)?;
-                let changed = prior.as_ref() != Some(source);
-                if changed {
-                    if prior.is_none() && files::exists(&target)? {
-                        if !force {
-                            return Err(io::Error::other(format!(
-                                "Refusing to replace existing unmanaged path: {} (use --force)",
-                                target.display()
-                            )));
-                        }
-                        pending_backup = Some(files::backup(&target)?);
-                    }
-                    publish(&target, source)?;
-                }
-                report.installed.push(InstalledSkill {
-                    name: if inbox { "tmt-inbox" } else { "tmux-team" },
+                publish_managed_target(
+                    &mut context,
+                    &target,
+                    source,
+                    if inbox { "tmt-inbox" } else { "tmux-team" },
                     agent,
-                    target: target.clone(),
-                    changed,
-                    backup: pending_backup.take(),
-                    legacy_backups: Vec::new(),
-                });
+                    &mut publish,
+                )?;
                 if !inbox && let Some(agent) = agent {
                     for legacy in env.legacy_targets(agent) {
                         if !files::exists(&legacy)?
@@ -204,14 +332,15 @@ fn install_with_publisher(
                         if force {
                             files::safe_target(assets.root(), &legacy)?;
                             let backup = files::backup(&legacy)?;
-                            report
+                            context
+                                .report
                                 .installed
                                 .last_mut()
                                 .expect("published skill")
                                 .legacy_backups
                                 .push(backup);
                         } else {
-                            report.warnings.push(format!("Legacy {} guidance found at {}; keeping it. Inspect before running tmt install {} --force.", agent.as_str(), legacy.display(), agent.as_str()));
+                            context.report.warnings.push(format!("Legacy {} guidance found at {}; keeping it. Inspect before running tmt install {} --force.", agent.as_str(), legacy.display(), agent.as_str()));
                         }
                     }
                 }

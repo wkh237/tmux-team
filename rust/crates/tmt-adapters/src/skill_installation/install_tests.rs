@@ -1,4 +1,7 @@
-use super::{InstallFailure, ProviderEnvironment, bundled_skill, install};
+use super::{
+    InstallFailure, ProviderEnvironment, bundled_skill, bundled_skill_named, install,
+    install_office,
+};
 use crate::test_support::TestDirectory;
 use sha2::{Digest, Sha256};
 use std::{
@@ -33,6 +36,10 @@ fn assert_failure_preserves(failure: &InstallFailure, expected: &str) {
     assert!(failure.to_string().contains(expected), "{failure}");
     assert!(failure.report.installed.is_empty());
     assert!(failure.pending_backup.is_none());
+}
+
+fn office_target(target: &Path) -> PathBuf {
+    target.parent().unwrap().join("tmt-office")
 }
 
 #[test]
@@ -77,6 +84,96 @@ fn custom_install_uses_exact_target_and_does_not_invent_provider() {
     let source = assert_link(&custom);
     assert_eq!(fs::read(source.join("SKILL.md")).unwrap(), bundled_skill());
     assert_eq!(fs::read_dir(custom.parent().unwrap()).unwrap().count(), 2);
+}
+
+#[test]
+fn office_install_adds_only_optional_guidance_to_detected_and_managed_custom_roots() {
+    let (directory, environment, global, home) = fixture();
+    let custom_root = PathBuf::from("custom skills");
+    install(&environment, &global, None, Some(&custom_root), false).unwrap();
+    let custom_core = directory.path.join("cwd/custom skills/tmux-team");
+    assert!(!office_target(&custom_core).exists());
+    assert!(!home.join(".agents/skills/tmux-team").exists());
+
+    let first = install_office(&environment, &global, false).unwrap();
+    let office_targets = first
+        .installed
+        .iter()
+        .map(|item| item.target.clone())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(
+        office_targets,
+        [
+            home.join(".agents/skills/tmt-office"),
+            office_target(&custom_core),
+        ]
+        .into_iter()
+        .collect()
+    );
+    assert!(
+        first
+            .installed
+            .iter()
+            .all(|item| { item.name == "tmt-office" && item.changed && item.backup.is_none() })
+    );
+    for target in office_targets {
+        assert_eq!(
+            fs::read(assert_link(&target).join("SKILL.md")).unwrap(),
+            bundled_skill_named("tmt-office").unwrap()
+        );
+    }
+    assert!(custom_core.exists());
+    assert!(!home.join(".agents/skills/tmux-team").exists());
+
+    let second = install_office(&environment, &global, false).unwrap();
+    assert_eq!(second.installed.len(), 2);
+    assert!(second.installed.iter().all(|item| !item.changed));
+}
+
+#[test]
+fn office_install_preserves_unmanaged_target_until_force_creates_a_backup() {
+    let (_directory, environment, global, home) = fixture();
+    let target = home.join(".agents/skills/tmt-office");
+    fs::create_dir_all(target.parent().unwrap()).unwrap();
+    fs::write(&target, b"user-owned office guidance").unwrap();
+
+    let failure = install_office(&environment, &global, false).unwrap_err();
+    assert_failure_preserves(&failure, "Refusing to replace existing unmanaged path");
+    assert_eq!(fs::read(&target).unwrap(), b"user-owned office guidance");
+
+    let forced = install_office(&environment, &global, true).unwrap();
+    assert_eq!(forced.installed.len(), 1);
+    let backup = forced.installed[0].backup.as_ref().unwrap();
+    assert_eq!(fs::read(backup).unwrap(), b"user-owned office guidance");
+    assert!(backup.starts_with(home.join(".agents/.tmt-skill-backups")));
+    assert_eq!(
+        fs::read(assert_link(&target).join("SKILL.md")).unwrap(),
+        bundled_skill_named("tmt-office").unwrap()
+    );
+}
+
+#[test]
+fn office_install_uses_the_detected_provider_root() {
+    let (directory, _environment, global, home) = fixture();
+    fs::create_dir(home.join(".claude")).unwrap();
+    let environment = ProviderEnvironment::from_parts(
+        home.clone(),
+        directory.path.join("cwd"),
+        Vec::new(),
+        None,
+        None,
+        None,
+        None,
+    );
+
+    let report = install_office(&environment, &global, false).unwrap();
+    assert_eq!(report.installed.len(), 1);
+    assert_eq!(report.installed[0].agent, Some(Provider::Claude));
+    assert_eq!(
+        report.installed[0].target,
+        home.join(".claude/skills/tmt-office")
+    );
+    assert!(!home.join(".agents/skills/tmt-office").exists());
 }
 
 #[test]

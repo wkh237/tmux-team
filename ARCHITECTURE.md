@@ -381,13 +381,17 @@ threads or a second process runner.
 ## Managed skills and native installation
 
 Managed agent guidance is a separate filesystem concern. The canonical
-`tmux-team` skill and focused `tmt-inbox` skill are embedded as one versioned
-asset bundle by `skill_installation::assets`; digest-addressed materialization,
-provider detection, target selection, links, backups, registry, drift and lock
-handling live under `rust/crates/tmt-adapters/src/skill_installation/`. Core's
-`skill_provider::Provider` is the only provider inventory. Skill installation
-does not open application configuration, SQLite or tmux, and never silently
-replaces an unmanaged path.
+`tmux-team`, focused `tmt-inbox`, and optional `tmt-office` skills are embedded
+as one versioned asset bundle by `skill_installation::assets`; digest-addressed
+materialization, provider detection, target selection, links, backups, registry,
+drift and lock handling live under
+`rust/crates/tmt-adapters/src/skill_installation/`. Core install exposes only
+`tmux-team` and `tmt-inbox`. Explicit Office install or upgrade exposes
+`tmt-office` in detected provider roots and any custom root that still contains
+an owned core skill. CLI upgrades refresh recorded Office links without creating
+missing integrations. Core's `skill_provider::Provider` is the only provider
+inventory. Skill installation does not open application configuration, SQLite
+or tmux, and never silently replaces an unmanaged path.
 
 Native executable installation is a different owner under
 `tmt-adapters::native_install`:
@@ -432,6 +436,13 @@ expected-current checks, explicit checkpoints and bounded cleanup. A failed
 validation or cancellation leaves the previous current release and receipt
 intact; a post-activation skill failure reports partial completion rather than
 claiming an atomic application-wide transaction.
+
+Public Office installation reports companion activation and optional skill
+publication as separate outcomes: a guidance conflict never rolls back an
+already activated companion or overwrites user content. `--force` authorizes a
+recoverable target backup, not source replacement. Office deactivation retains
+managed guidance; it does not silently remove an agent integration. The hidden
+offline product installer remains binary-only.
 
 The generated curl bootstrap is release tooling around this same native
 installer. It derives archive facts from cargo-dist metadata and does not own a

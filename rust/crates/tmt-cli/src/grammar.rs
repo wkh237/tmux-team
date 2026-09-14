@@ -377,20 +377,25 @@ fn office_commands() -> Command {
             ),
         )
         .subcommand(
-            office("install", "Explicitly install the Office companion")
-                .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue))
-                .arg(Arg::new("archive").long("archive").requires("manifest"))
-                .arg(Arg::new("manifest").long("manifest").requires("archive"))
-                .arg(Arg::new("channel").long("channel").value_parser(
-                    tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str()),
-                )),
+            with_options(
+                office("install", "Explicitly install the Office companion"),
+                &["force"],
+            )
+            .arg(Arg::new("yes").long("yes").action(ArgAction::SetTrue))
+            .arg(Arg::new("archive").long("archive").requires("manifest"))
+            .arg(Arg::new("manifest").long("manifest").requires("archive"))
+            .arg(Arg::new("channel").long("channel").value_parser(
+                tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str()),
+            )),
         )
         .subcommand(
-            office("upgrade", "Explicitly update the Office companion").arg(
-                Arg::new("channel").long("channel").value_parser(
-                    tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str()),
-                ),
-            ),
+            with_options(
+                office("upgrade", "Explicitly update the Office companion"),
+                &["force"],
+            )
+            .arg(Arg::new("channel").long("channel").value_parser(
+                tmt_core::native_install::Channel::ALL.map(|channel| channel.as_str()),
+            )),
         )
         .subcommand(
             office(
@@ -613,7 +618,9 @@ fn option(id: &'static str) -> Arg {
     };
     match id {
         "json" => flag("Output one JSON document"),
-        "force" => flag("Confirm saved-identity removal or skip advisory warnings").short('f'),
+        "force" => {
+            flag("Authorize the command's documented protected replacement or removal").short('f')
+        }
         "save" => flag("Preserve this identity after its pane is gone").short('s'),
         "help" => flag("Show help").short('h').hide(true),
         "version" => flag("Show version").short('V').hide(true),
@@ -623,7 +630,12 @@ fn option(id: &'static str) -> Arg {
         "incoming" => flag("Use recipient-facing request attention"),
         "no-preamble" => flag("Skip the recipient preamble"),
         "stdin" => flag("Read complete input through EOF"),
-        "skill" => flag("Print the canonical skill"),
+        "skill" => Arg::new(id)
+            .long(id)
+            .help("Print an exact bundled skill (default: tmux-team)")
+            .num_args(0..=1)
+            .default_missing_value("tmux-team")
+            .value_parser(["tmux-team", "tmt-inbox", "tmt-office"]),
         "global" => flag("Edit global settings").short('g'),
         "config" => value("Unsupported path override").hide(true),
         "team" => value("Retired scope").hide(true),

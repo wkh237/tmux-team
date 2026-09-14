@@ -4,7 +4,7 @@ pub enum Invocation {
     Version,
     Completion(Option<String>),
     Learn {
-        skill: bool,
+        skill: Option<String>,
     },
     Init,
     List {
@@ -117,11 +117,13 @@ pub enum OfficeOperation {
     },
     Install {
         yes: bool,
+        force: bool,
         archive: Option<String>,
         manifest: Option<String>,
         channel: Option<tmt_core::native_install::Channel>,
     },
     Upgrade {
+        force: bool,
         channel: Option<tmt_core::native_install::Channel>,
     },
     Uninstall {

@@ -520,13 +520,16 @@ executables are not proof of release archives or public installation.
 
 ## Installed guidance source ownership
 
-`skills/tmux-team/SKILL.md` and `skills/tmt-inbox/SKILL.md` are the two installed
-guidance sources in one versioned bundle. Verify exact embedded bytes, sibling
-managed links, repeat no-op, backup/conflict behavior, lock
-ownership and no effects on application configuration, SQLite or tmux. Follow
-`USER-GUIDE.md` and `skills/README.md` for provider/custom-root usage; do not add
-provider-specific skill copies. Runtime/linkage proof shared by archive and raw
-verification lives in `scripts/native-runtime-proof.mjs`.
+`skills/tmux-team/SKILL.md`, `skills/tmt-inbox/SKILL.md`, and the optional
+`skills/tmt-office/SKILL.md` are the three canonical guidance sources in one
+versioned bundle. Core install exposes only the first two; explicit Office
+install or upgrade manages the Office sibling in detected and already-managed
+custom roots. Verify exact embedded bytes, core-only preservation, sibling
+managed links, repeat no-op, backup/conflict and partial-failure behavior, lock
+ownership, refresh without resurrection, and no effects on SQLite or tmux.
+Follow `USER-GUIDE.md` and `skills/README.md` for provider/custom-root usage; do
+not add provider-specific skill copies. Runtime/linkage proof shared by archive
+and raw verification lives in `scripts/native-runtime-proof.mjs`.
 
 ## Review and evidence
 

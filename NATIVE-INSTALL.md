@@ -8,6 +8,10 @@ companion and source builds support compatibility probes, explicit pairing and
 renewable scoped access. Installation alone does not pair, open a world or start a
 service. This source tree adds `tmt office start` and `stop` for a loopback-only
 embedded local UI; those commands are not in the currently published CLI/Office pair.
+The public Office install and upgrade commands also manage the optional
+`tmt-office` agent skill through the CLI's existing provider and custom-root
+registry. Core installation remains independent, and the hidden binary-only
+`__native-install --product office` boundary does not install skills.
 Do not advertise or publish the Office candidate independently: its migration 011 can
 make a schema-10 CLI reject the shared database, so the compatible CLI must be upgraded
 first and both artifacts must be coordinated. The four-file Office archive inventory
