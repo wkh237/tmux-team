@@ -141,7 +141,9 @@ test('real local CLI profile reaches SQLite, browser and service restart', async
           Promise.resolve(`response: ${response.status()} ${response.url()}`)
         );
     });
-    let started = await office(['start']);
+    // The full browser suite runs native scenarios in parallel. Give this
+    // sandbox its own loopback port instead of racing for the default port.
+    let started = await office(['start', '--port', String(await unusedLoopbackPort())]);
     expect(started.status, started.stdout).toBe(0);
     const initialUrl = JSON.parse(started.stdout).url;
     try {
