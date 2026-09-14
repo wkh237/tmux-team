@@ -121,6 +121,10 @@ jobs:
       - name: Install test dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Verify embedded local Office companion
+        env:
+          # This rebuild replaces the companion used by native process fixtures.
+          # Keep its debug-info policy consistent with their initial build.
+          CARGO_PROFILE_DEV_DEBUG: 0
         run: |
           pnpm office:build:local
           cd rust
