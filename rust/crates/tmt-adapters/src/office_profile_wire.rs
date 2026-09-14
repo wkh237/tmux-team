@@ -4,6 +4,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tmt_core::office_profile::{Appearance, LocalProfile};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProfileDecodeError;
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AppearanceDocument {
@@ -22,17 +25,19 @@ struct ProfileDocument {
     appearance: AppearanceDocument,
 }
 
-pub fn decode_slice(bytes: &[u8]) -> Result<LocalProfile, ()> {
-    let document: ProfileDocument = serde_json::from_slice(bytes).map_err(|_| ())?;
+pub fn decode_slice(bytes: &[u8]) -> Result<LocalProfile, ProfileDecodeError> {
+    let document: ProfileDocument =
+        serde_json::from_slice(bytes).map_err(|_| ProfileDecodeError)?;
     decode(document)
 }
 
-pub fn decode_value(value: Value) -> Result<LocalProfile, ()> {
-    let document: ProfileDocument = serde_json::from_value(value).map_err(|_| ())?;
+pub fn decode_value(value: Value) -> Result<LocalProfile, ProfileDecodeError> {
+    let document: ProfileDocument =
+        serde_json::from_value(value).map_err(|_| ProfileDecodeError)?;
     decode(document)
 }
 
-fn decode(document: ProfileDocument) -> Result<LocalProfile, ()> {
+fn decode(document: ProfileDocument) -> Result<LocalProfile, ProfileDecodeError> {
     let profile = LocalProfile {
         display_label: document.display_label,
         description: document.description,
@@ -44,7 +49,7 @@ fn decode(document: ProfileDocument) -> Result<LocalProfile, ()> {
             shirt_mark: document.appearance.shirt_mark,
         },
     };
-    profile.validate().map_err(|_| ())?;
+    profile.validate().map_err(|_| ProfileDecodeError)?;
     Ok(profile)
 }
 

@@ -560,7 +560,7 @@ fn profile_api(
         }
         let profile = match office_profile_wire::decode_value(input.profile) {
             Ok(profile) => profile,
-            Err(()) => {
+            Err(_) => {
                 return response(
                     stream,
                     400,
