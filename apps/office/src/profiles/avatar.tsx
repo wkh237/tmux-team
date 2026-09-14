@@ -11,10 +11,25 @@ const SHIRT = {
   ink: '#303b46',
 };
 
-function fitted(value: string, byteLimit: number, width: number) {
-  return new TextEncoder().encode(value).length > byteLimit
-    ? { textLength: width, lengthAdjust: 'spacingAndGlyphs' as const }
-    : {};
+/** Clip presentation only; preserve natural glyph proportions and accessible full text. */
+function AvatarText({
+  value,
+  className,
+  y,
+  width,
+}: {
+  value: string;
+  className: string;
+  y: number;
+  width: number;
+}) {
+  return (
+    <foreignObject x={-width / 2} y={y} width={width} height={1.6}>
+      <div className={`avatar-text ${className}`} title={value}>
+        {value}
+      </div>
+    </foreignObject>
+  );
 }
 
 /** Curated SVG only. Profile text can become text content, never markup or asset URLs. */
@@ -42,19 +57,9 @@ export function Avatar({
     >
       <title>{displayLabel ? `${displayLabel} — identity ${name}` : name}</title>
       {displayLabel && (
-        <text
-          className="avatar-label"
-          x="0"
-          y="-4.45"
-          textAnchor="middle"
-          {...fitted(displayLabel, 18, 12)}
-        >
-          {displayLabel}
-        </text>
+        <AvatarText value={displayLabel} className="avatar-label" y={-5.7} width={12} />
       )}
-      <text className="avatar-name" x="0" y="-3.25" textAnchor="middle" {...fitted(name, 12, 12)}>
-        {name}
-      </text>
+      <AvatarText value={name} className="avatar-name" y={-4.1} width={12} />
       <circle cx="0" cy="0" r="2.35" fill={SKIN[appearance.skinTone]} />
       {appearance.hairStyle === 'short' && (
         <path
@@ -96,15 +101,7 @@ export function Avatar({
         d="M-2.7 5.7 V3.25 Q-2.4 1.95 0 1.9 Q2.4 1.95 2.7 3.25 V5.7Z"
         fill={SHIRT[appearance.shirtColor]}
       />
-      <text
-        className="avatar-mark"
-        x="0"
-        y="4.5"
-        textAnchor="middle"
-        {...fitted(appearance.shirtMark, 7, 4)}
-      >
-        {appearance.shirtMark}
-      </text>
+      <AvatarText value={appearance.shirtMark} className="avatar-mark" y={3.3} width={4} />
     </g>
   );
 }

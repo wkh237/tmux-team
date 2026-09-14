@@ -129,7 +129,7 @@ it('disables every field while saving and catches draft storage failure', async 
   );
 });
 
-it('renders full safe label, identity and mark text with bounded SVG fitting', () => {
+it('keeps full accessible text in bounded labels without distorting glyphs', () => {
   const displayLabel = 'Architecture '.repeat(7).slice(0, 80);
   const marked = {
     ...snapshot,
@@ -146,9 +146,11 @@ it('renders full safe label, identity and mark text with bounded SVG fitting', (
     apply: async () => mutation(marked),
   };
   render(<ProfilePanel initial={marked} port={port} changed={() => undefined} />);
-  expect(screen.getByText(displayLabel).getAttribute('textLength')).toBe('12');
-  expect(document.querySelector('.avatar-name')?.getAttribute('textLength')).toBe('12');
-  expect(screen.getByText('🚀🚀').getAttribute('textLength')).toBe('4');
+  expect(screen.getByText(displayLabel).parentElement?.getAttribute('width')).toBe('12');
+  expect(screen.getByText(displayLabel).getAttribute('title')).toBe(displayLabel);
+  expect(document.querySelector('.avatar-name')?.getAttribute('title')).toBe('設計團隊 🚀');
+  expect(screen.getByText('🚀🚀').parentElement?.getAttribute('width')).toBe('4');
+  expect(document.querySelector('[textLength], [lengthAdjust]')).toBeNull();
   expect(document.querySelector('img')).toBeNull();
   expect(document.querySelector('.profile-preview title')?.textContent).toContain(displayLabel);
   expect(document.querySelector('.profile-preview title')?.textContent).toContain('設計團隊 🚀');

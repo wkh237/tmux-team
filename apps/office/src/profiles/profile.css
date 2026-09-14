@@ -14,29 +14,33 @@
   background: #dfe8d8;
   border-radius: 10px;
 }
+.avatar-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: center;
+  line-height: 1.6px;
+}
 .avatar-label {
   font:
     600 1.15px system-ui,
     sans-serif;
-  fill: #20342b;
-  paint-order: stroke;
-  stroke: #fffdf6;
-  stroke-width: 0.28px;
+  color: #20342b;
+  line-height: 1.6px;
 }
 .avatar-name {
   font:
     500 0.82px system-ui,
     sans-serif;
-  fill: #42564a;
-  paint-order: stroke;
-  stroke: #fffdf6;
-  stroke-width: 0.2px;
+  color: #42564a;
+  line-height: 1.6px;
 }
 .avatar-mark {
   font:
     700 1.15px system-ui,
     sans-serif;
-  fill: white;
+  color: white;
+  line-height: 1.6px;
 }
 .profile-preview p {
   color: #58685d;
