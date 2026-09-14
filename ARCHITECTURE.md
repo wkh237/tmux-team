@@ -127,6 +127,11 @@ Local presentation profiles are a separate UUID-owned resource: `tmt-core::offic
 owns the literal catalog, text bounds and deterministic default; SQLite schema 15 owns
 only the canonical override and CAS revision. Native commands and authenticated loopback
 HTTP reuse that owner. Layout, role, notes, identity and presence are never profile fields.
+The shared browser `Avatar` composes repository-owned indexed character art from
+the existing appearance catalog. `rendering/indexed-raster` draws inert pixels for
+both avatars and admitted props; avatar artwork does not enter the mutable prop
+catalog or add profile fields. Identity and shirt text remain separate accessible
+text overlays, never executable artwork.
 The public `office` subtree composes installation, identity resolution and bounded
 pairing observation, never credentials or HTTP. `office_pairing` separates wire
 values, remote Auth/resource access, vault access, local installation metadata,

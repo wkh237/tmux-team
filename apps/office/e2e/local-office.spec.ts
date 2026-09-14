@@ -130,8 +130,22 @@ test('offline local composition renders and conditionally edits shared profile a
   await page.getByLabel('Shirt mark').fill('UX');
   await page.getByRole('button', { name: 'Save appearance' }).click();
   await expect(page.getByText('Saved · revision 1')).toHaveCount(2);
+  // Visual-only coverage uses this existing mocked port; durable profile
+  // acceptance remains in native-local-profile.spec.ts with the real service.
+  for (const hairStyle of catalog.hairStyles) {
+    await page.getByLabel('Hair style').selectOption(hairStyle);
+    const avatar = page.locator('.profile-preview .profile-avatar');
+    await expect(avatar.locator('circle, path, image')).toHaveCount(0);
+    await expect(avatar.locator('svg[shape-rendering="crispEdges"]')).toHaveCount(1);
+    await expect(avatar.locator('.avatar-name')).toHaveText('Alice');
+    await page.locator('.profile-preview').screenshot({
+      path: testInfo.outputPath(`pixel-avatar-${hairStyle}.png`),
+    });
+  }
+  await page.getByLabel('Hair style').selectOption('curls');
   await page.screenshot({ path: testInfo.outputPath('profile-desktop.png'), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await page.screenshot({ path: testInfo.outputPath('profile-narrow.png'), fullPage: true });
   await page.getByRole('button', { name: 'Add plant' }).click();
   await page.getByRole('button', { name: 'Save layout' }).click();
