@@ -123,10 +123,41 @@ fn office_install_adds_optional_guidance_to_detected_and_managed_custom_roots() 
     }));
     for target in office_targets {
         let name = target.file_name().unwrap().to_str().unwrap();
-        assert_eq!(
-            fs::read(assert_link(&target).join("SKILL.md")).unwrap(),
-            bundled_skill_named(name).unwrap()
-        );
+        let installed = fs::read(assert_link(&target).join("SKILL.md")).unwrap();
+        assert_eq!(installed, bundled_skill_named(name).unwrap());
+        let guidance = String::from_utf8(installed).unwrap();
+        if name == "tmt-prop-create" {
+            assert!(!guidance.contains("contracts/office/"));
+            for required in [
+                "\"formatVersion\": 1",
+                "tmt office prop validate --file",
+                "tmt office prop list --local",
+                "tmt office prop install --local",
+                "tmt office block show --local",
+                "tmt office block apply --local",
+                "tmt office prop remove --local",
+                "`.layout`",
+            ] {
+                assert!(
+                    guidance.contains(required),
+                    "missing creator guidance: {required}"
+                );
+            }
+        } else {
+            for required in [
+                "`tmt-prop-create`",
+                "tmt office prop list --local",
+                "tmt office prop install --local",
+                "tmt office prop remove --local",
+                "`.layout`",
+                "{\"version\":2,\"objects\":[...]}",
+            ] {
+                assert!(
+                    guidance.contains(required),
+                    "missing Office guidance: {required}"
+                );
+            }
+        }
     }
     assert!(custom_core.exists());
     assert!(!home.join(".agents/skills/tmux-team").exists());

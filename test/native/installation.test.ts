@@ -151,6 +151,26 @@ describe('native installation process contract', () => {
       expect(propGuidance.status).toBe(0);
       expect(propGuidance.stderr).toBe('');
       expect(propGuidance.stdout).toBe(propCreateSkill().toString('utf8'));
+      expect(propGuidance.stdout).not.toContain('contracts/office/');
+      for (const required of [
+        '"formatVersion": 1',
+        'tmt office prop validate --file',
+        'tmt office prop list --local',
+        'tmt office prop install --local',
+        'tmt office block apply --local',
+        'tmt office prop remove --local',
+        '`.layout`',
+      ])
+        expect(propGuidance.stdout).toContain(required);
+      for (const required of [
+        '`tmt-prop-create`',
+        'tmt office prop list --local',
+        'tmt office prop install --local',
+        'tmt office prop remove --local',
+        '`.layout`',
+        '{"version":2,"objects":[...]}',
+      ])
+        expect(officeGuidance.stdout).toContain(required);
       expect(existsSync(sandbox.localConfig)).toBe(false);
       expect(existsSync(sandbox.globalDir)).toBe(false);
 

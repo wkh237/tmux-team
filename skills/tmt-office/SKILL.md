@@ -131,17 +131,33 @@ explicitly; never infer it from an omitted world or adopt remote state.
 
 ### Decorate a local block
 
-Read before applying:
+For custom data-only artwork, load the installed `tmt-prop-create` skill. Discover
+the local catalog and its revision before installing or removing a pack:
+
+```sh
+tmt office prop list --local --limit 20 --json
+tmt office prop install --local --file <pack.tmtprop.json> --if-revision <catalogRevision> --json
+tmt office prop remove --local <sha256:digest> --if-revision <catalogRevision> --json
+```
+
+Prop references are immutable `<sha256:digest>/<key>` values. Removal never
+rewrites a saved block: unresolved references remain in place and render bounded
+placeholders; reinstalling the exact bytes restores them.
+
+Read a block before applying:
 
 ```sh
 tmt office block show --local --identity <name> --json
 tmt office block apply --local --identity <name> --file layout.json --if-revision <revision> --json
 ```
 
-The layout file contains only `{"objects":[...]}`. Each object uses a catalog
-asset plus integer `x`, `y`, and `rotation` from 0 through 3. Respect returned
-footprints, room bounds, list-order overlap, the 16-object limit, and the 64 KiB
-file limit. Apply replaces the whole list, including an empty list.
+The read result is an observation envelope. Copy only its exact `.layout` object
+into `layout.json`; do not copy identity, revision, timestamps, resolutions, or
+existence fields. Local layout v2 is `{"version":2,"objects":[...]}`. Each object
+uses `prop`, its immutable definition `footprint`, integer `x` and `y`, and
+`rotation` from 0 through 3. Respect room bounds, list-order overlap, the
+16-object limit, and the 64 KiB file limit. Apply replaces the whole layout,
+including an empty `objects` list.
 
 Use revision 0 only for an absent block. On `OFFICE_REVISION_CONFLICT`, reread and
 reconcile; never silently advance the revision. `OFFICE_BUSY` means another local
