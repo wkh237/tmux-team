@@ -7,6 +7,7 @@ mod migrations;
 mod office_board;
 mod office_local;
 mod office_profile;
+mod office_prop;
 mod profiles;
 mod requests;
 
@@ -25,6 +26,9 @@ use errors::{classify, incompatible};
 pub use office_board::local_owner_actor;
 pub use office_local::{LocalBlockSnapshot, LocalOfficeError};
 pub use office_profile::{LocalProfileError, LocalProfileMutation, LocalProfileSnapshot};
+pub use office_prop::{
+    LocalPropCatalogError, LocalPropCatalogList, LocalPropMutation, LocalPropSnapshot,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckpointMode {
@@ -138,6 +142,12 @@ impl Storage {
     fn connection(&self) -> Result<&Connection, StorageError> {
         self.connection
             .as_ref()
+            .ok_or_else(|| StorageError::new(StorageErrorCode::Closed, "Storage is already closed"))
+    }
+
+    fn connection_mut(&mut self) -> Result<&mut Connection, StorageError> {
+        self.connection
+            .as_mut()
             .ok_or_else(|| StorageError::new(StorageErrorCode::Closed, "Storage is already closed"))
     }
 }

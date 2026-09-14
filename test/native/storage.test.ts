@@ -49,12 +49,12 @@ function table(snapshot: ReturnType<typeof storageSnapshot>, name: string) {
   return found!;
 }
 
-function expectNativeSchema15(
+function expectNativeSchema16(
   reference: ReturnType<typeof storageSnapshot>,
   migrated: ReturnType<typeof storageSnapshot>
 ): void {
   expect(migrated.migrations.slice(0, 8)).toEqual(reference.migrations);
-  expect(migrated.migrations).toHaveLength(15);
+  expect(migrated.migrations).toHaveLength(16);
   expect(migrated.migrations[8]).toEqual({
     version: 9,
     name: 'add identity lifetimes and reusable retired names',
@@ -83,6 +83,10 @@ function expectNativeSchema15(
     version: 15,
     name: 'add identity-owned local Office presentation profiles',
   });
+  expect(migrated.migrations[15]).toEqual({
+    version: 16,
+    name: 'add installation-owned local Office prop catalog',
+  });
   expect(migrated.tables.map(({ name }) => name)).toEqual(
     [
       ...reference.tables.map(({ name }) => name),
@@ -91,6 +95,8 @@ function expectNativeSchema15(
       'office_local_blocks',
       'office_local_worlds',
       'office_local_profiles',
+      'office_prop_catalog',
+      'office_prop_packs',
       'office_board_entries',
       'office_board_operations',
       'office_board_state',
@@ -195,6 +201,7 @@ function expectNativeSchema15(
     { version: 13, name: migrated.migrations[12]!.name },
     { version: 14, name: migrated.migrations[13]!.name },
     { version: 15, name: migrated.migrations[14]!.name },
+    { version: 16, name: migrated.migrations[15]!.name },
   ]);
 
   const oldAttempts = table(reference, 'request_attempts');
@@ -271,7 +278,7 @@ describe('native SQLite lifecycle compatibility', () => {
         expect(parseWholeStdout(result)).toEqual({
           path: sandbox.database,
           open: true,
-          schemaVersion: 15,
+          schemaVersion: 16,
           journalMode: 'wal',
           foreignKeys: true,
           busyTimeoutMs: 5000,
@@ -279,7 +286,7 @@ describe('native SQLite lifecycle compatibility', () => {
           fts5: true,
         });
         const migrated = storageSnapshot(sandbox.database);
-        expectNativeSchema15(storageSnapshot(reference), migrated);
+        expectNativeSchema16(storageSnapshot(reference), migrated);
         if (version >= 5) {
           const responses = migrated.tables.find(
             (table) => table.name === 'request_responses'
@@ -310,7 +317,7 @@ describe('native SQLite lifecycle compatibility', () => {
           );
         }
         const timestamps = migrationTimestamps(sandbox.database);
-        expect(timestamps).toHaveLength(15);
+        expect(timestamps).toHaveLength(16);
         expect(timestamps.slice(0, version)).toEqual(originalTimestamps);
         for (const timestamp of timestamps) {
           expect(timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
@@ -336,10 +343,10 @@ describe('native SQLite lifecycle compatibility', () => {
         expect(result.status).toBe('fulfilled');
         if (result.status === 'fulfilled') {
           expect(result.value.status, result.value.stdout).toBe(0);
-          expect(parseWholeStdout(result.value).schemaVersion).toBe(15);
+          expect(parseWholeStdout(result.value).schemaVersion).toBe(16);
         }
       }
-      expectNativeSchema15(storageSnapshot(reference), storageSnapshot(sandbox.database));
+      expectNativeSchema16(storageSnapshot(reference), storageSnapshot(sandbox.database));
     });
   });
 
@@ -543,7 +550,7 @@ describe('native SQLite lifecycle compatibility', () => {
         repair.close();
       }
       expect((await runStorage(sandbox)).status).toBe(0);
-      expect(parseWholeStdout(await runStorage(sandbox))).toMatchObject({ schemaVersion: 15 });
+      expect(parseWholeStdout(await runStorage(sandbox))).toMatchObject({ schemaVersion: 16 });
     });
   });
 
@@ -767,7 +774,7 @@ describe('native SQLite lifecycle compatibility', () => {
         if (kind === 'future') {
           const upgraded = await runStorage(sandbox);
           expect(upgraded.status).toBe(0);
-          expect(parseWholeStdout(upgraded)).toMatchObject({ schemaVersion: 15 });
+          expect(parseWholeStdout(upgraded)).toMatchObject({ schemaVersion: 16 });
         }
         const writer = new Database(sandbox.database);
         try {
@@ -832,7 +839,7 @@ describe('native SQLite lifecycle compatibility', () => {
       }
       expect(storageSnapshot(sandbox.database)).toEqual(before);
       expect((await runStorage(sandbox)).status).toBe(0);
-      expectNativeSchema15(storageSnapshot(reference), storageSnapshot(sandbox.database));
+      expectNativeSchema16(storageSnapshot(reference), storageSnapshot(sandbox.database));
     });
   }, 15_000);
 });
