@@ -272,6 +272,23 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
         fullPage: true,
       });
       await page.setViewportSize({ width: 390, height: 844 });
+      const narrowBounds = await page.evaluate(() => {
+        const tools = document.querySelector<HTMLElement>('.block-tools')!.getBoundingClientRect();
+        const buttons = Array.from(
+          document.querySelectorAll<HTMLElement>('.furniture-list button')
+        ).map((button) => button.getBoundingClientRect());
+        return {
+          documentWidth: document.documentElement.scrollWidth,
+          viewportWidth: window.innerWidth,
+          toolsLeft: tools.left,
+          toolsRight: tools.right,
+          buttonsLeft: Math.min(...buttons.map((button) => button.left)),
+          buttonsRight: Math.max(...buttons.map((button) => button.right)),
+        };
+      });
+      expect(narrowBounds.documentWidth).toBeLessThanOrEqual(narrowBounds.viewportWidth);
+      expect(narrowBounds.buttonsLeft).toBeGreaterThanOrEqual(narrowBounds.toolsLeft);
+      expect(narrowBounds.buttonsRight).toBeLessThanOrEqual(narrowBounds.toolsRight);
       await page.screenshot({
         path: testInfo.outputPath('builtin-custom-props-narrow.png'),
         fullPage: true,

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import builtinDocument from '../../../../contracts/office/builtin-props-v1.tmtprop.json' with { type: 'json' };
+import vectors from '../../../../contracts/office/prop-block-vectors.json' with { type: 'json' };
 import { BUILTIN_DIGEST, BUILTIN_PACK, decodePropPack, indexedProp } from './prop-contract.js';
 
 describe('data-only prop pack contract', () => {
@@ -27,5 +28,21 @@ describe('data-only prop pack contract', () => {
     const invalid = structuredClone(builtinDocument);
     invalid.props[0]!.pixels[0] = 'f'.repeat(invalid.props[0]!.pixels[0]!.length);
     expect(() => decodePropPack(invalid)).toThrow('Invalid prop pixels.');
+  });
+
+  it.each(vectors.packCases)('$name', ({ valid, value }) => {
+    if (valid) expect(() => decodePropPack(value)).not.toThrow();
+    else expect(() => decodePropPack(value)).toThrow();
+  });
+
+  it('accepts the shared maximum prop and pixel capacity', () => {
+    const { capacity } = vectors;
+    const props = Array.from({ length: capacity.count }, (_, index) => ({
+      ...capacity.prop,
+      key: `${capacity.keyPrefix}${String(index).padStart(2, '0')}`,
+      label: capacity.label,
+      pixels: Array(capacity.rasterRows).fill(capacity.rasterRow),
+    }));
+    expect(decodePropPack({ ...capacity.pack, props }).props).toHaveLength(capacity.count);
   });
 });

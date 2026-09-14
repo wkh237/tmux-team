@@ -51,6 +51,7 @@
 }
 .block-tools {
   font-size: 13px;
+  min-width: 0;
 }
 .block-tools h3 {
   font-size: 18px;
@@ -62,6 +63,8 @@
   color: #23372d;
   padding: 9px 12px;
   border-radius: 6px;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 .block-tools button:disabled {
   opacity: 0.5;
@@ -81,6 +84,13 @@
   max-height: 180px;
   overflow: auto;
 }
+.furniture-list li {
+  min-width: 0;
+  max-width: 100%;
+}
+.furniture-list button {
+  max-width: 100%;
+}
 .furniture-list [aria-pressed='true'] {
   background: #dfe8d8;
   border-color: #426848;
@@ -92,6 +102,11 @@
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  min-width: 0;
+}
+.block-tools legend {
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .block-tools label {
   display: flex;

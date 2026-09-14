@@ -182,10 +182,11 @@ fails validation. `OFFICE_REVISION_CONFLICT`, `OFFICE_BUSY`, and
 
 ## Acceptance mapping
 
-- Shared literal vectors independently exercise legacy token/input migration,
-  canonical v2 projection, rotation/bounds, immutable references, footprint
-  mismatch, duplicate unavailable placements, full object capacity, and
-  unknown/duplicate fields in Rust and TypeScript.
+- Shared literal vectors independently exercise canonical v2 values,
+  rotation/bounds, immutable references, full prop/pixel/object capacity, and
+  unknown fields in Rust and TypeScript. Existing v1 vectors retain legacy
+  token/input migration coverage. Rust raw-byte tests independently reject duplicate
+  v2 fields before typed decoding.
 - Storage tests prove reads do not rewrite, every changed write normalizes v2
   under the existing revision transaction, multiset-aware unavailable
   retention/removal, and complete rollback on validation or block conflict. An

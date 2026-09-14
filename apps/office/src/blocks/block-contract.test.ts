@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import vectors from '../../../../contracts/office/block-v1.vectors.json' with { type: 'json' };
+import propVectors from '../../../../contracts/office/prop-block-vectors.json' with { type: 'json' };
 import {
   footprint,
   sameLayout,
@@ -40,5 +41,18 @@ describe('bounded decoration contract', () => {
     const second = builtinFurniture('rug', 0, 0, 0);
     expect(sameLayout([first], [{ ...first, rotation: 0, y: 0, x: 0 }])).toBe(true);
     expect(sameLayout([first, second], [second, first])).toBe(false);
+  });
+  it.each(propVectors.layoutCases)('$name', ({ valid, value }) => {
+    const exactEnvelope =
+      Object.keys(value).length === 2 &&
+      Object.hasOwn(value, 'version') &&
+      Object.hasOwn(value, 'objects') &&
+      value.version === 2;
+    expect(exactEnvelope && validLayout(value.objects)).toBe(valid);
+  });
+  it('accepts the shared full local object capacity', () => {
+    const { capacity } = propVectors;
+    expect(validLayout(Array(capacity.count).fill(capacity.placement))).toBe(true);
+    expect(validLayout(Array(capacity.count + 1).fill(capacity.placement))).toBe(false);
   });
 });

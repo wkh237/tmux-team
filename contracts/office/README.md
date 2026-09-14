@@ -31,6 +31,9 @@ The [data-only prop pack v1](prop-pack-v1.md) and local
 placeholder and built-in migration boundary. Their source implementation does not
 imply availability in an installed release, a remote catalog, or a second
 layout/renderer owner.
+[`prop-block-vectors.json`](prop-block-vectors.json) is their compact shared Rust/Office
+value and full-capacity conformance source. Raw JSON duplicate-key admission remains a
+Rust file-reader proof because JavaScript object decoding occurs after JSON parsing.
 
 ## Single source of truth
 

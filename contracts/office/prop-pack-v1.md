@@ -54,13 +54,13 @@ duplicate keys, unknown keys, non-integer numbers, and trailing data. Equivalent
 JSON with different whitespace or object-key order is intentionally different
 content with a different digest; there is no canonical-JSON claim.
 
-Duplicate-key rejection is part of the shared domain behavior. An existing strict
-typed decoder may supply it when tests prove that behavior; otherwise a bounded
-duplicate detector runs before typed decoding only for this document. The
-repository's default `serde_json` last-key-wins behavior alone is not sufficient,
-and #238 does not introduce a second general JSON framework. Literal vectors
-cover duplicates in the envelope, footprint, and prop objects in Rust and
-TypeScript.
+Duplicate-key rejection belongs to bounded Rust raw-file admission, before typed
+decoding. The repository's default `serde_json` last-key-wins behavior alone is not
+sufficient, and #238 does not introduce a second general JSON framework. The browser
+receives already-parsed values, so its independent object decoder proves exact fields
+but cannot observe duplicate source keys. Shared literal vectors cover value, field,
+geometry and full-capacity behavior in Rust and TypeScript; Rust-only raw-byte tests
+cover duplicates in the envelope, footprint and prop objects.
 
 | Value                               |             Limit |
 | ----------------------------------- | ----------------: |

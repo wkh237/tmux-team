@@ -81,7 +81,7 @@ Office adapter feature. See
 [pairing v1](contracts/office/pairing-v1.md) for approval/retry semantics and the
 agent-grant contract for resource leases. Owner-local configuration stays outside Git and Docker. Native tmux,
 Office browser/Rules and bootstrap smoke proofs retain separate fixture owners.
-Installation-local data-only prop packs are shipped under the bounded contracts below.
+Installation-local data-only prop packs are implemented under the bounded contracts below.
 Community exchange and exploration remain a [sandbox plan](docs/office/sandbox.md), not a
 runtime SDK, identity registry or alternate exchange engine.
 

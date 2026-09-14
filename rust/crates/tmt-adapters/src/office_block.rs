@@ -249,6 +249,44 @@ mod tests {
     }
 
     #[test]
+    fn local_v2_inputs_conform_to_shared_prop_vectors() {
+        let vectors: Value = serde_json::from_str(include_str!(
+            "../../../../contracts/office/prop-block-vectors.json"
+        ))
+        .unwrap();
+        for case in vectors["layoutCases"].as_array().unwrap() {
+            let decoded = decode_local_layout(&serde_json::to_vec(&case["value"]).unwrap());
+            assert_eq!(
+                decoded.is_ok(),
+                case["valid"].as_bool().unwrap(),
+                "{}",
+                case["name"]
+            );
+        }
+        let capacity = &vectors["capacity"];
+        let mut layout = capacity["layout"].clone();
+        layout["objects"] = serde_json::json!(vec![
+            capacity["placement"].clone();
+            capacity["count"].as_u64().unwrap() as usize
+        ]);
+        assert_eq!(
+            decode_local_layout(&serde_json::to_vec(&layout).unwrap())
+                .unwrap()
+                .objects()
+                .len(),
+            OBJECT_LIMIT
+        );
+        layout["objects"]
+            .as_array_mut()
+            .unwrap()
+            .push(capacity["placement"].clone());
+        assert_eq!(
+            decode_local_layout(&serde_json::to_vec(&layout).unwrap()),
+            Err(OfficeError::LayoutInvalid)
+        );
+    }
+
+    #[test]
     fn malformed_envelopes_and_oversized_files_are_rejected() {
         for bytes in [
             b"{}".as_slice(),

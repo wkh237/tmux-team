@@ -454,6 +454,46 @@ mod tests {
     }
 
     #[test]
+    fn shared_vectors_cover_values_and_full_capacity() {
+        let vectors: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../contracts/office/prop-block-vectors.json"
+        ))
+        .unwrap();
+        for case in vectors["packCases"].as_array().unwrap() {
+            let bytes = serde_json::to_vec(&case["value"]).unwrap();
+            assert_eq!(
+                validate_pack(&bytes).is_ok(),
+                case["valid"].as_bool().unwrap(),
+                "{}",
+                case["name"]
+            );
+        }
+        let capacity = &vectors["capacity"];
+        let props = (0..capacity["count"].as_u64().unwrap())
+            .map(|index| {
+                let mut prop = capacity["prop"].clone();
+                prop["key"] = serde_json::json!(format!(
+                    "{}{:02}",
+                    capacity["keyPrefix"].as_str().unwrap(),
+                    index
+                ));
+                prop["label"] = capacity["label"].clone();
+                prop["pixels"] = serde_json::json!(vec![
+                    capacity["rasterRow"].as_str().unwrap();
+                    capacity["rasterRows"].as_u64().unwrap()
+                        as usize
+                ]);
+                prop
+            })
+            .collect::<Vec<_>>();
+        let mut pack = capacity["pack"].clone();
+        pack["props"] = serde_json::json!(props);
+        let validated = validate_pack(&serde_json::to_vec(&pack).unwrap()).unwrap();
+        assert_eq!(validated.pack().props.len(), PACK_PROP_LIMIT);
+        assert_eq!(validated.pixel_count(), PACK_PIXEL_LIMIT);
+    }
+
+    #[test]
     fn exact_bytes_and_framing_change_identity() {
         let original = validate_pack(BUILTIN_BYTES).unwrap();
         let mut changed = BUILTIN_BYTES.to_vec();
