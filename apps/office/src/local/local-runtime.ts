@@ -21,6 +21,7 @@ import type {
 } from './board-contract.js';
 import {
   decodeProfileProjection,
+  decodeProfileMutation,
   decodeProfileSnapshot,
   ProfileConflict,
 } from '../profiles/profile-contract.js';
@@ -300,7 +301,7 @@ export function startLocalRuntime(location: Location): LocalRuntime {
         }
       );
       if (response.status === 409) throw new ProfileConflict();
-      return checked(response, value, decodeProfileSnapshot);
+      return checked(response, value, decodeProfileMutation);
     },
   };
   return {

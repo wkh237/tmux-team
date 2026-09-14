@@ -65,7 +65,7 @@ export function BlockScene({
   selected: number | null;
   select: (index: number) => void;
   move: (x: number, y: number) => void;
-  avatar?: { appearance: Appearance; name: string };
+  avatar?: { appearance: Appearance; name: string; displayLabel?: string };
 }) {
   const pattern = useId();
   return (
@@ -115,7 +115,15 @@ export function BlockScene({
           </g>
         );
       })}
-      {avatar && <Avatar appearance={avatar.appearance} name={avatar.name} x={16} y={15} />}
+      {avatar && (
+        <Avatar
+          appearance={avatar.appearance}
+          name={avatar.name}
+          displayLabel={avatar.displayLabel}
+          x={16}
+          y={15}
+        />
+      )}
     </svg>
   );
 }

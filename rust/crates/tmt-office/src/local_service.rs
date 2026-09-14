@@ -16,7 +16,9 @@ use tmt_adapters::{
     config::ConfigPaths,
     office_block::decode_layout,
     office_local::local_snapshot,
-    office_profile::snapshot_value as local_profile_snapshot,
+    office_profile::{
+        mutation_value as local_profile_mutation, snapshot_value as local_profile_snapshot,
+    },
     office_profile_wire,
     office_service::{self, ServiceReceipt},
     storage::{LocalOfficeError, LocalProfileError, Storage},
@@ -585,13 +587,15 @@ fn profile_api(
         }
     };
     let result = match edit {
-        Some((expected_revision, profile)) => {
-            storage.apply_local_profile(identity_id, expected_revision, &profile)
-        }
-        None => storage.show_local_profile(identity_id),
+        Some((expected_revision, profile)) => storage
+            .apply_local_profile(identity_id, expected_revision, &profile)
+            .map(local_profile_mutation),
+        None => storage
+            .show_local_profile(identity_id)
+            .map(local_profile_snapshot),
     };
     let (status, body) = match result {
-        Ok(profile) => (200, serde_json::to_vec(&local_profile_snapshot(profile))?),
+        Ok(profile) => (200, serde_json::to_vec(&profile)?),
         Err(LocalProfileError::ProfileInvalid) => (400, br#"{"error":"PROFILE_INVALID"}"#.to_vec()),
         Err(LocalProfileError::RevisionConflict | LocalProfileError::RevisionExhausted) => {
             (409, br#"{"error":"REVISION_CONFLICT"}"#.to_vec())
@@ -1088,7 +1092,13 @@ mod tests {
         };
         let created = call_api(put, &paths, &receipt);
         assert!(created.starts_with("HTTP/1.1 200"));
-        assert!(created.contains("\"revision\":1"));
+        let json_body = |response: &str| {
+            serde_json::from_str::<Value>(response.split("\r\n\r\n").nth(1).unwrap()).unwrap()
+        };
+        let created_body = json_body(&created);
+        assert_eq!(created_body["revision"], 1);
+        assert_eq!(created_body["changed"], true);
+        let created_at = created_body["updatedAtMs"].as_u64().unwrap();
         let retry = Request {
             method: "PUT".into(),
             path: format!("/api/v1/local/profiles/{id}"),
@@ -1097,10 +1107,37 @@ mod tests {
         };
         let retried = call_api(retry, &paths, &receipt);
         assert!(retried.starts_with("HTTP/1.1 200"));
-        assert_eq!(
-            created.split("\r\n\r\n").nth(1),
-            retried.split("\r\n\r\n").nth(1)
-        );
+        let retried_body = json_body(&retried);
+        assert_eq!(retried_body["revision"], 1);
+        assert_eq!(retried_body["changed"], false);
+        assert_eq!(retried_body["updatedAtMs"], created_at);
+        let noop = Request {
+            method: "PUT".into(),
+            path: format!("/api/v1/local/profiles/{id}"),
+            headers: headers(),
+            body: serde_json::to_vec(&json!({"expectedRevision":1,"profile":profile})).unwrap(),
+        };
+        let noop_body = json_body(&call_api(noop, &paths, &receipt));
+        assert_eq!(noop_body["changed"], false);
+        assert_eq!(noop_body["updatedAtMs"], created_at);
+        let updated_profile = json!({"displayLabel":"Lead","description":"Architecture review","appearance":{"hairStyle":"short","hairColor":"ink","skinTone":"medium","shirtColor":"blue","shirtMark":"AI"}});
+        let update = Request {
+            method: "PUT".into(),
+            path: format!("/api/v1/local/profiles/{id}"),
+            headers: headers(),
+            body: serde_json::to_vec(&json!({"expectedRevision":1,"profile":updated_profile}))
+                .unwrap(),
+        };
+        let updated_body = json_body(&call_api(update, &paths, &receipt));
+        assert_eq!(updated_body["revision"], 2);
+        assert_eq!(updated_body["changed"], true);
+        let stale = Request {
+            method: "PUT".into(),
+            path: format!("/api/v1/local/profiles/{id}"),
+            headers: headers(),
+            body: serde_json::to_vec(&json!({"expectedRevision":1,"profile":profile})).unwrap(),
+        };
+        assert!(call_api(stale, &paths, &receipt).starts_with("HTTP/1.1 409"));
         let list = Request {
             method: "GET".into(),
             path: "/api/v1/local/profiles".into(),

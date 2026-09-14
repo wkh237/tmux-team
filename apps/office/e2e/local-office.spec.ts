@@ -68,6 +68,7 @@ test('offline local composition renders and conditionally edits shared profile a
           profile,
           updatedAtMs: profileRevision || null,
           catalog,
+          ...(route.request().method() === 'PUT' ? { changed: true } : {}),
         }),
       });
     }

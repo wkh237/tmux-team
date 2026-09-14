@@ -156,14 +156,18 @@ tmt office profile show --local --identity <name> --json
 tmt office profile apply --local --identity <name> --file profile.json --if-revision <revision> --json
 ```
 
-Use only the literal catalog and exact object in `contracts/office/profile-v1.md`.
-The file is limited to 8 KiB and unknown fields, control characters and arbitrary asset
-references reject. Revision 0 creates an explicit override, even when it equals the
-deterministic default. Identical current saves and exact retries preserve the stored
-timestamp. On `OFFICE_REVISION_CONFLICT`, retain the draft and reread. On
-`OFFICE_LOCAL_UNCERTAIN`, the write may have committed, so compare before retrying.
-Display labels never select an identity, and profile changes never alter identity, role,
-permissions, layout, notes, position or online presence.
+The JSON read result is the installed runtime reference: copy only its exact `.profile`
+object into `profile.json`, and choose catalog values only from the returned `.catalog`.
+Do not write the surrounding identity, revision, timestamp, existence or catalog fields
+into the apply file. The file is limited to 8 KiB; unknown fields, control characters and
+arbitrary asset references reject. Revision 0 creates an explicit override, even when it
+equals the deterministic default. Identical current saves and exact retries preserve the
+stored timestamp. On `OFFICE_REVISION_CONFLICT`, retain the file and original revision,
+reread, then explicitly reconcile rather than advancing the revision automatically. On
+`OFFICE_LOCAL_UNCERTAIN`, the write may have committed: compare the reread `.profile` with
+the retained file before retrying the same file and original revision. Display labels
+never select an identity, and profile changes never alter identity, role, permissions,
+layout, notes, position or online presence.
 
 ### Participate in the local board
 

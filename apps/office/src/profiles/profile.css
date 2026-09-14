@@ -14,7 +14,7 @@
   background: #dfe8d8;
   border-radius: 10px;
 }
-.avatar-name {
+.avatar-label {
   font:
     600 1.15px system-ui,
     sans-serif;
@@ -22,6 +22,15 @@
   paint-order: stroke;
   stroke: #fffdf6;
   stroke-width: 0.28px;
+}
+.avatar-name {
+  font:
+    500 0.82px system-ui,
+    sans-serif;
+  fill: #42564a;
+  paint-order: stroke;
+  stroke: #fffdf6;
+  stroke-width: 0.2px;
 }
 .avatar-mark {
   font:
@@ -40,6 +49,10 @@
 }
 .profile-fields {
   gap: 14px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 .profile-fields input,
 .profile-fields textarea,

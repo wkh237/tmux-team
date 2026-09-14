@@ -77,12 +77,19 @@ fn human(value: &serde_json::Value) -> String {
     } else {
         "default"
     };
+    let outcome = match value["changed"].as_bool() {
+        Some(true) if value["revision"].as_u64() == Some(1) => " · created",
+        Some(true) => " · updated",
+        Some(false) => " · unchanged",
+        None => "",
+    };
     format!(
-        "{} ({}) — revision {} {}\nLabel: {}\nDescription: {}\nHair: {} / {}\nSkin: {}\nShirt: {} / {}",
+        "{} ({}) — revision {} {}{}\nLabel: {}\nDescription: {}\nHair: {} / {}\nSkin: {}\nShirt: {} / {}",
         value["identityName"].as_str().unwrap_or("identity"),
         value["identityId"].as_str().unwrap_or(""),
         value["revision"].as_u64().unwrap_or(0),
         state,
+        outcome,
         value["profile"]["displayLabel"].as_str().unwrap_or(""),
         value["profile"]["description"].as_str().unwrap_or(""),
         value["profile"]["appearance"]["hairStyle"]

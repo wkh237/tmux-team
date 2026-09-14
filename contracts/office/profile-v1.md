@@ -1,7 +1,7 @@
 # Local presentation profile v1
 
-Implementation target for #212; these operations are not yet shipped. Local
-SQLite is authoritative. Remote publication and authorization are M2 (#242).
+Implemented for local Office in #212. Local SQLite is authoritative. Remote
+publication and authorization remain M2 (#242).
 
 ## Commands and identity
 

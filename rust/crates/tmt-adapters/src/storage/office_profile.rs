@@ -18,6 +18,12 @@ pub struct LocalProfileSnapshot {
     pub updated_at_ms: Option<u64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalProfileMutation {
+    pub snapshot: LocalProfileSnapshot,
+    pub changed: bool,
+}
+
 #[derive(Debug)]
 pub enum LocalProfileError {
     Storage(StorageError),
@@ -112,7 +118,7 @@ impl Storage {
         identity_id: &str,
         expected_revision: u64,
         profile: &LocalProfile,
-    ) -> Result<LocalProfileSnapshot, LocalProfileError> {
+    ) -> Result<LocalProfileMutation, LocalProfileError> {
         profile
             .validate()
             .map_err(|_| LocalProfileError::ProfileInvalid)?;
@@ -138,13 +144,16 @@ impl Storage {
                         "INSERT INTO office_local_profiles (identity_id, revision, profile, updated_at_ms) VALUES (?, 1, ?, ?)",
                         params![identity_id, encoded, i64::try_from(now).expect("timestamp fits SQLite")],
                     ).map_err(|error| classify(error, "Create local Office profile"))?;
-                    Ok(LocalProfileSnapshot {
-                        identity_id: identity_id.into(),
-                        identity_name,
-                        exists: true,
-                        revision: 1,
-                        profile: profile.clone(),
-                        updated_at_ms: Some(now),
+                    Ok(LocalProfileMutation {
+                        snapshot: LocalProfileSnapshot {
+                            identity_id: identity_id.into(),
+                            identity_name,
+                            exists: true,
+                            revision: 1,
+                            profile: profile.clone(),
+                            updated_at_ms: Some(now),
+                        },
+                        changed: true,
                     })
                 }
                 None => Err(LocalProfileError::RevisionConflict),
@@ -152,25 +161,31 @@ impl Storage {
                     if expected_revision.checked_add(1) == Some(stored_u64(revision)?)
                         && stored == encoded =>
                 {
-                    Ok(LocalProfileSnapshot {
-                        identity_id: identity_id.into(),
-                        identity_name,
-                        exists: true,
-                        revision: stored_u64(revision)?,
-                        profile: profile.clone(),
-                        updated_at_ms: Some(stored_u64(updated)?),
+                    Ok(LocalProfileMutation {
+                        snapshot: LocalProfileSnapshot {
+                            identity_id: identity_id.into(),
+                            identity_name,
+                            exists: true,
+                            revision: stored_u64(revision)?,
+                            profile: profile.clone(),
+                            updated_at_ms: Some(stored_u64(updated)?),
+                        },
+                        changed: false,
                     })
                 }
                 Some((revision, stored, updated))
                     if stored_u64(revision)? == expected_revision && stored == encoded =>
                 {
-                    Ok(LocalProfileSnapshot {
-                        identity_id: identity_id.into(),
-                        identity_name,
-                        exists: true,
-                        revision: stored_u64(revision)?,
-                        profile: profile.clone(),
-                        updated_at_ms: Some(stored_u64(updated)?),
+                    Ok(LocalProfileMutation {
+                        snapshot: LocalProfileSnapshot {
+                            identity_id: identity_id.into(),
+                            identity_name,
+                            exists: true,
+                            revision: stored_u64(revision)?,
+                            profile: profile.clone(),
+                            updated_at_ms: Some(stored_u64(updated)?),
+                        },
+                        changed: false,
                     })
                 }
                 Some((revision, _, _)) if stored_u64(revision)? != expected_revision => {
@@ -184,13 +199,16 @@ impl Storage {
                         "UPDATE office_local_profiles SET revision = ?, profile = ?, updated_at_ms = ? WHERE identity_id = ? AND revision = ? AND EXISTS (SELECT 1 FROM identities WHERE id = ? AND retired_at_ms IS NULL)",
                         params![i64::try_from(next).unwrap(), encoded, i64::try_from(now).unwrap(), identity_id, i64::try_from(revision).unwrap(), identity_id],
                     ).map_err(|error| classify(error, "Update local Office profile"))?;
-                    Ok(LocalProfileSnapshot {
-                        identity_id: identity_id.into(),
-                        identity_name,
-                        exists: true,
-                        revision: next,
-                        profile: profile.clone(),
-                        updated_at_ms: Some(now),
+                    Ok(LocalProfileMutation {
+                        snapshot: LocalProfileSnapshot {
+                            identity_id: identity_id.into(),
+                            identity_name,
+                            exists: true,
+                            revision: next,
+                            profile: profile.clone(),
+                            updated_at_ms: Some(now),
+                        },
+                        changed: true,
                     })
                 }
                 Some(_) => Err(LocalProfileError::RevisionExhausted),
@@ -299,24 +317,34 @@ mod tests {
         let created = storage
             .apply_local_profile(id, 0, &missing.profile)
             .unwrap();
-        assert_eq!(created.revision, 1);
+        assert!(created.changed);
+        assert_eq!(created.snapshot.revision, 1);
+        let created_at = created.snapshot.updated_at_ms;
         assert_eq!(
             storage
                 .apply_local_profile(id, 0, &missing.profile)
                 .unwrap(),
-            created
+            LocalProfileMutation {
+                changed: false,
+                snapshot: created.snapshot.clone(),
+            }
         );
         assert_eq!(
             storage
                 .apply_local_profile(id, 1, &missing.profile)
                 .unwrap(),
-            created
+            LocalProfileMutation {
+                changed: false,
+                snapshot: created.snapshot.clone(),
+            }
         );
+        assert_eq!(created.snapshot.updated_at_ms, created_at);
 
         let mut changed = missing.profile.clone();
         changed.description = "Architecture review".into();
         let updated = storage.apply_local_profile(id, 1, &changed).unwrap();
-        assert_eq!(updated.revision, 2);
+        assert!(updated.changed);
+        assert_eq!(updated.snapshot.revision, 2);
         assert_eq!(
             storage
                 .connection()
@@ -347,7 +375,10 @@ mod tests {
             storage
                 .apply_local_profile(id, MAX_REVISION, &maximum.profile)
                 .unwrap(),
-            maximum
+            LocalProfileMutation {
+                changed: false,
+                snapshot: maximum,
+            }
         );
         assert!(matches!(
             storage.apply_local_profile(id, MAX_REVISION, &missing.profile),

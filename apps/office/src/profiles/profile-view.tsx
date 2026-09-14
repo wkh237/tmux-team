@@ -5,21 +5,60 @@ import { Avatar } from './avatar.js';
 import './profile.css';
 
 const draftKey = (id: string) => `tmt-office-profile-draft:${id}`;
+const DRAFT_BYTES = 16 * 1024;
+interface ProfileDraft {
+  baseRevision: number;
+  profile: Profile;
+}
 const fieldLabel = {
   hairStyle: 'Hair style',
   hairColor: 'Hair color',
   skinTone: 'Skin tone',
   shirtColor: 'Shirt color',
 } as const;
-function restoredDraft(snapshot: ProfileSnapshot): Profile {
+function editableProfile(value: unknown): value is Profile {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const profile = value as Record<string, unknown>;
+  if (Object.keys(profile).sort().join(',') !== 'appearance,description,displayLabel') return false;
+  if (
+    typeof profile.displayLabel !== 'string' ||
+    typeof profile.description !== 'string' ||
+    !profile.appearance ||
+    typeof profile.appearance !== 'object' ||
+    Array.isArray(profile.appearance)
+  )
+    return false;
+  const appearance = profile.appearance as Record<string, unknown>;
+  return (
+    Object.keys(appearance).sort().join(',') ===
+      'hairColor,hairStyle,shirtColor,shirtMark,skinTone' &&
+    typeof appearance.shirtMark === 'string' &&
+    PROFILE_CATALOG.hairStyles.includes(appearance.hairStyle as never) &&
+    PROFILE_CATALOG.hairColors.includes(appearance.hairColor as never) &&
+    PROFILE_CATALOG.skinTones.includes(appearance.skinTone as never) &&
+    PROFILE_CATALOG.shirtColors.includes(appearance.shirtColor as never)
+  );
+}
+function restoredDraft(snapshot: ProfileSnapshot): ProfileDraft {
   try {
-    const value: unknown = JSON.parse(
-      localStorage.getItem(draftKey(snapshot.identityId)) ?? 'null'
-    );
-    return validProfile(value) ? value : snapshot.profile;
+    const encoded = localStorage.getItem(draftKey(snapshot.identityId));
+    if (!encoded || new TextEncoder().encode(encoded).length > DRAFT_BYTES)
+      throw new Error('No bounded draft.');
+    const value: unknown = JSON.parse(encoded);
+    if (!value || typeof value !== 'object' || Array.isArray(value))
+      throw new Error('Invalid draft.');
+    const draft = value as Record<string, unknown>;
+    if (
+      Object.keys(draft).sort().join(',') === 'baseRevision,profile' &&
+      Number.isSafeInteger(draft.baseRevision) &&
+      (draft.baseRevision as number) >= 0 &&
+      editableProfile(draft.profile)
+    )
+      return draft as unknown as ProfileDraft;
   } catch {
-    return snapshot.profile;
+    /* fall through to the current saved state */
   }
+  return { baseRevision: snapshot.revision, profile: snapshot.profile };
 }
 export function ProfilePanel({
   initial,
@@ -31,32 +70,57 @@ export function ProfilePanel({
   changed(snapshot: ProfileSnapshot): void;
 }) {
   const [remote, setRemote] = useState(initial);
-  const [draft, setDraft] = useState<Profile>(() => restoredDraft(initial));
+  const [draft, setDraft] = useState<ProfileDraft>(() => restoredDraft(initial));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
+  const [storageError, setStorageError] = useState<string>();
   useEffect(() => {
-    setRemote(initial);
-    setDraft(restoredDraft(initial));
-  }, [initial]);
-  useEffect(() => {
-    if (JSON.stringify(draft) === JSON.stringify(remote.profile))
-      localStorage.removeItem(draftKey(initial.identityId));
-    else localStorage.setItem(draftKey(initial.identityId), JSON.stringify(draft));
-  }, [draft, initial.identityId, remote.profile]);
+    try {
+      if (
+        draft.baseRevision === remote.revision &&
+        JSON.stringify(draft.profile) === JSON.stringify(remote.profile)
+      )
+        localStorage.removeItem(draftKey(initial.identityId));
+      else {
+        const encoded = JSON.stringify(draft);
+        if (new TextEncoder().encode(encoded).length > DRAFT_BYTES)
+          throw new Error('Draft is too large.');
+        localStorage.setItem(draftKey(initial.identityId), encoded);
+      }
+      setStorageError(undefined);
+    } catch {
+      setStorageError('This draft could not be saved in this browser. Keep this page open.');
+    }
+  }, [draft, initial.identityId, remote.profile, remote.revision]);
   const setAppearance = (key: keyof Profile['appearance'], value: string) =>
-    setDraft((current) => ({ ...current, appearance: { ...current.appearance, [key]: value } }));
+    setDraft((current) => ({
+      ...current,
+      profile: {
+        ...current.profile,
+        appearance: { ...current.profile.appearance, [key]: value },
+      },
+    }));
   async function save() {
-    if (!validProfile(draft) || busy) {
+    if (!validProfile(draft.profile) || busy) {
       setError('Keep profile text within the limits and choose catalog values.');
       return;
     }
+    const intent = draft;
     setBusy(true);
     setError(undefined);
     try {
-      const saved = await port.apply(initial.identityId, remote.revision, draft);
+      const { changed: _changed, ...saved } = await port.apply(
+        initial.identityId,
+        intent.baseRevision,
+        intent.profile
+      );
       setRemote(saved);
-      setDraft(saved.profile);
-      localStorage.removeItem(draftKey(initial.identityId));
+      setDraft({ baseRevision: saved.revision, profile: saved.profile });
+      try {
+        localStorage.removeItem(draftKey(initial.identityId));
+      } catch {
+        setStorageError('This draft could not be cleared from this browser.');
+      }
       changed(saved);
     } catch (cause) {
       if (cause instanceof ProfileConflict) setError(cause.message);
@@ -77,7 +141,11 @@ export function ProfilePanel({
     <section className="profile-editor" aria-label="Agent appearance editor">
       <div className="profile-preview">
         <svg viewBox="-8 -7 16 15" role="img">
-          <Avatar appearance={draft.appearance} name={remote.identityName} />
+          <Avatar
+            appearance={draft.profile.appearance}
+            name={remote.identityName}
+            displayLabel={draft.profile.displayLabel}
+          />
         </svg>
         <p>
           {remote.exists
@@ -85,19 +153,26 @@ export function ProfilePanel({
             : 'Deterministic default · revision 0'}
         </p>
       </div>
-      <div className="profile-fields">
+      <fieldset className="profile-fields" disabled={busy}>
         <label>
           Display label
           <input
-            value={draft.displayLabel}
-            onChange={(event) => setDraft({ ...draft, displayLabel: event.target.value })}
+            value={draft.profile.displayLabel}
+            onChange={(event) =>
+              setDraft({
+                ...draft,
+                profile: { ...draft.profile, displayLabel: event.target.value },
+              })
+            }
           />
         </label>
         <label>
           Description
           <textarea
-            value={draft.description}
-            onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+            value={draft.profile.description}
+            onChange={(event) =>
+              setDraft({ ...draft, profile: { ...draft.profile, description: event.target.value } })
+            }
           />
         </label>
         <div className="profile-options">
@@ -105,7 +180,7 @@ export function ProfilePanel({
             <label key={key}>
               {fieldLabel[key]}
               <select
-                value={draft.appearance[key]}
+                value={draft.profile.appearance[key]}
                 onChange={(event) => setAppearance(key, event.target.value)}
               >
                 {PROFILE_CATALOG[
@@ -120,11 +195,12 @@ export function ProfilePanel({
         <label>
           Shirt mark
           <input
-            value={draft.appearance.shirtMark}
+            value={draft.profile.appearance.shirtMark}
             onChange={(event) => setAppearance('shirtMark', event.target.value)}
           />
         </label>
         {error && <p role="alert">{error}</p>}
+        {storageError && <p role="alert">{storageError}</p>}
         <div className="profile-actions">
           <button disabled={busy} onClick={() => void save()}>
             {busy ? 'Saving…' : 'Save appearance'}
@@ -132,15 +208,19 @@ export function ProfilePanel({
           <button
             disabled={busy}
             onClick={() => {
-              setDraft(remote.profile);
-              localStorage.removeItem(draftKey(initial.identityId));
+              setDraft({ baseRevision: remote.revision, profile: remote.profile });
+              try {
+                localStorage.removeItem(draftKey(initial.identityId));
+              } catch {
+                setStorageError('This draft could not be cleared from this browser.');
+              }
               setError(undefined);
             }}
           >
-            Discard draft
+            Load latest profile
           </button>
         </div>
-      </div>
+      </fieldset>
     </section>
   );
 }

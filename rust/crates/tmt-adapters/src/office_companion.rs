@@ -124,12 +124,13 @@ pub fn invoke_local_office_profile(
         }
         Err(error) => return Err(error),
     };
-    decode_local_profile_reply(&bytes, identity_id)
+    decode_local_profile_reply(&bytes, identity_id, edit.is_some())
 }
 
 fn decode_local_profile_reply(
     bytes: &[u8],
     identity_id: &str,
+    editing: bool,
 ) -> io::Result<Result<serde_json::Value, OfficeError>> {
     if bytes.len() > 4096 {
         return Err(invalid_pairing());
@@ -141,18 +142,20 @@ fn decode_local_profile_reply(
     {
         return Ok(Err(error));
     }
-    if object.len() != 7
-        || ![
-            "identityId",
-            "identityName",
-            "exists",
-            "revision",
-            "profile",
-            "updatedAtMs",
-            "catalog",
-        ]
-        .iter()
-        .all(|key| object.contains_key(*key))
+    let mut expected = vec![
+        "identityId",
+        "identityName",
+        "exists",
+        "revision",
+        "profile",
+        "updatedAtMs",
+        "catalog",
+    ];
+    if editing {
+        expected.push("changed");
+    }
+    if object.len() != expected.len()
+        || !expected.iter().all(|key| object.contains_key(*key))
         || value["identityId"].as_str() != Some(identity_id)
         || value["identityName"].as_str().is_none_or(str::is_empty)
     {
@@ -171,6 +174,9 @@ fn decode_local_profile_reply(
     }
     let exists = value["exists"].as_bool().ok_or_else(invalid_pairing)?;
     let revision = value["revision"].as_u64().ok_or_else(invalid_pairing)?;
+    if editing && value["changed"].as_bool().is_none() {
+        return Err(invalid_pairing());
+    }
     if revision > tmt_core::office_profile::MAX_REVISION
         || value["updatedAtMs"].as_u64().is_some_and(|timestamp| {
             timestamp == 0 || timestamp > tmt_core::limits::MAX_JS_SAFE_INTEGER

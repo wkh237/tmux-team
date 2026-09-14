@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import vectors from '../../../../contracts/office/profile-v1.vectors.json';
-import { PROFILE_CATALOG, decodeProfileSnapshot, validProfile } from './profile-contract.js';
+import {
+  PROFILE_CATALOG,
+  decodeProfileMutation,
+  decodeProfileSnapshot,
+  validProfile,
+} from './profile-contract.js';
 
 describe('profile contract', () => {
   it('uses the shared literal catalog and validation vectors', () => {
@@ -21,5 +26,22 @@ describe('profile contract', () => {
         catalog: PROFILE_CATALOG,
       })
     ).toThrow('Invalid profile.');
+  });
+
+  it('requires changed only on the strict mutation shape', () => {
+    const mutation = {
+      identityId: '01020304-0000-4000-8000-000000000000',
+      identityName: 'Alice',
+      exists: true,
+      revision: 1,
+      profile: vectors.validProfiles[0],
+      updatedAtMs: 1,
+      catalog: PROFILE_CATALOG,
+      changed: false,
+    };
+    expect(decodeProfileMutation(mutation).changed).toBe(false);
+    const { changed: _changed, ...read } = mutation;
+    expect(() => decodeProfileMutation(read)).toThrow('Invalid profile mutation.');
+    expect(() => decodeProfileSnapshot(mutation)).toThrow('Invalid profile.');
   });
 });

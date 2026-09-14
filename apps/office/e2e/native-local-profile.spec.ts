@@ -1,10 +1,35 @@
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { get } from 'node:http';
 import { createServer } from 'node:net';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 import { expect, test } from '@playwright/test';
 import { runCli, withSandbox } from '../../../test/support/cli-process.js';
 import { installNativeOffice } from './native-office-fixture.js';
+
+function durableProfile(databasePath: string, identityId: string) {
+  const database = new Database(databasePath, { readonly: true });
+  try {
+    const profile = database
+      .prepare(
+        'SELECT identity_id, revision, profile, updated_at_ms FROM office_local_profiles WHERE identity_id = ?'
+      )
+      .get(identityId) as
+      | { identity_id: string; revision: number; profile: string; updated_at_ms: number }
+      | undefined;
+    return {
+      profile: profile && { ...profile, profile: JSON.parse(profile.profile) },
+      role: database
+        .prepare('SELECT identity_id, content, updated_at FROM role_profiles WHERE identity_id = ?')
+        .get(identityId),
+      blocks: database
+        .prepare('SELECT * FROM office_local_blocks WHERE identity_id = ? ORDER BY block_id')
+        .all(identityId),
+    };
+  } finally {
+    database.close();
+  }
+}
 
 async function unusedLoopbackPort(): Promise<number> {
   const server = createServer();
@@ -60,20 +85,32 @@ test('real local CLI profile reaches SQLite, browser and service restart', async
   test.setTimeout(150_000);
   await withSandbox(async (sandbox) => {
     const prefix = await installNativeOffice(sandbox);
-    const identity = await runCli(sandbox, ['identity', 'create', 'Alice', '--json']);
+    const identityName = '設計團隊 🚀';
+    const identity = await runCli(sandbox, ['identity', 'create', identityName, '--json']);
     expect(identity.status, identity.stdout).toBe(0);
+    const identityId = JSON.parse(identity.stdout).identity.id as string;
+    const role = await runCli(sandbox, [
+      'role',
+      'set',
+      'Review architecture',
+      '--identity',
+      identityName,
+      '--json',
+    ]);
+    expect(role.status, role.stdout).toBe(0);
+    const displayLabel = 'Architecture '.repeat(7).slice(0, 80);
     const profileFile = path.join(sandbox.root, 'profile.json');
     writeFileSync(
       profileFile,
       JSON.stringify({
-        displayLabel: 'Architecture',
+        displayLabel,
         description: '<script>plain text only</script>',
         appearance: {
           hairStyle: 'tied',
           hairColor: 'gold',
           skinTone: 'warm',
           shirtColor: 'green',
-          shirtMark: 'AI',
+          shirtMark: '🚀🚀',
         },
       })
     );
@@ -84,42 +121,127 @@ test('real local CLI profile reaches SQLite, browser and service restart', async
     );
     const office = (args: string[]) =>
       runCli(sandbox, ['office', '--prefix', prefix, ...args, '--json'], { deadlineMs: 30_000 });
-    const shown = await office(['profile', 'show', '--local', '--identity', 'Alice']);
+    const implicit = await office(['profile', 'show', '--local']);
+    expect(implicit.status).toBe(1);
+    expect(implicit.stdout).toMatch(/PANE_NOT_FOUND|IDENTITY_REQUIRED/);
+    const shown = await office(['profile', 'show', '--local', '--identity', identityName]);
     expect(shown.status, shown.stdout).toBe(0);
     expect(JSON.parse(shown.stdout)).toMatchObject({
       exists: false,
       revision: 0,
-      identityName: 'Alice',
+      identityName,
     });
+    const invalidFile = path.join(sandbox.root, 'invalid-profile.json');
+    writeFileSync(
+      invalidFile,
+      JSON.stringify({ ...JSON.parse(readFileSync(profileFile, 'utf8')), url: 'x' })
+    );
+    const invalid = await office([
+      'profile',
+      'apply',
+      '--local',
+      '--identity',
+      identityName,
+      '--file',
+      invalidFile,
+      '--if-revision',
+      '0',
+    ]);
+    expect(invalid.status).toBe(1);
+    expect(invalid.stdout).toContain('PROFILE_INVALID');
+    expect(durableProfile(sandbox.database, identityId).profile).toBeUndefined();
     const applied = await office([
       'profile',
       'apply',
       '--local',
       '--identity',
-      'Alice',
+      identityName,
       '--file',
       profileFile,
       '--if-revision',
       '0',
     ]);
     expect(applied.status, applied.stdout).toBe(0);
-    expect(JSON.parse(applied.stdout)).toMatchObject({
+    const createdProfile = JSON.parse(applied.stdout);
+    expect(createdProfile).toMatchObject({
       exists: true,
       revision: 1,
-      profile: { displayLabel: 'Architecture' },
+      changed: true,
+      profile: { displayLabel },
     });
+    const exactCreateRetry = await office([
+      'profile',
+      'apply',
+      '--local',
+      '--identity',
+      identityName,
+      '--file',
+      profileFile,
+      '--if-revision',
+      '0',
+    ]);
+    expect(exactCreateRetry.status, exactCreateRetry.stdout).toBe(0);
+    expect(JSON.parse(exactCreateRetry.stdout)).toMatchObject({
+      revision: 1,
+      changed: false,
+      updatedAtMs: createdProfile.updatedAtMs,
+    });
+    const currentNoop = await office([
+      'profile',
+      'apply',
+      '--local',
+      '--identity',
+      identityName,
+      '--file',
+      profileFile,
+      '--if-revision',
+      '1',
+    ]);
+    expect(currentNoop.status, currentNoop.stdout).toBe(0);
+    expect(JSON.parse(currentNoop.stdout)).toMatchObject({
+      revision: 1,
+      changed: false,
+      updatedAtMs: createdProfile.updatedAtMs,
+    });
+    const updatedProfile = {
+      ...createdProfile.profile,
+      appearance: { ...createdProfile.profile.appearance, hairColor: 'silver' },
+    };
+    writeFileSync(profileFile, JSON.stringify(updatedProfile));
+    const updated = await office([
+      'profile',
+      'apply',
+      '--local',
+      '--identity',
+      identityName,
+      '--file',
+      profileFile,
+      '--if-revision',
+      '1',
+    ]);
+    expect(updated.status, updated.stdout).toBe(0);
+    expect(JSON.parse(updated.stdout)).toMatchObject({ revision: 2, changed: true });
     const block = await office([
       'block',
       'apply',
       '--local',
       '--identity',
-      'Alice',
+      identityName,
       '--file',
       layoutFile,
       '--if-revision',
       '0',
     ]);
     expect(block.status, block.stdout).toBe(0);
+    const initialState = durableProfile(sandbox.database, identityId);
+    expect(initialState.profile).toMatchObject({
+      identity_id: identityId,
+      revision: 2,
+      profile: { displayLabel, appearance: { hairColor: 'silver', shirtMark: '🚀🚀' } },
+      updated_at_ms: expect.any(Number),
+    });
+    expect(initialState.role).toMatchObject({ content: 'Review architecture' });
+    expect(initialState.blocks).toHaveLength(1);
     const initialDiagnostics: Array<Promise<string>> = [];
     page.on('pageerror', (error) =>
       initialDiagnostics.push(Promise.resolve(`pageerror: ${error.message}`))
@@ -153,9 +275,8 @@ test('real local CLI profile reaches SQLite, browser and service restart', async
       throw new Error(`Embedded asset failed; Office status: ${status.stdout}`, { cause });
     }
     await page.goto(initialUrl);
-    await page.screenshot({ path: testInfo.outputPath('native-profile-initial.png') });
     try {
-      await expect(page.locator('.profile-preview .avatar-name')).toHaveText('Alice');
+      await expect(page.locator('.profile-preview .avatar-name')).toHaveText(identityName);
     } catch (error) {
       await testInfo.attach('native-profile-initial-diagnostics', {
         body: Buffer.from(
@@ -165,12 +286,45 @@ test('real local CLI profile reaches SQLite, browser and service restart', async
       });
       throw error;
     }
-    await expect(page.locator('.profile-preview .avatar-mark')).toHaveText('AI');
+    await expect(page.locator('.profile-preview .avatar-label')).toHaveText(displayLabel);
+    await expect(page.locator('.profile-preview .avatar-mark')).toHaveText('🚀🚀');
     await expect(page.getByLabel('Description')).toHaveValue('<script>plain text only</script>');
     expect(await page.locator('script').count()).toBeGreaterThan(0);
     expect(await page.locator('.profile-editor script').count()).toBe(0);
     await expect(page.getByText(/Offline —/)).toBeVisible();
     await expect(page.locator('.block-scene .avatar-name')).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath('native-profile-initial.png') });
+    await page.getByLabel('Description').fill('Saved from browser 🚀');
+    await page.getByRole('button', { name: 'Save appearance' }).click();
+    await expect(page.getByText('Saved · revision 3')).toBeVisible();
+    const browserState = durableProfile(sandbox.database, identityId);
+    expect(browserState.profile).toMatchObject({
+      revision: 3,
+      profile: { description: 'Saved from browser 🚀' },
+      updated_at_ms: expect.any(Number),
+    });
+    expect(browserState.role).toEqual(initialState.role);
+    expect(browserState.blocks).toEqual(initialState.blocks);
+    writeFileSync(profileFile, JSON.stringify(browserState.profile?.profile));
+    const exactRetry = await office([
+      'profile',
+      'apply',
+      '--local',
+      '--identity',
+      identityName,
+      '--file',
+      profileFile,
+      '--if-revision',
+      '2',
+    ]);
+    expect(exactRetry.status, exactRetry.stdout).toBe(0);
+    expect(JSON.parse(exactRetry.stdout)).toMatchObject({ revision: 3, changed: false });
+    expect(durableProfile(sandbox.database, identityId)).toEqual(browserState);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({
+      path: testInfo.outputPath('native-profile-narrow.png'),
+      fullPage: true,
+    });
     // Reopen in a fresh browser context after the service restart. This also
     // discards the previous origin's connection pool and revoked token.
     await page.close();
@@ -207,12 +361,19 @@ test('real local CLI profile reaches SQLite, browser and service restart', async
       });
       throw error;
     }
-    await expect(restartedPage.locator('.profile-preview .avatar-mark')).toHaveText('AI');
+    await expect(restartedPage.locator('.profile-preview .avatar-mark')).toHaveText('🚀🚀');
+    await expect(restartedPage.getByLabel('Description')).toHaveValue('Saved from browser 🚀');
     await restartedPage.screenshot({ path: testInfo.outputPath('native-profile-restart.png') });
     await restartedContext.close();
     expect(
-      JSON.parse((await office(['profile', 'show', '--local', '--identity', 'Alice'])).stdout)
-    ).toMatchObject({ revision: 1 });
+      JSON.parse((await office(['profile', 'show', '--local', '--identity', identityName])).stdout)
+    ).toMatchObject({ revision: 3 });
     expect((await office(['stop'])).status).toBe(0);
+    const retired = await runCli(sandbox, ['rm', identityName, '--force', '--json']);
+    expect(retired.status, retired.stdout).toBe(0);
+    const retiredShow = await office(['profile', 'show', '--local', '--identity', identityName]);
+    expect(retiredShow.status).toBe(3);
+    expect(retiredShow.stdout).toContain('NAME_NOT_FOUND');
+    expect(durableProfile(sandbox.database, identityId).profile).toEqual(browserState.profile);
   });
 });

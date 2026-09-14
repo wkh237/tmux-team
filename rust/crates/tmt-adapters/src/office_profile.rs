@@ -10,7 +10,7 @@ use tmt_core::{
 
 use crate::{
     config::ConfigPaths,
-    storage::{LocalProfileError, LocalProfileSnapshot, Storage},
+    storage::{LocalProfileError, LocalProfileMutation, LocalProfileSnapshot, Storage},
 };
 
 #[derive(Deserialize)]
@@ -64,7 +64,7 @@ fn execute_inner(operation: OfficeInvocation, input: &[u8]) -> Result<Value, Off
                 .ok_or(OfficeError::ProfileInvalid)?;
             storage
                 .apply_local_profile(&input.identity_id, revision, &profile)
-                .map(snapshot_value)
+                .map(mutation_value)
                 .map_err(profile_error)
         }
         _ => Err(OfficeError::CredentialsInvalid),
@@ -92,6 +92,12 @@ pub fn snapshot_value(snapshot: LocalProfileSnapshot) -> Value {
             "shirtColors": tmt_core::office_profile::SHIRT_COLORS,
         }
     })
+}
+
+pub fn mutation_value(mutation: LocalProfileMutation) -> Value {
+    let mut value = snapshot_value(mutation.snapshot);
+    value["changed"] = json!(mutation.changed);
+    value
 }
 
 fn profile_error(error: LocalProfileError) -> OfficeError {

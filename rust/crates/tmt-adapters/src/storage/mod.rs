@@ -24,7 +24,7 @@ pub use errors::{StorageError, StorageErrorCode};
 use errors::{classify, incompatible};
 pub use office_board::local_owner_actor;
 pub use office_local::{LocalBlockSnapshot, LocalOfficeError};
-pub use office_profile::{LocalProfileError, LocalProfileSnapshot};
+pub use office_profile::{LocalProfileError, LocalProfileMutation, LocalProfileSnapshot};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckpointMode {

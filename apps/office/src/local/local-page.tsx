@@ -89,7 +89,11 @@ export function LocalOfficePage() {
           label={`${block.identityName.toUpperCase()} / LOCAL BLOCK`}
           avatar={
             profile.online
-              ? { appearance: profile.profile.appearance, name: profile.identityName }
+              ? {
+                  appearance: profile.profile.appearance,
+                  name: profile.identityName,
+                  displayLabel: profile.profile.displayLabel,
+                }
               : undefined
           }
         />

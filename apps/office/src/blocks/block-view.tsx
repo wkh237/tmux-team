@@ -17,7 +17,7 @@ export function BlockPanel({
   worldId: string;
   blockPort?: BlockPort;
   label?: string;
-  avatar?: { appearance: Appearance; name: string };
+  avatar?: { appearance: Appearance; name: string; displayLabel?: string };
 }) {
   const defaultPort = useContext(BlockContext);
   const port = blockPort ?? defaultPort;
@@ -37,7 +37,7 @@ export function BlockEditor({
 }: {
   state: BlockState;
   label?: string;
-  avatar?: { appearance: Appearance; name: string };
+  avatar?: { appearance: Appearance; name: string; displayLabel?: string };
 }) {
   const { remote, draft, ready, busy, error } = useSyncExternalStore(
     state.subscribe,

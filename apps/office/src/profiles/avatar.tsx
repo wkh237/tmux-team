@@ -11,16 +11,24 @@ const SHIRT = {
   ink: '#303b46',
 };
 
+function fitted(value: string, byteLimit: number, width: number) {
+  return new TextEncoder().encode(value).length > byteLimit
+    ? { textLength: width, lengthAdjust: 'spacingAndGlyphs' as const }
+    : {};
+}
+
 /** Curated SVG only. Profile text can become text content, never markup or asset URLs. */
 export function Avatar({
   appearance,
   name,
+  displayLabel = '',
   x = 0,
   y = 0,
   scale = 1,
 }: {
   appearance: Appearance;
   name: string;
+  displayLabel?: string;
   x?: number;
   y?: number;
   scale?: number;
@@ -32,7 +40,19 @@ export function Avatar({
       transform={`translate(${x} ${y}) scale(${scale})`}
       aria-label={`${name} avatar`}
     >
-      <text className="avatar-name" x="0" y="-3.3" textAnchor="middle">
+      <title>{displayLabel ? `${displayLabel} — identity ${name}` : name}</title>
+      {displayLabel && (
+        <text
+          className="avatar-label"
+          x="0"
+          y="-4.45"
+          textAnchor="middle"
+          {...fitted(displayLabel, 18, 12)}
+        >
+          {displayLabel}
+        </text>
+      )}
+      <text className="avatar-name" x="0" y="-3.25" textAnchor="middle" {...fitted(name, 12, 12)}>
         {name}
       </text>
       <circle cx="0" cy="0" r="2.35" fill={SKIN[appearance.skinTone]} />
@@ -76,7 +96,13 @@ export function Avatar({
         d="M-2.7 5.7 V3.25 Q-2.4 1.95 0 1.9 Q2.4 1.95 2.7 3.25 V5.7Z"
         fill={SHIRT[appearance.shirtColor]}
       />
-      <text className="avatar-mark" x="0" y="4.5" textAnchor="middle">
+      <text
+        className="avatar-mark"
+        x="0"
+        y="4.5"
+        textAnchor="middle"
+        {...fitted(appearance.shirtMark, 7, 4)}
+      >
         {appearance.shirtMark}
       </text>
     </g>

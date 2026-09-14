@@ -33,6 +33,9 @@ export interface ProfileSnapshot {
 export interface ProfileProjection extends ProfileSnapshot {
   online: boolean;
 }
+export interface ProfileMutation extends ProfileSnapshot {
+  changed: boolean;
+}
 export class ProfileConflict extends Error {
   constructor() {
     super('This profile changed. Your draft is preserved; review the latest saved profile.');
@@ -41,7 +44,7 @@ export class ProfileConflict extends Error {
 export interface ProfilePort {
   list(): Promise<ProfileProjection[]>;
   show(identityId: string): Promise<ProfileSnapshot>;
-  apply(identityId: string, expectedRevision: number, profile: Profile): Promise<ProfileSnapshot>;
+  apply(identityId: string, expectedRevision: number, profile: Profile): Promise<ProfileMutation>;
 }
 
 const uuidV4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -113,4 +116,11 @@ export function decodeProfileProjection(value: unknown): ProfileProjection {
   const { online, ...snapshot } = value as Record<string, unknown>;
   if (typeof online !== 'boolean') throw new Error('Invalid profile projection.');
   return { ...decodeProfileSnapshot(snapshot), online };
+}
+export function decodeProfileMutation(value: unknown): ProfileMutation {
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('Invalid profile mutation.');
+  const { changed, ...snapshot } = value as Record<string, unknown>;
+  if (typeof changed !== 'boolean') throw new Error('Invalid profile mutation.');
+  return { ...decodeProfileSnapshot(snapshot), changed };
 }

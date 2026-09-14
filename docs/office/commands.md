@@ -96,9 +96,9 @@ With `--json`, successful start returns `running:true`, `changed`, `reused`, `ur
 and `version`; stop returns `running:false` and `changed`. Local block success returns
 `exists`, `identityId`, `identityName`, nullable `blockId`, `revision`, `objects` and
 `updatedAtMs`. Plain block output is the same object as readable indented JSON. Profile
-success returns `identityId`, `identityName`, `exists`, `revision`, `profile`,
-nullable `updatedAtMs`, and the bounded literal `catalog`. Human output names the resolved
-identity and whether the value is saved or default. Success exits 0. Usage, installation,
+reads return `identityId`, `identityName`, `exists`, `revision`, `profile`, nullable
+`updatedAtMs`, and the bounded literal `catalog`; apply adds transactional `changed`.
+Human apply output distinguishes created, updated and unchanged results. Success exits 0. Usage, installation,
 I/O and service lifecycle failures exit 1; existing
 identity resolution retains its documented not-found exit. `OFFICE_PORT_UNAVAILABLE`
 means the requested port could not bind, `OFFICE_SERVICE_CONFLICT` means a healthy
