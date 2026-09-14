@@ -499,6 +499,18 @@ fn current_time_ms() -> Result<u64, LocalAvatarCatalogError> {
 mod tests {
     use super::*;
 
+    type CatalogState = (
+        (
+            i64,
+            i64,
+            Option<String>,
+            Option<String>,
+            Option<i64>,
+            Option<i64>,
+        ),
+        Vec<(String, Vec<u8>, i64, i64, i64)>,
+    );
+
     fn sample() -> ValidatedAvatarPack {
         validate_pack(include_bytes!(
             "../../../../../contracts/office/avatar-pack-v1-sample.tmtavatar.json"
@@ -534,6 +546,34 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         validate_pack(&serde_json::to_vec(&value).unwrap()).unwrap()
+    }
+
+    fn catalog_state(storage: &Storage) -> CatalogState {
+        let connection = storage.connection().unwrap();
+        let catalog = connection
+            .query_row(
+                "SELECT singleton, revision, previous_kind, previous_digest, previous_base_revision, previous_result_revision FROM office_avatar_catalog",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+            )
+            .unwrap();
+        let mut statement = connection
+            .prepare("SELECT digest, bytes, avatar_count, installed_revision, installed_at_ms FROM office_avatar_packs ORDER BY digest COLLATE BINARY")
+            .unwrap();
+        let packs = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        (catalog, packs)
     }
 
     #[test]
@@ -606,38 +646,148 @@ mod tests {
     }
 
     #[test]
-    fn corrupt_rows_are_excluded_consume_capacity_and_remain_removable() {
+    fn stale_unrelated_mutations_leave_the_exact_catalog_state_unchanged() {
+        let directory = crate::test_support::TestDirectory::new();
+        let mut storage = Storage::open(directory.path.join("stale.db")).unwrap();
+        let installed = sample();
+        let unrelated = named(1);
+        storage.install_local_avatar_pack(0, &installed).unwrap();
+        let before = catalog_state(&storage);
+        assert!(matches!(
+            storage.install_local_avatar_pack(0, &unrelated),
+            Err(LocalAvatarCatalogError::RevisionConflict)
+        ));
+        assert_eq!(catalog_state(&storage), before);
+        assert!(matches!(
+            storage.remove_local_avatar_pack(0, unrelated.digest()),
+            Err(LocalAvatarCatalogError::RevisionConflict)
+        ));
+        assert_eq!(catalog_state(&storage), before);
+    }
+
+    #[test]
+    fn corrupt_rows_are_bounded_excluded_rejected_by_show_and_removable() {
         let directory = crate::test_support::TestDirectory::new();
         let mut storage = Storage::open(directory.path.join("corrupt.db")).unwrap();
-        let candidate = sample();
-        storage.install_local_avatar_pack(0, &candidate).unwrap();
+        let invalid = sample();
+        let wrong_digest = named(1);
+        let oversized = named(2);
         storage
             .connection()
             .unwrap()
             .execute(
-                "UPDATE office_avatar_packs SET bytes = ? WHERE digest = ?",
-                params![b"{}".as_slice(), candidate.digest()],
+                "INSERT INTO office_avatar_packs (digest, bytes, avatar_count, installed_revision, installed_at_ms) VALUES (?, ?, 1, 1, 1), (?, ?, 1, 2, 1)",
+                params![
+                    invalid.digest(),
+                    b"{}".as_slice(),
+                    wrong_digest.digest(),
+                    sample().bytes()
+                ],
             )
+            .unwrap();
+        storage
+            .connection()
+            .unwrap()
+            .execute_batch("PRAGMA ignore_check_constraints = ON")
+            .unwrap();
+        storage
+            .connection()
+            .unwrap()
+            .execute(
+                "INSERT INTO office_avatar_packs (digest, bytes, avatar_count, installed_revision, installed_at_ms) VALUES (?, ?, 1, 3, 1)",
+                params![oversized.digest(), vec![b' '; PACK_INPUT_LIMIT + 1]],
+            )
+            .unwrap();
+        storage
+            .connection()
+            .unwrap()
+            .execute_batch("PRAGMA ignore_check_constraints = OFF")
             .unwrap();
         let list = storage.list_local_avatar_packs(20, None).unwrap();
         assert!(list.packs.is_empty());
-        assert_eq!(
-            list.excluded,
-            [LocalAvatarExcluded {
-                digest: candidate.digest().into(),
-                reason: LocalAvatarExcludedReason::InvalidDocument,
-            }]
-        );
-        assert!(matches!(
-            storage.show_local_avatar_pack(candidate.digest()),
-            Err(LocalAvatarCatalogError::Corrupt)
-        ));
+        for (pack, reason) in [
+            (&invalid, LocalAvatarExcludedReason::InvalidDocument),
+            (&wrong_digest, LocalAvatarExcludedReason::DigestMismatch),
+            (&oversized, LocalAvatarExcludedReason::Oversized),
+        ] {
+            assert!(list.excluded.contains(&LocalAvatarExcluded {
+                digest: pack.digest().into(),
+                reason,
+            }));
+            assert!(matches!(
+                storage.show_local_avatar_pack(pack.digest()),
+                Err(LocalAvatarCatalogError::Corrupt)
+            ));
+        }
+        let mut revision = 0;
+        for pack in [&invalid, &wrong_digest, &oversized] {
+            let removed = storage
+                .remove_local_avatar_pack(revision, pack.digest())
+                .unwrap();
+            assert!(removed.changed);
+            revision = removed.catalog_revision;
+        }
         assert!(
             storage
-                .remove_local_avatar_pack(1, candidate.digest())
+                .list_local_avatar_packs(20, None)
                 .unwrap()
-                .changed
+                .packs
+                .is_empty()
         );
+        assert!(
+            storage
+                .list_local_avatar_packs(20, None)
+                .unwrap()
+                .excluded
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn corrupt_payloads_still_consume_pack_and_avatar_capacity() {
+        let pack_directory = crate::test_support::TestDirectory::new();
+        let mut packs = Storage::open(pack_directory.path.join("packs.db")).unwrap();
+        let mut pack_revision = 0;
+        for index in 0..PACK_QUOTA {
+            pack_revision = packs
+                .install_local_avatar_pack(pack_revision, &named(index as usize))
+                .unwrap()
+                .catalog_revision;
+        }
+        packs
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE office_avatar_packs SET bytes = ? WHERE installed_revision = 1",
+                [b"{}".as_slice()],
+            )
+            .unwrap();
+        assert!(matches!(
+            packs.install_local_avatar_pack(pack_revision, &named(PACK_QUOTA as usize)),
+            Err(LocalAvatarCatalogError::Limit)
+        ));
+
+        let avatar_directory = crate::test_support::TestDirectory::new();
+        let mut avatars = Storage::open(avatar_directory.path.join("avatars.db")).unwrap();
+        let mut avatar_revision = 0;
+        for index in 0..16 {
+            avatar_revision = avatars
+                .install_local_avatar_pack(avatar_revision, &multi(index, 16))
+                .unwrap()
+                .catalog_revision;
+        }
+        avatars
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE office_avatar_packs SET bytes = ? WHERE installed_revision = 1",
+                [b"{}".as_slice()],
+            )
+            .unwrap();
+        assert!(matches!(
+            avatars.install_local_avatar_pack(avatar_revision, &multi(16, 1)),
+            Err(LocalAvatarCatalogError::Limit)
+        ));
     }
 
     #[test]

@@ -9,6 +9,14 @@ describe('avatar-pack projection', () => {
         expect(() => decodeAvatarPack(testCase.value), testCase.name).not.toThrow();
       else expect(() => decodeAvatarPack(testCase.value), testCase.name).toThrow();
     }
+    for (const testCase of vectors.boundaryCases) {
+      const source = structuredClone(vectors.packCases[0]!.value);
+      if (testCase.field === 'avatarKey') source.avatars[0]!.key = testCase.value;
+      else if (testCase.field === 'packLabel') source.label = testCase.value;
+      else source.palette[1] = testCase.value;
+      if (testCase.valid) expect(() => decodeAvatarPack(source), testCase.name).not.toThrow();
+      else expect(() => decodeAvatarPack(source), testCase.name).toThrow();
+    }
   });
 
   it('rejects unknown fields and unresolved indices', () => {

@@ -1128,7 +1128,66 @@ fn secret() -> io::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
+    use std::{collections::BTreeSet, thread};
+
+    fn test_receipt() -> ServiceReceipt {
+        ServiceReceipt {
+            schema_version: 1,
+            pid: std::process::id(),
+            port: 1234,
+            nonce: "n".into(),
+            browser_token: "browser".into(),
+            control_token: "control".into(),
+            running_version: "test".into(),
+        }
+    }
+
+    fn call_handler(run: impl FnOnce(&mut TcpStream) -> io::Result<()>) -> String {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let receiver = thread::spawn(move || {
+            let mut stream = TcpStream::connect(address).unwrap();
+            let mut bytes = Vec::new();
+            stream.read_to_end(&mut bytes).unwrap();
+            String::from_utf8(bytes).unwrap()
+        });
+        let (mut stream, _) = listener.accept().unwrap();
+        run(&mut stream).unwrap();
+        drop(stream);
+        receiver.join().unwrap()
+    }
+
+    fn response_value(response: &str) -> Value {
+        serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap()
+    }
+
+    fn avatar_preview_bytes(index: usize) -> Vec<u8> {
+        let mut value: Value = serde_json::from_slice(include_bytes!(
+            "../../../../contracts/office/avatar-pack-v1-sample.tmtavatar.json"
+        ))
+        .unwrap();
+        value["label"] = json!(format!("Preview {index}"));
+        serde_json::to_vec(&value).unwrap()
+    }
+
+    fn call_preview(
+        previews: &Previews,
+        receipt: &ServiceReceipt,
+        body: Vec<u8>,
+        kind: PreviewKind,
+    ) -> String {
+        let route_kind = match kind {
+            PreviewKind::Prop => "prop",
+            PreviewKind::Avatar => "avatar",
+        };
+        let request = Request {
+            method: "POST".into(),
+            path: format!("/control/v1/{route_kind}-previews"),
+            headers: vec![("Content-Type".into(), "application/json".into())],
+            body,
+        };
+        call_handler(|stream| create_preview(stream, &request, receipt, previews, kind))
+    }
 
     fn parse_wire(wire: &'static [u8]) -> io::Result<Request> {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
@@ -1176,6 +1235,133 @@ mod tests {
                 tmt_adapters::office_avatar::PACK_INPUT_LIMIT + 1
             ))
             .is_err()
+        );
+    }
+
+    #[test]
+    fn preview_registry_has_one_shared_limit_and_exact_retries_reuse_the_slot() {
+        let previews: Previews = Arc::new(Mutex::new(HashMap::new()));
+        let receipt = test_receipt();
+        let prop = include_bytes!("../../../../contracts/office/builtin-props-v1.tmtprop.json");
+        assert!(
+            call_preview(&previews, &receipt, prop.to_vec(), PreviewKind::Prop)
+                .starts_with("HTTP/1.1 200")
+        );
+        let first = call_preview(
+            &previews,
+            &receipt,
+            avatar_preview_bytes(0),
+            PreviewKind::Avatar,
+        );
+        let first_id = response_value(&first)["previewId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        for index in 1..3 {
+            assert!(
+                call_preview(
+                    &previews,
+                    &receipt,
+                    avatar_preview_bytes(index),
+                    PreviewKind::Avatar,
+                )
+                .starts_with("HTTP/1.1 200")
+            );
+        }
+        assert_eq!(previews.lock().unwrap().len(), PREVIEW_LIMIT);
+        let limited = call_preview(
+            &previews,
+            &receipt,
+            avatar_preview_bytes(3),
+            PreviewKind::Avatar,
+        );
+        assert!(limited.starts_with("HTTP/1.1 429"));
+        let retried = call_preview(
+            &previews,
+            &receipt,
+            avatar_preview_bytes(0),
+            PreviewKind::Avatar,
+        );
+        assert_eq!(
+            response_value(&retried)["previewId"].as_str(),
+            Some(first_id.as_str())
+        );
+        assert_eq!(previews.lock().unwrap().len(), PREVIEW_LIMIT);
+    }
+
+    #[test]
+    fn preview_routes_hide_the_other_kind_and_prune_expired_ids() {
+        let previews: Previews = Arc::new(Mutex::new(HashMap::new()));
+        let receipt = test_receipt();
+        let created = call_preview(
+            &previews,
+            &receipt,
+            avatar_preview_bytes(0),
+            PreviewKind::Avatar,
+        );
+        let preview_id = response_value(&created)["previewId"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let unused_root =
+            std::env::temp_dir().join(format!("tmt-preview-route-test-{}", uuid::Uuid::new_v4()));
+        let paths = ConfigPaths::resolve(&unused_root, &unused_root, None, None);
+        let request = |kind: &str| Request {
+            method: "GET".into(),
+            path: format!("/api/v1/local/{kind}-previews/{preview_id}"),
+            headers: vec![("Authorization".into(), "Bearer browser".into())],
+            body: Vec::new(),
+        };
+        let mismatch =
+            call_handler(|stream| api(stream, request("prop"), &paths, &receipt, &previews));
+        assert!(mismatch.starts_with("HTTP/1.1 404"));
+        assert_eq!(previews.lock().unwrap().len(), 1);
+        previews
+            .lock()
+            .unwrap()
+            .get_mut(&preview_id)
+            .unwrap()
+            .expires = Instant::now() - Duration::from_secs(1);
+        let expired =
+            call_handler(|stream| api(stream, request("avatar"), &paths, &receipt, &previews));
+        assert!(expired.starts_with("HTTP/1.1 404"));
+        assert!(previews.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn invalid_avatar_preview_does_not_mutate_the_registry() {
+        let previews: Previews = Arc::new(Mutex::new(HashMap::new()));
+        let receipt = test_receipt();
+        assert!(
+            call_preview(
+                &previews,
+                &receipt,
+                avatar_preview_bytes(0),
+                PreviewKind::Avatar,
+            )
+            .starts_with("HTTP/1.1 200")
+        );
+        let before = previews
+            .lock()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let invalid = call_preview(
+            &previews,
+            &receipt,
+            br#"{"formatVersion":1}"#.to_vec(),
+            PreviewKind::Avatar,
+        );
+        assert!(invalid.starts_with("HTTP/1.1 400"));
+        assert_eq!(
+            previews
+                .lock()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect::<BTreeSet<_>>(),
+            before
         );
     }
 
@@ -1286,19 +1472,8 @@ mod tests {
     }
 
     fn call_api(request: Request, paths: &ConfigPaths, receipt: &ServiceReceipt) -> String {
-        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-        let address = listener.local_addr().unwrap();
-        let receiver = thread::spawn(move || {
-            let mut stream = TcpStream::connect(address).unwrap();
-            let mut bytes = Vec::new();
-            stream.read_to_end(&mut bytes).unwrap();
-            String::from_utf8(bytes).unwrap()
-        });
-        let (mut stream, _) = listener.accept().unwrap();
         let previews = Arc::new(Mutex::new(HashMap::new()));
-        api(&mut stream, request, paths, receipt, &previews).unwrap();
-        drop(stream);
-        receiver.join().unwrap()
+        call_handler(|stream| api(stream, request, paths, receipt, &previews))
     }
 
     #[test]
@@ -1306,15 +1481,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("tmt-board-http-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         let paths = ConfigPaths::resolve(&root, &root, Some(&root), None);
-        let receipt = ServiceReceipt {
-            schema_version: 1,
-            pid: std::process::id(),
-            port: 1234,
-            nonce: "n".into(),
-            browser_token: "browser".into(),
-            control_token: "control".into(),
-            running_version: "test".into(),
-        };
+        let receipt = test_receipt();
         let headers = || {
             vec![
                 ("Authorization".into(), "Bearer browser".into()),

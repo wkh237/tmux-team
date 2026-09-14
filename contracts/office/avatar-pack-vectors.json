@@ -98,5 +98,55 @@
         "avatars": [{ "key": "short", "label": "Short", "pixels": ["1111111111111111"] }]
       }
     }
+  ],
+  "boundaryCases": [
+    {
+      "name": "maximum avatar key",
+      "field": "avatarKey",
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "valid": true
+    },
+    {
+      "name": "avatar key over maximum",
+      "field": "avatarKey",
+      "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "valid": false
+    },
+    {
+      "name": "maximum byte label",
+      "field": "packLabel",
+      "value": "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghij",
+      "valid": true
+    },
+    {
+      "name": "label over maximum",
+      "field": "packLabel",
+      "value": "abcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijabcdefghijk",
+      "valid": false
+    },
+    {
+      "name": "unicode label",
+      "field": "packLabel",
+      "value": "friendly 🤖",
+      "valid": true
+    },
+    {
+      "name": "control character label",
+      "field": "packLabel",
+      "value": "line\nbreak",
+      "valid": false
+    },
+    {
+      "name": "lowercase opaque palette color",
+      "field": "paletteColor",
+      "value": "#abcdefff",
+      "valid": true
+    },
+    {
+      "name": "uppercase palette color",
+      "field": "paletteColor",
+      "value": "#ABCDEFFF",
+      "valid": false
+    }
   ]
 }

@@ -353,6 +353,22 @@ mod tests {
                 case["name"]
             );
         }
+        for case in vectors["boundaryCases"].as_array().unwrap() {
+            let mut value = vectors["packCases"][0]["value"].clone();
+            match case["field"].as_str().unwrap() {
+                "avatarKey" => value["avatars"][0]["key"] = case["value"].clone(),
+                "packLabel" => value["label"] = case["value"].clone(),
+                "paletteColor" => value["palette"][1] = case["value"].clone(),
+                field => panic!("unknown boundary field {field}"),
+            }
+            let bytes = serde_json::to_vec(&value).unwrap();
+            assert_eq!(
+                validate_pack(&bytes).is_ok(),
+                case["valid"].as_bool().unwrap(),
+                "{}",
+                case["name"]
+            );
+        }
         let bytes =
             include_bytes!("../../../../contracts/office/avatar-pack-v1-sample.tmtavatar.json");
         let pack = validate_pack(bytes).unwrap();
@@ -378,6 +394,7 @@ mod tests {
     #[test]
     fn rejects_unknown_duplicate_transparent_and_bad_geometry() {
         let valid = String::from_utf8(valid_bytes()).unwrap();
+        assert!(validate_pack(valid.as_bytes()).is_ok());
         for changed in [
             valid.replacen(
                 "\"formatVersion\":1",
@@ -389,6 +406,11 @@ mod tests {
                 "\"label\":\"Signal bots\",\"label\":\"Again\"",
                 1,
             ),
+            valid.replacen(
+                "\"key\":\"signal-bot\"",
+                "\"key\":\"signal-bot\",\"key\":\"again\"",
+                1,
+            ),
             valid.replace("1111111111111111", "0000000000000000"),
             valid.replacen("1111111111111111", "111111111111111", 1),
         ] {
@@ -397,15 +419,33 @@ mod tests {
                 Err(AvatarPackError::Invalid)
             );
         }
+        let lone_surrogate =
+            valid.replacen("\"label\":\"Signal bots\"", "\"label\":\"\\ud800\"", 1);
         assert_eq!(
-            validate_pack(br#"{"formatVersion":1,"label":"\ud800"}"#),
+            validate_pack(lone_surrogate.as_bytes()),
             Err(AvatarPackError::Invalid)
         );
+        let emoji = valid.replacen(
+            "\"label\":\"Signal bots\"",
+            "\"label\":\"Signal 🤖 bots\"",
+            1,
+        );
+        assert!(validate_pack(emoji.as_bytes()).is_ok());
         assert_eq!(
             validate_pack(&[0xef, 0xbb, 0xbf, b'{', b'}']),
             Err(AvatarPackError::Invalid)
         );
         assert_eq!(validate_pack(&[0xff, 0xfe]), Err(AvatarPackError::Invalid));
+    }
+
+    #[test]
+    fn exact_input_byte_limit_is_valid_and_one_more_is_rejected() {
+        let mut exact = valid_bytes();
+        exact.resize(PACK_INPUT_LIMIT, b' ');
+        assert_eq!(exact.len(), PACK_INPUT_LIMIT);
+        assert!(validate_pack(&exact).is_ok());
+        exact.push(b' ');
+        assert_eq!(validate_pack(&exact), Err(AvatarPackError::TooLarge));
     }
 
     #[test]
