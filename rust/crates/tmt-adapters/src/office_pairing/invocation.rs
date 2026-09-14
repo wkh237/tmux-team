@@ -254,6 +254,11 @@ fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> 
             | OfficeInvocation::LocalPropRemove
             | OfficeInvocation::LocalPropList
             | OfficeInvocation::LocalPropShow
+            | OfficeInvocation::LocalAvatarValidate
+            | OfficeInvocation::LocalAvatarInstall
+            | OfficeInvocation::LocalAvatarRemove
+            | OfficeInvocation::LocalAvatarList
+            | OfficeInvocation::LocalAvatarShow
             | OfficeInvocation::BoardPost
             | OfficeInvocation::BoardList
             | OfficeInvocation::BoardShow

@@ -35,7 +35,7 @@ fn registration_retirement_reopen_and_delivery_preserve_terminal_state() {
     retire(&mut storage, &original);
     storage.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 16);
+    assert_eq!(storage.health().unwrap().schema_version, 17);
     assert_eq!(
         storage.pending_identity_hooks("office", 100).unwrap()[0].hook,
         hook
@@ -215,7 +215,7 @@ fn schema_nine_upgrade_is_atomic_and_preserves_identity() {
     let mut storage = Storage::open(&path).unwrap();
     let original = identity(&mut storage);
     // Restore the exact predecessor table inventory; no hook existed in v9.
-    storage.connection().unwrap().execute_batch("DROP TABLE identity_hooks; DROP TABLE office_prop_packs; DROP TABLE office_prop_catalog; DROP TABLE office_local_profiles; DROP TABLE office_local_blocks; DROP TABLE office_local_worlds; DROP TABLE request_recipient_attention_identities; DROP TABLE identity_metadata; DROP TABLE office_board_operations; DROP TABLE office_board_entries; DROP TABLE office_board_state; DELETE FROM _migrations WHERE version IN (10, 11, 12, 13, 14, 15, 16);
+    storage.connection().unwrap().execute_batch("DROP TABLE identity_hooks; DROP TABLE office_avatar_packs; DROP TABLE office_avatar_catalog; DROP TABLE office_prop_packs; DROP TABLE office_prop_catalog; DROP TABLE office_local_profiles; DROP TABLE office_local_blocks; DROP TABLE office_local_worlds; DROP TABLE request_recipient_attention_identities; DROP TABLE identity_metadata; DROP TABLE office_board_operations; DROP TABLE office_board_entries; DROP TABLE office_board_state; DELETE FROM _migrations WHERE version IN (10, 11, 12, 13, 14, 15, 16, 17);
         CREATE TRIGGER reject_tenth BEFORE INSERT ON _migrations WHEN NEW.version = 10 BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;").unwrap();
     storage.close().unwrap();
     let error = match Storage::open(&path) {
@@ -235,7 +235,7 @@ fn schema_nine_upgrade_is_atomic_and_preserves_identity() {
     observer.execute_batch("DROP TRIGGER reject_tenth").unwrap();
     observer.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 16);
+    assert_eq!(storage.health().unwrap().schema_version, 17);
     assert_eq!(
         storage
             .find_active_identity_by_id(&original.id)

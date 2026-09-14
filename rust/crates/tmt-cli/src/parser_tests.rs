@@ -727,6 +727,76 @@ fn office_prop_commands_have_exact_local_and_revision_grammar() {
 }
 
 #[test]
+fn office_avatar_commands_have_exact_local_and_revision_grammar() {
+    use crate::invocation::{OfficeAvatarOperation, OfficeOperation};
+    assert_eq!(
+        parsed(&[
+            "office",
+            "avatar",
+            "install",
+            "--local",
+            "--file",
+            "bot.tmtavatar.json",
+            "--if-revision",
+            "7",
+        ])
+        .invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Avatar(OfficeAvatarOperation::Install {
+                file: "bot.tmtavatar.json".into(),
+                if_revision: 7,
+            }),
+        }
+    );
+    assert_eq!(
+        parsed(&[
+            "office", "avatar", "list", "--local", "--limit", "1", "--cursor", "opaque",
+        ])
+        .invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Avatar(OfficeAvatarOperation::List {
+                limit: 1,
+                cursor: Some("opaque".into()),
+            }),
+        }
+    );
+    assert_eq!(
+        parsed(&[
+            "office",
+            "avatar",
+            "preview",
+            "--file",
+            "bot.tmtavatar.json"
+        ])
+        .invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Avatar(OfficeAvatarOperation::Preview {
+                file: "bot.tmtavatar.json".into(),
+            }),
+        }
+    );
+    for invalid in [
+        vec![
+            "office",
+            "avatar",
+            "install",
+            "--file",
+            "p",
+            "--if-revision",
+            "0",
+        ],
+        vec!["office", "avatar", "show", "sha256:x"],
+        vec!["office", "avatar", "list", "--local", "--limit", "0"],
+        vec!["office", "avatar", "list", "--local", "--limit", "21"],
+    ] {
+        assert!(parse(&args(&invalid)).is_err(), "{invalid:?}");
+    }
+}
+
+#[test]
 fn native_upgrade_alias_and_selection_share_one_typed_contract() {
     for command in ["upgrade", "update"] {
         let invocation = parsed(&[

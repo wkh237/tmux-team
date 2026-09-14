@@ -14,12 +14,13 @@ use std::{
 };
 use tmt_adapters::{
     config::ConfigPaths,
+    office_avatar::{ValidatedAvatarPack, validate_pack as validate_avatar_pack},
     office_local::local_snapshot,
     office_profile::{
         mutation_value as local_profile_mutation, snapshot_value as local_profile_snapshot,
     },
     office_profile_wire,
-    office_prop::{PACK_INPUT_LIMIT, ValidatedPropPack, validate_pack},
+    office_prop::{PACK_INPUT_LIMIT, ValidatedPropPack, validate_pack as validate_prop_pack},
     office_service::{self, ServiceReceipt},
     storage::{LocalOfficeError, LocalProfileError, Storage},
     tmux::{BindingSession, CallerEnvironment, Tmux},
@@ -58,9 +59,42 @@ struct Request {
 struct ActiveConnection(Arc<AtomicUsize>);
 
 struct PreviewEntry {
-    pack: ValidatedPropPack,
+    pack: PreviewPack,
     expires: Instant,
     expires_at_ms: u64,
+}
+
+#[derive(Clone)]
+enum PreviewPack {
+    Prop(ValidatedPropPack),
+    Avatar(ValidatedAvatarPack),
+}
+
+impl PreviewPack {
+    fn digest(&self) -> &str {
+        match self {
+            Self::Prop(pack) => pack.digest(),
+            Self::Avatar(pack) => pack.digest(),
+        }
+    }
+    fn ui_kind(&self) -> &'static str {
+        match self {
+            Self::Prop(_) => "props",
+            Self::Avatar(_) => "avatars",
+        }
+    }
+    fn value(&self) -> serde_json::Value {
+        match self {
+            Self::Prop(pack) => json!({"digest":pack.digest(),"pack":pack.pack()}),
+            Self::Avatar(pack) => json!({"digest":pack.digest(),"pack":pack.pack()}),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum PreviewKind {
+    Prop,
+    Avatar,
 }
 
 type Previews = Arc<Mutex<HashMap<String, PreviewEntry>>>;
@@ -295,7 +329,12 @@ fn control(
         "/control/v1/prop-previews"
             if request.header("content-type") == Some("application/json") =>
         {
-            create_preview(stream, request, receipt, previews)
+            create_preview(stream, request, receipt, previews, PreviewKind::Prop)
+        }
+        "/control/v1/avatar-previews"
+            if request.header("content-type") == Some("application/json") =>
+        {
+            create_preview(stream, request, receipt, previews, PreviewKind::Avatar)
         }
         _ => response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#),
     }
@@ -306,16 +345,24 @@ fn create_preview(
     request: &Request,
     receipt: &ServiceReceipt,
     previews: &Previews,
+    kind: PreviewKind,
 ) -> io::Result<()> {
-    let pack = match validate_pack(&request.body) {
+    let pack = match kind {
+        PreviewKind::Prop => validate_prop_pack(&request.body)
+            .map(PreviewPack::Prop)
+            .map_err(|_| ()),
+        PreviewKind::Avatar => validate_avatar_pack(&request.body)
+            .map(PreviewPack::Avatar)
+            .map_err(|_| ()),
+    };
+    let pack = match pack {
         Ok(pack) => pack,
         Err(_) => {
-            return response(
-                stream,
-                400,
-                "application/json",
-                br#"{"error":"OFFICE_PROP_INVALID"}"#,
-            );
+            let body = match kind {
+                PreviewKind::Prop => br#"{"error":"OFFICE_PROP_INVALID"}"#.as_slice(),
+                PreviewKind::Avatar => br#"{"error":"OFFICE_AVATAR_INVALID"}"#.as_slice(),
+            };
+            return response(stream, 400, "application/json", body);
         }
     };
     let mut previews = previews
@@ -336,12 +383,11 @@ fn create_preview(
         );
     }
     if previews.len() >= PREVIEW_LIMIT {
-        return response(
-            stream,
-            429,
-            "application/json",
-            br#"{"error":"OFFICE_PROP_PREVIEW_LIMIT"}"#,
-        );
+        let body = match kind {
+            PreviewKind::Prop => br#"{"error":"OFFICE_PROP_PREVIEW_LIMIT"}"#.as_slice(),
+            PreviewKind::Avatar => br#"{"error":"OFFICE_AVATAR_PREVIEW_LIMIT"}"#.as_slice(),
+        };
+        return response(stream, 429, "application/json", body);
     }
     let preview_id = secret()?;
     let expires_at_ms = unix_time_ms()?.saturating_add(
@@ -362,12 +408,13 @@ fn preview_response(
     stream: &mut TcpStream,
     receipt: &ServiceReceipt,
     preview_id: &str,
-    pack: &ValidatedPropPack,
+    pack: &PreviewPack,
     expires_at_ms: u64,
 ) -> io::Result<()> {
     let url = format!(
-        "{}/local/props/preview/{preview_id}#token={}",
+        "{}/local/{}/preview/{preview_id}#token={}",
         receipt.endpoint(),
+        pack.ui_kind(),
         receipt.browser_token
     );
     let body = serde_json::to_vec(&json!({
@@ -415,10 +462,27 @@ fn api(
         let Some(entry) = previews.get(preview_id) else {
             return response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#);
         };
-        let body = serde_json::to_vec(&json!({
-            "digest":entry.pack.digest(),
-            "pack":entry.pack.pack()
-        }))?;
+        if !matches!(&entry.pack, PreviewPack::Prop(_)) {
+            return response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#);
+        }
+        let body = serde_json::to_vec(&entry.pack.value())?;
+        return response(stream, 200, "application/json", &body);
+    }
+    if let Some(preview_id) = request.path.strip_prefix("/api/v1/local/avatar-previews/") {
+        if request.method != "GET" || preview_id.is_empty() || preview_id.contains('/') {
+            return response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#);
+        }
+        let mut previews = previews
+            .lock()
+            .map_err(|_| io::Error::other("preview lock poisoned"))?;
+        previews.retain(|_, entry| entry.expires > Instant::now());
+        let Some(entry) = previews.get(preview_id) else {
+            return response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#);
+        };
+        if !matches!(&entry.pack, PreviewPack::Avatar(_)) {
+            return response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#);
+        }
+        let body = serde_json::to_vec(&entry.pack.value())?;
         return response(stream, 200, "application/json", &body);
     }
     if request.method == "POST" && request.path == "/api/v1/local/props/resolve" {
@@ -989,6 +1053,8 @@ fn read_request(stream: &mut TcpStream, deadline: Instant) -> io::Result<Request
     let content_length = lengths.first().copied().unwrap_or(0);
     let body_limit = if method == "POST" && path == "/control/v1/prop-previews" {
         PACK_INPUT_LIMIT
+    } else if method == "POST" && path == "/control/v1/avatar-previews" {
+        tmt_adapters::office_avatar::PACK_INPUT_LIMIT
     } else {
         BODY_LIMIT
     };
@@ -1087,13 +1153,27 @@ mod tests {
     }
 
     #[test]
-    fn preview_route_alone_raises_the_parser_body_cap_to_128_kib() {
+    fn preview_routes_have_their_exact_distinct_body_caps() {
         assert!(parse_wire(wire_with_body("/control/v1/prop-previews", BODY_LIMIT + 1)).is_ok());
         assert!(parse_wire(wire_with_body("/api/v1/local/profiles", BODY_LIMIT + 1)).is_err());
         assert!(
             parse_wire(wire_with_body(
                 "/control/v1/prop-previews",
                 PACK_INPUT_LIMIT + 1
+            ))
+            .is_err()
+        );
+        assert!(
+            parse_wire(wire_with_body(
+                "/control/v1/avatar-previews",
+                tmt_adapters::office_avatar::PACK_INPUT_LIMIT
+            ))
+            .is_ok()
+        );
+        assert!(
+            parse_wire(wire_with_body(
+                "/control/v1/avatar-previews",
+                tmt_adapters::office_avatar::PACK_INPUT_LIMIT + 1
             ))
             .is_err()
         );

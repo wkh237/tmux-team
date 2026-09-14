@@ -2,6 +2,11 @@ import type { Appearance } from './profile-contract.js';
 import { avatarArt } from './avatar-art.js';
 import { IndexedRaster } from '../rendering/indexed-raster.js';
 
+export interface AvatarArt {
+  pixels: readonly string[];
+  palette: readonly string[];
+}
+
 /** Preserve natural glyph proportions and accessible full text. */
 function AvatarText({
   value,
@@ -31,6 +36,7 @@ export function Avatar({
   x = 0,
   y = 0,
   scale = 1,
+  customArt,
 }: {
   appearance: Appearance;
   name: string;
@@ -38,8 +44,9 @@ export function Avatar({
   x?: number;
   y?: number;
   scale?: number;
+  customArt?: AvatarArt;
 }) {
-  const art = avatarArt(appearance);
+  const art = customArt ?? avatarArt(appearance);
   return (
     <g
       className="profile-avatar"

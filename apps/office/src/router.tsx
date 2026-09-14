@@ -14,6 +14,7 @@ import { PairingPanel } from './pairing/pairing-view.js';
 import { LocalOfficePage } from './local/local-page.js';
 import { LocalBoardPage } from './local/board-page.js';
 import { PropPreviewPage } from './props/preview-page.js';
+import { AvatarPreviewPage } from './avatars/preview-page.js';
 
 const rootRoute = createRootRoute({
   component: OfficeShell,
@@ -60,6 +61,15 @@ function LocalPropPreview() {
   const { previewId } = localPropPreviewRoute.useParams();
   return <PropPreviewPage previewId={previewId} />;
 }
+const localAvatarPreviewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/local/avatars/preview/$previewId',
+  component: LocalAvatarPreview,
+});
+function LocalAvatarPreview() {
+  const { previewId } = localAvatarPreviewRoute.useParams();
+  return <AvatarPreviewPage previewId={previewId} />;
+}
 function PairingPage() {
   const { worldId } = pairingRoute.useParams();
   const fragment = useLocation({ select: (location) => location.hash });
@@ -84,6 +94,7 @@ const routeTree = rootRoute.addChildren([
   localRoute,
   localBoardRoute,
   localPropPreviewRoute,
+  localAvatarPreviewRoute,
 ]);
 
 export function createOfficeRouter(history?: RouterHistory) {

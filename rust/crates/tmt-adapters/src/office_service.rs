@@ -77,13 +77,13 @@ pub enum PreviewError {
 impl std::fmt::Display for PreviewError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(match self {
-            Self::NotRunning => "Start local Office before previewing a prop pack.",
+            Self::NotRunning => "Start local Office before previewing an art pack.",
             Self::RestartRequired => {
                 "Restart local Office with the current companion before previewing."
             }
-            Self::Limit => "Local Office already has four live prop previews.",
-            Self::Invalid => "Local Office rejected the prop preview.",
-            Self::Unavailable(_) => "Local Office prop preview is unavailable.",
+            Self::Limit => "Local Office already has four live art previews.",
+            Self::Invalid => "Local Office rejected the art preview.",
+            Self::Unavailable(_) => "Local Office art preview is unavailable.",
         })
     }
 }
@@ -259,7 +259,69 @@ pub fn preview(
     installed_version: &str,
     bytes: &[u8],
 ) -> Result<serde_json::Value, PreviewError> {
-    if bytes.len() > crate::office_prop::PACK_INPUT_LIMIT {
+    preview_pack(paths, installed_version, bytes, PreviewKind::Prop)
+}
+
+pub fn preview_avatar(
+    paths: &ConfigPaths,
+    installed_version: &str,
+    bytes: &[u8],
+) -> Result<serde_json::Value, PreviewError> {
+    preview_pack(paths, installed_version, bytes, PreviewKind::Avatar)
+}
+
+#[derive(Clone, Copy)]
+enum PreviewKind {
+    Prop,
+    Avatar,
+}
+
+impl PreviewKind {
+    fn input_limit(self) -> usize {
+        match self {
+            Self::Prop => crate::office_prop::PACK_INPUT_LIMIT,
+            Self::Avatar => crate::office_avatar::PACK_INPUT_LIMIT,
+        }
+    }
+    fn control_path(self) -> &'static str {
+        match self {
+            Self::Prop => "/control/v1/prop-previews",
+            Self::Avatar => "/control/v1/avatar-previews",
+        }
+    }
+    fn limit_code(self) -> &'static str {
+        match self {
+            Self::Prop => "OFFICE_PROP_PREVIEW_LIMIT",
+            Self::Avatar => "OFFICE_AVATAR_PREVIEW_LIMIT",
+        }
+    }
+    fn invalid_code(self) -> &'static str {
+        match self {
+            Self::Prop => "OFFICE_PROP_INVALID",
+            Self::Avatar => "OFFICE_AVATAR_INVALID",
+        }
+    }
+    fn ui_path(self) -> &'static str {
+        match self {
+            Self::Prop => "props",
+            Self::Avatar => "avatars",
+        }
+    }
+    fn digest(self, bytes: &[u8]) -> String {
+        match self {
+            Self::Prop => crate::office_prop::framed_digest(bytes),
+            Self::Avatar => crate::office_avatar::framed_digest(bytes),
+        }
+    }
+}
+
+fn preview_pack(
+    paths: &ConfigPaths,
+    installed_version: &str,
+    bytes: &[u8],
+    kind: PreviewKind,
+) -> Result<serde_json::Value, PreviewError> {
+    if bytes.len() > kind.input_limit() {
         return Err(PreviewError::Invalid);
     }
     let status = status(paths, installed_version).map_err(|error| match error {
@@ -281,7 +343,8 @@ pub fn preview(
         .set_write_timeout(Some(Duration::from_secs(5)))
         .map_err(PreviewError::Unavailable)?;
     let headers = format!(
-        "POST /control/v1/prop-previews HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {}\r\nX-TMT-Office-Nonce: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "POST {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {}\r\nX-TMT-Office-Nonce: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        kind.control_path(),
         receipt.port,
         receipt.control_token,
         receipt.nonce,
@@ -310,10 +373,10 @@ pub fn preview(
     let (headers, body) = response.split_at(separator + 4);
     let value: serde_json::Value = serde_json::from_slice(body)
         .map_err(|error| PreviewError::Unavailable(io::Error::other(error)))?;
-    if headers.starts_with(b"HTTP/1.1 429 ") && value["error"] == "OFFICE_PROP_PREVIEW_LIMIT" {
+    if headers.starts_with(b"HTTP/1.1 429 ") && value["error"] == kind.limit_code() {
         return Err(PreviewError::Limit);
     }
-    if headers.starts_with(b"HTTP/1.1 400 ") && value["error"] == "OFFICE_PROP_INVALID" {
+    if headers.starts_with(b"HTTP/1.1 400 ") && value["error"] == kind.invalid_code() {
         return Err(PreviewError::Invalid);
     }
     if !headers.starts_with(b"HTTP/1.1 200 ") {
@@ -321,13 +384,18 @@ pub fn preview(
             "Local Office rejected the preview request",
         )));
     }
-    if !valid_preview_reply(&value, &receipt, bytes) {
+    if !valid_preview_reply(&value, &receipt, bytes, kind) {
         return Err(PreviewError::Invalid);
     }
     Ok(value)
 }
 
-fn valid_preview_reply(value: &serde_json::Value, receipt: &ServiceReceipt, pack: &[u8]) -> bool {
+fn valid_preview_reply(
+    value: &serde_json::Value,
+    receipt: &ServiceReceipt,
+    pack: &[u8],
+    kind: PreviewKind,
+) -> bool {
     let Some(object) = value.as_object() else {
         return false;
     };
@@ -335,12 +403,13 @@ fn valid_preview_reply(value: &serde_json::Value, receipt: &ServiceReceipt, pack
         return false;
     };
     let expected_url = format!(
-        "{}/local/props/preview/{preview_id}#token={}",
+        "{}/local/{}/preview/{preview_id}#token={}",
         receipt.endpoint(),
+        kind.ui_path(),
         receipt.browser_token
     );
     object.len() == 4
-        && value["digest"].as_str() == Some(crate::office_prop::framed_digest(pack).as_str())
+        && value["digest"].as_str() == Some(kind.digest(pack).as_str())
         && value["expiresAtMs"].as_u64().is_some()
         && value["url"].as_str() == Some(expected_url.as_str())
 }
@@ -505,7 +574,12 @@ mod tests {
                 receipt.endpoint(), preview_id, receipt.browser_token
             )
         });
-        assert!(valid_preview_reply(&valid, &receipt, pack));
+        assert!(valid_preview_reply(
+            &valid,
+            &receipt,
+            pack,
+            PreviewKind::Prop
+        ));
         for invalid in [
             {
                 let mut value = valid.clone();
@@ -537,7 +611,27 @@ mod tests {
                 value
             },
         ] {
-            assert!(!valid_preview_reply(&invalid, &receipt, pack));
+            assert!(!valid_preview_reply(
+                &invalid,
+                &receipt,
+                pack,
+                PreviewKind::Prop
+            ));
         }
+        let avatar = serde_json::json!({
+            "digest": crate::office_avatar::framed_digest(pack),
+            "previewId": preview_id,
+            "expiresAtMs": 1,
+            "url": format!(
+                "{}/local/avatars/preview/{}#token={}",
+                receipt.endpoint(), preview_id, receipt.browser_token
+            )
+        });
+        assert!(valid_preview_reply(
+            &avatar,
+            &receipt,
+            pack,
+            PreviewKind::Avatar
+        ));
     }
 }

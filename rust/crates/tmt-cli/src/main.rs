@@ -14,6 +14,7 @@ mod invocation;
 mod native_install_command;
 mod native_upgrade_command;
 mod notes_command;
+mod office_avatar_command;
 mod office_block_command;
 mod office_board_command;
 mod office_command;

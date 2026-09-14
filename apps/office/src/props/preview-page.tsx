@@ -1,29 +1,18 @@
-import { useContext, useEffect, useState } from 'react';
+import { useContext } from 'react';
 import { LocalRuntimeContext } from '../local/local-runtime.js';
-import type { CatalogPack } from './prop-contract.js';
+import type { LocalRuntime } from '../local/local-runtime.js';
+import { usePreview } from '../local/use-preview.js';
 import { IndexedProp } from './indexed-prop.js';
+
+const requestPreview = (runtime: LocalRuntime, id: string) => runtime.preview(id);
 
 export function PropPreviewPage({ previewId }: { previewId: string }) {
   const runtime = useContext(LocalRuntimeContext);
-  const [catalog, setCatalog] = useState<CatalogPack>();
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let active = true;
-    if (!runtime) return;
-    void runtime
-      .preview(previewId)
-      .then((value) => {
-        if (active) setCatalog(value);
-      })
-      .catch(() => {
-        if (active) setFailed(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, [previewId, runtime]);
-  if (!runtime || failed) return <p role="alert">This prop preview is unavailable or expired.</p>;
-  if (!catalog) return <p>Loading prop preview…</p>;
+  const state = usePreview(runtime, previewId, requestPreview);
+  if (state.kind === 'failed')
+    return <p role="alert">This prop preview is unavailable or expired.</p>;
+  if (state.kind === 'loading') return <p>Loading prop preview…</p>;
+  const catalog = state.value;
   return (
     <section className="prop-preview">
       <p className="eyebrow">DATA-ONLY PROP PREVIEW</p>

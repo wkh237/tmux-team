@@ -425,6 +425,12 @@ fn run(
             }
             crate::office_prop_command::run(&executable, operation, mode)
         }
+        OfficeOperation::Avatar(_) => {
+            if !installed(&executable)? {
+                return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
+            }
+            crate::office_avatar_command::run(&executable, operation, mode)
+        }
         OfficeOperation::Board(_) => {
             if !installed(&executable)? {
                 return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));

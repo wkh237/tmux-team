@@ -81,6 +81,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "add installation-owned local Office prop catalog",
         sql: include_str!("schema/016.sql"),
     },
+    Migration {
+        name: "add installation-owned local Office avatar catalog",
+        sql: include_str!("schema/017.sql"),
+    },
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

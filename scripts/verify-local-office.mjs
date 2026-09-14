@@ -134,6 +134,48 @@ const builtinDigest = `sha256:${createHash('sha256')
 const builtinFootprints = Object.fromEntries(
   JSON.parse(builtinBytes).props.map(({ key, footprint }) => [key, footprint])
 );
+const avatarSample = path.join(
+  process.cwd(),
+  'contracts/office/avatar-pack-v1-sample.tmtavatar.json'
+);
+const avatarBytes = fs.readFileSync(avatarSample);
+const avatarLength = Buffer.alloc(8);
+avatarLength.writeBigUInt64BE(BigInt(avatarBytes.length));
+const avatarDigest = `sha256:${createHash('sha256')
+  .update(Buffer.from('TMT-OFFICE-AVATAR-PACK-V1\0'))
+  .update(avatarLength)
+  .update(avatarBytes)
+  .digest('hex')}`;
+const avatarDocument = JSON.parse(avatarBytes.toString('utf8'));
+function assertAvatarProjection(actual) {
+  assert.equal(actual.digest, avatarDigest);
+  assert.equal(actual.formatVersion, avatarDocument.formatVersion);
+  assert.equal(actual.label, avatarDocument.label);
+  assert.equal(actual.credit, avatarDocument.credit);
+  assert.equal(actual.license, avatarDocument.license);
+  assert.equal(actual.fileBytes, avatarBytes.length);
+  assert.equal(actual.cellCount, avatarDocument.avatars.length * 16 * 24);
+  assert.deepEqual(
+    actual.avatars,
+    avatarDocument.avatars.map(({ key, label }) => ({
+      key,
+      label,
+      raster: { width: 16, height: 24 },
+    }))
+  );
+}
+function avatarStorageSnapshot() {
+  const database = new Database(path.join(state, 'tmux-team.db'), { readonly: true });
+  try {
+    return {
+      catalog: database.prepare('SELECT * FROM office_avatar_catalog ORDER BY singleton').all(),
+      packs: database.prepare('SELECT * FROM office_avatar_packs ORDER BY digest').all(),
+      profiles: database.prepare('SELECT * FROM office_local_profiles ORDER BY identity_id').all(),
+    };
+  } finally {
+    database.close();
+  }
+}
 function builtinFurniture(asset, x, y, rotation) {
   return {
     prop: `${builtinDigest}/${asset}`,
@@ -186,6 +228,23 @@ try {
   assert.equal(command(['office', 'stop', '--prefix', missingPrefix]).changed, false);
   assert.equal(fs.existsSync(state), false);
   command(['identity', 'create', 'Alice']);
+  const validatedAvatar = officeCommand(['avatar', 'validate', '--file', avatarSample]);
+  assert.equal(validatedAvatar.digest, avatarDigest);
+  assert.equal(validatedAvatar.avatars[0].key, 'signal-bot');
+  assert.equal(officeCommand(['avatar', 'list', '--local']).catalogRevision, 0);
+  const installedAvatar = officeCommand([
+    'avatar',
+    'install',
+    '--local',
+    '--file',
+    avatarSample,
+    '--if-revision',
+    '0',
+  ]);
+  assert.equal(installedAvatar.changed, true);
+  assert.equal(installedAvatar.catalogRevision, 1);
+  assertAvatarProjection(installedAvatar);
+  assertAvatarProjection(officeCommand(['avatar', 'show', '--local', avatarDigest]));
   const missing = officeCommand(['block', 'show', '--local', '--identity', 'Alice']);
   assert.equal(missing.exists, false);
   assert.equal(missing.revision, 0);
@@ -289,6 +348,16 @@ try {
   assert.equal(reused.reused, true);
   assert.equal(reused.url, started.url);
 
+  const previewPack = JSON.parse(avatarBytes);
+  previewPack.label = 'Signal bots preview only';
+  const previewAvatarFile = path.join(root, 'preview-only.tmtavatar.json');
+  fs.writeFileSync(previewAvatarFile, JSON.stringify(previewPack));
+  const beforePreviewState = avatarStorageSnapshot();
+  const avatarPreview = officeCommand(['avatar', 'preview', '--file', previewAvatarFile]);
+  assert.match(avatarPreview.previewId, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(new URL(avatarPreview.url).pathname.startsWith('/local/avatars/preview/'), true);
+  assert.deepEqual(avatarStorageSnapshot(), beforePreviewState);
+
   const shell = await fetch(`${origin}/local`);
   assert.equal(shell.status, 200);
   assert.equal(shell.headers.get('cache-control'), 'no-store');
@@ -320,6 +389,32 @@ try {
   const page = await browser.newPage();
   const browserRequests = [];
   page.on('request', (request) => browserRequests.push(request.url()));
+  await page.goto(avatarPreview.url);
+  await page.getByRole('heading', { name: 'Signal bots preview only' }).waitFor();
+  await page.getByRole('img', { name: 'Signal bot' }).waitFor();
+  assert.equal(await page.locator('.avatar-name', { hasText: 'signal-bot' }).count(), 1);
+  const avatarDesktopScreenshot = process.env.TMT_TEST_AVATAR_DESKTOP_SCREENSHOT;
+  const avatarNarrowScreenshot = process.env.TMT_TEST_AVATAR_NARROW_SCREENSHOT;
+  if (avatarDesktopScreenshot) {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.screenshot({ path: avatarDesktopScreenshot, fullPage: true });
+  }
+  if (avatarNarrowScreenshot) {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: avatarNarrowScreenshot, fullPage: true });
+    await page.setViewportSize({ width: 1440, height: 1000 });
+  }
+  const removedAvatar = officeCommand([
+    'avatar',
+    'remove',
+    '--local',
+    avatarDigest,
+    '--if-revision',
+    '1',
+  ]);
+  assert.equal(removedAvatar.changed, true);
+  assert.equal(removedAvatar.catalogRevision, 2);
+  assert.equal(officeCommand(['avatar', 'list', '--local']).packs.length, 0);
   await page.goto(started.url);
   assert.equal(new URL(page.url()).hash, '');
   const browserBoard = await page.evaluate(
