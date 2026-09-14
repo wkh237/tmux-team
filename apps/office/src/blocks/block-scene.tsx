@@ -4,16 +4,17 @@ import { BLOCK_SIZE, defaultCatalog, footprint } from './block-contract.js';
 import { Avatar } from '../profiles/avatar.js';
 import type { Appearance } from '../profiles/profile-contract.js';
 import type { CatalogPack } from '../props/prop-contract.js';
-import { indexedProp } from '../props/prop-contract.js';
+import { resolvedProp } from '../props/prop-contract.js';
 import { IndexedProp } from '../props/indexed-prop.js';
 
 function ResolvedProp({ item, catalog }: { item: Furniture; catalog: CatalogPack[] }) {
+  const clip = useId();
   const [digest, key] = item.prop.split('/');
   const digestPrefix = digest?.startsWith('sha256:')
     ? digest.slice('sha256:'.length, 'sha256:'.length + 12)
     : '000000000000';
   const pack = catalog.find((candidate) => candidate.digest === digest)?.pack;
-  const prop = pack && key ? indexedProp(pack, key) : undefined;
+  const prop = pack && key ? resolvedProp(pack, key, item.footprint) : undefined;
   const size = footprint(item);
   return (
     <g
@@ -22,22 +23,29 @@ function ResolvedProp({ item, catalog }: { item: Furniture; catalog: CatalogPack
       {pack && prop ? (
         <IndexedProp pack={pack} prop={prop} />
       ) : (
-        <g role="img" aria-label={`Unavailable prop ${digestPrefix}`}>
-          <rect
-            width={item.footprint.width}
-            height={item.footprint.height}
-            fill="var(--floor)"
-            stroke="var(--selection)"
-            strokeWidth="0.15"
-            strokeDasharray="0.3 0.2"
-          />
-          <text x="0.25" y="0.65" fontSize="0.45" fill="var(--ink)">
-            Unavailable prop
-          </text>
-          <text x="0.25" y="1.2" fontSize="0.32" fill="var(--ink)" opacity="0.65">
-            {digestPrefix}
-          </text>
-        </g>
+        <>
+          <defs>
+            <clipPath id={clip}>
+              <rect width={item.footprint.width} height={item.footprint.height} />
+            </clipPath>
+          </defs>
+          <g role="img" aria-label={`Unavailable prop ${digestPrefix}`} clipPath={`url(#${clip})`}>
+            <rect
+              width={item.footprint.width}
+              height={item.footprint.height}
+              fill="var(--floor)"
+              stroke="var(--selection)"
+              strokeWidth="0.15"
+              strokeDasharray="0.3 0.2"
+            />
+            <text x="0.25" y="0.65" fontSize="0.45" fill="var(--ink)">
+              Unavailable prop
+            </text>
+            <text x="0.25" y="1.2" fontSize="0.32" fill="var(--ink)" opacity="0.65">
+              {digestPrefix}
+            </text>
+          </g>
+        </>
       )}
     </g>
   );

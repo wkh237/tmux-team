@@ -130,3 +130,16 @@ export const BUILTIN_PACK = decodePropPack(builtinDocument);
 export function indexedProp(pack: PropPack, key: string): PropDefinition | undefined {
   return pack.props.find((prop) => prop.key === key);
 }
+
+export function resolvedProp(
+  pack: PropPack,
+  key: string,
+  footprint: Footprint
+): PropDefinition | undefined {
+  const prop = indexedProp(pack, key);
+  return prop &&
+    prop.footprint.width === footprint.width &&
+    prop.footprint.height === footprint.height
+    ? prop
+    : undefined;
+}

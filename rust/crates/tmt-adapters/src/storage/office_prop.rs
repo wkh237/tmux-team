@@ -866,20 +866,45 @@ mod tests {
     }
 
     #[test]
-    fn pagination_advances_by_last_examined_row() {
+    fn pagination_advances_past_an_all_corrupt_page_and_rejects_stale_cursors() {
         let directory = TestDirectory::new();
         let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
-        let first = custom("A");
-        let second = custom("B");
+        let candidates = [custom("A"), custom("B")];
+        let [first, second] = if candidates[0].digest() < candidates[1].digest() {
+            candidates
+        } else {
+            [candidates[1].clone(), candidates[0].clone()]
+        };
         storage.install_local_prop_pack(0, &first).unwrap();
         storage.install_local_prop_pack(1, &second).unwrap();
-        let page = storage.list_local_prop_packs(1, None).unwrap();
-        assert_eq!(page.packs.len(), 1);
-        let next = storage
-            .list_local_prop_packs(1, page.next_cursor.as_deref())
+        storage
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE office_prop_packs SET bytes = x'7b7d' WHERE digest = ?",
+                [first.digest()],
+            )
             .unwrap();
+
+        let page = storage.list_local_prop_packs(1, None).unwrap();
+        assert!(page.packs.is_empty());
+        assert_eq!(page.excluded.len(), 1);
+        assert_eq!(page.excluded[0].digest, first.digest());
+        let cursor = page
+            .next_cursor
+            .expect("a corrupt leading row still advances");
+        let next = storage.list_local_prop_packs(1, Some(&cursor)).unwrap();
         assert_eq!(next.packs.len(), 1);
-        assert_ne!(page.packs[0].pack.digest(), next.packs[0].pack.digest());
+        assert_eq!(next.packs[0].pack.digest(), second.digest());
+        assert!(next.excluded.is_empty());
+        assert!(next.next_cursor.is_none());
+
+        let third = custom("C");
+        storage.install_local_prop_pack(2, &third).unwrap();
+        assert!(matches!(
+            storage.list_local_prop_packs(1, Some(&cursor)),
+            Err(LocalPropCatalogError::CursorStale)
+        ));
         storage.close().unwrap();
     }
 }

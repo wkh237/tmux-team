@@ -3,7 +3,7 @@ import { FURNITURE, OBJECT_LIMIT, builtinFurniture, defaultCatalog } from './blo
 import type { Asset, BlockPort, Furniture } from './block-contract.js';
 import { createBlockState } from './block-state.js';
 import type { BlockState } from './block-state.js';
-import { indexedProp } from '../props/prop-contract.js';
+import { resolvedProp } from '../props/prop-contract.js';
 import { BlockScene } from './block-scene.js';
 import './block.css';
 import type { Appearance } from '../profiles/profile-contract.js';
@@ -51,7 +51,9 @@ export function BlockEditor({
   function objectLabel(object: Furniture): string {
     const [digest, key] = object.prop.split('/');
     const pack = catalog.find((candidate) => candidate.digest === digest)?.pack;
-    return pack && key ? (indexedProp(pack, key)?.label ?? 'Unavailable prop') : 'Unavailable prop';
+    return pack && key
+      ? (resolvedProp(pack, key, object.footprint)?.label ?? 'Unavailable prop')
+      : 'Unavailable prop';
   }
   function update(changes: Partial<Furniture>) {
     if (!item) return;
