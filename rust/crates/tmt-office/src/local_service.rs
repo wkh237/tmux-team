@@ -1215,7 +1215,8 @@ mod tests {
             String::from_utf8(bytes).unwrap()
         });
         let (mut stream, _) = listener.accept().unwrap();
-        api(&mut stream, request, paths, receipt).unwrap();
+        let previews = Arc::new(Mutex::new(HashMap::new()));
+        api(&mut stream, request, paths, receipt, &previews).unwrap();
         drop(stream);
         receiver.join().unwrap()
     }
