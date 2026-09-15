@@ -134,6 +134,9 @@ mount decodes them once, all rooms share them, and teardown releases them. The
 back-wall elevation occupies geometry above the editable floor, preserving the
 32-tile layout contract. This trusted architectural material path accepts no
 user URLs or uploads; editable furniture still uses the admitted prop catalog.
+The surrounding floor shares that material and follows the camera across the
+viewport. Larger identity sets form a compact grid, not a fixed three-column
+strip. Both are presentation projections and create no saved rooms or objects.
 The React agent directory remains available for keyboard access and renderer
 failure, not as another visual room renderer. `room-canvas.tsx` adapts the existing
 editor's objects, selection and callbacks to the same renderer; it owns no draft.

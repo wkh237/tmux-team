@@ -15,7 +15,7 @@ export function drawRoomEnvelope(
       .rect(x - 2, y - 2, width + 4, height + 4)
       .fill('#263d33')
       .rect(x - 1, y - 1, width + 2, height + 2)
-      .fill('#b6bca0')
+      .fill('#23473e')
   );
   const surface = new Sprite(floor);
   surface.position.set(x, y);
@@ -30,11 +30,11 @@ export function drawRoomEnvelope(
     .rect(x, y, 0.5, height)
     .fill({ color: '#152c26', alpha: 0.12 })
     .rect(x - 1.6, y - 1.9, width + 3.2, 0.6)
-    .fill('#e8e5cb')
+    .fill('#53705e')
     .rect(x - 1.6, y - 1.3, 0.6, height + 2.3)
-    .fill('#d4d6b8')
+    .fill('#557061')
     .rect(x + width + 0.5, y - 1.3, 0.5, height + 2.3)
-    .fill('#778a70');
+    .fill('#17362e');
   // Static daylight avoids a continuously evaluated lighting filter.
   finish
     .poly([x + 6, y, x + 18, y, x + 24, y + 17, x + 12, y + 17])

@@ -20,7 +20,12 @@ const ROW_PITCH = BACK_WALL + BLOCK_SIZE + WALL + CORRIDOR;
 
 /** Scene coordinates are existing room tiles, never another saved layout. */
 export function officeGeometry(identityIds: readonly string[]) {
-  const columns = Math.min(3, Math.max(1, identityIds.length));
+  // Small offices retain a single row; larger offices grow across the floor
+  // instead of becoming an unreadably tall three-column strip.
+  const columns = Math.max(
+    1,
+    Math.min(identityIds.length, 6, Math.ceil(Math.sqrt(identityIds.length * 2)))
+  );
   const rows = Math.max(1, Math.ceil(identityIds.length / columns));
   const rooms = identityIds.map((identityId, index) => ({
     identityId,

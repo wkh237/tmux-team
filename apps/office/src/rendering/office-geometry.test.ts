@@ -35,6 +35,16 @@ describe('office scene geometry', () => {
     );
   });
 
+  it('packs a larger office into a balanced grid without inventing rooms', () => {
+    const identities = Array.from({ length: 24 }, (_, index) => `agent-${index}`);
+    const scene = officeGeometry(identities);
+    expect(scene.rooms.map((room) => room.identityId)).toEqual(identities);
+    expect(new Set(scene.rooms.map((room) => room.x)).size).toBe(6);
+    expect(new Set(scene.rooms.map((room) => room.y)).size).toBe(4);
+    expect(scene.bounds.width / scene.bounds.height).toBeGreaterThan(0.9);
+    expect(scene.bounds.width / scene.bounds.height).toBeLessThan(1.1);
+  });
+
   it.each([
     { x: 20, y: 90, width: 900, height: 700 },
     { x: 8, y: 80, width: 374, height: 400 },

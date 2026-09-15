@@ -352,6 +352,15 @@ test('office overview enters an unfurnished room and saves through shared profil
   await observeIdleScene(page, testInfo, '24-rooms');
   await page.getByRole('button', { name: 'Agents · 24' }).click();
   await page.screenshot({ path: testInfo.outputPath('office-24-rooms.png') });
+  const savedRevision = revision;
+  await page.mouse.move(1100, 650);
+  await page.mouse.wheel(0, -200);
+  await page.mouse.down();
+  await page.mouse.move(1180, 690);
+  await page.mouse.up();
+  await observeIdleScene(page, testInfo, '24-rooms-after-navigation');
+  expect(revision).toBe(savedRevision);
+  await page.screenshot({ path: testInfo.outputPath('office-floor-navigation.png') });
   await page.getByRole('button', { name: 'Agents · 24' }).click();
   await page.route('**/api/v1/local/profiles', (route) => route.fulfill({ json: [] }));
   await page.setViewportSize({ width: 390, height: 844 });

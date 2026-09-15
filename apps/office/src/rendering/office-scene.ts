@@ -84,6 +84,12 @@ export async function createOfficeScene(
   }
   if (!materials) return undefined;
   const { floor, wall } = materials;
+  // The surrounding circulation floor fills the viewport without inventing
+  // rooms or saved furniture. Reuse the same texture and camera grid.
+  const surroundings = new TilingSprite({ texture: floor, width: 1, height: 1 });
+  surroundings.tint = '#a9af97';
+  surroundings.alpha = 0.3;
+  application.stage.addChildAt(surroundings, 0);
   let geometry = officeGeometry([]);
   let camera = { x: 0, y: 0, scale: 1 };
   let fitted = false;
@@ -98,6 +104,10 @@ export async function createOfficeScene(
   const applyCamera = () => {
     root.position.set(camera.x, camera.y);
     root.scale.set(camera.scale);
+    surroundings.width = host.clientWidth;
+    surroundings.height = host.clientHeight;
+    surroundings.tileScale.set((32 * camera.scale) / floor.width);
+    surroundings.tilePosition.set(camera.x, camera.y);
     invalidate();
   };
   function fit() {
