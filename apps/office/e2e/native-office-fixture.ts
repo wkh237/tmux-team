@@ -7,7 +7,7 @@ import { runCli, type Sandbox } from '../../../test/support/cli-process.js';
 export async function installNativeOffice(sandbox: Sandbox): Promise<string> {
   const artifact = await createArtifact(
     sandbox,
-    '0.1.0-alpha.3',
+    '0.1.0-alpha.4',
     new Uint8Array(),
     'office',
     path.resolve('../../rust/target/debug/tmt-office')
