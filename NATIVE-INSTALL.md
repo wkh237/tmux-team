@@ -1,7 +1,7 @@
 # TMT native alpha installation
 
-The verified public pair is TMT CLI `5.0.0-alpha.5` with optional TMT Office
-`0.1.0-alpha.2`. Download the current immutable CLI installer from the
+The verified public pair is TMT CLI `5.0.0-alpha.6` with optional TMT Office
+`0.1.0-alpha.3`. Download the current immutable CLI installer from the
 [README][public-install]. After installing the CLI, opt into Office with:
 
 ```sh
@@ -87,7 +87,7 @@ The selected executable's help is the capability authority; the shared alpha
 version number alone does not distinguish native and TypeScript runtimes.
 
 For a verified managed native installation, `tmt upgrade` retains its channel;
-`tmt upgrade --channel alpha` selects alpha, `--to 5.0.0-alpha.5` pins an exact
+`tmt upgrade --channel alpha` selects alpha, `--to 5.0.0-alpha.6` pins an exact
 version, and `--unpin` resumes channel updates. `tmt update` is the same command.
 Downgrades are rejected. An ordinary pinned invocation does not access the
 network. Use `--json` for a single structured result. The update refreshes only

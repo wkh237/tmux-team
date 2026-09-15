@@ -9,7 +9,7 @@ history. A standalone native CLI—no Node.js, Rust toolchain, or daemon require
 Native alpha for macOS and Linux, arm64 and x64. No Node, npm, pnpm or Rust
 toolchain needed.
 
-[Download the installer](https://github.com/wkh237/tmux-team/releases/download/v5.0.0-alpha.5/tmt-installer.sh),
+[Download the installer](https://github.com/wkh237/tmux-team/releases/download/v5.0.0-alpha.6/tmt-installer.sh),
 then run it from the download folder:
 
 ```sh
