@@ -79,6 +79,11 @@ node scripts/verify-native-artifact.mjs \
   --notices rust/target/native-notices/THIRD-PARTY-NOTICES.txt --license LICENSE
 ```
 
+For Office, Vite generates the bundled frontend license inventory as
+`target/office-spa/THIRD-PARTY-NOTICES.txt`; the artifact builder appends it to
+the target-filtered Rust notices. CLI notices remain Rust-only. A missing or
+empty frontend notice file fails Office packaging.
+
 Review the generated `rust/target/native-notices/THIRD-PARTY-NOTICES.txt` against
 the locked, archive-target-filtered runtime graph, including Unicode copyrights;
 the verifier compares the archived notices and license with these selected

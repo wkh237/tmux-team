@@ -465,14 +465,13 @@ try {
   );
   await page.getByRole('link', { name: '← Back to office' }).click();
   await page.getByText('1 piece · saved').waitFor();
-  assert.equal(
-    await page.locator('.office-room .block-scene svg[shape-rendering="crispEdges"]').count(),
-    1
-  );
+  await page.locator('.office-map[data-scene-ready="true"]').waitFor();
+  assert.equal(await page.locator('.office-canvas canvas').count(), 1);
   assert.equal(blockStorageSnapshot()[0].revision, 1);
   const officeScreenshot = process.env.TMT_TEST_OFFICE_OVERVIEW_SCREENSHOT;
   if (officeScreenshot) await page.screenshot({ path: officeScreenshot, fullPage: true });
   await page.getByRole('link', { name: "Enter Alice's room" }).click();
+  await page.getByText('Appearance', { exact: true }).click();
   await page.getByText('Avatar · Signal bots · Signal bot').waitFor();
   assert.equal(new URL(page.url()).hash, '');
   assert.equal(await page.getByLabel('Avatar art').inputValue(), `${avatarDigest}/signal-bot`);
@@ -481,11 +480,14 @@ try {
   const profilePixels = await page
     .locator('.profile-preview .profile-avatar rect')
     .evaluateAll((nodes) => nodes.map((node) => [...node.attributes].map((item) => item.value)));
-  const scenePixels = await page
-    .locator('.block-scene .profile-avatar rect')
-    .evaluateAll((nodes) => nodes.map((node) => [...node.attributes].map((item) => item.value)));
   assert(profilePixels.length > 0);
-  assert.deepEqual(scenePixels, []);
+  await page.locator('.office-map[data-scene-ready="true"]').waitFor();
+  assert.equal(
+    await page
+      .getByText('Offline — this identity is not shown as present in the room.')
+      .isVisible(),
+    true
+  );
   assert.equal(avatarCatalogRequestCount(), 4);
   const profileDesktopScreenshot = process.env.TMT_TEST_PROFILE_DESKTOP_SCREENSHOT;
   const profileNarrowScreenshot = process.env.TMT_TEST_PROFILE_NARROW_SCREENSHOT;
@@ -515,6 +517,7 @@ try {
   await page.goto(started.url);
   await page.getByText('1 piece · saved').waitFor();
   await page.getByRole('link', { name: "Enter Alice's room" }).click();
+  await page.getByText('Appearance', { exact: true }).click();
   await page.getByText('Avatar · unavailable, showing saved default appearance').waitFor();
   assert.equal(new URL(page.url()).hash, '');
   assert.equal(await page.getByLabel('Avatar art').inputValue(), `${avatarDigest}/signal-bot`);
@@ -541,6 +544,7 @@ try {
   await page.goto('about:blank');
   await page.goto(started.url);
   await page.getByRole('link', { name: "Enter Alice's room" }).click();
+  await page.getByText('Appearance', { exact: true }).click();
   await page.getByText('Avatar · Signal bots · Signal bot').waitFor();
   assert.equal(new URL(page.url()).hash, '');
   assert.equal(avatarCatalogRequestCount(), 8);
@@ -910,6 +914,7 @@ try {
   await reopened.goto(restarted.url);
   await reopened.getByRole('heading', { name: 'Your office', exact: true }).waitFor();
   await reopened.getByRole('link', { name: "Enter Alice's room" }).click();
+  await reopened.getByText('Appearance', { exact: true }).click();
   assert.equal(new URL(reopened.url()).hash, '');
   const restartedToken = tokenFrom(restarted.url);
   const reopenedBoard = await reopened.evaluate(

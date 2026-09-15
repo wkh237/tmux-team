@@ -3,6 +3,9 @@ import { BlockPanel } from '../blocks/block-view.js';
 import { ProfilePanel } from '../profiles/profile-view.js';
 import { resolveAvatar } from '../avatars/avatar-catalog.js';
 import { useLocalOffice } from './use-local-office.js';
+import { RoomCanvas } from './room-canvas.js';
+import './office-floor.css';
+import './room-workshop.css';
 
 export function LocalSpacePage({ identityId }: { identityId: string }) {
   const { load, refresh, profileChanged } = useLocalOffice();
@@ -36,6 +39,9 @@ export function LocalSpacePage({ identityId }: { identityId: string }) {
         worldId={identityId}
         blockPort={load.runtime.blocks}
         label={`${profile.identityName.toUpperCase()} / PERSONAL SPACE`}
+        renderScene={(props) => (
+          <RoomCanvas {...props} identityId={identityId} name={profile.identityName} />
+        )}
         avatar={
           profile.online
             ? {
@@ -47,12 +53,15 @@ export function LocalSpacePage({ identityId }: { identityId: string }) {
             : undefined
         }
       />
-      <ProfilePanel
-        initial={profile}
-        port={load.runtime.profiles}
-        changed={profileChanged}
-        avatarCatalog={load.avatars}
-      />
+      <details className="room-appearance">
+        <summary>Appearance</summary>
+        <ProfilePanel
+          initial={profile}
+          port={load.runtime.profiles}
+          changed={profileChanged}
+          avatarCatalog={load.avatars}
+        />
+      </details>
     </section>
   );
 }

@@ -10,6 +10,16 @@ import { createOfficeRouter } from '../router.js';
 import type { LocalBlockProjection, LocalRuntime } from './local-runtime.js';
 import { PROFILE_CATALOG } from '../profiles/profile-contract.js';
 import type { ProfileProjection } from '../profiles/profile-contract.js';
+import type { OfficeSceneModel } from '../rendering/office-scene.js';
+
+const canvas = vi.hoisted(() => ({ model: undefined as OfficeSceneModel | undefined }));
+// DOM tests inspect the controlled projection; actual GPU output is browser-tested.
+vi.mock('./office-canvas.js', () => ({
+  OfficeCanvas: ({ model }: { model: OfficeSceneModel }) => {
+    canvas.model = model;
+    return null;
+  },
+}));
 
 const identityId = '22222222-2222-4222-8222-222222222222';
 const blockId = '11111111-1111-4111-8111-111111111111';
@@ -119,13 +129,20 @@ const pixels = (element: Element) =>
     rect.getAttribute('fill'),
   ]);
 
-it('reuses identical custom pixels in overview, room and profile without per-render catalog reads', async () => {
+it('projects the same admitted custom pixels to canvas, room and profile without extra catalog reads', async () => {
   const local = runtime();
   show(local);
   await screen.findByRole('link', { name: "Enter Alice's room" });
-  const overview = pixels(document.querySelector('.profile-avatar')!);
+  const art = canvas.model!.rooms[0]!.avatar!.customArt!;
+  expect(art).toBeDefined();
+  const overview = art.pixels.flatMap((row, y) =>
+    Array.from(row, (index, x) =>
+      index === '0' ? [] : [[String(x), String(y), art.palette[Number.parseInt(index, 16)]]]
+    ).flat()
+  );
   await userEvent.click(screen.getByRole('link', { name: "Enter Alice's room" }));
-  await waitFor(() => expect(document.querySelectorAll('.profile-avatar')).toHaveLength(2));
+  await waitFor(() => expect(document.querySelectorAll('.profile-avatar')).toHaveLength(1));
+  expect(canvas.model!.rooms[0]!.avatar!.customArt).toEqual(art);
   for (const avatar of document.querySelectorAll('.profile-avatar'))
     expect(pixels(avatar)).toEqual(overview);
   expect(overview.length).toBeGreaterThan(0);
@@ -171,6 +188,7 @@ it('shows multiple labeled rooms without inventing offline presence', async () =
   const room = await screen.findByRole('article', { name: "Bob's room" });
   expect(within(room).getByText('Offline')).toBeTruthy();
   expect(room.querySelector('.profile-avatar')).toBeNull();
+  expect(canvas.model!.rooms.find((item) => item.name === 'Bob')!.avatar).toBeUndefined();
   expect(within(room).getByRole('link', { name: "Enter Bob's room" })).toBeTruthy();
   expect(screen.getByText('2 spaces · 1 online')).toBeTruthy();
 });
@@ -214,9 +232,42 @@ it('drops stale selection details when the identity disappears on refresh', asyn
   local.profiles.list = async () => [];
   await userEvent.click(screen.getByRole('button', { name: 'Refresh office' }));
   await screen.findByText('tmt identity create alice');
-  const details = screen.getByRole('complementary', { name: 'Room details' });
-  expect(within(details).queryByRole('heading', { name: 'Alice' })).toBeNull();
-  expect(within(details).queryByRole('link')).toBeNull();
+  expect(screen.queryByRole('complementary', { name: 'Room details' })).toBeNull();
+});
+
+it('keeps the office unobstructed until selection and returns focus when details close', async () => {
+  const local = runtime([profile], []);
+  show(local);
+  const trigger = await screen.findByRole('button', { name: "Select Alice's room" });
+  expect(screen.queryByRole('complementary', { name: 'Room details' })).toBeNull();
+  await userEvent.click(trigger);
+  await userEvent.click(screen.getByRole('button', { name: 'Close room details' }));
+  expect(screen.queryByRole('complementary', { name: 'Room details' })).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+  await userEvent.keyboard('{Enter}');
+  expect(screen.getByRole('complementary', { name: 'Room details' })).toBeTruthy();
+  await userEvent.keyboard('{Escape}');
+  expect(screen.queryByRole('complementary', { name: 'Room details' })).toBeNull();
+  expect(document.activeElement).toBe(trigger);
+  expect(local.blocks.apply).not.toHaveBeenCalled();
+  expect(local.profiles.apply).not.toHaveBeenCalled();
+});
+
+it('collapses the directory without losing rooms or returning focus to hidden controls', async () => {
+  const local = runtime();
+  show(local);
+  await userEvent.click(await screen.findByRole('button', { name: "Select Alice's room" }));
+  const model = canvas.model;
+  const toggle = screen.getByRole('button', { name: 'Agents · 1' });
+  await userEvent.click(toggle);
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByRole('button', { name: "Select Alice's room" })).toBeNull();
+  expect(canvas.model).toBe(model);
+  await userEvent.click(screen.getByRole('button', { name: 'Close room details' }));
+  expect(document.activeElement).toBe(toggle);
+  await userEvent.keyboard('{Enter}');
+  expect(screen.getByRole('button', { name: "Select Alice's room" })).toBeTruthy();
+  expect(local.blocks.apply).not.toHaveBeenCalled();
 });
 
 it.each(['blocks', 'profiles', 'avatars', 'props'] as const)(

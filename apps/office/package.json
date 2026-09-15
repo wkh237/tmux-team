@@ -20,6 +20,7 @@
     "@tanstack/react-router": "1.170.33",
     "firebase": "12.18.0",
     "jotai": "3.0.0",
+    "pixi.js": "8.20.1",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },

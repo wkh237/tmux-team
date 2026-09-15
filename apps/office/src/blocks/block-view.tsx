@@ -1,11 +1,19 @@
-import { createContext, useContext, useEffect, useState, useSyncExternalStore } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from 'react';
+import type { ReactNode } from 'react';
 import { FURNITURE, OBJECT_LIMIT, builtinFurniture, defaultCatalog } from './block-contract.js';
 import type { Asset, BlockPort, Furniture } from './block-contract.js';
 import { createBlockState } from './block-state.js';
 import type { BlockState } from './block-state.js';
 import { resolvedProp } from '../props/prop-contract.js';
 import { BlockScene } from './block-scene.js';
-import type { SceneAvatar } from './block-scene.js';
+import type { SceneAvatar, BlockSceneProps } from './block-scene.js';
 import './block.css';
 
 export const BlockContext = createContext<BlockPort | undefined>(undefined);
@@ -14,11 +22,13 @@ export function BlockPanel({
   blockPort,
   label,
   avatar,
+  renderScene,
 }: {
   worldId: string;
   blockPort?: BlockPort;
   label?: string;
   avatar?: SceneAvatar;
+  renderScene?: (props: BlockSceneProps) => ReactNode;
 }) {
   const defaultPort = useContext(BlockContext);
   const port = blockPort ?? defaultPort;
@@ -29,25 +39,32 @@ export function BlockPanel({
     setState(next);
     return () => next.dispose();
   }, [port, worldId]);
-  return state ? <BlockEditor state={state} label={label} avatar={avatar} /> : null;
+  return state ? (
+    <BlockEditor state={state} label={label} avatar={avatar} renderScene={renderScene} />
+  ) : null;
 }
 export function BlockEditor({
   state,
   label = 'YOUR SPACE / HOME BLOCK',
   avatar,
+  renderScene = (props) => <BlockScene {...props} />,
 }: {
   state: BlockState;
   label?: string;
   avatar?: SceneAvatar;
+  renderScene?: (props: BlockSceneProps) => ReactNode;
 }) {
   const { remote, draft, ready, busy, error } = useSyncExternalStore(
     state.subscribe,
     state.getSnapshot
   );
   const [selected, setSelected] = useState<number | null>(null);
-  const objects = draft?.objects ?? remote?.objects ?? [];
+  const objects = useMemo(
+    () => draft?.objects ?? remote?.objects ?? [],
+    [draft?.objects, remote?.objects]
+  );
   const item = selected === null ? undefined : objects[selected];
-  const catalog = remote?.catalog ?? defaultCatalog();
+  const catalog = useMemo(() => remote?.catalog ?? defaultCatalog(), [remote?.catalog]);
   function objectLabel(object: Furniture): string {
     const [digest, key] = object.prop.split('/');
     const pack = catalog.find((candidate) => candidate.digest === digest)?.pack;
@@ -89,14 +106,14 @@ export function BlockEditor({
       {error && <p role="alert">{error}</p>}
       {ready && (
         <div className="block-workbench">
-          <BlockScene
-            objects={objects}
-            selected={selected}
-            select={setSelected}
-            move={(x, y) => update({ x, y })}
-            avatar={avatar}
-            catalog={catalog}
-          />
+          {renderScene({
+            objects,
+            selected,
+            select: busy ? undefined : setSelected,
+            move: busy ? undefined : (x, y) => update({ x, y }),
+            avatar,
+            catalog,
+          })}
           <aside className="block-tools" aria-label="Furniture controls">
             <h3>Small things, your space.</h3>
             <p>

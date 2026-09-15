@@ -40,9 +40,9 @@ callbacks cannot restore its content. Repeated unchanged admission leaves the
 active world subscription and editor draft intact.
 It starts in the mounted `BlockPanel` effect, is keyed by world, and disposes on
 route/admission loss. Late observations and saves cannot restore disposed data.
-`block-scene.tsx` renders controlled vector primitives; `block-view.tsx` owns
-selection and controls. No canvas engine, generic scene framework, new global
-store or remote-state copy is introduced. Pointer selection/tile placement and
+`block-scene.tsx` renders remote block views; `block-view.tsx` owns
+selection and controls and exposes a controlled scene slot. Local views use the PixiJS scene described below,
+without a generic game framework, new global store or remote-state copy. Pointer selection/tile placement and
 equivalent numeric/keyboard controls edit locally; explicit Save uses the
 revision-checked Firestore transaction. The native companion implements
 revision-safe block show/apply for its scoped remote assignment, while local
@@ -113,7 +113,27 @@ The floor and board entrance remain visible without identities. Room selection i
 component-local presentation state, resolved against the current snapshot; it does
 not fetch another snapshot or persist a layout. Shared corridors are presentation,
 not stored furniture or agent presence.
-`BlockScene` and `Avatar` own both read-only overview and editor rendering. The
+The overview is a viewport-sized office with floating navigation and a selected-room
+inspector, not a document that appends details below the floor. No selection leaves
+the inspector absent; closing it returns focus to the selection trigger. The narrow
+layout uses a bounded bottom inspector. These surfaces reuse the same snapshot and
+do not introduce another identity or editor state owner.
+`office-scene-model.ts` derives canvas rooms from the same admitted snapshot;
+`rendering/office-scene.ts` owns the PixiJS display tree and camera. Indexed prop
+and avatar formats, catalog resolution and appearance generation remain shared
+with the existing editor. The canvas texture cache owns and releases only its
+mount's textures; it does not admit another artwork format. `scene-application`
+owns asynchronous renderer initialization, resize and teardown; `scene-frames`
+coalesces dirty updates and does not schedule an idle loop or draw in hidden tabs.
+`office-canvas.tsx` synchronizes controlled inputs through one mount-owned entry
+point: hidden updates replace pending inputs without rebuilding the scene, and
+visibility restoration applies only the latest values. Failed synchronization
+disposes the scene and exposes the accessible fallback instead of retaining it.
+The React agent directory remains available for keyboard access and renderer
+failure, not as another visual room renderer. `room-canvas.tsx` adapts the existing
+editor's objects, selection and callbacks to the same renderer; it owns no draft.
+Canvas picking calls those callbacks, while numeric controls remain available.
+The revision-aware draft owner does not move into PixiJS. The
 identity-targeted HTTP block port can read an absent room and save revision zero
 through the existing repository transaction; navigation itself never creates rows.
 The [local service contract](../../contracts/office/local-service-v1.md) owns its

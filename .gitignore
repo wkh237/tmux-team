@@ -9,6 +9,7 @@ dist/
 coverage/
 rust/target/
 target/distrib/
+target/office-spa/
 
 # Owner-local Firebase settings and secrets; commit templates, never credentials.
 .firebaserc

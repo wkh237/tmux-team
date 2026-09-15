@@ -1,14 +1,31 @@
 import { Link } from '@tanstack/react-router';
-import { useState } from 'react';
-import { BlockScene } from '../blocks/block-scene.js';
+import { useId, useMemo, useRef, useState } from 'react';
 import { resolveAvatar } from '../avatars/avatar-catalog.js';
 import { useLocalOffice } from './use-local-office.js';
+import { OfficeCanvas } from './office-canvas.js';
+import { officeSceneModel } from './office-scene-model.js';
 import '../blocks/block.css';
 import './office-floor.css';
 
 export function LocalOfficePage() {
   const { load, refresh } = useLocalOffice();
   const [selectedId, selectRoom] = useState<string>();
+  const [directoryOpen, setDirectoryOpen] = useState(true);
+  const directoryId = useId();
+  const directoryToggle = useRef<HTMLButtonElement>(null);
+  const directoryTriggers = useRef(new Map<string, HTMLButtonElement>());
+  const sceneModel = useMemo(
+    () =>
+      load.status === 'ready'
+        ? officeSceneModel(load.profiles, load.blocks, load.avatars, load.props)
+        : undefined,
+    [load]
+  );
+  const selectionTrigger = useRef<HTMLButtonElement | null>(null);
+  function closeDetails() {
+    selectRoom(undefined);
+    (directoryOpen ? selectionTrigger.current : directoryToggle.current)?.focus();
+  }
   if (load.status === 'loading') return <p role="status">Opening your office…</p>;
   if (load.status === 'error')
     return (
@@ -22,19 +39,48 @@ export function LocalOfficePage() {
   const online = load.profiles.filter((profile) => profile.online).length;
   const selected = load.profiles.find((profile) => profile.identityId === selectedId);
   return (
-    <section className="office-overview" aria-label="Office overview">
+    <section
+      className="office-overview"
+      aria-label="Office overview"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && selected) {
+          event.stopPropagation();
+          closeDetails();
+        }
+      }}
+    >
       <div className="office-heading">
         <div>
-          <p className="eyebrow">YOUR TEAM / ONE PLACE</p>
+          <p className="eyebrow">A LITTLE SPACE FOR BIG IDEAS</p>
           <h1>Your office</h1>
-          <p>A place for your team to work, collect ideas, and make their own.</p>
+          <p>Different minds. One place to make things.</p>
         </div>
         <button onClick={refresh}>Refresh office</button>
+        <button
+          ref={directoryToggle}
+          aria-expanded={directoryOpen}
+          aria-controls={directoryId}
+          onClick={() => setDirectoryOpen(!directoryOpen)}
+        >
+          Agents · {load.profiles.length}
+        </button>
       </div>
       <div className="office-workspace">
-        <div className="office-floor">
+        {sceneModel && (
+          <OfficeCanvas
+            model={sceneModel}
+            selectedId={selected?.identityId}
+            select={(id) => {
+              selectionTrigger.current = directoryTriggers.current.get(id) ?? null;
+              selectRoom(id);
+            }}
+          />
+        )}
+        <div className="office-floor" id={directoryId} hidden={!directoryOpen}>
           <div className="office-corridor">
-            <span>TMT / LOCAL OFFICE</span>
+            <span className="office-building-sign">
+              TMT WORKSHOP <small>LOCAL OFFICE / FLOOR 01</small>
+            </span>
             <span>
               {load.profiles.length} {load.profiles.length === 1 ? 'space' : 'spaces'} · {online}{' '}
               online
@@ -69,24 +115,21 @@ export function LocalOfficePage() {
                     </div>
                     <button
                       className="room-select"
+                      ref={(element) => {
+                        if (element) directoryTriggers.current.set(profile.identityId, element);
+                        else directoryTriggers.current.delete(profile.identityId);
+                      }}
                       aria-label={`Select ${profile.identityName}'s room`}
                       aria-pressed={selectedId === profile.identityId}
-                      onClick={() => selectRoom(profile.identityId)}
+                      aria-controls={
+                        selectedId === profile.identityId ? 'office-room-details' : undefined
+                      }
+                      onClick={(event) => {
+                        selectionTrigger.current = event.currentTarget;
+                        selectRoom(profile.identityId);
+                      }}
                     >
-                      <BlockScene
-                        objects={block?.layout.objects ?? []}
-                        catalog={load.props}
-                        avatar={
-                          profile.online
-                            ? {
-                                appearance: profile.profile.appearance,
-                                name: profile.identityName,
-                                displayLabel: profile.profile.displayLabel,
-                                customArt: avatar.status === 'available' ? avatar.art : undefined,
-                              }
-                            : undefined
-                        }
-                      />
+                      Inspect space
                     </button>
                     <div className="room-doorway">
                       <span>
@@ -114,43 +157,44 @@ export function LocalOfficePage() {
           )}
           <div className="office-corridor office-lobby">
             <div>
-              <span>THE COMMONS</span>
-              <p>Discoveries, work in progress, and a little conversation.</p>
+              <span className="eyebrow">MEET AT THE COMMONS</span>
+              <h2>Good ideas don’t stay at your desk.</h2>
+              <p>Leave a discovery. Share a work in progress. Say hello.</p>
             </div>
             <Link to="/local/board">
               Visit the board <span aria-hidden="true">→</span>
             </Link>
           </div>
         </div>
-        <aside className="office-inspector" aria-label="Room details">
-          <p className="eyebrow">{selected ? 'SELECTED SPACE' : 'MAKE YOURSELF AT HOME'}</p>
-          <h2>{selected ? selected.identityName : 'Room to think.'}</h2>
-          {selected ? (
-            <>
-              <p className="inspector-presence">
-                {selected.online ? 'Online · in the office' : 'Offline · their space is still here'}
-              </p>
-              {selected.profile.displayLabel && <p>{selected.profile.displayLabel}</p>}
-              <p>
-                {rooms.has(selected.identityId)
-                  ? 'A saved layout, ready to make your own.'
-                  : 'This space is ready. Nothing is saved until you save a layout.'}
-              </p>
-              <Link to="/local/agents/$identityId" params={{ identityId: selected.identityId }}>
-                Customize this space →
-              </Link>
-            </>
-          ) : (
-            <p>
-              Select a room to meet its owner, or enter to arrange furniture and update their
-              appearance. Every identity has a place here, even before its first layout.
+        {selected && (
+          <aside id="office-room-details" className="office-inspector" aria-label="Room details">
+            <button
+              className="inspector-close"
+              aria-label="Close room details"
+              onClick={closeDetails}
+            >
+              ×
+            </button>
+            <p className="eyebrow">SELECTED SPACE</p>
+            <h2>{selected.identityName}</h2>
+            <p className="inspector-presence">
+              {selected.online ? 'Online · in the office' : 'Offline · their space is still here'}
             </p>
-          )}
-          <div className="office-inspector-note">
-            <span aria-hidden="true">⌂</span>
-            <p>Your office stays on this computer. Exploring does not change anyone’s space.</p>
-          </div>
-        </aside>
+            {selected.profile.displayLabel && <p>{selected.profile.displayLabel}</p>}
+            <p>
+              {rooms.has(selected.identityId)
+                ? 'A saved layout, ready to make your own.'
+                : 'This space is ready. Nothing is saved until you save a layout.'}
+            </p>
+            <Link to="/local/agents/$identityId" params={{ identityId: selected.identityId }}>
+              Customize this space →
+            </Link>
+            <div className="office-inspector-note">
+              <span aria-hidden="true">⌂</span>
+              <p>Your office stays on this computer. Exploring does not change anyone’s space.</p>
+            </div>
+          </aside>
+        )}
       </div>
     </section>
   );

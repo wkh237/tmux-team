@@ -1,10 +1,12 @@
 import { expect, test } from '@playwright/test';
 import type { Request } from '@playwright/test';
 import { builtinFurniture } from '../src/blocks/block-contract.js';
+import { installDrawObserver, observeIdleScene } from './scene-observation.js';
 
 test('office overview enters an unfurnished room and saves through shared profile and block ports', async ({
   page,
 }, testInfo) => {
+  await installDrawObserver(page);
   const token = 'a'.repeat(43);
   const blockId = '11111111-1111-4111-8111-111111111111';
   let revision = 0;
@@ -171,6 +173,8 @@ test('office overview enters an unfurnished room and saves through shared profil
   await expect(page).toHaveURL('http://127.0.0.1:4176/local');
   await expect(page.getByRole('heading', { name: 'Your office' })).toBeVisible();
   await expect(page.getByText('Unfurnished · not saved')).toBeVisible();
+  await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
+  await observeIdleScene(page, testInfo, 'single-room');
   expect(revision).toBe(0);
   expect(profileRevision).toBe(0);
   await page.screenshot({ path: testInfo.outputPath('office-desktop.png'), fullPage: true });
@@ -197,7 +201,35 @@ test('office overview enters an unfurnished room and saves through shared profil
   await page.keyboard.press('Enter');
   await page.getByRole('button', { name: 'Add desk' }).click();
   expect(revision).toBe(0);
+  await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
+  // One 32-tile room has a two-tile wall and ten-tile corridor. The editor's
+  // desktop fit leaves the right HUD clear. Click an empty tile, not a DOM mock.
+  const roomScale = Math.min((1280 - 24 - 350) / 36, (900 - 170) / 46);
+  const roomLeft = 24 + (1280 - 24 - 350 - 36 * roomScale) / 2;
+  await page.mouse.move(roomLeft + 33.5 * roomScale, 100 + 10.5 * roomScale);
+  await expect(page.locator('.office-canvas canvas')).toHaveAttribute(
+    'aria-description',
+    'Placement preview: tile 31, 8, outside room bounds. Click to place.'
+  );
+  await expect(page.getByLabel('Tile X')).toHaveValue('14');
+  await page.mouse.move(roomLeft + 10.5 * roomScale, 100 + 10.5 * roomScale);
+  await expect(page.locator('.office-canvas canvas')).toHaveAttribute(
+    'aria-description',
+    'Placement preview: tile 8, 8. Click to place.'
+  );
+  await page.screenshot({ path: testInfo.outputPath('room-placement-preview.png') });
+  await page.locator('.office-canvas canvas').click({
+    position: {
+      x: 24 + (1280 - 24 - 350 - 36 * roomScale) / 2 + 10.5 * roomScale,
+      y: 100 + 10.5 * roomScale,
+    },
+  });
+  await expect(page.getByLabel('Tile X')).toHaveValue('8');
+  await expect(page.getByLabel('Tile Y')).toHaveValue('8');
+  expect(revision).toBe(0);
+  await page.screenshot({ path: testInfo.outputPath('room-placement-desktop.png') });
   await page.getByRole('button', { name: 'Save layout' }).click();
+  await page.getByText('Appearance', { exact: true }).click();
   await expect(page.getByText('Avatar · default robot')).toBeVisible();
   await expect(page.getByText('Saved · revision 1')).toBeVisible();
   await expect(page.locator('.profile-preview .avatar-name')).toHaveText('Alice');
@@ -222,7 +254,9 @@ test('office overview enters an unfurnished room and saves through shared profil
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await page.screenshot({ path: testInfo.outputPath('profile-narrow.png'), fullPage: true });
+  await page.getByText('Appearance', { exact: true }).click();
   await page.getByRole('button', { name: 'Add plant' }).click();
+  await page.screenshot({ path: testInfo.outputPath('room-placement-narrow.png') });
   await page.getByRole('button', { name: 'Save layout' }).click();
   await expect(page.getByText('Saved · revision 2')).toBeVisible();
   expect(objects).toHaveLength(2);
@@ -232,7 +266,8 @@ test('office overview enters an unfurnished room and saves through shared profil
   expect(avatarCatalogRequests).toBe(4);
   await page.getByRole('link', { name: '← Back to office' }).click();
   await expect(page.getByText('2 pieces · saved')).toBeVisible();
-  await expect(page.locator('.office-room .block-scene')).toBeVisible();
+  await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
+  await expect(page.locator('.office-canvas canvas')).toBeVisible();
   extraRooms = true;
   await page.getByRole('button', { name: 'Refresh office' }).click();
   await expect(page.getByText('3 spaces · 2 online')).toBeVisible();
@@ -245,8 +280,85 @@ test('office overview enters an unfurnished room and saves through shared profil
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.screenshot({ path: testInfo.outputPath('office-team-desktop.png'), fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
+  await expect
+    .poll(async () => (await page.locator('.office-canvas canvas').boundingBox())?.width)
+    .toBe(390);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await page.screenshot({ path: testInfo.outputPath('office-team-narrow.png'), fullPage: true });
+  for (const viewport of [
+    { width: 1280, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const trigger = page.getByRole('button', { name: "Select Bob's room" });
+    await trigger.click();
+    const details = page.getByRole('complementary', { name: 'Room details' });
+    await expect(details.getByRole('heading', { name: 'Bob' })).toBeVisible();
+    const bounds = await details.boundingBox();
+    expect(bounds).not.toBeNull();
+    expect(bounds!.y).toBeGreaterThanOrEqual(0);
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewport.height);
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(viewport.width);
+    await page.screenshot({ path: testInfo.outputPath(`office-hud-${viewport.width}.png`) });
+    await details.getByRole('button', { name: 'Close room details' }).click();
+    await expect(details).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    expect(revision).toBe(2);
+    expect(profileRevision).toBe(1);
+  }
+  // A furnished fixture, not automatic defaults: simulate a newer saved layout
+  // from another local caller and inspect the complete room composition.
+  objects = [
+    ...[3, 9, 19, 25].map((x) => builtinFurniture('rug', x, 6, 0)),
+    ...[4, 8, 20, 24].map((x) => builtinFurniture('desk', x, 6, 0)),
+    ...[7, 23].map((x) => builtinFurniture('chair', x, 9, 0)),
+    ...[2, 28].flatMap((x) => [2, 27].map((y) => builtinFurniture('plant', x, y, 0))),
+    builtinFurniture('rug', 11, 22, 0),
+    builtinFurniture('chair', 13, 24, 0),
+  ];
+  revision += 1;
+  extraRooms = false;
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole('button', { name: 'Refresh office' }).click();
+  await expect(page.getByText('16 pieces · saved')).toBeVisible();
+  await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
+  await page.screenshot({ path: testInfo.outputPath('office-furnished-workshop.png') });
+  await page.route('**/api/v1/local/profiles', (route) =>
+    route.fulfill({
+      json: Array.from({ length: 24 }, (_, index) => ({
+        identityId: `55555555-5555-4555-8555-${String(index + 1).padStart(12, '0')}`,
+        identityName: `Workspace ${index + 1}`,
+        exists: false,
+        revision: 0,
+        updatedAtMs: null,
+        catalog,
+        online: index % 4 !== 0,
+        profile: {
+          ...profile,
+          appearance: {
+            ...profile.appearance,
+            shirtColor: catalog.shirtColors[index % catalog.shirtColors.length],
+          },
+        },
+      })),
+    })
+  );
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole('button', { name: 'Refresh office' }).click();
+  await expect(page.locator('.office-room')).toHaveCount(24);
+  await observeIdleScene(page, testInfo, '24-rooms');
+  await page.getByRole('button', { name: 'Agents · 24' }).click();
+  await page.screenshot({ path: testInfo.outputPath('office-24-rooms.png') });
+  await page.getByRole('button', { name: 'Agents · 24' }).click();
+  await page.route('**/api/v1/local/profiles', (route) => route.fulfill({ json: [] }));
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('button', { name: 'Refresh office' }).click();
+  await expect(page.locator('.office-room')).toHaveCount(0);
+  await expect(page.getByText('tmt identity create alice')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('office-empty-narrow.png') });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.screenshot({ path: testInfo.outputPath('office-empty-desktop.png') });
   expect(requests.every((url) => new URL(url).hostname === '127.0.0.1')).toBe(true);
 });
 

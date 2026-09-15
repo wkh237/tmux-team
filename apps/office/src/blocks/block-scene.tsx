@@ -7,6 +7,7 @@ import type { Appearance } from '../profiles/profile-contract.js';
 import type { CatalogPack } from '../props/prop-contract.js';
 import { resolvedProp } from '../props/prop-contract.js';
 import { IndexedProp } from '../props/indexed-prop.js';
+import workshopFloor from './assets/workshop-oak-v1.png';
 
 export interface SceneAvatar {
   appearance: Appearance;
@@ -59,6 +60,15 @@ function ResolvedProp({ item, catalog }: { item: Furniture; catalog: CatalogPack
   );
 }
 
+export interface BlockSceneProps {
+  objects: Furniture[];
+  selected?: number | null;
+  select?: (index: number) => void;
+  move?: (x: number, y: number) => void;
+  avatar?: SceneAvatar;
+  catalog?: CatalogPack[];
+}
+
 export function BlockScene({
   objects,
   selected,
@@ -66,15 +76,9 @@ export function BlockScene({
   move,
   avatar,
   catalog = defaultCatalog(),
-}: {
-  objects: Furniture[];
-  selected?: number | null;
-  select?: (index: number) => void;
-  move?: (x: number, y: number) => void;
-  avatar?: SceneAvatar;
-  catalog?: CatalogPack[];
-}) {
+}: BlockSceneProps) {
   const pattern = useId();
+  const floor = useId();
   return (
     <svg
       className="block-scene"
@@ -94,13 +98,17 @@ export function BlockScene({
       }}
     >
       <defs>
+        <pattern id={floor} width="32" height="32" patternUnits="userSpaceOnUse">
+          <image href={workshopFloor} width="32" height="32" preserveAspectRatio="none" />
+        </pattern>
         <pattern id={pattern} width="1" height="1" patternUnits="userSpaceOnUse">
-          <rect width="1" height="1" fill="var(--floor)" />
           <path d="M1 0 H0 V1" fill="none" stroke="var(--grid)" strokeWidth="0.035" />
         </pattern>
       </defs>
       <rect x="-0.6" y="-0.6" width="33.2" height="33.2" rx="0.5" fill="var(--wall)" />
-      <rect width="32" height="32" fill={`url(#${pattern})`} />
+      <rect width="32" height="32" fill={`url(#${floor})`} />
+      <rect width="32" height="32" fill="#eadcc0" opacity="0.22" />
+      {move && <rect width="32" height="32" fill={`url(#${pattern})`} />}
       {objects.map((item, index) => {
         const { width, height } = footprint(item);
         return (

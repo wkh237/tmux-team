@@ -64,7 +64,13 @@ tokens are distinct, status is token-free, and only exact IPv4 loopback Host/Ori
 requests reach the bounded HTTP adapter. Identity UUID remains ownership authority;
 retirement hides but does not delete its block.
 The local overview and personal-room routes share one mounted snapshot loader
-and the existing scene renderer. HTTP block access targets identity UUIDs, using
+and admitted profile/prop values. The overview uses a mount-owned Pixi renderer,
+camera and texture cache; React owns its HUD and accessible directory. The local
+personal editor supplies that same renderer through the existing editor's controlled
+scene slot. Remote block views retain SVG. Both use the same revision-aware draft owner.
+Neither renderer owns persisted layout or identity state. Rendering is invalidation-driven,
+with bounded pixel density and cancellation/teardown of browser and GPU resources.
+HTTP block access targets identity UUIDs, using
 the same absent-read and first-apply transaction as the CLI; opening a room does
 not materialize defaults or create parallel persistence.
 Owner approval may select a revoked grant's retained block through the same
@@ -538,7 +544,7 @@ zero-file success.
 `scripts/native-cargo.sh`, `scripts/native-artifact-policy.mjs` and
 `scripts/verify-native-artifact.mjs` are developer/release tooling. The
 workflow builds the four supported cargo-dist targets, creates target-filtered
-third-party notices, and verifies runtime bytes, linkage, checksums, archive
+third-party notices (including Vite's bundled frontend inventory for Office), and verifies runtime bytes, linkage, checksums, archive
 inventory and executable behavior on matching hosts. CLI runs additionally
 verify exact managed-skill contents and the generated bootstrap.
 

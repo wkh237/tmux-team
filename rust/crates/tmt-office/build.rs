@@ -52,14 +52,15 @@ fn main() {
             "Office SPA asset name is unsafe"
         );
         assert!(
-            name.ends_with(".js") || name.ends_with(".css"),
-            "Office SPA supports only generated JS and CSS assets"
+            name.ends_with(".js") || name.ends_with(".css") || name.ends_with(".png"),
+            "Office SPA supports only generated JS, CSS and PNG assets"
         );
         files.push((format!("/assets/{name}"), path));
     }
     files.sort_by(|left, right| left.0.cmp(&right.0));
     assert!(
-        (2..=9).contains(&files.len()),
+        // The renderer uses lazy chunks; the independent 8 MiB byte cap remains.
+        (2..=32).contains(&files.len()),
         "Office SPA asset count is out of bounds"
     );
     let mut total = 0_u64;
@@ -77,6 +78,8 @@ fn main() {
             "text/html; charset=utf-8"
         } else if route.ends_with(".js") {
             "text/javascript; charset=utf-8"
+        } else if route.ends_with(".png") {
+            "image/png"
         } else {
             "text/css; charset=utf-8"
         };

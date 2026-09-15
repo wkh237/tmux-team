@@ -45,6 +45,11 @@ mkdir -p target/native-notices
 cargo-about generate --manifest-path "crates/tmt-$product/Cargo.toml" \
   --config about.toml --target "$target" --locked --offline --fail about.hbs \
   --output-file target/native-notices/THIRD-PARTY-NOTICES.txt 1>&2
+if [ "$product" = office ]; then
+  # Vite owns the inventory of dependencies actually included in the SPA bundle.
+  test -s "$TMT_OFFICE_SPA_DIR/THIRD-PARTY-NOTICES.txt"
+  cat "$TMT_OFFICE_SPA_DIR/THIRD-PARTY-NOTICES.txt" >> target/native-notices/THIRD-PARTY-NOTICES.txt
+fi
 
 # Keep diagnostics on stderr and cargo-dist's authoritative manifest on stdout.
 # Callers save stdout alongside the archives, then run the independent verifier.

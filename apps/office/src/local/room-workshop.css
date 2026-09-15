@@ -1,0 +1,98 @@
+.office-shell:has(.personal-space) {
+  max-width: none;
+  height: 100dvh;
+  overflow: hidden;
+  padding: 0;
+}
+.personal-space > a {
+  position: fixed;
+  left: 24px;
+  top: 94px;
+  z-index: 3;
+  padding: 10px 14px;
+  background: #fffbed;
+  border-radius: 6px;
+}
+.office-shell:has(.personal-space) > footer {
+  display: none;
+}
+.room-appearance {
+  position: fixed;
+  z-index: 4;
+  left: 24px;
+  top: 146px;
+  max-height: calc(100dvh - 220px);
+  max-width: min(360px, calc(100vw - 48px));
+  overflow: auto;
+  padding: 12px;
+  border-radius: 8px;
+  background: #fffbed;
+}
+.room-appearance summary {
+  cursor: pointer;
+  position: sticky;
+  top: -12px;
+  z-index: 1;
+  padding: 12px 0;
+  background: #fffbed;
+}
+.personal-space > .offline-note {
+  position: fixed;
+  z-index: 3;
+  left: 24px;
+  bottom: 24px;
+  padding: 12px;
+  background: #fffbed;
+}
+.personal-space > h1,
+.personal-space .block-heading > div,
+.personal-space .block-note {
+  display: none;
+}
+.personal-space .block-editor {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.personal-space .block-tools {
+  position: fixed;
+  z-index: 3;
+  right: 20px;
+  top: 92px;
+  bottom: 82px;
+  width: 280px;
+  padding: 20px;
+  overflow: auto;
+  border-radius: 8px;
+  background: #fffbedf5;
+  box-shadow: 0 8px 28px #182d2830;
+}
+.personal-space .block-heading > [role='status'] {
+  position: fixed;
+  z-index: 4;
+  bottom: 24px;
+  right: 20px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  background: #fffbed;
+}
+.personal-space .block-editor > [role='alert'] {
+  position: fixed;
+  z-index: 4;
+  bottom: 58px;
+  right: 20px;
+  max-width: 300px;
+  padding: 12px;
+  background: #fffbed;
+}
+@media (max-width: 760px) {
+  .personal-space .block-tools {
+    top: auto;
+    left: 12px;
+    right: 12px;
+    bottom: 64px;
+    width: auto;
+    max-height: 32dvh;
+    padding: 14px;
+  }
+}

@@ -30,6 +30,9 @@ handles one request before closing. There is no CORS response.
 
 - `GET /`, `/index.html`, `/local`, `/local/*` and exact embedded `/assets/*` serve
   only compiled SPA bytes. The static shell is unauthenticated and contains no state.
+  The build admits HTML plus generated JS/CSS and bundled PNG files, with safe
+  flat asset names, at most 32 files and an 8 MiB combined size limit. PNG is
+  served as `image/png`; this does not admit user-uploaded images or executable SVG.
 - `GET /api/v1/local/blocks` requires the browser bearer and returns active existing
   block projections only.
 - `GET /api/v1/local/identities/<uuid>/block` requires the browser bearer and an
