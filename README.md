@@ -9,7 +9,7 @@ history. A standalone native CLI—no Node.js, Rust toolchain, or daemon require
 Native alpha for macOS and Linux, arm64 and x64. No Node, npm, pnpm or Rust
 toolchain needed.
 
-[Download the installer](https://github.com/wkh237/tmux-team/releases/download/v5.0.0-alpha.4/tmt-installer.sh),
+[Download the installer](https://github.com/wkh237/tmux-team/releases/download/v5.0.0-alpha.5/tmt-installer.sh),
 then run it from the download folder:
 
 ```sh
@@ -18,12 +18,24 @@ sh tmt-installer.sh
 
 Installs into `~/.local/bin` and sets up the agent skill non-interactively.
 If `tmt` is not found, complete the [one-time PATH setup](NATIVE-INSTALL.md#one-time-path-setup).
-Reload your agent's skills. Update later with `tmt upgrade`—no reinstall or
-repeated PATH setup.
+Reload your agent's skills. For an update, run `tmt upgrade --channel alpha`
+followed by `tmt install`, then reload the agent; no binary reinstall or repeated
+PATH setup is needed.
 
 Prefer curl, a custom location, or replacing an older installation? See
 [installation options](NATIVE-INSTALL.md). The installer never uninstalls old
 packages or deletes application data.
+
+Office is optional. After installing the CLI, install and start the independently
+versioned local companion with:
+
+```sh
+tmt office install --yes --channel alpha
+tmt office start
+```
+
+For an existing Office installation, update the CLI first as above, then run
+`tmt office upgrade --channel alpha` and start Office explicitly.
 
 tmux is needed for live pane operations: binding, direct pane messaging and
 inspection. Explicit local identity/profile access, stored results, and the
@@ -104,8 +116,9 @@ updating. Installation does not reload a running agent. See the
 [canonical collaboration skill](skills/tmux-team/SKILL.md). Core installation
 manages the `tmux-team` and `tmt-inbox` skills. Explicit Office setup separately
 manages the optional [`tmt-office`](skills/tmt-office/SKILL.md) and
-[`tmt-prop-create`](skills/tmt-prop-create/SKILL.md) skills; core installation
-does not add them.
+[`tmt-prop-create`](skills/tmt-prop-create/SKILL.md) skills, plus
+[`tmt-avatar-create`](skills/tmt-avatar-create/SKILL.md); core installation does
+not add them.
 
 ## Boundaries worth knowing
 
@@ -130,14 +143,11 @@ and failure handling, or `tmt help` for command options.
 
 ## Development
 
-Office is an optional work in progress. An independently versioned public alpha
-companion is available through `tmt office install --yes` for pairing and remote
-agent block decoration with scoped, renewable access. This source tree additionally
-implements offline local block editing through `tmt office start`, but it is not in
-the currently published CLI/Office pair and must be released together before public
-installer guidance may claim it. The local UI is loopback-only, uses the same SQLite
-repository as one-shot `--local` commands and needs no Node or Firebase at runtime;
-no hosted Office service is provided. See
+Office is an optional, independently versioned public alpha companion. It provides
+pairing and remote agent block decoration with scoped, renewable access, plus an
+offline local Office through `tmt office start`. The local UI is loopback-only,
+uses the same SQLite repository as one-shot `--local` commands and needs no Node or
+Firebase at runtime; no hosted Office service is provided. See
 [Office commands](docs/office/commands.md); ordinary TMT use does not require it.
 
 Contributor-only requirements and checks are in [development](DEVELOPMENT.md).

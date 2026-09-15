@@ -1,22 +1,47 @@
 # TMT native alpha installation
 
-For an optional `tmt-office` archive, use an installed native CLI:
+The verified public pair is TMT CLI `5.0.0-alpha.5` with optional TMT Office
+`0.1.0-alpha.2`. Download the current immutable CLI installer from the
+[README](README.md#install). After installing the CLI, opt into Office with:
+
+```sh
+tmt office install --yes --channel alpha
+tmt office start
+```
+
+For an existing public alpha installation, update the CLI and its complete core
+skill set before updating an installed Office companion:
+
+```sh
+tmt upgrade --channel alpha
+tmt install
+tmt office upgrade --channel alpha
+```
+
+Use `tmt office install --yes --channel alpha` instead of the last command when
+Office is not installed. Installation and upgrade do not start Office; run
+`tmt office start` explicitly. Reload or restart existing agent conversations
+after `tmt install` or an Office install/upgrade. The old public CLI alpha.4 does
+not recognize `tmt office stop`, so it is not an update prerequisite. A development
+build already running the local service must be stopped with that same old build
+before switching writers.
+
+For an optional local `tmt-office` archive, use an installed native CLI:
 `tmt office install --yes --archive <archive.tar.gz> --manifest <dist-manifest.json>`.
 Then run `tmt office status`. Add the same `--prefix <folder>` to both commands
 for a custom installation. Office is independently versioned. The public
 companion and source builds support compatibility probes, explicit pairing and
 renewable scoped access. Installation alone does not pair, open a world or start a
-service. This source tree adds `tmt office start` and `stop` for a loopback-only
-embedded local UI; those commands are not in the currently published CLI/Office pair.
+service. The public companion includes `tmt office start` and `stop` for a
+loopback-only embedded local UI.
 The public Office install and upgrade commands also manage the optional
-`tmt-office` agent skill through the CLI's existing provider and custom-root
-registry. Core installation remains independent, and the hidden binary-only
+`tmt-office`, `tmt-prop-create` and `tmt-avatar-create` agent skills through the
+CLI's existing provider and custom-root registry. Core installation remains
+independent, and the hidden binary-only
 `__native-install --product office` boundary does not install skills.
-Do not advertise or publish the Office candidate independently: its migration 011 can
-make a schema-10 CLI reject the shared database, so the compatible CLI must be upgraded
-first and both artifacts must be coordinated. The four-file Office archive inventory
-is unchanged because generated SPA assets are compiled into `tmt-office`, not installed
-as mutable files.
+CLI and Office share forward-only state migrations, so the compatible CLI must be
+upgraded first. The four-file Office archive inventory is unchanged because generated
+SPA assets are compiled into `tmt-office`, not installed as mutable files.
 The public alpha companion is acquired through the CLI's verified immutable
 release path. No hosted Office service or production Firebase deployment is
 provided.
@@ -62,7 +87,7 @@ The selected executable's help is the capability authority; the shared alpha
 version number alone does not distinguish native and TypeScript runtimes.
 
 For a verified managed native installation, `tmt upgrade` retains its channel;
-`tmt upgrade --channel alpha` selects alpha, `--to 5.0.0-alpha.4` pins an exact
+`tmt upgrade --channel alpha` selects alpha, `--to 5.0.0-alpha.5` pins an exact
 version, and `--unpin` resumes channel updates. `tmt update` is the same command.
 Downgrades are rejected. An ordinary pinned invocation does not access the
 network. Use `--json` for a single structured result. The update refreshes only
@@ -88,13 +113,10 @@ for tested host OS versions; a deployment target is not testing on every OS.
 
 ## Curl bootstrap
 
-Download the published native `5.0.0-alpha.4` installer:
-
-```sh
-curl -fsSL --proto '=https' --proto-redir '=https' \
-  -o tmt-installer.sh \
-  https://github.com/wkh237/tmux-team/releases/download/v5.0.0-alpha.4/tmt-installer.sh
-```
+Download the current immutable installer linked from the [README](README.md#install).
+When downloading it with curl, retain `--proto '=https' --proto-redir '=https'`
+and save the response as `tmt-installer.sh`; do not pipe an unchecked response
+directly into a shell.
 
 Only after a successful download, inspect it if desired and run:
 
