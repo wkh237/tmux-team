@@ -189,6 +189,12 @@ typed requests and publish through `output.rs`. Hidden commands are still
 parsed for controlled internal workflows but are omitted from public help and
 completion.
 
+Help retains its selected public command path. The grammar-aware presentation scan
+shares option-value boundaries with error-mode recovery, so `-h`/`--help` can bypass
+required operands without interpreting payload data as flags. Public help and
+completion use command-owned options, not inherited placement-only options. Help
+never enters runtime dispatch or skill-drift inspection; JSON help remains unsupported.
+
 The maintained public surface is:
 
 - `init`, `config`, `completion`, `learn` and `install` for local setup and

@@ -55,12 +55,17 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
     skill_reminder::emit(&parsed);
     let mut stdout = io::stdout().lock();
     match parsed.invocation {
-        Invocation::Help => {
-            writeln!(
-                stdout,
-                "TMT native alpha — collaborate with terminal agents through durable exchanges.\nRun tmt install to set up agent skills; managed installations use tmt upgrade.\n"
-            )?;
-            grammar::public_grammar(&grammar::grammar(), true).write_long_help(&mut stdout)?;
+        Invocation::Help(path) => {
+            if path.is_empty() {
+                writeln!(
+                    stdout,
+                    "TMT native alpha — collaborate with terminal agents through durable exchanges.\nRun tmt install to set up agent skills; managed installations use tmt upgrade.\n"
+                )?;
+            }
+            // The parser has already resolved and validated this public path.
+            grammar::help_command(&path)
+                .map_err(io::Error::other)?
+                .write_help(&mut stdout)?;
             writeln!(stdout)?;
         }
         Invocation::Version => writeln!(stdout, "{}", env!("CARGO_PKG_VERSION"))?,

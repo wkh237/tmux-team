@@ -1,6 +1,6 @@
 #[derive(Debug, Clone, PartialEq)]
 pub enum Invocation {
-    Help,
+    Help(Vec<String>),
     Version,
     Completion(Option<String>),
     Learn {

@@ -595,7 +595,10 @@ Options apply only to commands that use them. `--timeout`, `--delay`,
 `--detach`, and `--no-preamble` belong to talk/send; `--lines` belongs to
 check/read; `--force` belongs to talk/send, install and rm/remove. Unrelated options
 and the unsupported `--config` path override fail with `USAGE_ERROR` before
-execution. Use `tmt help` for the command-specific option inventory.
+execution. Use `tmt <command> --help` (or `-h`) for its options, including nested
+commands such as `tmt office block apply --help`. `tmt help office block apply`
+is equivalent. Help needs no identity, required operands, running service or
+storage access; omit `--json` when requesting it.
 
 Meaningful common options may precede the command, such as
 `tmt --timeout 30 talk reviewer "Review this"`. Put command-local options

@@ -26,7 +26,10 @@ pub fn grammar() -> Command {
         root = root.arg(option(id).global(true));
     }
     root = root.subcommand(office_commands());
-    root.subcommand(general("help", "Show help"))
+    root.subcommand(
+        general("help", "Show help for a command")
+            .arg(operand("command-path", false).num_args(0..)),
+    )
     .subcommand(
         general("team", "Retired command")
             .hide(true)
@@ -325,6 +328,7 @@ fn office_commands() -> Command {
         ))
         .subcommand(
             office("block", "Read or edit an Office block")
+                .subcommand_required(true)
                 .subcommand(office_block_scope(
                     office("show", "Show the selected Office block")
                         .arg(operand("block-id", false)),
@@ -349,6 +353,7 @@ fn office_commands() -> Command {
                 "profile",
                 "Read or edit a local Office presentation profile",
             )
+            .subcommand_required(true)
             .subcommand(
                 office(
                     "show",
@@ -470,6 +475,7 @@ fn office_prop_commands() -> Command {
         )
     };
     office("prop", "Manage local data-only Office prop packs")
+        .subcommand_required(true)
         .subcommand(
             office("validate", "Validate one bounded data-only prop pack")
                 .arg(Arg::new("file").long("file").required(true)),
@@ -524,6 +530,7 @@ fn office_avatar_commands() -> Command {
         )
     };
     office("avatar", "Manage local data-only Office avatar packs")
+        .subcommand_required(true)
         .subcommand(
             office("validate", "Validate one bounded data-only avatar pack")
                 .arg(Arg::new("file").long("file").required(true)),
@@ -600,6 +607,7 @@ fn office_board_commands() -> Command {
         )
     };
     office("board", "Use the local Office discussion board")
+        .subcommand_required(true)
         .subcommand(operation(body(
             actor(
                 category(office("post", "Post a board thread")).arg(
@@ -731,6 +739,7 @@ pub fn root_allowed(id: &str) -> bool {
 /// advertised, command-owned arguments so rejection-only syntax is never offered.
 pub fn public_grammar(definition: &Command, root: bool) -> Command {
     let mut result = Command::new(definition.get_name().to_owned())
+        .subcommand_required(definition.is_subcommand_required_set())
         .disable_help_flag(true)
         .disable_version_flag(true)
         .disable_help_subcommand(true)
@@ -749,7 +758,33 @@ pub fn public_grammar(definition: &Command, root: bool) -> Command {
     {
         result = result.subcommand(public_grammar(child, false));
     }
-    result
+    for group in definition.get_groups() {
+        if group.get_args().next().is_some()
+            && group.get_args().all(|id| {
+                result
+                    .get_arguments()
+                    .any(|argument| argument.get_id() == id)
+            })
+        {
+            result = result.group(group.clone());
+        }
+    }
+    result.arg(option("help").hide(false).global(false))
+}
+
+/// Resolve public command paths without dispatching any runtime operation.
+pub fn help_command(path: &[String]) -> Result<Command, String> {
+    let definition = grammar();
+    let mut selected = &definition;
+    let mut names = vec!["tmt".to_owned()];
+    for name in path {
+        selected = selected
+            .find_subcommand(name)
+            .filter(|command| !command.is_hide_set())
+            .ok_or_else(|| format!("Unknown command '{name}' after {}.", names.join(" ")))?;
+        names.push(selected.get_name().to_owned());
+    }
+    Ok(public_grammar(selected, path.is_empty()).bin_name(names.join(" ")))
 }
 
 fn option(id: &'static str) -> Arg {
