@@ -3,7 +3,12 @@ import type { Texture } from 'pixi.js';
 import type { SceneRect } from './office-geometry.js';
 
 /** Building fabric only; never adds furniture to the saved room layout. */
-export function drawRoomEnvelope(parent: Container, room: SceneRect, floor: Texture) {
+export function drawRoomEnvelope(
+  parent: Container,
+  room: SceneRect,
+  floor: Texture,
+  wall: Texture
+) {
   const { x, y, width, height } = room;
   parent.addChild(
     new Graphics()
@@ -34,17 +39,6 @@ export function drawRoomEnvelope(parent: Container, room: SceneRect, floor: Text
   finish
     .poly([x + 6, y, x + 18, y, x + 24, y + 17, x + 12, y + 17])
     .fill({ color: '#fff7d5', alpha: 0.16 });
-  finish
-    .rect(x + 5.7, y - 1.9, 12.6, 1.9)
-    .fill('#415f58')
-    .rect(x + 6, y - 1.7, 12, 1.4)
-    .fill('#aad3c8')
-    .rect(x + 6, y - 1.7, 12, 0.35)
-    .fill('#d1ece0')
-    .rect(x + 11.8, y - 1.7, 0.4, 1.4)
-    .fill('#e8e5cb')
-    .rect(x + 5.3, y - 0.3, 13.4, 0.6)
-    .fill('#e8e5cb');
   // The threshold is outside the editable 32x32 floor, not an occupied tile.
   finish
     .rect(x + width - 9, y + height, 6, 2)
@@ -56,4 +50,11 @@ export function drawRoomEnvelope(parent: Container, room: SceneRect, floor: Text
     .rect(x + width - 3, y + height, 0.3, 2)
     .fill('#eee6c9');
   parent.addChild(finish);
+  // Elevation occupies architecture space above the editable floor. Every room
+  // shares this texture; neither extra GPU uploads nor saved objects are needed.
+  const elevation = new Sprite(wall);
+  elevation.width = width + 3;
+  elevation.height = elevation.width / 3;
+  elevation.position.set(x - 1.5, y - elevation.height);
+  parent.addChild(elevation);
 }

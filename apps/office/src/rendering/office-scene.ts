@@ -1,12 +1,12 @@
-import { Container, Graphics, ImageSource, Sprite, Text, Texture, TilingSprite } from 'pixi.js';
+import { Container, Graphics, Sprite, Text, TilingSprite } from 'pixi.js';
 import type { Furniture } from '../blocks/block-contract.js';
 import { footprint, validFurniture } from '../blocks/block-contract.js';
 import type { CatalogPack } from '../props/prop-contract.js';
 import { resolvedProp } from '../props/prop-contract.js';
 import type { SceneAvatar } from '../blocks/block-scene.js';
 import { avatarArt } from '../profiles/avatar-art.js';
-import floorUrl from '../blocks/assets/workshop-oak-v1.png';
 import { createSceneApplication } from './scene-application.js';
+import { createSceneMaterials } from './scene-materials.js';
 import { createSceneTextures } from './scene-textures.js';
 import { furnitureAt } from './furniture-picking.js';
 import { drawRoomEnvelope } from './room-envelope.js';
@@ -74,18 +74,16 @@ export async function createOfficeScene(
   const textures = createSceneTextures();
   const root = new Container();
   application.stage.addChild(root);
-  let floor: Texture | undefined;
+  let materials: Awaited<ReturnType<typeof createSceneMaterials>>;
   try {
-    const image = new Image();
-    image.src = floorUrl;
-    await image.decode();
-    if (signal.aborted) return undefined;
-    floor = new Texture({ source: new ImageSource({ resource: image, scaleMode: 'nearest' }) });
+    materials = await createSceneMaterials(signal);
   } catch (error) {
     disposeApplication();
     if (signal.aborted) return undefined;
     throw error;
   }
+  if (!materials) return undefined;
+  const { floor, wall } = materials;
   let geometry = officeGeometry([]);
   let camera = { x: 0, y: 0, scale: 1 };
   let fitted = false;
@@ -166,11 +164,11 @@ export async function createOfficeScene(
       width: geometry.bounds.width,
       height: geometry.bounds.height,
     });
-    hall.tileScale.set(32 / floor!.width);
+    hall.tileScale.set(32 / floor.width);
     root.addChild(hall);
     for (const [index, room] of geometry.rooms.entries()) {
       const source = model.rooms[index]!;
-      drawRoomEnvelope(root, room, floor!);
+      drawRoomEnvelope(root, room, floor, wall);
       const objects = new Container();
       objects.position.set(room.x, room.y);
       root.addChild(objects);
@@ -379,7 +377,7 @@ export async function createOfficeScene(
     if (application.renderer) application.renderer.off('resize', fit);
     disposeApplication();
     textures.dispose();
-    floor?.destroy(true);
+    materials?.dispose();
   }
   signal.addEventListener('abort', dispose, { once: true });
   return { update, selection, editing, fit, dispose };

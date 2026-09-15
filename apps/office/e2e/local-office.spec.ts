@@ -202,17 +202,19 @@ test('office overview enters an unfurnished room and saves through shared profil
   await page.getByRole('button', { name: 'Add desk' }).click();
   expect(revision).toBe(0);
   await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
-  // One 32-tile room has a two-tile wall and ten-tile corridor. The editor's
+  // One 32-tile room has a 12-tile back elevation, two-tile bottom wall and
+  // ten-tile corridor. The editor's
   // desktop fit leaves the right HUD clear. Click an empty tile, not a DOM mock.
-  const roomScale = Math.min((1280 - 24 - 350) / 36, (900 - 170) / 46);
+  const roomScale = Math.min((1280 - 24 - 350) / 36, (900 - 170) / 56);
   const roomLeft = 24 + (1280 - 24 - 350 - 36 * roomScale) / 2;
-  await page.mouse.move(roomLeft + 33.5 * roomScale, 100 + 10.5 * roomScale);
+  const roomTop = 100 + (900 - 170 - 56 * roomScale) / 2;
+  await page.mouse.move(roomLeft + 33.5 * roomScale, roomTop + 20.5 * roomScale);
   await expect(page.locator('.office-canvas canvas')).toHaveAttribute(
     'aria-description',
     'Placement preview: tile 31, 8, outside room bounds. Click to place.'
   );
   await expect(page.getByLabel('Tile X')).toHaveValue('14');
-  await page.mouse.move(roomLeft + 10.5 * roomScale, 100 + 10.5 * roomScale);
+  await page.mouse.move(roomLeft + 10.5 * roomScale, roomTop + 20.5 * roomScale);
   await expect(page.locator('.office-canvas canvas')).toHaveAttribute(
     'aria-description',
     'Placement preview: tile 8, 8. Click to place.'
@@ -221,7 +223,7 @@ test('office overview enters an unfurnished room and saves through shared profil
   await page.locator('.office-canvas canvas').click({
     position: {
       x: 24 + (1280 - 24 - 350 - 36 * roomScale) / 2 + 10.5 * roomScale,
-      y: 100 + 10.5 * roomScale,
+      y: roomTop + 20.5 * roomScale,
     },
   });
   await expect(page.getByLabel('Tile X')).toHaveValue('8');

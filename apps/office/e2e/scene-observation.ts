@@ -34,11 +34,14 @@ export async function observeIdleScene(page: Page, testInfo: TestInfo, name: str
   await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
   const session = await page.context().newCDPSession(page);
   await session.send('Performance.enable');
+  // Finish the scheduled initial paint before BOTH the CPU baseline and draw
+  // baseline. Taking CPU metrics first mislabels startup work as idle work.
+  await page.evaluate(async () => {
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
+  });
   const startMetrics = await session.send('Performance.getMetrics');
   const observation = await page.evaluate(async () => {
-    // Flush the initial scheduled paint before measuring a deliberately idle interval.
-    await new Promise(requestAnimationFrame);
-    await new Promise(requestAnimationFrame);
     const before = Number(Reflect.get(window, '__officeDrawCount'));
     const start = performance.now();
     await new Promise((resolve) => setTimeout(resolve, 400));

@@ -13,8 +13,10 @@ export interface OfficeCamera {
 }
 
 const WALL = 2;
+const BACK_WALL = 12;
 const CORRIDOR = 10;
 const ROOM_PITCH = BLOCK_SIZE + WALL * 2;
+const ROW_PITCH = BACK_WALL + BLOCK_SIZE + WALL + CORRIDOR;
 
 /** Scene coordinates are existing room tiles, never another saved layout. */
 export function officeGeometry(identityIds: readonly string[]) {
@@ -23,7 +25,7 @@ export function officeGeometry(identityIds: readonly string[]) {
   const rooms = identityIds.map((identityId, index) => ({
     identityId,
     x: (index % columns) * ROOM_PITCH + WALL,
-    y: Math.floor(index / columns) * (ROOM_PITCH + CORRIDOR) + WALL,
+    y: Math.floor(index / columns) * ROW_PITCH + BACK_WALL,
     width: BLOCK_SIZE,
     height: BLOCK_SIZE,
   }));
@@ -33,11 +35,11 @@ export function officeGeometry(identityIds: readonly string[]) {
       x: 0,
       y: 0,
       width: columns * ROOM_PITCH,
-      height: rows * (ROOM_PITCH + CORRIDOR),
+      height: rows * ROW_PITCH,
     },
     commons: {
       x: WALL,
-      y: (rows - 1) * (ROOM_PITCH + CORRIDOR) + ROOM_PITCH,
+      y: rows * ROW_PITCH - CORRIDOR,
       width: columns * ROOM_PITCH - WALL * 2,
       height: CORRIDOR,
     },

@@ -24,9 +24,15 @@ describe('office scene geometry', () => {
       expect(room.height).toBe(BLOCK_SIZE);
       expect(room.x + room.width).toBeLessThan(scene.bounds.width);
       expect(room.y + room.height).toBeLessThan(scene.bounds.height);
+      // The generated 3:1 back wall must fit above the floor, not overlap its
+      // editable tiles or the preceding row's corridor.
+      expect(room.y - (room.width + 3) / 3).toBeGreaterThanOrEqual(0);
     }
     expect(scene.rooms[3]!.x).toBe(scene.rooms[0]!.x);
     expect(scene.rooms[3]!.y).toBeGreaterThan(scene.rooms[0]!.y + BLOCK_SIZE);
+    expect(scene.rooms[3]!.y - (BLOCK_SIZE + 3) / 3).toBeGreaterThan(
+      scene.rooms[0]!.y + BLOCK_SIZE + 10
+    );
   });
 
   it.each([

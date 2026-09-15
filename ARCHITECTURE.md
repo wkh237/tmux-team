@@ -70,6 +70,8 @@ personal editor supplies that same renderer through the existing editor's contro
 scene slot. Remote block views retain SVG. Both use the same revision-aware draft owner.
 Neither renderer owns persisted layout or identity state. Rendering is invalidation-driven,
 with bounded pixel density and cancellation/teardown of browser and GPU resources.
+Fixed architectural floor/back-wall materials share one decoded texture set per
+mount; they do not enter the editable prop catalog or occupy saved floor tiles.
 HTTP block access targets identity UUIDs, using
 the same absent-read and first-apply transaction as the CLI; opening a room does
 not materialize defaults or create parallel persistence.
