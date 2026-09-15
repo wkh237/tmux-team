@@ -45,7 +45,85 @@ describe('local Office runtime', () => {
       vi.fn(async () => new Response('{"error":"REVISION_CONFLICT"}', { status: 409 }))
     );
     const runtime = startLocalRuntime(window.location);
-    await expect(runtime.blocks.apply(block.blockId, 1, [])).rejects.toBeInstanceOf(BlockConflict);
+    await expect(runtime.blocks.apply(block.identityId, 1, [])).rejects.toBeInstanceOf(
+      BlockConflict
+    );
+    runtime.dispose();
+  });
+
+  it('reads an absent room without writing and creates it with identity-targeted revision zero', async () => {
+    vi.useFakeTimers();
+    const absent = { ...block, exists: false, blockId: null, revision: 0, updatedAtMs: 0 };
+    const fetch = vi.fn(
+      async (_path: string, init?: RequestInit) =>
+        new Response(JSON.stringify(init?.method === 'PUT' ? { ...block, changed: true } : absent))
+    );
+    vi.stubGlobal('fetch', fetch);
+    const runtime = startLocalRuntime(window.location);
+    const changed = vi.fn();
+    const stop = runtime.blocks.watch(block.identityId, changed, vi.fn());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(changed).toHaveBeenCalledExactlyOnceWith(null);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0]?.[1]?.method).toBeUndefined();
+    await expect(runtime.blocks.apply(block.identityId, 0, [])).resolves.toMatchObject({
+      revision: 1,
+    });
+    expect(fetch.mock.calls[1]?.[0]).toBe(`/api/v1/local/identities/${block.identityId}/block`);
+    expect(JSON.parse(String(fetch.mock.calls[1]?.[1]?.body))).toEqual({
+      expectedRevision: 0,
+      layout: { version: 2, objects: [] },
+    });
+    stop();
+    runtime.dispose();
+  });
+
+  it('rejects an absent entry in the persisted list and a save for another identity', async () => {
+    const fetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify([{ ...block, exists: false, blockId: null, revision: 0, updatedAtMs: 0 }])
+        )
+    );
+    vi.stubGlobal('fetch', fetch);
+    const runtime = startLocalRuntime(window.location);
+    await expect(runtime.list()).rejects.toThrow();
+    fetch.mockImplementation(async () => new Response(JSON.stringify({ ...block, changed: true })));
+    await expect(
+      runtime.blocks.apply('33333333-3333-4333-8333-333333333333', 0, [])
+    ).rejects.toThrow('Unexpected block identity');
+    runtime.dispose();
+  });
+
+  it('resolves shared room props once in batches of at most sixteen unique digests', async () => {
+    const digests = Array.from(
+      { length: 18 },
+      (_, index) => `sha256:${index.toString(16).padStart(64, '0')}`
+    );
+    const fetch = vi.fn(
+      async (_path: string, init?: RequestInit) =>
+        new Response(
+          JSON.stringify({
+            catalogRevision: 0,
+            packs: [],
+            unavailable: JSON.parse(String(init?.body)).digests,
+          })
+        )
+    );
+    vi.stubGlobal('fetch', fetch);
+    const runtime = startLocalRuntime(window.location);
+    const props = [...digests, digests[0]!].map((digest) => ({
+      ...builtinFurniture('desk', 1, 1, 0),
+      prop: `${digest}/desk`,
+    }));
+    await runtime.resolveProps(props);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(
+      fetch.mock.calls.map(([url, init]) => [url, JSON.parse(String(init?.body)).digests])
+    ).toEqual([
+      ['/api/v1/local/props/resolve', digests.slice(0, 16)],
+      ['/api/v1/local/props/resolve', digests.slice(16)],
+    ]);
     runtime.dispose();
   });
 
@@ -217,7 +295,7 @@ describe('local Office runtime', () => {
       })
     );
     const runtime = startLocalRuntime(window.location);
-    const state = createBlockState(runtime.blocks, block.blockId);
+    const state = createBlockState(runtime.blocks, block.identityId);
     await vi.advanceTimersByTimeAsync(0);
     state.edit([builtinFurniture('plant', 2, 3, 0)]);
     await vi.advanceTimersByTimeAsync(2_000 + 4_000 + 8_000);

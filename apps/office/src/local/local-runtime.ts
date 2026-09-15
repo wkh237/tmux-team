@@ -37,8 +37,8 @@ import type { Profile, ProfilePort } from '../profiles/profile-contract.js';
 export type BoardAuthorFilter = { kind: 'owner' } | { kind: 'identity'; identityId: string };
 
 export interface LocalBlockProjection {
-  exists: true;
-  blockId: string;
+  exists: boolean;
+  blockId: string | null;
   identityId: string;
   identityName: string;
   revision: number;
@@ -54,6 +54,7 @@ export interface LocalRuntime {
   avatars: { list(): Promise<AvatarCatalog> };
   board: LocalBoardPort;
   list(): Promise<LocalBlockProjection[]>;
+  resolveProps(objects: Furniture[]): Promise<CatalogPack[]>;
   preview(previewId: string): Promise<CatalogPack>;
   avatarPreview(previewId: string): Promise<CatalogAvatarPack>;
   dispose(): void;
@@ -185,18 +186,21 @@ export function startLocalRuntime(location: Location): LocalRuntime {
     const block = record as unknown as LocalBlockProjection;
     const uuidV4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
     if (
-      block.exists !== true ||
-      !uuidV4.test(block.blockId) ||
+      typeof block.exists !== 'boolean' ||
+      (block.exists
+        ? typeof block.blockId !== 'string' || !uuidV4.test(block.blockId)
+        : block.blockId !== null) ||
       !uuidV4.test(block.identityId) ||
       typeof block.identityName !== 'string' ||
       block.identityName.length === 0 ||
       !Number.isSafeInteger(block.revision) ||
-      block.revision <= 0 ||
+      (block.exists ? block.revision <= 0 : block.revision !== 0) ||
       !Number.isSafeInteger(block.updatedAtMs) ||
-      block.updatedAtMs <= 0 ||
+      (block.exists ? block.updatedAtMs <= 0 : block.updatedAtMs !== 0) ||
       !block.layout ||
       block.layout.version !== 2 ||
       !validLayout(block.layout.objects) ||
+      (!block.exists && block.layout.objects.length !== 0) ||
       !Array.isArray(block.resolutions) ||
       block.resolutions.length !== block.layout.objects.length ||
       (editing && typeof block.changed !== 'boolean')
@@ -212,7 +216,15 @@ export function startLocalRuntime(location: Location): LocalRuntime {
           .filter((digest) => digest !== BUILTIN_DIGEST)
       )
     );
-    if (digests.length === 0) return defaultCatalog();
+    const catalog = defaultCatalog();
+    // The endpoint accepts at most 16 unique digests per request. One overview
+    // shares these resolutions across rooms rather than starting room listeners.
+    for (let offset = 0; offset < digests.length; offset += 16) {
+      catalog.push(...(await resolveDigests(digests.slice(offset, offset + 16), lifetime)));
+    }
+    return catalog;
+  }
+  async function resolveDigests(digests: string[], lifetime?: AbortSignal): Promise<CatalogPack[]> {
     const { response, value } = await jsonRequest(
       '/api/v1/local/props/resolve',
       { method: 'POST', body: JSON.stringify({ digests }) },
@@ -255,11 +267,11 @@ export function startLocalRuntime(location: Location): LocalRuntime {
         returned.some((digest) => !digests.includes(digest))
       )
         throw new Error('Invalid prop catalog resolution.');
-      return [...defaultCatalog(), ...packs];
+      return packs;
     });
   }
   const blocks: BlockPort = {
-    watch(blockId, changed, failed) {
+    watch(identityId, changed, failed) {
       let active = true;
       let delay = 2_000;
       let timer: number | undefined;
@@ -268,20 +280,25 @@ export function startLocalRuntime(location: Location): LocalRuntime {
         if (!active || disposed) return;
         try {
           const { response, value } = await jsonRequest(
-            `/api/v1/local/blocks/${encodeURIComponent(blockId)}`,
+            `/api/v1/local/identities/${encodeURIComponent(identityId)}/block`,
             undefined,
             lifetime.signal
           );
           if (!response.ok) throw new LocalHttpError(response.status);
           const block = decode(value);
+          if (block.identityId !== identityId) throw new Error('Unexpected block identity.');
           const catalog = await catalogFor(block.layout.objects, lifetime.signal);
           if (!active || disposed) return;
-          changed({
-            revision: block.revision,
-            objects: block.layout.objects,
-            updatedAtMs: block.updatedAtMs,
-            catalog,
-          });
+          changed(
+            block.exists
+              ? {
+                  revision: block.revision,
+                  objects: block.layout.objects,
+                  updatedAtMs: block.updatedAtMs,
+                  catalog,
+                }
+              : null
+          );
           delay = 2_000;
         } catch (error) {
           if (!active || disposed) return;
@@ -302,9 +319,9 @@ export function startLocalRuntime(location: Location): LocalRuntime {
         if (timer !== undefined) window.clearTimeout(timer);
       };
     },
-    async apply(blockId, revision, objects): Promise<Block> {
+    async apply(identityId, revision, objects): Promise<Block> {
       const { response, value } = await jsonRequest(
-        `/api/v1/local/blocks/${encodeURIComponent(blockId)}`,
+        `/api/v1/local/identities/${encodeURIComponent(identityId)}/block`,
         {
           method: 'PUT',
           body: JSON.stringify({ expectedRevision: revision, layout: { version: 2, objects } }),
@@ -313,6 +330,8 @@ export function startLocalRuntime(location: Location): LocalRuntime {
       if (response.status === 409) throw new BlockConflict();
       if (!response.ok) throw new Error(`Local Office save failed (${response.status}).`);
       const block = decode(value, true);
+      if (!block.exists || block.identityId !== identityId)
+        throw new Error('Unexpected block identity.');
       const catalog = await catalogFor(block.layout.objects);
       return {
         revision: block.revision,
@@ -398,6 +417,7 @@ export function startLocalRuntime(location: Location): LocalRuntime {
     board,
     profiles,
     avatars,
+    resolveProps: catalogFor,
     async preview(previewId) {
       if (!/^[A-Za-z0-9_-]{43}$/.test(previewId)) throw new Error('Invalid prop preview ID.');
       const { response, value } = await jsonRequest(
@@ -438,7 +458,11 @@ export function startLocalRuntime(location: Location): LocalRuntime {
       const { response, value } = await jsonRequest('/api/v1/local/blocks');
       if (!response.ok) throw new LocalHttpError(response.status);
       if (!Array.isArray(value)) throw new Error('Invalid local Office projection.');
-      return value.map((item) => decode(item));
+      return value.map((item) => {
+        const block = decode(item);
+        if (!block.exists) throw new Error('Expected a persisted block.');
+        return block;
+      });
     },
     dispose() {
       disposed = true;

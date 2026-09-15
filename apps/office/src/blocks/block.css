@@ -1,4 +1,5 @@
-.block-editor {
+.block-editor,
+.office-floor {
   --ink: #243745;
   --wood: #d7a16a;
   --wood-dark: #936540;
@@ -15,6 +16,8 @@
   --grid: #d6ceba;
   --wall: #9ba68d;
   --selection: #365c97;
+}
+.block-editor {
   margin-top: 40px;
   border-top: 1px solid #cbd5c8;
   padding-top: 24px;

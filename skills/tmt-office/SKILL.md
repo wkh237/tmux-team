@@ -126,6 +126,13 @@ Never copy its fragment token into logs, issues, or chat. Repeating start reuses
 healthy current session. After an upgrade, `restartNeeded` requires an explicit
 stop/start. `stop` is idempotent and authenticated.
 
+For browser use, open that full URL: **Your office** shows the active identities'
+rooms. **Enter room** opens layout and appearance editors; **Back to office**
+rereads saved layouts. An unfurnished room can be furnished and explicitly saved
+without a CLI-created layout file. Opening or refreshing never creates a block.
+Offline identities have editable rooms but no present agent sprite. If there are
+no identities, create one only when requested, then refresh the overview.
+
 Local one-shot commands work while the browser service is stopped. Use `--local`
 explicitly; never infer it from an omitted world or adopt remote state.
 

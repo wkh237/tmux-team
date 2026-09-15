@@ -8,6 +8,13 @@ import type { CatalogPack } from '../props/prop-contract.js';
 import { resolvedProp } from '../props/prop-contract.js';
 import { IndexedProp } from '../props/indexed-prop.js';
 
+export interface SceneAvatar {
+  appearance: Appearance;
+  name: string;
+  displayLabel?: string;
+  customArt?: AvatarArt;
+}
+
 function ResolvedProp({ item, catalog }: { item: Furniture; catalog: CatalogPack[] }) {
   const clip = useId();
   const [digest, key] = item.prop.split('/');
@@ -61,15 +68,10 @@ export function BlockScene({
   catalog = defaultCatalog(),
 }: {
   objects: Furniture[];
-  selected: number | null;
-  select: (index: number) => void;
-  move: (x: number, y: number) => void;
-  avatar?: {
-    appearance: Appearance;
-    name: string;
-    displayLabel?: string;
-    customArt?: AvatarArt;
-  };
+  selected?: number | null;
+  select?: (index: number) => void;
+  move?: (x: number, y: number) => void;
+  avatar?: SceneAvatar;
   catalog?: CatalogPack[];
 }) {
   const pattern = useId();
@@ -78,8 +80,13 @@ export function BlockScene({
       className="block-scene"
       viewBox={`-1 -1 ${BLOCK_SIZE + 2} ${BLOCK_SIZE + 2}`}
       role="group"
-      aria-label="Office layout, 32 by 32 tiles. Use the furniture controls to edit."
+      aria-label={
+        move
+          ? 'Office layout, 32 by 32 tiles. Use the furniture controls to edit.'
+          : 'Office room, 32 by 32 tiles.'
+      }
       onClick={(event) => {
+        if (!move) return;
         const matrix = event.currentTarget.getScreenCTM();
         if (!matrix) return;
         const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
@@ -100,6 +107,7 @@ export function BlockScene({
           <g
             key={index}
             onClick={(event) => {
+              if (!select) return;
               event.stopPropagation();
               select(index);
             }}
@@ -126,8 +134,8 @@ export function BlockScene({
           name={avatar.name}
           displayLabel={avatar.displayLabel}
           customArt={avatar.customArt}
-          x={16}
-          y={15}
+          x={24}
+          y={25}
         />
       )}
     </svg>

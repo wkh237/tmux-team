@@ -1,134 +1,112 @@
-import { useContext, useEffect, useState } from 'react';
-import { BlockPanel } from '../blocks/block-view.js';
-import { LocalRuntimeContext } from './local-runtime.js';
-import type { LocalBlockProjection, LocalRuntime } from './local-runtime.js';
-import type { ProfileProjection, ProfileSnapshot } from '../profiles/profile-contract.js';
-import { ProfilePanel } from '../profiles/profile-view.js';
-import type { AvatarCatalog } from '../avatars/avatar-catalog.js';
+import { Link } from '@tanstack/react-router';
+import { BlockScene } from '../blocks/block-scene.js';
 import { resolveAvatar } from '../avatars/avatar-catalog.js';
-
-type LocalLoadState =
-  | { status: 'loading'; runtime: LocalRuntime | undefined }
-  | {
-      status: 'ready';
-      runtime: LocalRuntime;
-      blocks: LocalBlockProjection[];
-      profiles: ProfileProjection[];
-      avatarCatalog: AvatarCatalog;
-    }
-  | { status: 'error'; runtime: LocalRuntime };
+import { useLocalOffice } from './use-local-office.js';
+import '../blocks/block.css';
+import './office-floor.css';
 
 export function LocalOfficePage() {
-  const runtime = useContext(LocalRuntimeContext);
-  const [load, setLoad] = useState<LocalLoadState>({ status: 'loading', runtime });
-  const [selected, setSelected] = useState<string>();
-  useEffect(() => {
-    let active = true;
-    if (!runtime) return;
-    setLoad({ status: 'loading', runtime });
-    setSelected(undefined);
-    void Promise.all([runtime.list(), runtime.profiles.list(), runtime.avatars.list()])
-      .then(([items, identities, avatars]) => {
-        if (!active) return;
-        setLoad({
-          status: 'ready',
-          runtime,
-          blocks: items,
-          profiles: identities,
-          avatarCatalog: avatars,
-        });
-        setSelected(identities[0]?.identityId);
-      })
-      .catch(() => {
-        if (active) setLoad({ status: 'error', runtime });
-      });
-    return () => {
-      active = false;
-    };
-  }, [runtime]);
-  if (!runtime) return <p role="alert">This build does not provide the local Office runtime.</p>;
-  if (load.runtime !== runtime || load.status === 'loading')
-    return <p>Loading your local office…</p>;
+  const { load, refresh } = useLocalOffice();
+  if (load.status === 'loading') return <p role="status">Opening your office…</p>;
   if (load.status === 'error')
-    return <p role="alert">Local Office could not load. Rerun tmt office start.</p>;
-  const { blocks, profiles, avatarCatalog } = load;
-  if (profiles.length === 0)
     return (
       <section>
-        <h1>Your local office</h1>
-        <p>
-          No active identity exists yet. Create or bind one with <code>tmt name NAME</code>.
-        </p>
+        <h1>Your office</h1>
+        <p role="alert">Local Office could not load. Check the service or try again.</p>
+        <button onClick={refresh}>Try again</button>
       </section>
     );
-  const profile = profiles.find((item) => item.identityId === selected) ?? profiles[0];
-  const block = blocks.find((item) => item.identityId === profile.identityId);
-  const avatar = resolveAvatar(profile.profile.avatarRef, avatarCatalog);
-  function profileChanged(snapshot: ProfileSnapshot) {
-    setLoad((current) =>
-      current.status === 'ready' && current.runtime === runtime
-        ? {
-            ...current,
-            profiles: current.profiles.map((item) =>
-              item.identityId === snapshot.identityId ? { ...snapshot, online: item.online } : item
-            ),
-          }
-        : current
-    );
-  }
+  const rooms = new Map(load.blocks.map((block) => [block.identityId, block]));
+  const online = load.profiles.filter((profile) => profile.online).length;
   return (
-    <section>
-      <h1>Your local office</h1>
-      {profiles.length > 1 && (
-        <label>
-          Agent identity
-          <select value={profile.identityId} onChange={(event) => setSelected(event.target.value)}>
-            {profiles.map((item) => (
-              <option key={item.identityId} value={item.identityId}>
-                {item.identityName}
-                {item.online ? '' : ' · offline'}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      {!profile.online && (
-        <p className="offline-note">
-          Offline — this saved identity is not shown as present in the room.
-        </p>
-      )}
-      <ProfilePanel
-        key={profile.identityId}
-        initial={profile}
-        port={runtime.profiles}
-        changed={profileChanged}
-        avatarCatalog={avatarCatalog}
-      />
-      {block ? (
-        <BlockPanel
-          key={block.blockId}
-          worldId={block.blockId}
-          blockPort={runtime.blocks}
-          label={`${block.identityName.toUpperCase()} / LOCAL BLOCK`}
-          avatar={
-            profile.online
-              ? {
-                  appearance: profile.profile.appearance,
-                  name: profile.identityName,
-                  displayLabel: profile.profile.displayLabel,
-                  customArt: avatar.status === 'available' ? avatar.art : undefined,
-                }
-              : undefined
-          }
-        />
+    <section className="office-overview" aria-label="Office overview">
+      <div className="office-heading">
+        <div>
+          <p className="eyebrow">YOUR TEAM / ONE PLACE</p>
+          <h1>Your office</h1>
+          <p>Pick a room. Make it yours.</p>
+        </div>
+        <button onClick={refresh}>Refresh office</button>
+      </div>
+      {load.profiles.length === 0 ? (
+        <div className="office-empty">
+          <h2>Your first room starts with an identity.</h2>
+          <p>
+            Create a saved identity, then refresh this office. No room is saved until you furnish
+            it.
+          </p>
+          <code>tmt identity create alice</code>
+        </div>
       ) : (
-        <p>
-          This identity has no saved layout. Create one with{' '}
-          <code>
-            tmt office block apply --local --identity NAME --file layout.json --if-revision 0
-          </code>
-          .
-        </p>
+        <div className="office-floor">
+          <div className="office-corridor">
+            <span>TMT / LOCAL OFFICE</span>
+            <span>
+              {load.profiles.length} {load.profiles.length === 1 ? 'space' : 'spaces'} · {online}{' '}
+              online
+            </span>
+          </div>
+          <div className="office-rooms">
+            {load.profiles.map((profile, index) => {
+              const block = rooms.get(profile.identityId);
+              const avatar = resolveAvatar(profile.profile.avatarRef, load.avatars);
+              return (
+                <article
+                  className="office-room"
+                  key={profile.identityId}
+                  aria-label={`${profile.identityName}'s room`}
+                >
+                  <div className="room-nameplate">
+                    <span className="room-number">{String(index + 1).padStart(2, '0')}</span>
+                    <h2>{profile.identityName}</h2>
+                    <span className={`room-presence ${profile.online ? 'is-online' : ''}`}>
+                      {profile.online ? 'Online' : 'Offline'}
+                    </span>
+                  </div>
+                  <BlockScene
+                    objects={block?.layout.objects ?? []}
+                    catalog={load.props}
+                    avatar={
+                      profile.online
+                        ? {
+                            appearance: profile.profile.appearance,
+                            name: profile.identityName,
+                            displayLabel: profile.profile.displayLabel,
+                            customArt: avatar.status === 'available' ? avatar.art : undefined,
+                          }
+                        : undefined
+                    }
+                  />
+                  <div className="room-doorway">
+                    <span>
+                      {block
+                        ? `${block.layout.objects.length} ${block.layout.objects.length === 1 ? 'piece' : 'pieces'} · saved`
+                        : 'Unfurnished · not saved'}
+                    </span>
+                    <Link
+                      to="/local/agents/$identityId"
+                      params={{ identityId: profile.identityId }}
+                      aria-label={`Enter ${profile.identityName}'s room`}
+                    >
+                      Enter room <span aria-hidden="true">↗</span>
+                    </Link>
+                  </div>
+                  {avatar.status === 'unavailable' && (
+                    <p className="room-art-note">
+                      Selected avatar unavailable; saved default appearance retained.
+                    </p>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+          <div className="office-corridor office-lobby">
+            <span>THE COMMONS</span>
+            <Link to="/local/board">
+              Visit the board <span aria-hidden="true">→</span>
+            </Link>
+          </div>
+        </div>
       )}
     </section>
   );

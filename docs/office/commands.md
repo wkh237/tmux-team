@@ -88,6 +88,14 @@ authenticated graceful stop. A companion upgrade never replaces a running proces
 you explicitly stop and start it. An optional `--port <number>` requests a fixed
 loopback port; it conflicts with a running service on another port.
 
+Open the full printed URL in your browser. The local overview shows each active
+identity's room; choose **Enter room** to edit its layout and appearance, then
+**Back to office** to see the saved result. An unfurnished room needs no JSON
+setup: add furniture and choose **Save layout** to create its first layout.
+Opening a room does not save anything. Offline identities retain their rooms but
+are not drawn as present. With no identities, create one with
+`tmt identity create alice` and refresh the overview.
+
 Local block commands are one-shot SQLite operations and work while the browser service
 is stopped. `show` of an active identity without a block succeeds with `exists:false`,
 revision 0 and empty objects; first apply creates a stable block UUID at revision 1.

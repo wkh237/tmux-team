@@ -5,16 +5,8 @@ import { createBlockState } from './block-state.js';
 import type { BlockState } from './block-state.js';
 import { resolvedProp } from '../props/prop-contract.js';
 import { BlockScene } from './block-scene.js';
+import type { SceneAvatar } from './block-scene.js';
 import './block.css';
-import type { Appearance } from '../profiles/profile-contract.js';
-import type { AvatarArt } from '../profiles/avatar.js';
-
-interface SceneAvatar {
-  appearance: Appearance;
-  name: string;
-  displayLabel?: string;
-  customArt?: AvatarArt;
-}
 
 export const BlockContext = createContext<BlockPort | undefined>(undefined);
 export function BlockPanel({

@@ -275,6 +275,7 @@ test('real local CLI profile reaches SQLite, browser and service restart', async
       throw new Error(`Embedded asset failed; Office status: ${status.stdout}`, { cause });
     }
     await page.goto(initialUrl);
+    await page.getByRole('link', { name: `Enter ${identityName}'s room` }).click();
     try {
       await expect(page.locator('.profile-preview .avatar-name')).toHaveText(identityName);
     } catch (error) {
@@ -351,7 +352,10 @@ test('real local CLI profile reaches SQLite, browser and service restart', async
     const restartedResponse = await restartedPage.goto(restartedUrl);
     expect(restartedResponse?.ok()).toBe(true);
     try {
-      await expect(restartedPage.getByRole('heading', { name: 'Your local office' })).toBeVisible();
+      await expect(
+        restartedPage.getByRole('heading', { name: 'Your office', exact: true })
+      ).toBeVisible();
+      await restartedPage.getByRole('link', { name: `Enter ${identityName}'s room` }).click();
     } catch (error) {
       await testInfo.attach('native-profile-restart-diagnostics', {
         body: Buffer.from(

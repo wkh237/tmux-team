@@ -12,6 +12,7 @@ import { SetupPage } from './pages/setup.js';
 import { SelectedWorld, WorldGate } from './worlds/world-view.js';
 import { PairingPanel } from './pairing/pairing-view.js';
 import { LocalOfficePage } from './local/local-page.js';
+import { LocalSpacePage } from './local/local-space-page.js';
 import { LocalBoardPage } from './local/board-page.js';
 import { PropPreviewPage } from './props/preview-page.js';
 import { AvatarPreviewPage } from './avatars/preview-page.js';
@@ -52,6 +53,15 @@ const localBoardRoute = createRoute({
   path: '/local/board',
   component: LocalBoardPage,
 });
+const localSpaceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/local/agents/$identityId',
+  component: LocalSpaceRoute,
+});
+function LocalSpaceRoute() {
+  const { identityId } = localSpaceRoute.useParams();
+  return <LocalSpacePage key={identityId} identityId={identityId} />;
+}
 const localPropPreviewRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/local/props/preview/$previewId',
@@ -92,6 +102,7 @@ const routeTree = rootRoute.addChildren([
   worldRoute,
   pairingRoute,
   localRoute,
+  localSpaceRoute,
   localBoardRoute,
   localPropPreviewRoute,
   localAvatarPreviewRoute,

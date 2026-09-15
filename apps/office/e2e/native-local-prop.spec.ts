@@ -264,6 +264,7 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
       }).toEqual(beforePreviews);
 
       await page.goto(sessionUrl);
+      await page.getByRole('link', { name: `Enter ${identityName}'s room` }).click();
       await expect(page.getByRole('button', { name: 'Signal lamp 1' })).toBeVisible();
       await expect(page.getByRole('button', { name: 'Desk 16' })).toBeVisible();
       await expect(page.locator('rect[fill="#ff5533ff"]')).toHaveCount(19);
@@ -359,6 +360,7 @@ test('data-only prop reaches catalog, preview, block renderer and placeholder li
       sessionUrl = JSON.parse(started.stdout).url;
       expect(savedBlock(sandbox.database, identityId)).toEqual(storedBlock);
       await page.goto(sessionUrl);
+      await page.getByRole('link', { name: `Enter ${identityName}'s room` }).click();
       await expect(
         page.getByRole('img', { name: `Unavailable prop ${digest.slice(7, 19)}` }).first()
       ).toBeVisible();
