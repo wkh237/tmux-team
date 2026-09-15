@@ -12,7 +12,7 @@ fn eligible(parsed: &Parsed, interactive: bool) -> bool {
         && !parsed.mode.json
         && !matches!(
             parsed.invocation,
-            Invocation::Help
+            Invocation::Help(_)
                 | Invocation::Version
                 | Invocation::Completion(_)
                 | Invocation::Init
@@ -68,7 +68,7 @@ mod tests {
         assert!(!eligible(&parsed, true));
         parsed.mode.json = false;
         for invocation in [
-            Invocation::Help,
+            Invocation::Help(Vec::new()),
             Invocation::Version,
             Invocation::Completion(None),
             Invocation::Init,

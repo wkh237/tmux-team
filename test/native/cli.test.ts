@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
@@ -9,6 +9,40 @@ import { calibrateTmuxTripwire } from './tmux-tripwire.js';
 // each sandbox. Explicit descriptors remain available for moved executables.
 
 describe('native grammar process contract', () => {
+  it('prints scoped help without loading configuration, touching tmux or creating state', async () => {
+    await withSandbox(async (sandbox) => {
+      const tripwire = await calibrateTmuxTripwire(sandbox);
+      mkdirSync(sandbox.globalDir, { recursive: true });
+      writeFileSync(sandbox.globalConfig, '{broken configuration');
+      const before = fileSnapshot(sandbox.root);
+      const tmuxBaseline = readFileSync(tripwire, 'utf8');
+      for (const command of [
+        ['office'],
+        ['office', 'board'],
+        ['office', 'block', 'apply'],
+        ['talk'],
+        ['x', 'listen'],
+        ['config', 'set'],
+        ['name'],
+      ]) {
+        for (const argv of [
+          [...command, '-h'],
+          [...command, '--help'],
+          ['help', ...command],
+        ]) {
+          const result = await runCli(sandbox, argv);
+          expect(result.status, result.stderr).toBe(0);
+          expect(result.stderr).toBe('');
+          expect(result.stdout).toContain(`Usage: tmt ${command.join(' ')}`);
+          expect(result.stdout).toContain('--help');
+          expect(fileSnapshot(sandbox.root)).toEqual(before);
+          expect(existsSync(sandbox.database)).toBe(false);
+          expect(readFileSync(tripwire, 'utf8')).toBe(tmuxBaseline);
+        }
+      }
+    });
+  });
+
   it('generates valid shells without offering rejected or unrelated options', async () => {
     await withSandbox(async (sandbox) => {
       for (const shell of ['bash', 'zsh']) {

@@ -12,8 +12,15 @@ use crate::{grammar::grammar, invocation::*};
 #[path = "parser_tests.rs"]
 mod tests;
 
+#[cfg(test)]
+#[path = "help_tests.rs"]
+mod help_tests;
+
 pub fn parse(argv: &[OsString]) -> Result<Parsed, ParseError> {
     let definition = grammar();
+    if let Some((path, mode)) = crate::diagnostics::help_intent(&definition, argv) {
+        return help(path, mode);
+    }
     let mut parser = definition.clone();
     let arguments = std::iter::once(OsString::from("tmt")).chain(argv.iter().cloned());
     let matches = match parser.try_get_matches_from_mut(arguments) {
@@ -57,10 +64,14 @@ pub fn parse(argv: &[OsString]) -> Result<Parsed, ParseError> {
         });
     }
     let invocation = translate(&path, leaf).map_err(fail)?;
+    finish_parse(invocation, mode)
+}
+
+fn finish_parse(invocation: Invocation, mode: OutputMode) -> Result<Parsed, ParseError> {
     if mode.json
         && matches!(
             invocation,
-            Invocation::Help
+            Invocation::Help(_)
                 | Invocation::Version
                 | Invocation::Completion(_)
                 | Invocation::Learn { .. }
@@ -97,6 +108,15 @@ fn validate_options(command: &Command, chain: &[&ArgMatches], root: bool) -> Res
         }
     }
     Ok(())
+}
+
+fn help(path: Vec<String>, mode: OutputMode) -> Result<Parsed, ParseError> {
+    crate::grammar::help_command(&path).map_err(|message| ParseError {
+        code: "USAGE_ERROR",
+        message,
+        mode,
+    })?;
+    finish_parse(Invocation::Help(path), mode)
 }
 
 fn mode(matches: &ArgMatches) -> OutputMode {
@@ -143,7 +163,12 @@ fn texts(matches: &ArgMatches, id: &str) -> Vec<String> {
 fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
     Ok(match path {
         [] if flag(m, "version") => Invocation::Version,
-        [] | ["help"] | ["team"] => Invocation::Help,
+        [] | ["team"] => Invocation::Help(Vec::new()),
+        ["help"] => {
+            let path = texts(m, "command-path");
+            crate::grammar::help_command(&path)?;
+            Invocation::Help(path)
+        }
         ["completion"] => Invocation::Completion(text(m, "shell")),
         ["learn"] => Invocation::Learn {
             skill: text(m, "skill"),
