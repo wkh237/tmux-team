@@ -178,6 +178,21 @@ test('office overview enters an unfurnished room and saves through shared profil
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await page.screenshot({ path: testInfo.outputPath('office-narrow.png'), fullPage: true });
   await page.setViewportSize({ width: 1280, height: 900 });
+  const selectRoom = page.getByRole('button', { name: "Select Alice's room" });
+  await selectRoom.focus();
+  await page.keyboard.press('Enter');
+  await expect(selectRoom).toHaveAttribute('aria-pressed', 'true');
+  await expect(
+    page
+      .getByRole('complementary', { name: 'Room details' })
+      .getByRole('heading', { name: 'Alice' })
+  ).toBeVisible();
+  expect(revision).toBe(0);
+  expect(profileRevision).toBe(0);
+  await page.screenshot({
+    path: testInfo.outputPath('office-selected-desktop.png'),
+    fullPage: true,
+  });
   await page.getByRole('link', { name: "Enter Alice's room" }).focus();
   await page.keyboard.press('Enter');
   await page.getByRole('button', { name: 'Add desk' }).click();

@@ -7,6 +7,7 @@
 }
 .office-heading h1 {
   margin: 4px 0 10px;
+  font-size: clamp(32px, 4vw, 48px);
 }
 .office-heading p {
   margin: 0;
@@ -19,12 +20,25 @@
   border-radius: 8px;
   padding: 12px 18px;
 }
+.office-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
 .office-floor {
-  padding: 22px;
-  background: #ddd7c2;
-  border: 3px solid #adb29a;
-  border-radius: 4px;
-  box-shadow: 0 8px 0 #c4c7b8;
+  min-width: 0;
+  padding: 20px;
+  background-color: #dad2bc;
+  background-image:
+    linear-gradient(#b9b09a33 1px, transparent 1px),
+    linear-gradient(90deg, #b9b09a33 1px, transparent 1px);
+  background-size: 16px 16px;
+  border: 6px solid #697465;
+  border-radius: 3px;
+  box-shadow:
+    0 7px 0 #454f46,
+    0 18px 28px #283b3115;
 }
 .office-corridor {
   display: flex;
@@ -32,34 +46,60 @@
   justify-content: space-between;
   gap: 12px;
   padding: 12px 4px 22px;
-  color: #57654e;
+  color: #485444;
   font-size: 12px;
   letter-spacing: 0.1em;
 }
 .office-rooms {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
-  gap: 26px;
+  gap: 38px 24px;
 }
 .office-room {
   min-width: 0;
   background: #f6f4e7;
-  border: 2px solid #a2ac94;
-  box-shadow: 4px 4px 0 #c6cbb8;
+  border: 4px solid #87917b;
+  box-shadow:
+    0 5px 0 #68755f,
+    5px 9px 0 #59634a24;
+}
+.office-room.is-selected {
+  border-color: #315d48;
+  box-shadow:
+    0 5px 0 #234735,
+    0 0 0 3px #f4cb75;
+}
+.room-select {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  background: transparent;
+}
+.room-select:hover {
+  filter: brightness(1.04);
+}
+.room-select:focus-visible {
+  outline: 3px solid #bb7b24;
+  outline-offset: -3px;
 }
 .room-nameplate {
-  display: flex;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 6px;
   align-items: center;
-  padding: 14px;
+  padding: 10px;
   border-bottom: 1px solid #d2d7c6;
+  min-height: 76px;
 }
 .room-nameplate h2 {
   min-width: 0;
   flex: 1;
   margin: 0;
   overflow-wrap: anywhere;
-  font-size: 17px;
+  font-size: 15px;
+  line-height: 1.25;
 }
 .room-number {
   color: #7b826f;
@@ -76,7 +116,7 @@
   content: '● ';
 }
 .office-room .block-scene {
-  padding: 10px;
+  padding: 0;
   border-radius: 0;
   background: #e9e9d8;
 }
@@ -98,6 +138,7 @@
   padding: 10px 14px;
   text-decoration: none;
   border-radius: 3px;
+  border-top: 3px solid #8b704e;
 }
 .room-doorway a:focus-visible,
 .office-lobby a:focus-visible {
@@ -111,18 +152,84 @@
   color: #786944;
 }
 .office-lobby {
-  margin-top: 24px;
-  padding: 18px 4px 2px;
-  border-top: 1px dashed #9ba38b;
+  margin-top: 38px;
+  padding: 18px;
+  background: #f4eddb;
+  border: 2px solid #a2987c;
+  box-shadow: 3px 3px 0 #a2987c;
+  align-items: center;
+}
+.office-lobby p {
+  max-width: 270px;
+  margin: 6px 0 0;
+  font-size: 13px;
+  letter-spacing: 0;
 }
 .office-lobby a {
   color: #294f3a;
 }
 .office-empty {
-  padding: 36px;
+  margin: 20px 0 0;
+  padding: 36px 24px;
+  border: 2px dashed #9ba38b;
+}
+.office-empty code {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  background: #e7e8d9;
+  font-size: 12px;
+}
+.office-inspector {
+  min-width: 0;
+  padding: 20px;
+  background: #e9eddf;
+  border-left: 4px solid #87917b;
+  overflow-wrap: anywhere;
+}
+.office-inspector h2 {
+  font-size: 26px;
+  line-height: 1.2;
+  margin: 12px 0;
+}
+.office-inspector p {
+  color: #64705f;
+  font-size: 14px;
+}
+.office-inspector .eyebrow {
+  font-size: 10px;
+}
+.office-inspector .inspector-presence {
+  font-size: 12px;
+}
+.office-inspector a {
+  display: inline-block;
+  padding: 10px 0;
+  color: #295a41;
+  font-size: 14px;
+}
+.office-inspector-note {
+  margin-top: 16px;
+  border-top: 1px solid #d1d7c8;
+  padding-top: 12px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.office-inspector-note > span {
+  font-size: 28px;
+  color: #708361;
+}
+.office-inspector-note p {
+  font-size: 12px;
 }
 .personal-space > h1 {
   margin-top: 18px;
+}
+@media (max-width: 900px) {
+  .office-inspector {
+    padding: 16px;
+  }
 }
 @media (max-width: 600px) {
   .office-heading {
@@ -133,7 +240,8 @@
     padding: 12px;
   }
   .office-rooms {
-    gap: 20px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
   }
   .office-empty {
     padding: 20px;
