@@ -109,6 +109,10 @@ The local overview (`/local`) composes active identities into labeled rooms;
 `/local/agents/$identityId` reuses the block and profile editors. A shared
 mounted-view loader observes profiles, existing blocks and artwork, with late-result
 fencing and explicit refresh rather than a second store or per-room listeners.
+The floor and board entrance remain visible without identities. Room selection is
+component-local presentation state, resolved against the current snapshot; it does
+not fetch another snapshot or persist a layout. Shared corridors are presentation,
+not stored furniture or agent presence.
 `BlockScene` and `Avatar` own both read-only overview and editor rendering. The
 identity-targeted HTTP block port can read an absent room and save revision zero
 through the existing repository transaction; navigation itself never creates rows.

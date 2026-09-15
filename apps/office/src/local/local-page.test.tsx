@@ -180,7 +180,43 @@ it('shows an honest empty office without writes', async () => {
   show(local);
   await screen.findByText('tmt identity create alice');
   expect(document.querySelector('.office-room')).toBeNull();
+  expect(document.querySelector('.office-floor')).not.toBeNull();
+  expect(screen.getByRole('link', { name: 'Visit the board' })).toBeTruthy();
   expect(local.blocks.apply).not.toHaveBeenCalled();
+  expect(local.profiles.apply).not.toHaveBeenCalled();
+});
+
+it('selects an unfurnished room with the keyboard without fetching or saving another snapshot', async () => {
+  const local = runtime([profile], []);
+  const list = vi.spyOn(local, 'list');
+  const profiles = vi.spyOn(local.profiles, 'list');
+  show(local);
+  const select = await screen.findByRole('button', { name: "Select Alice's room" });
+  const reads = [list.mock.calls.length, profiles.mock.calls.length];
+  select.focus();
+  await userEvent.keyboard('{Enter}');
+  expect(select.getAttribute('aria-pressed')).toBe('true');
+  const details = screen.getByRole('complementary', { name: 'Room details' });
+  expect(within(details).getByRole('heading', { name: 'Alice' })).toBeTruthy();
+  expect(within(details).getByText(/Nothing is saved until/)).toBeTruthy();
+  expect(
+    within(details).getByRole('link', { name: 'Customize this space →' }).getAttribute('href')
+  ).toBe(`/local/agents/${identityId}`);
+  expect([list.mock.calls.length, profiles.mock.calls.length]).toEqual(reads);
+  expect(local.blocks.apply).not.toHaveBeenCalled();
+  expect(local.profiles.apply).not.toHaveBeenCalled();
+});
+
+it('drops stale selection details when the identity disappears on refresh', async () => {
+  const local = runtime();
+  show(local);
+  await userEvent.click(await screen.findByRole('button', { name: "Select Alice's room" }));
+  local.profiles.list = async () => [];
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh office' }));
+  await screen.findByText('tmt identity create alice');
+  const details = screen.getByRole('complementary', { name: 'Room details' });
+  expect(within(details).queryByRole('heading', { name: 'Alice' })).toBeNull();
+  expect(within(details).queryByRole('link')).toBeNull();
 });
 
 it.each(['blocks', 'profiles', 'avatars', 'props'] as const)(

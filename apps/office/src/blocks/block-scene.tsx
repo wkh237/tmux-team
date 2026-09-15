@@ -136,6 +136,7 @@ export function BlockScene({
           customArt={avatar.customArt}
           x={24}
           y={25}
+          scale={0.8}
         />
       )}
     </svg>
