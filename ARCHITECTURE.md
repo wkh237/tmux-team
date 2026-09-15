@@ -63,6 +63,10 @@ files. A private receipt coordinates one installation-wide process. Browser and 
 tokens are distinct, status is token-free, and only exact IPv4 loopback Host/Origin
 requests reach the bounded HTTP adapter. Identity UUID remains ownership authority;
 retirement hides but does not delete its block.
+The local overview and personal-room routes share one mounted snapshot loader
+and the existing scene renderer. HTTP block access targets identity UUIDs, using
+the same absent-read and first-apply transaction as the CLI; opening a room does
+not materialize defaults or create parallel persistence.
 Owner approval may select a revoked grant's retained block through the same
 bounded space projection. The pairing transaction reserves that source grant
 with a transfer receipt and records immutable approval intent; no second

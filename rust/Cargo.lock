@@ -1854,6 +1854,7 @@ dependencies = [
  "base64 0.22.1",
  "getrandom 0.4.3",
  "httparse",
+ "rusqlite",
  "serde",
  "serde_json",
  "tmt-adapters",

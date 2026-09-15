@@ -187,6 +187,14 @@ function avatarStorageSnapshot() {
     database.close();
   }
 }
+function blockStorageSnapshot() {
+  const database = new Database(path.join(state, 'tmux-team.db'), { readonly: true });
+  try {
+    return database.prepare('SELECT * FROM office_local_blocks ORDER BY block_id').all();
+  } finally {
+    database.close();
+  }
+}
 function builtinFurniture(asset, x, y, rotation) {
   return {
     prop: `${builtinDigest}/${asset}`,
@@ -288,20 +296,7 @@ try {
   assert.equal(missing.revision, 0);
   assert.deepEqual(missing.layout, { version: 2, objects: [] });
 
-  const firstLayout = layout([builtinFurniture('desk', 4, 6, 0)]);
-  const created = officeCommand([
-    'block',
-    'apply',
-    '--local',
-    '--identity',
-    'Alice',
-    '--file',
-    firstLayout,
-    '--if-revision',
-    '0',
-  ]);
-  assert.equal(created.exists, true);
-  assert.equal(created.revision, 1);
+  assert.deepEqual(blockStorageSnapshot(), []);
 
   // The board one-shot path must work through the verified companion while the
   // local HTTP service is stopped, then persist independently in shared SQLite.
@@ -407,20 +402,7 @@ try {
   const listed = await fetch(`${origin}/api/v1/local/blocks`, { headers });
   assert.equal(listed.status, 200);
   const projection = await listed.json();
-  assert.equal(projection.length, 1);
-  assert.deepEqual(
-    Object.keys(projection[0]).sort(),
-    [
-      'blockId',
-      'exists',
-      'identityId',
-      'identityName',
-      'layout',
-      'resolutions',
-      'revision',
-      'updatedAtMs',
-    ].sort()
-  );
+  assert.deepEqual(projection, []);
   assert.equal(JSON.stringify(projection).includes('notes'), false);
 
   browser = await launchBrowser();
@@ -445,7 +427,52 @@ try {
   const avatarCatalogRequestCount = () =>
     browserRequests.filter((url) => new URL(url).pathname === '/api/v1/local/avatar-catalog')
       .length;
+  const beforeOpeningRoom = avatarStorageSnapshot();
   await page.goto(started.url);
+  await page.getByRole('heading', { name: 'Your office', exact: true }).waitFor();
+  await page.getByText('Unfurnished · not saved').waitFor();
+  assert.deepEqual(blockStorageSnapshot(), []);
+  assert.deepEqual(avatarStorageSnapshot(), beforeOpeningRoom);
+  await page.getByRole('link', { name: "Enter Alice's room" }).click();
+  await page.getByRole('button', { name: 'Add desk' }).click();
+  assert.deepEqual(blockStorageSnapshot(), []);
+  assert.deepEqual(avatarStorageSnapshot(), beforeOpeningRoom);
+  await page.getByRole('button', { name: 'Save layout' }).click();
+  await page.locator('.block-heading').getByText('Saved · revision 1').waitFor();
+  const created = officeCommand(['block', 'show', '--local', '--identity', 'Alice']);
+  assert.equal(created.exists, true);
+  assert.equal(created.revision, 1);
+  assert.equal(created.identityId, missing.identityId);
+  assert.deepEqual(created.layout.objects, [builtinFurniture('desk', 14, 14, 0)]);
+  assert.equal(blockStorageSnapshot().length, 1);
+  assert.equal(blockStorageSnapshot()[0].block_id, created.blockId);
+  assert.equal(blockStorageSnapshot()[0].revision, 1);
+  assert.deepEqual(JSON.parse(blockStorageSnapshot()[0].layout), created.layout);
+  const savedProjection = await (await fetch(`${origin}/api/v1/local/blocks`, { headers })).json();
+  assert.equal(savedProjection.length, 1);
+  assert.deepEqual(
+    Object.keys(savedProjection[0]).sort(),
+    [
+      'blockId',
+      'exists',
+      'identityId',
+      'identityName',
+      'layout',
+      'resolutions',
+      'revision',
+      'updatedAtMs',
+    ].sort()
+  );
+  await page.getByRole('link', { name: '← Back to office' }).click();
+  await page.getByText('1 piece · saved').waitFor();
+  assert.equal(
+    await page.locator('.office-room .block-scene svg[shape-rendering="crispEdges"]').count(),
+    1
+  );
+  assert.equal(blockStorageSnapshot()[0].revision, 1);
+  const officeScreenshot = process.env.TMT_TEST_OFFICE_OVERVIEW_SCREENSHOT;
+  if (officeScreenshot) await page.screenshot({ path: officeScreenshot, fullPage: true });
+  await page.getByRole('link', { name: "Enter Alice's room" }).click();
   await page.getByText('Avatar · Signal bots · Signal bot').waitFor();
   assert.equal(new URL(page.url()).hash, '');
   assert.equal(await page.getByLabel('Avatar art').inputValue(), `${avatarDigest}/signal-bot`);
@@ -459,7 +486,7 @@ try {
     .evaluateAll((nodes) => nodes.map((node) => [...node.attributes].map((item) => item.value)));
   assert(profilePixels.length > 0);
   assert.deepEqual(scenePixels, []);
-  assert.equal(avatarCatalogRequestCount(), 1);
+  assert.equal(avatarCatalogRequestCount(), 4);
   const profileDesktopScreenshot = process.env.TMT_TEST_PROFILE_DESKTOP_SCREENSHOT;
   const profileNarrowScreenshot = process.env.TMT_TEST_PROFILE_NARROW_SCREENSHOT;
   const profileFallbackScreenshot = process.env.TMT_TEST_PROFILE_FALLBACK_SCREENSHOT;
@@ -486,11 +513,13 @@ try {
   assert.equal(officeCommand(['avatar', 'list', '--local']).packs.length, 0);
   await page.goto('about:blank');
   await page.goto(started.url);
+  await page.getByText('1 piece · saved').waitFor();
+  await page.getByRole('link', { name: "Enter Alice's room" }).click();
   await page.getByText('Avatar · unavailable, showing saved default appearance').waitFor();
   assert.equal(new URL(page.url()).hash, '');
   assert.equal(await page.getByLabel('Avatar art').inputValue(), `${avatarDigest}/signal-bot`);
   assert.deepEqual(avatarStorageSnapshot().profiles, selectedProfileRows);
-  assert.equal(avatarCatalogRequestCount(), 2);
+  assert.equal(avatarCatalogRequestCount(), 6);
   await page.setViewportSize({ width: 390, height: 844 });
   await assertNoHorizontalOverflow(page);
   if (profileFallbackScreenshot) {
@@ -511,9 +540,10 @@ try {
   assert.deepEqual(avatarStorageSnapshot().profiles, selectedProfileRows);
   await page.goto('about:blank');
   await page.goto(started.url);
+  await page.getByRole('link', { name: "Enter Alice's room" }).click();
   await page.getByText('Avatar · Signal bots · Signal bot').waitFor();
   assert.equal(new URL(page.url()).hash, '');
-  assert.equal(avatarCatalogRequestCount(), 3);
+  assert.equal(avatarCatalogRequestCount(), 8);
   const browserBoard = await page.evaluate(
     async ({ threadId, token }) => {
       const response = await fetch('/api/v1/local/board/threads/show', {
@@ -752,7 +782,7 @@ try {
   await browser.close();
   browser = undefined;
 
-  const badOrigin = await fetch(`${origin}/api/v1/local/blocks/${created.blockId}`, {
+  const badOrigin = await fetch(`${origin}/api/v1/local/identities/${created.identityId}/block`, {
     method: 'PUT',
     headers: { ...headers, Origin: 'http://attacker.invalid', 'Content-Type': 'application/json' },
     body: JSON.stringify({ expectedRevision: 2, layout: { version: 2, objects: [] } }),
@@ -771,26 +801,32 @@ try {
   });
   assert.equal(badHost.status, 421);
   assert.equal((await fetch(`${origin}/../private`, { headers })).status, 404);
-  const invalidLayout = await fetch(`${origin}/api/v1/local/blocks/${created.blockId}`, {
-    method: 'PUT',
-    headers: { ...headers, Origin: origin, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      expectedRevision: 2,
-      layout: { version: 2, objects: [builtinFurniture('desk', 31, 31, 0)] },
-    }),
-  });
+  const invalidLayout = await fetch(
+    `${origin}/api/v1/local/identities/${created.identityId}/block`,
+    {
+      method: 'PUT',
+      headers: { ...headers, Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        expectedRevision: 2,
+        layout: { version: 2, objects: [builtinFurniture('desk', 31, 31, 0)] },
+      }),
+    }
+  );
   assert.equal(invalidLayout.status, 400);
   try {
-    const oversized = await rawRequest(`${origin}/api/v1/local/blocks/${created.blockId}`, {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${firstToken}`,
-        Origin: origin,
-        'Content-Type': 'application/json',
-        'Content-Length': String(65 * 1024),
-      },
-      body: 'x'.repeat(65 * 1024),
-    });
+    const oversized = await rawRequest(
+      `${origin}/api/v1/local/identities/${created.identityId}/block`,
+      {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${firstToken}`,
+          Origin: origin,
+          'Content-Type': 'application/json',
+          'Content-Length': String(65 * 1024),
+        },
+        body: 'x'.repeat(65 * 1024),
+      }
+    );
     assert.equal(oversized.status, 400);
   } catch (error) {
     // The server may close as soon as the declared length exceeds its bound,
@@ -811,7 +847,7 @@ try {
     '--if-revision',
     '2',
   ]);
-  const stale = await fetch(`${origin}/api/v1/local/blocks/${created.blockId}`, {
+  const stale = await fetch(`${origin}/api/v1/local/identities/${created.identityId}/block`, {
     method: 'PUT',
     headers: { ...headers, Origin: origin, 'Content-Type': 'application/json' },
     body: JSON.stringify({ expectedRevision: 2, layout: { version: 2, objects: [] } }),
@@ -831,7 +867,7 @@ try {
     held.once('error', reject);
   });
   held.write(
-    `PUT /api/v1/local/blocks/${created.blockId} HTTP/1.1\r\n` +
+    `PUT /api/v1/local/identities/${created.identityId}/block HTTP/1.1\r\n` +
       `Host: 127.0.0.1:${new URL(origin).port}\r\n` +
       `Authorization: Bearer ${firstToken}\r\n` +
       `Origin: ${origin}\r\n` +
@@ -872,6 +908,8 @@ try {
   const reopenedBrowserRequests = [];
   reopened.on('request', (request) => reopenedBrowserRequests.push(request.url()));
   await reopened.goto(restarted.url);
+  await reopened.getByRole('heading', { name: 'Your office', exact: true }).waitFor();
+  await reopened.getByRole('link', { name: "Enter Alice's room" }).click();
   assert.equal(new URL(reopened.url()).hash, '');
   const restartedToken = tokenFrom(restarted.url);
   const reopenedBoard = await reopened.evaluate(
@@ -905,7 +943,7 @@ try {
     reopenedBrowserRequests.filter(
       (url) => new URL(url).pathname === '/api/v1/local/avatar-catalog'
     ).length,
-    1
+    2
   );
   assert.deepEqual(avatarStorageSnapshot().profiles, selectedProfileRows);
   await reopened.getByRole('link', { name: 'Board' }).click();

@@ -34,6 +34,9 @@ tmt office install --yes --channel alpha
 tmt office start
 ```
 
+Open the printed URL to see your office. Choose **Enter room** to furnish an
+agent's space, then **Save layout**. No layout file or Firebase setup is needed.
+
 For an existing Office installation, update the CLI first as above, then run
 `tmt office upgrade --channel alpha` and start Office explicitly.
 

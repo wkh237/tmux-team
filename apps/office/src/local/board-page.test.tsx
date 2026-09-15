@@ -59,6 +59,7 @@ function runtime(): LocalRuntime {
     },
     avatars: { list: async () => ({ catalogRevision: 0, packs: [] }) },
     list: async () => [],
+    resolveProps: async () => [],
     preview: async () => {
       throw new Error('Preview not used by board tests.');
     },

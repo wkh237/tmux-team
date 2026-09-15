@@ -1,0 +1,141 @@
+.office-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 28px;
+}
+.office-heading h1 {
+  margin: 4px 0 10px;
+}
+.office-heading p {
+  margin: 0;
+  color: #5d6d60;
+}
+.office-heading button,
+.office-empty {
+  border: 1px solid #c7d0bf;
+  background: #f9f8ef;
+  border-radius: 8px;
+  padding: 12px 18px;
+}
+.office-floor {
+  padding: 22px;
+  background: #ddd7c2;
+  border: 3px solid #adb29a;
+  border-radius: 4px;
+  box-shadow: 0 8px 0 #c4c7b8;
+}
+.office-corridor {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 4px 22px;
+  color: #57654e;
+  font-size: 12px;
+  letter-spacing: 0.1em;
+}
+.office-rooms {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  gap: 26px;
+}
+.office-room {
+  min-width: 0;
+  background: #f6f4e7;
+  border: 2px solid #a2ac94;
+  box-shadow: 4px 4px 0 #c6cbb8;
+}
+.room-nameplate {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 14px;
+  border-bottom: 1px solid #d2d7c6;
+}
+.room-nameplate h2 {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 17px;
+}
+.room-number {
+  color: #7b826f;
+  font-size: 12px;
+}
+.room-presence {
+  font-size: 11px;
+  color: #727a6c;
+}
+.room-presence.is-online {
+  color: #245e41;
+}
+.room-presence.is-online::before {
+  content: '● ';
+}
+.office-room .block-scene {
+  padding: 10px;
+  border-radius: 0;
+  background: #e9e9d8;
+}
+.room-doorway {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  font-size: 12px;
+}
+.room-doorway > span {
+  color: #65745f;
+}
+.room-doorway a {
+  background: #305940;
+  color: #fffdf2;
+  padding: 10px 14px;
+  text-decoration: none;
+  border-radius: 3px;
+}
+.room-doorway a:focus-visible,
+.office-lobby a:focus-visible {
+  outline: 3px solid #c6863c;
+  outline-offset: 4px;
+}
+.room-art-note {
+  margin: 0;
+  padding: 0 14px 12px;
+  font-size: 12px;
+  color: #786944;
+}
+.office-lobby {
+  margin-top: 24px;
+  padding: 18px 4px 2px;
+  border-top: 1px dashed #9ba38b;
+}
+.office-lobby a {
+  color: #294f3a;
+}
+.office-empty {
+  padding: 36px;
+}
+.personal-space > h1 {
+  margin-top: 18px;
+}
+@media (max-width: 600px) {
+  .office-heading {
+    align-items: start;
+    flex-direction: column;
+  }
+  .office-floor {
+    padding: 12px;
+  }
+  .office-rooms {
+    gap: 20px;
+  }
+  .office-empty {
+    padding: 20px;
+  }
+}

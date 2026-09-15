@@ -2,14 +2,14 @@ import { expect, test } from '@playwright/test';
 import type { Request } from '@playwright/test';
 import { builtinFurniture } from '../src/blocks/block-contract.js';
 
-test('offline local composition renders and conditionally edits shared profile and block ports', async ({
+test('office overview enters an unfurnished room and saves through shared profile and block ports', async ({
   page,
 }, testInfo) => {
   const token = 'a'.repeat(43);
   const blockId = '11111111-1111-4111-8111-111111111111';
-  let revision = 1;
+  let revision = 0;
   let profileRevision = 0;
-  let objects = [builtinFurniture('desk', 4, 6, 0)];
+  let objects: ReturnType<typeof builtinFurniture>[] = [];
   let profile = {
     displayLabel: '',
     description: 'Architecture review',
@@ -29,6 +29,7 @@ test('offline local composition renders and conditionally edits shared profile a
   };
   const requests: string[] = [];
   let avatarCatalogRequests = 0;
+  let extraRooms = false;
   page.on('request', (request) => requests.push(request.url()));
   await page.route('**/api/v1/local/avatar-catalog', async (route) => {
     expect(route.request().method()).toBe('GET');
@@ -54,6 +55,30 @@ test('offline local composition renders and conditionally edits shared profile a
           catalog,
           online: true,
         },
+        ...(extraRooms
+          ? [
+              {
+                identityId: '33333333-3333-4333-8333-333333333333',
+                identityName: 'Bob',
+                exists: false,
+                revision: 0,
+                profile: { ...profile, appearance: { ...profile.appearance, shirtColor: 'green' } },
+                updatedAtMs: null,
+                catalog,
+                online: true,
+              },
+              {
+                identityId: '44444444-4444-4444-8444-444444444444',
+                identityName: 'Casey — Documentation and architecture',
+                exists: false,
+                revision: 0,
+                profile,
+                updatedAtMs: null,
+                catalog,
+                online: false,
+              },
+            ]
+          : []),
       ]),
     });
   });
@@ -88,52 +113,76 @@ test('offline local composition renders and conditionally edits shared profile a
     expect(route.request().headers().authorization).toBe(`Bearer ${token}`);
     await route.fulfill({
       contentType: 'application/json',
-      body: JSON.stringify([
-        {
-          exists: true,
+      body: JSON.stringify(
+        revision === 0
+          ? []
+          : [
+              {
+                exists: true,
+                identityId: '22222222-2222-4222-8222-222222222222',
+                identityName: 'Alice',
+                blockId,
+                revision,
+                layout: { version: 2, objects },
+                resolutions: objects.map((_, index) => ({
+                  index,
+                  status: 'available',
+                  label: 'Desk',
+                })),
+                updatedAtMs: revision,
+              },
+            ]
+      ),
+    });
+  });
+  await page.route(
+    '**/api/v1/local/identities/22222222-2222-4222-8222-222222222222/block',
+    async (route) => {
+      const request = route.request();
+      expect(request.headers().authorization).toBe(`Bearer ${token}`);
+      if (request.method() === 'PUT') {
+        expect(request.headers().origin).toBe('http://127.0.0.1:4176');
+        const input = request.postDataJSON();
+        if (input.expectedRevision !== revision) {
+          await route.fulfill({ status: 409, body: '{"error":"REVISION_CONFLICT"}' });
+          return;
+        }
+        revision += 1;
+        objects = input.layout.objects;
+      }
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          exists: revision > 0,
           identityId: '22222222-2222-4222-8222-222222222222',
           identityName: 'Alice',
-          blockId,
+          blockId: revision > 0 ? blockId : null,
           revision,
           layout: { version: 2, objects },
-          resolutions: objects.map((_, index) => ({ index, status: 'available', label: 'Desk' })),
+          resolutions: objects.map((_, index) => ({ index, status: 'available', label: 'Prop' })),
           updatedAtMs: revision,
-        },
-      ]),
-    });
-  });
-  await page.route(`**/api/v1/local/blocks/${blockId}`, async (route) => {
-    const request = route.request();
-    expect(request.headers().authorization).toBe(`Bearer ${token}`);
-    if (request.method() === 'PUT') {
-      expect(request.headers().origin).toBe('http://127.0.0.1:4176');
-      const input = request.postDataJSON();
-      if (input.expectedRevision !== revision) {
-        await route.fulfill({ status: 409, body: '{"error":"REVISION_CONFLICT"}' });
-        return;
-      }
-      revision += 1;
-      objects = input.layout.objects;
+          ...(request.method() === 'PUT' ? { changed: true } : {}),
+        }),
+      });
     }
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        exists: true,
-        identityId: '22222222-2222-4222-8222-222222222222',
-        identityName: 'Alice',
-        blockId,
-        revision,
-        layout: { version: 2, objects },
-        resolutions: objects.map((_, index) => ({ index, status: 'available', label: 'Prop' })),
-        updatedAtMs: revision,
-        ...(request.method() === 'PUT' ? { changed: true } : {}),
-      }),
-    });
-  });
+  );
 
   await page.goto(`http://127.0.0.1:4176/local#token=${token}`);
   await expect(page).toHaveURL('http://127.0.0.1:4176/local');
-  await expect(page.getByRole('heading', { name: 'Your local office' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your office' })).toBeVisible();
+  await expect(page.getByText('Unfurnished · not saved')).toBeVisible();
+  expect(revision).toBe(0);
+  expect(profileRevision).toBe(0);
+  await page.screenshot({ path: testInfo.outputPath('office-desktop.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: testInfo.outputPath('office-narrow.png'), fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.getByRole('link', { name: "Enter Alice's room" }).focus();
+  await page.keyboard.press('Enter');
+  await page.getByRole('button', { name: 'Add desk' }).click();
+  expect(revision).toBe(0);
+  await page.getByRole('button', { name: 'Save layout' }).click();
   await expect(page.getByText('Avatar · default robot')).toBeVisible();
   await expect(page.getByText('Saved · revision 1')).toBeVisible();
   await expect(page.locator('.profile-preview .avatar-name')).toHaveText('Alice');
@@ -165,7 +214,24 @@ test('offline local composition renders and conditionally edits shared profile a
   expect(profile.appearance.shirtMark).toBe('UX');
   // The Vite dev server mounts effects twice under StrictMode. Edits must not
   // trigger more catalog reads; the production companion verifier asserts one.
-  expect(avatarCatalogRequests).toBe(2);
+  expect(avatarCatalogRequests).toBe(4);
+  await page.getByRole('link', { name: '← Back to office' }).click();
+  await expect(page.getByText('2 pieces · saved')).toBeVisible();
+  await expect(page.locator('.office-room .block-scene')).toBeVisible();
+  extraRooms = true;
+  await page.getByRole('button', { name: 'Refresh office' }).click();
+  await expect(page.getByText('3 spaces · 2 online')).toBeVisible();
+  await expect(page.locator('.office-room')).toHaveCount(3);
+  await expect(
+    page
+      .getByRole('article', { name: "Casey — Documentation and architecture's room" })
+      .locator('.profile-avatar')
+  ).toHaveCount(0);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.screenshot({ path: testInfo.outputPath('office-team-desktop.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: testInfo.outputPath('office-team-narrow.png'), fullPage: true });
   expect(requests.every((url) => new URL(url).hostname === '127.0.0.1')).toBe(true);
 });
 

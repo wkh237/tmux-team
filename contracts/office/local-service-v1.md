@@ -32,11 +32,14 @@ handles one request before closing. There is no CORS response.
   only compiled SPA bytes. The static shell is unauthenticated and contains no state.
 - `GET /api/v1/local/blocks` requires the browser bearer and returns active existing
   block projections only.
-- `GET /api/v1/local/blocks/<uuid>` requires the browser bearer and returns that active
-  block.
-- `PUT /api/v1/local/blocks/<uuid>` additionally requires exact loopback Origin and
-  JSON content type. Its body is `{expectedRevision,objects}` and it uses the shared
-  SQLite conditional-apply operation.
+- `GET /api/v1/local/identities/<uuid>/block` requires the browser bearer and an
+  active identity UUID. An absent block returns `exists:false`, `blockId:null`,
+  revision/timestamp zero and an empty layout without creating a row.
+- `PUT /api/v1/local/identities/<uuid>/block` additionally requires exact loopback
+  Origin and JSON content type. Its body is `{expectedRevision,layout}`, where
+  `layout` is the canonical version-2 layout. Revision zero creates the first block
+  through the shared SQLite conditional-apply operation. The former private
+  `/api/v1/local/blocks/<block-uuid>` detail route is not supported.
 - `POST /control/v1/health` and `/control/v1/stop` require the distinct control bearer,
   receipt nonce and an empty body.
 
@@ -53,6 +56,13 @@ SPA validates the token, moves it to memory and removes the fragment with
 start`. Data requests carry the bearer. Block watches have one request in flight, poll
 from two seconds with bounded backoff, abort on disposal, and stop after authorization
 failure. The existing block draft/conflict state remains the only editor state.
+
+`/local` observes active identity profiles and persisted blocks for the office
+overview. `/local/agents/<identity-uuid>` selects an editable room; route selection
+does not create or authorize an identity. A mounted-view snapshot loader owns
+loading, retry and stale-completion fencing. Returning to the overview or explicit
+refresh rereads state. Prop resolution deduplicates across rooms and batches at
+most 16 unique digests per request; overview rooms do not each start a listener.
 
 ## Persistence
 

@@ -610,12 +610,17 @@ fn api(
         }
         return response(stream, 200, "application/json", &body);
     }
-    let Some(block_id) = request.path.strip_prefix("/api/v1/local/blocks/") else {
+    let Some(identity_id) = request
+        .path
+        .strip_prefix("/api/v1/local/identities/")
+        .and_then(|path| path.strip_suffix("/block"))
+        .filter(|path| !path.contains('/'))
+    else {
         return response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#);
     };
-    if uuid::Uuid::parse_str(block_id)
+    if uuid::Uuid::parse_str(identity_id)
         .ok()
-        .is_none_or(|id| id.to_string() != block_id)
+        .is_none_or(|id| id.to_string() != identity_id)
     {
         return response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#);
     }
@@ -672,9 +677,9 @@ fn api(
         }
     };
     let result = match edit {
-        None => storage.show_active_local_block_by_block_id(block_id),
+        None => storage.show_local_block(identity_id),
         Some((expected_revision, layout)) => {
-            storage.apply_active_local_block_by_block_id(block_id, expected_revision, &layout)
+            storage.apply_local_block(identity_id, expected_revision, &layout)
         }
     };
     let status = match &result {
@@ -1729,6 +1734,233 @@ mod tests {
         let listed = call_api(list, &paths, &receipt);
         assert!(listed.contains("\"online\":false"));
         assert!(listed.contains(&avatar_ref));
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn protected_identity_block_http_creates_retries_and_never_targets_by_block_id() {
+        let root =
+            std::env::temp_dir().join(format!("tmt-identity-block-http-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let paths = ConfigPaths::resolve(&root, &root, Some(&root), None);
+        let mut storage = Storage::open(&paths.database).unwrap();
+        let alice = tmt_core::identity::create_or_resolve(
+            &mut storage,
+            "Alice",
+            tmt_core::identity::Lifetime::Saved,
+        )
+        .unwrap()
+        .identity
+        .id;
+        let bob = tmt_core::identity::create_or_resolve(
+            &mut storage,
+            "Bob",
+            tmt_core::identity::Lifetime::Saved,
+        )
+        .unwrap()
+        .identity
+        .id;
+        let prop_pack = validate_prop_pack(include_bytes!(
+            "../../../../contracts/office/builtin-props-v1.tmtprop.json"
+        ))
+        .unwrap();
+        storage.install_local_prop_pack(0, &prop_pack).unwrap();
+        storage.close().unwrap();
+        let receipt = test_receipt();
+        let headers = || {
+            vec![
+                ("Authorization".into(), "Bearer browser".into()),
+                ("Origin".into(), "http://127.0.0.1:1234".into()),
+                ("Content-Type".into(), "application/json".into()),
+            ]
+        };
+        let route = |identity: &str| format!("/api/v1/local/identities/{identity}/block");
+        let empty_layout = json!({"version":2,"objects":[]});
+
+        let unauthorized = call_api(
+            Request {
+                method: "GET".into(),
+                path: route(&alice),
+                headers: vec![],
+                body: vec![],
+            },
+            &paths,
+            &receipt,
+        );
+        assert!(unauthorized.starts_with("HTTP/1.1 401"));
+
+        let missing = call_api(
+            Request {
+                method: "GET".into(),
+                path: route(&alice),
+                headers: headers(),
+                body: vec![],
+            },
+            &paths,
+            &receipt,
+        );
+        assert!(missing.starts_with("HTTP/1.1 200"));
+        assert_eq!(
+            response_value(&missing),
+            json!({
+                "layout":{"version":2,"objects":[]},
+                "resolutions":[],
+                "exists":false,
+                "identityId":alice,
+                "identityName":"Alice",
+                "blockId":null,
+                "revision":0,
+                "updatedAtMs":0
+            })
+        );
+        let observation = rusqlite::Connection::open_with_flags(
+            &paths.database,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
+        assert_eq!(
+            observation
+                .query_row("SELECT count(*) FROM office_local_blocks", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        observation.close().unwrap();
+
+        let create_body =
+            serde_json::to_vec(&json!({"expectedRevision":0,"layout":empty_layout})).unwrap();
+        let created = call_api(
+            Request {
+                method: "PUT".into(),
+                path: route(&alice),
+                headers: headers(),
+                body: create_body.clone(),
+            },
+            &paths,
+            &receipt,
+        );
+        assert!(created.starts_with("HTTP/1.1 200"));
+        let created_body = response_value(&created);
+        assert_eq!(created_body["exists"], true);
+        assert_eq!(created_body["identityId"], alice);
+        assert_eq!(created_body["revision"], 1);
+        assert_eq!(created_body["changed"], true);
+        let block_id = created_body["blockId"].as_str().unwrap().to_owned();
+        let updated_at = created_body["updatedAtMs"].clone();
+
+        let retry = call_api(
+            Request {
+                method: "PUT".into(),
+                path: route(&alice),
+                headers: headers(),
+                body: create_body,
+            },
+            &paths,
+            &receipt,
+        );
+        let retry_body = response_value(&retry);
+        assert_eq!(retry_body["changed"], false);
+        assert_eq!(retry_body["blockId"], block_id);
+        assert_eq!(retry_body["updatedAtMs"], updated_at);
+
+        let wrong_identity = call_api(
+            Request {
+                method: "GET".into(),
+                path: route(&bob),
+                headers: headers(),
+                body: vec![],
+            },
+            &paths,
+            &receipt,
+        );
+        let wrong_identity_body = response_value(&wrong_identity);
+        assert_eq!(wrong_identity_body["identityId"], bob);
+        assert_eq!(wrong_identity_body["exists"], false);
+        assert_eq!(wrong_identity_body["blockId"], Value::Null);
+
+        let desk_layout = json!({
+            "version":2,
+            "objects":[{
+                "prop":format!("{}/desk", prop_pack.digest()),
+                "footprint":{"width":4,"height":2},
+                "x":0,
+                "y":0,
+                "rotation":0
+            }]
+        });
+        let empty_request = Request {
+            method: "PUT".into(),
+            path: route(&bob),
+            headers: headers(),
+            body: serde_json::to_vec(&json!({"expectedRevision":0,"layout":empty_layout})).unwrap(),
+        };
+        let desk_request = Request {
+            method: "PUT".into(),
+            path: route(&bob),
+            headers: headers(),
+            body: serde_json::to_vec(&json!({"expectedRevision":0,"layout":desk_layout})).unwrap(),
+        };
+        let left_paths = paths.clone();
+        let left_receipt = receipt.clone();
+        let left = thread::spawn(move || call_api(empty_request, &left_paths, &left_receipt));
+        let right_paths = paths.clone();
+        let right_receipt = receipt.clone();
+        let right = thread::spawn(move || call_api(desk_request, &right_paths, &right_receipt));
+        let mut statuses = [left.join().unwrap(), right.join().unwrap()]
+            .map(|response| response.split_whitespace().nth(1).unwrap().to_owned());
+        statuses.sort();
+        assert_eq!(statuses, ["200", "409"]);
+
+        let old_route = call_api(
+            Request {
+                method: "GET".into(),
+                path: format!("/api/v1/local/blocks/{block_id}"),
+                headers: headers(),
+                body: vec![],
+            },
+            &paths,
+            &receipt,
+        );
+        assert!(old_route.starts_with("HTTP/1.1 404"));
+
+        let fixture = rusqlite::Connection::open(&paths.database).unwrap();
+        fixture
+            .execute(
+                "UPDATE identities SET retired_at_ms = 1 WHERE id = ?",
+                [&alice],
+            )
+            .unwrap();
+        fixture.close().unwrap();
+        for method in ["GET", "PUT"] {
+            let retired = call_api(
+                Request {
+                    method: method.into(),
+                    path: route(&alice),
+                    headers: headers(),
+                    body: if method == "PUT" {
+                        serde_json::to_vec(&json!({"expectedRevision":1,"layout":empty_layout}))
+                            .unwrap()
+                    } else {
+                        vec![]
+                    },
+                },
+                &paths,
+                &receipt,
+            );
+            assert!(retired.starts_with("HTTP/1.1 404"), "{method}: {retired}");
+        }
+        let unknown = call_api(
+            Request {
+                method: "GET".into(),
+                path: "/api/v1/local/identities/33333333-3333-4333-8333-333333333333/block".into(),
+                headers: headers(),
+                body: vec![],
+            },
+            &paths,
+            &receipt,
+        );
+        assert!(unknown.starts_with("HTTP/1.1 404"));
 
         std::fs::remove_dir_all(root).unwrap();
     }

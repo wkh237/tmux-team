@@ -105,6 +105,16 @@ the adapter accepts only exact IPv4 loopback requests. This is a local browser
 adapter, not a work connector: it does not receive or dispatch remote work and
 does not execute CLI work.
 
+The local overview (`/local`) composes active identities into labeled rooms;
+`/local/agents/$identityId` reuses the block and profile editors. A shared
+mounted-view loader observes profiles, existing blocks and artwork, with late-result
+fencing and explicit refresh rather than a second store or per-room listeners.
+`BlockScene` and `Avatar` own both read-only overview and editor rendering. The
+identity-targeted HTTP block port can read an absent room and save revision zero
+through the existing repository transaction; navigation itself never creates rows.
+The [local service contract](../../contracts/office/local-service-v1.md) owns its
+routes and bounded shared prop resolution.
+
 Presentation profiles follow the same local-only composition without joining the block
 model. `tmt-core::office_profile` owns the exact catalog, safe-text bounds and UUID-byte
 default. Schema 15 stores one optional canonical override per immutable identity UUID;
