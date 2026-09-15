@@ -565,9 +565,10 @@ executables are not proof of release archives or public installation.
 ## Installed guidance source ownership
 
 `skills/tmux-team/SKILL.md`, `skills/tmt-inbox/SKILL.md`, and the optional
-`skills/tmt-office/SKILL.md` plus `skills/tmt-prop-create/SKILL.md` are the four
+`skills/tmt-office/SKILL.md`, `skills/tmt-prop-create/SKILL.md`, and
+`skills/tmt-avatar-create/SKILL.md` are the five
 canonical guidance sources in one versioned bundle. Core install exposes only
-the first two; explicit Office install or upgrade manages both Office siblings
+the first two; explicit Office install or upgrade manages all three Office siblings
 in detected and already-managed custom roots. Verify exact embedded bytes,
 core-only preservation, sibling
 managed links, repeat no-op, backup/conflict and partial-failure behavior, lock

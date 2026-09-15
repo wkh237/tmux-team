@@ -82,13 +82,16 @@ fn failed_office_publication_preserves_a_recoverable_backup_and_can_retry() {
     fs::create_dir_all(&target).unwrap();
     fs::write(target.join("user.md"), b"user-owned office guidance").unwrap();
 
-    let failure = install_office_with_publisher(&env, &global, true, |published, _source| {
-        assert_eq!(published, target);
-        assert!(!published.exists());
-        Err(io::Error::other("injected Office publication failure"))
+    let failure = install_office_with_publisher(&env, &global, true, |published, source| {
+        if published == target {
+            assert!(!published.exists());
+            return Err(io::Error::other("injected Office publication failure"));
+        }
+        files::link(published, source)
     })
     .unwrap_err();
-    assert!(failure.report.installed.is_empty());
+    assert_eq!(failure.report.installed.len(), 1);
+    assert_eq!(failure.report.installed[0].name, "tmt-avatar-create");
     let backup = failure.pending_backup.as_ref().unwrap();
     assert_eq!(
         fs::read(backup.join("user.md")).unwrap(),
@@ -98,8 +101,15 @@ fn failed_office_publication_preserves_a_recoverable_backup_and_can_retry() {
     assert!(failure.to_string().contains(backup.to_str().unwrap()));
 
     let retry = install_office(&env, &global, false).unwrap();
-    assert_eq!(retry.installed.len(), 2);
-    assert!(retry.installed[0].changed);
+    assert_eq!(retry.installed.len(), 3);
+    assert!(
+        retry
+            .installed
+            .iter()
+            .find(|item| item.name == "tmt-office")
+            .unwrap()
+            .changed
+    );
     assert!(fs::symlink_metadata(&target).unwrap().is_symlink());
     assert_eq!(
         fs::read(backup.join("user.md")).unwrap(),

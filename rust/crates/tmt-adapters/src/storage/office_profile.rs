@@ -31,6 +31,7 @@ pub enum LocalProfileError {
     RevisionConflict,
     RevisionExhausted,
     ProfileInvalid,
+    AvatarUnavailable,
     StoredProfileInvalid,
 }
 
@@ -48,6 +49,7 @@ impl std::fmt::Display for LocalProfileError {
             Self::RevisionConflict => "The local Office profile changed.",
             Self::RevisionExhausted => "The local Office profile revision is exhausted.",
             Self::ProfileInvalid => "The local Office profile is invalid.",
+            Self::AvatarUnavailable => "The selected local Office avatar is unavailable.",
             Self::StoredProfileInvalid => "The stored local Office profile is invalid.",
         })
     }
@@ -139,6 +141,7 @@ impl Storage {
             ).optional().map_err(|error| classify(error, "Read local Office profile revision"))?;
             match current {
                 None if expected_revision == 0 => {
+                    admit_avatar_reference(transaction, profile.avatar_ref.as_deref(), None)?;
                     let now = current_time_ms()?;
                     transaction.execute(
                         "INSERT INTO office_local_profiles (identity_id, revision, profile, updated_at_ms) VALUES (?, 1, ?, ?)",
@@ -191,7 +194,13 @@ impl Storage {
                 Some((revision, _, _)) if stored_u64(revision)? != expected_revision => {
                     Err(LocalProfileError::RevisionConflict)
                 }
-                Some((revision, _, _)) if stored_u64(revision)? < MAX_REVISION => {
+                Some((revision, stored, _)) if stored_u64(revision)? < MAX_REVISION => {
+                    let current_profile = decode_stored_profile(&stored)?;
+                    admit_avatar_reference(
+                        transaction,
+                        profile.avatar_ref.as_deref(),
+                        current_profile.avatar_ref.as_deref(),
+                    )?;
                     let now = current_time_ms()?;
                     let revision = stored_u64(revision)?;
                     let next = revision + 1;
@@ -217,6 +226,31 @@ impl Storage {
     }
 }
 
+fn admit_avatar_reference(
+    transaction: &rusqlite::Transaction<'_>,
+    candidate: Option<&str>,
+    current: Option<&str>,
+) -> Result<(), LocalProfileError> {
+    if candidate == current {
+        return Ok(());
+    }
+    if let Some(value) = candidate
+        && !super::office_avatar::reference_available(transaction, value)?
+    {
+        return Err(LocalProfileError::AvatarUnavailable);
+    }
+    Ok(())
+}
+
+fn decode_stored_profile(encoded: &str) -> Result<LocalProfile, LocalProfileError> {
+    serde_json::from_str(encoded)
+        .map_err(|_| LocalProfileError::StoredProfileInvalid)
+        .and_then(|value| {
+            crate::office_profile_wire::decode_value(value)
+                .map_err(|_| LocalProfileError::StoredProfileInvalid)
+        })
+}
+
 fn snapshot(
     identity_id: &str,
     identity_name: String,
@@ -233,12 +267,7 @@ fn snapshot(
             updated_at_ms: None,
         }),
         Some((revision, encoded, updated)) => {
-            let profile = serde_json::from_str(&encoded)
-                .map_err(|_| LocalProfileError::StoredProfileInvalid)
-                .and_then(|value| {
-                    crate::office_profile_wire::decode_value(value)
-                        .map_err(|_| LocalProfileError::StoredProfileInvalid)
-                })?;
+            let profile = decode_stored_profile(&encoded)?;
             Ok(LocalProfileSnapshot {
                 identity_id: identity_id.into(),
                 identity_name,
@@ -283,6 +312,17 @@ mod tests {
             "INSERT INTO identities (id, name, canonical_name, lifetime, created_at, updated_at) VALUES (?, ?, lower(?), 'saved', 'now', 'now')",
             params![id, name, name],
         ).unwrap();
+    }
+
+    fn avatar_pack() -> crate::office_avatar::ValidatedAvatarPack {
+        crate::office_avatar::validate_pack(include_bytes!(
+            "../../../../../contracts/office/avatar-pack-v1-sample.tmtavatar.json"
+        ))
+        .unwrap()
+    }
+
+    fn avatar_ref() -> String {
+        format!("{}/signal-bot", avatar_pack().digest())
     }
 
     #[test]
@@ -393,7 +433,11 @@ mod tests {
         let old = "11111111-1111-4111-8111-111111111111";
         identity(&storage, old, "Alice");
         let default = storage.show_local_profile(old).unwrap().profile;
-        storage.apply_local_profile(old, 0, &default).unwrap();
+        let avatar = avatar_pack();
+        storage.install_local_avatar_pack(0, &avatar).unwrap();
+        let mut selected = default.clone();
+        selected.avatar_ref = Some(avatar_ref());
+        storage.apply_local_profile(old, 0, &selected).unwrap();
         storage
             .connection()
             .unwrap()
@@ -424,9 +468,204 @@ mod tests {
         let snapshot = storage.show_local_profile(replacement).unwrap();
         assert!(!snapshot.exists);
         assert_ne!(snapshot.identity_id, old);
+        assert_eq!(snapshot.profile.avatar_ref, None);
         assert_eq!(
             storage.list_active_local_profiles().unwrap(),
             vec![snapshot]
         );
+    }
+
+    #[test]
+    fn avatar_admission_retention_removal_and_reinstall_are_atomic_with_profile_cas() {
+        let directory = TestDirectory::new();
+        let mut storage = Storage::open(directory.path.join("avatar-profile.db")).unwrap();
+        let id = "33333333-3333-4333-8333-333333333333";
+        identity(&storage, id, "Signal");
+        let mut candidate = storage.show_local_profile(id).unwrap().profile;
+        let missing = format!("sha256:{}/missing", "0".repeat(64));
+        candidate.avatar_ref = Some(missing.clone());
+        assert!(matches!(
+            storage.apply_local_profile(id, 0, &candidate),
+            Err(LocalProfileError::AvatarUnavailable)
+        ));
+        assert_eq!(
+            storage
+                .connection()
+                .unwrap()
+                .query_row("SELECT count(*) FROM office_local_profiles", [], |row| row
+                    .get::<_, i64>(
+                    0
+                ))
+                .unwrap(),
+            0
+        );
+
+        let avatar = avatar_pack();
+        storage.install_local_avatar_pack(0, &avatar).unwrap();
+        candidate.avatar_ref = Some(format!("{}/missing", avatar.digest()));
+        assert!(matches!(
+            storage.apply_local_profile(id, 0, &candidate),
+            Err(LocalProfileError::AvatarUnavailable)
+        ));
+        candidate.avatar_ref = Some(avatar_ref());
+        let selected = storage.apply_local_profile(id, 0, &candidate).unwrap();
+        assert_eq!(selected.snapshot.revision, 1);
+
+        storage
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE office_avatar_packs SET bytes = ? WHERE digest = ?",
+                params![b"{}".as_slice(), avatar.digest()],
+            )
+            .unwrap();
+        let mut retained = selected.snapshot.profile.clone();
+        retained.description = "Corrupt fallback remains editable".into();
+        let retained = storage.apply_local_profile(id, 1, &retained).unwrap();
+        assert_eq!(retained.snapshot.revision, 2);
+        storage
+            .remove_local_avatar_pack(1, avatar.digest())
+            .unwrap();
+        let mut missing_retained = retained.snapshot.profile.clone();
+        missing_retained.description = "Missing fallback remains editable".into();
+        let missing_retained = storage
+            .apply_local_profile(id, 2, &missing_retained)
+            .unwrap();
+        assert_eq!(missing_retained.snapshot.revision, 3);
+
+        let before_reinstall = storage.show_local_profile(id).unwrap();
+        storage.install_local_avatar_pack(2, &avatar).unwrap();
+        assert_eq!(storage.show_local_profile(id).unwrap(), before_reinstall);
+
+        let mut unavailable_change = before_reinstall.profile.clone();
+        unavailable_change.avatar_ref = Some(missing);
+        assert!(matches!(
+            storage.apply_local_profile(id, 3, &unavailable_change),
+            Err(LocalProfileError::AvatarUnavailable)
+        ));
+        assert_eq!(storage.show_local_profile(id).unwrap(), before_reinstall);
+
+        let mut reset = before_reinstall.profile.clone();
+        reset.avatar_ref = None;
+        let reset = storage.apply_local_profile(id, 3, &reset).unwrap();
+        assert_eq!(reset.snapshot.revision, 4);
+        assert_eq!(reset.snapshot.profile.avatar_ref, None);
+        let reset_retry = storage
+            .apply_local_profile(id, 3, &reset.snapshot.profile)
+            .unwrap();
+        assert!(!reset_retry.changed);
+        assert_eq!(reset_retry.snapshot, reset.snapshot);
+    }
+
+    #[test]
+    fn omitted_and_null_wire_resets_are_each_exactly_retryable() {
+        for (case, explicit_null) in [("omitted", false), ("null", true)] {
+            let directory = TestDirectory::new();
+            let mut storage =
+                Storage::open(directory.path.join(format!("reset-{case}.db"))).unwrap();
+            let id = "44444444-4444-4444-8444-444444444444";
+            identity(&storage, id, "Resettable");
+            let avatar = avatar_pack();
+            storage.install_local_avatar_pack(0, &avatar).unwrap();
+            let mut selected = storage.show_local_profile(id).unwrap().profile;
+            selected.avatar_ref = Some(avatar_ref());
+            let selected = storage.apply_local_profile(id, 0, &selected).unwrap();
+
+            let mut reset_wire =
+                crate::office_profile_wire::encode_value(&selected.snapshot.profile);
+            if explicit_null {
+                reset_wire["avatarRef"] = serde_json::Value::Null;
+            } else {
+                reset_wire.as_object_mut().unwrap().remove("avatarRef");
+            }
+            let reset_profile = crate::office_profile_wire::decode_value(reset_wire).unwrap();
+            let reset = storage.apply_local_profile(id, 1, &reset_profile).unwrap();
+            assert!(reset.changed, "{case}");
+            assert_eq!(reset.snapshot.profile.avatar_ref, None, "{case}");
+            let retry = storage.apply_local_profile(id, 1, &reset_profile).unwrap();
+            assert!(!retry.changed, "{case}");
+            assert_eq!(retry.snapshot, reset.snapshot, "{case}");
+        }
+    }
+
+    #[test]
+    fn catalog_removal_and_profile_adoption_have_one_ordered_transaction_boundary() {
+        let directory = TestDirectory::new();
+        let database = directory.path.join("avatar-profile-ordering.db");
+        let mut catalog = Storage::open(&database).unwrap();
+        let mut profiles = Storage::open(&database).unwrap();
+        let id = "55555555-5555-4555-8555-555555555555";
+        identity(&catalog, id, "Ordered");
+        let avatar = avatar_pack();
+        let avatar_ref = avatar_ref();
+
+        catalog.install_local_avatar_pack(0, &avatar).unwrap();
+        catalog
+            .remove_local_avatar_pack(1, avatar.digest())
+            .unwrap();
+        let mut candidate = profiles.show_local_profile(id).unwrap().profile;
+        candidate.avatar_ref = Some(avatar_ref.clone());
+        assert!(matches!(
+            profiles.apply_local_profile(id, 0, &candidate),
+            Err(LocalProfileError::AvatarUnavailable)
+        ));
+        assert_eq!(
+            profiles
+                .connection()
+                .unwrap()
+                .query_row("SELECT count(*) FROM office_local_profiles", [], |row| row
+                    .get::<_, i64>(
+                    0
+                ))
+                .unwrap(),
+            0
+        );
+
+        catalog.install_local_avatar_pack(2, &avatar).unwrap();
+        let adopted = profiles.apply_local_profile(id, 0, &candidate).unwrap();
+        assert_eq!(adopted.snapshot.revision, 1);
+        catalog
+            .remove_local_avatar_pack(3, avatar.digest())
+            .unwrap();
+        assert_eq!(profiles.show_local_profile(id).unwrap(), adopted.snapshot);
+
+        let retry = profiles.apply_local_profile(id, 0, &candidate).unwrap();
+        assert!(!retry.changed);
+        assert_eq!(retry.snapshot, adopted.snapshot);
+        let noop = profiles.apply_local_profile(id, 1, &candidate).unwrap();
+        assert!(!noop.changed);
+        assert_eq!(noop.snapshot, adopted.snapshot);
+
+        let mut retained = candidate;
+        retained.description = "Retained after catalog removal".into();
+        let retained = profiles.apply_local_profile(id, 1, &retained).unwrap();
+        assert_eq!(retained.snapshot.revision, 2);
+        assert_eq!(retained.snapshot.profile.avatar_ref, Some(avatar_ref));
+    }
+
+    #[test]
+    fn legacy_stored_profile_decodes_without_rewriting_bytes_revision_or_timestamp() {
+        let directory = TestDirectory::new();
+        let storage = Storage::open(directory.path.join("legacy-profile.db")).unwrap();
+        let id = "44444444-4444-4444-8444-444444444444";
+        identity(&storage, id, "Legacy");
+        let encoded = r#"{"displayLabel":"","description":"","appearance":{"hairStyle":"short","hairColor":"ink","skinTone":"medium","shirtColor":"blue","shirtMark":""}}"#;
+        storage.connection().unwrap().execute(
+            "INSERT INTO office_local_profiles (identity_id, revision, profile, updated_at_ms) VALUES (?, 7, ?, 99)",
+            params![id, encoded],
+        ).unwrap();
+        let before = storage.connection().unwrap().query_row(
+            "SELECT revision, profile, updated_at_ms FROM office_local_profiles WHERE identity_id = ?",
+            [id],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?)),
+        ).unwrap();
+        let shown = storage.show_local_profile(id).unwrap();
+        assert_eq!(shown.profile.avatar_ref, None);
+        let after = storage.connection().unwrap().query_row(
+            "SELECT revision, profile, updated_at_ms FROM office_local_profiles WHERE identity_id = ?",
+            [id],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?)),
+        ).unwrap();
+        assert_eq!(after, before);
     }
 }

@@ -190,7 +190,7 @@ impl PropPlacement {
     }
 
     fn validate(&self) -> Result<(), LayoutError> {
-        if !valid_prop_reference(&self.prop)
+        if crate::office_art_reference::parse_office_art_reference(&self.prop).is_none()
             || !(1..=8).contains(&self.footprint_width)
             || !(1..=8).contains(&self.footprint_height)
         {
@@ -266,25 +266,6 @@ impl std::fmt::Display for LayoutError {
             Self::InvalidReference => "Invalid immutable Office prop reference or footprint.",
         })
     }
-}
-
-fn valid_prop_reference(value: &str) -> bool {
-    let Some((digest, key)) = value.split_once('/') else {
-        return false;
-    };
-    let Some(hex) = digest.strip_prefix("sha256:") else {
-        return false;
-    };
-    hex.len() == 64
-        && hex
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        && (1..=32).contains(&key.len())
-        && key.bytes().enumerate().all(|(index, byte)| match byte {
-            b'a'..=b'z' => true,
-            b'0'..=b'9' | b'-' => index > 0,
-            _ => false,
-        })
 }
 
 impl std::error::Error for LayoutError {}

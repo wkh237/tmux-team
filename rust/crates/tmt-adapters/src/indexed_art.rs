@@ -1,6 +1,7 @@
 //! Narrow validation primitives shared by the two reviewed indexed-art contracts.
 
-pub(crate) const KEY_LIMIT: usize = 32;
+#[cfg(test)]
+pub(crate) const KEY_LIMIT: usize = tmt_core::office_art_reference::KEY_LIMIT;
 pub(crate) const LABEL_LIMIT: usize = 80;
 pub(crate) const CREDIT_LIMIT: usize = 120;
 pub(crate) const LICENSE_LIMIT: usize = 64;
@@ -11,12 +12,7 @@ pub(crate) fn valid_text(value: &str, max_bytes: usize) -> bool {
 }
 
 pub(crate) fn valid_key(value: &str) -> bool {
-    (1..=KEY_LIMIT).contains(&value.len())
-        && value.bytes().enumerate().all(|(index, byte)| match byte {
-            b'a'..=b'z' => true,
-            b'0'..=b'9' | b'-' => index > 0,
-            _ => false,
-        })
+    tmt_core::office_art_reference::valid_office_art_key(value)
 }
 
 pub(crate) fn valid_license(value: &str) -> bool {

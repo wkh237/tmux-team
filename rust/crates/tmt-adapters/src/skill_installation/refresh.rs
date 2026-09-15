@@ -85,6 +85,7 @@ pub(super) fn refresh_with_publisher(
                     Some("tmt-inbox") => &current_sources.1,
                     Some("tmt-office") => &current_sources.2,
                     Some("tmt-prop-create") => &current_sources.3,
+                    Some("tmt-avatar-create") => &current_sources.4,
                     _ => {
                         report.conflicts.push(target);
                         continue;

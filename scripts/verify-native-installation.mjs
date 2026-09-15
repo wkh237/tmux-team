@@ -106,6 +106,10 @@ await withNativeArtifact(values.archive, current, async (source) => {
         run(['learn', '--skill', 'tmt-office']),
         fs.readFileSync(new URL('../skills/tmt-office/SKILL.md', import.meta.url), 'utf8')
       );
+      assert.equal(
+        run(['learn', '--skill', 'tmt-avatar-create']),
+        fs.readFileSync(new URL('../skills/tmt-avatar-create/SKILL.md', import.meta.url), 'utf8')
+      );
       assert.deepEqual(
         fs.readFileSync(database),
         originalDatabase,

@@ -30,6 +30,7 @@ pub fn bundled_skill_named(name: &str) -> Option<&'static [u8]> {
         "tmt-inbox" => Some(assets::INBOX_SKILL),
         "tmt-office" => Some(assets::OFFICE_SKILL),
         "tmt-prop-create" => Some(assets::PROP_CREATE_SKILL),
+        "tmt-avatar-create" => Some(assets::AVATAR_CREATE_SKILL),
         _ => None,
     }
 }
@@ -188,7 +189,7 @@ pub fn install(
     install_with_publisher(env, global, provider, directory, force, files::link)
 }
 
-/// Install the optional Office and prop-creation guidance into detected provider roots and any
+/// Install the optional Office and art-creation guidance into detected provider roots and any
 /// custom root that still contains an owned core skill. Explicit Office setup
 /// may add this sibling; ordinary core installation and binary refresh do not.
 pub fn install_office(
@@ -218,6 +219,7 @@ fn install_office_with_publisher(
                 let parent = main.parent().expect("skill target parent");
                 targets.insert(parent.join("tmt-office"), *agent);
                 targets.insert(parent.join("tmt-prop-create"), *agent);
+                targets.insert(parent.join("tmt-avatar-create"), *agent);
             }
             for registered in registry::read(&global)? {
                 let Some(name) = registered.file_name().and_then(|name| name.to_str()) else {
@@ -225,7 +227,11 @@ fn install_office_with_publisher(
                 };
                 if !matches!(
                     name,
-                    "tmux-team" | "tmt-inbox" | "tmt-office" | "tmt-prop-create"
+                    "tmux-team"
+                        | "tmt-inbox"
+                        | "tmt-office"
+                        | "tmt-prop-create"
+                        | "tmt-avatar-create"
                 ) || managed_link(&registered, &assets)?.is_none()
                 {
                     continue;
@@ -235,11 +241,14 @@ fn install_office_with_publisher(
                 targets
                     .entry(parent.join("tmt-prop-create"))
                     .or_insert(None);
+                targets
+                    .entry(parent.join("tmt-avatar-create"))
+                    .or_insert(None);
             }
             for target in targets.keys() {
                 files::safe_target(assets.root(), target)?;
             }
-            let (_, _, office_source, prop_source) = assets.materialize_bundle()?;
+            let (_, _, office_source, prop_source, avatar_source) = assets.materialize_bundle()?;
             registry::remember(&global, targets.keys().cloned())?;
             let mut context = PublicationContext {
                 assets: &assets,
@@ -248,12 +257,10 @@ fn install_office_with_publisher(
                 pending_backup: &mut pending_backup,
             };
             for (target, agent) in targets {
-                let (source, name) = if target.file_name().and_then(|name| name.to_str())
-                    == Some("tmt-prop-create")
-                {
-                    (&prop_source, "tmt-prop-create")
-                } else {
-                    (&office_source, "tmt-office")
+                let (source, name) = match target.file_name().and_then(|name| name.to_str()) {
+                    Some("tmt-prop-create") => (&prop_source, "tmt-prop-create"),
+                    Some("tmt-avatar-create") => (&avatar_source, "tmt-avatar-create"),
+                    _ => (&office_source, "tmt-office"),
                 };
                 publish_managed_target(&mut context, &target, source, name, agent, &mut publish)?;
             }
@@ -301,7 +308,7 @@ fn install_with_publisher(
         }
         files::with_lock(&global, || {
             registry::read(&global)?;
-            let (main_source, inbox_source, _, _) = assets.materialize_bundle()?;
+            let (main_source, inbox_source, _, _, _) = assets.materialize_bundle()?;
             registry::remember(&global, targets.iter().map(|(_, target, _)| target.clone()))?;
             let mut context = PublicationContext {
                 assets: &assets,

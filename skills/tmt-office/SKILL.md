@@ -53,7 +53,7 @@ local-service support from downloaded bytes or advertise an unpublished source
 candidate as a public release.
 
 Office install and upgrade also install or refresh this optional skill and the
-data-only `tmt-prop-create` guidance through the existing managed-skill owner.
+data-only `tmt-prop-create` and `tmt-avatar-create` guidance through the existing managed-skill owner.
 Existing managed custom roots are included. An unmanaged optional target is
 preserved unless the user explicitly authorizes `--force`, which creates a
 recoverable backup. Binary activation can
@@ -166,6 +166,10 @@ write may have committed: reread and compare before retrying the same intent.
 
 ### Edit a local presentation profile
 
+For custom data-only character art, load the installed `tmt-avatar-create` skill.
+It owns the bounded pack format and the validate, preview, install, and profile
+selection workflow.
+
 Read before applying; these commands also work while the browser service is stopped:
 
 ```sh
@@ -177,7 +181,9 @@ The JSON read result is the installed runtime reference: copy only its exact `.p
 object into `profile.json`, and choose catalog values only from the returned `.catalog`.
 Do not write the surrounding identity, revision, timestamp, existence or catalog fields
 into the apply file. The file is limited to 8 KiB; unknown fields, control characters and
-arbitrary asset references reject. Revision 0 creates an explicit override, even when it
+arbitrary asset references reject. An optional installed `avatarRef` selects custom
+art; omitting it or setting it to `null` restores the default robot while preserving
+saved appearance fields for fallback. Revision 0 creates an explicit override, even when it
 equals the deterministic default. Identical current saves and exact retries preserve the
 stored timestamp. On `OFFICE_REVISION_CONFLICT`, retain the file and original revision,
 reread, then explicitly reconcile rather than advancing the revision automatically. On

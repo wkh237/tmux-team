@@ -84,7 +84,7 @@ fn human(value: &serde_json::Value) -> String {
         None => "",
     };
     format!(
-        "{} ({}) — revision {} {}{}\nLabel: {}\nDescription: {}\nHair: {} / {}\nSkin: {}\nShirt: {} / {}",
+        "{} ({}) — revision {} {}{}\nLabel: {}\nDescription: {}\nAvatar: {}\nHair: {} / {}\nSkin: {}\nShirt: {} / {}",
         value["identityName"].as_str().unwrap_or("identity"),
         value["identityId"].as_str().unwrap_or(""),
         value["revision"].as_u64().unwrap_or(0),
@@ -92,6 +92,7 @@ fn human(value: &serde_json::Value) -> String {
         outcome,
         value["profile"]["displayLabel"].as_str().unwrap_or(""),
         value["profile"]["description"].as_str().unwrap_or(""),
+        value["profile"]["avatarRef"].as_str().unwrap_or("default"),
         value["profile"]["appearance"]["hairStyle"]
             .as_str()
             .unwrap_or(""),
@@ -118,6 +119,13 @@ fn profile_error(error: OfficeError, name: &str) -> Failure {
         return Failure::new(
             error.code(),
             "The Office profile changed after it was read. Read the current profile and reconcile your preserved draft before submitting a new revision. No profile was changed by this attempt.",
+            1,
+        );
+    }
+    if error == OfficeError::AvatarNotFound {
+        return Failure::new(
+            error.code(),
+            "The selected avatar pack or key is not installed. The profile was not changed.",
             1,
         );
     }

@@ -14,6 +14,15 @@ describe('profile contract', () => {
     for (const profile of vectors.invalidProfiles) expect(validProfile(profile)).toBe(false);
   });
 
+  it('accepts an omitted or valid avatar reference but not null or a URL', () => {
+    expect(validProfile(vectors.validProfiles[0])).toBe(true);
+    expect(validProfile(vectors.validProfiles[1])).toBe(true);
+    expect(validProfile({ ...vectors.validProfiles[0], avatarRef: null })).toBe(false);
+    expect(validProfile({ ...vectors.validProfiles[0], avatarRef: 'https://example.test/a' })).toBe(
+      false
+    );
+  });
+
   it('rejects nonpositive stored timestamps', () => {
     expect(() =>
       decodeProfileSnapshot({

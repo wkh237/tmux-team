@@ -84,7 +84,8 @@ Office browser/Rules and bootstrap smoke proofs retain separate fixture owners.
 Installation-local data-only prop and avatar packs are implemented under separate bounded
 contracts below. They share only reviewed indexed-art, framed-digest, cursor and preview
 mechanics; each retains typed validation, storage tables, revision/cursor domain and quotas.
-Avatar foundation availability does not imply profile selection or custom-art fallback.
+Profiles may select admitted avatar art through immutable digest/key references; catalog
+removal leaves the reference intact and falls back to the stored default appearance.
 Community exchange and exploration remain a [sandbox plan](docs/office/sandbox.md), not a
 runtime SDK, identity registry or alternate exchange engine.
 
@@ -127,14 +128,17 @@ and starts the existing bounded subprocess under the installer lock, then waits
 outside that lock and validates the version selected at launch.
 Its contract is [native companion handshake](contracts/office/native-companion.md).
 Local presentation profiles are a separate UUID-owned resource: `tmt-core::office_profile`
-owns the literal catalog, text bounds and deterministic default; SQLite schema 15 owns
-only the canonical override and CAS revision. Native commands and authenticated loopback
-HTTP reuse that owner. Layout, role, notes, identity and presence are never profile fields.
-The shared browser `Avatar` composes repository-owned indexed robot character art from
-the existing appearance catalog. `rendering/indexed-raster` draws inert pixels for
-both avatars and admitted props; avatar artwork does not enter the mutable prop
-catalog or add profile fields. Identity and shirt text remain separate accessible
-text overlays, never executable artwork.
+owns the literal default catalog, text bounds, optional immutable `avatarRef` grammar and
+deterministic default; SQLite schema 15 owns only the canonical override and CAS revision.
+Native commands and authenticated loopback HTTP reuse that owner. A profile change to a
+different custom reference and its catalog admission are checked in one immediate SQLite
+transaction. A retained reference remains editable when its pack is removed or corrupt,
+and exact reinstall restores its art without rewriting the profile. Layout, role, notes,
+identity and presence are never profile fields. The shared browser `Avatar` composes either
+repository-owned robot art or admitted indexed custom art. `rendering/indexed-raster` draws
+inert pixels for both avatars and admitted props; avatar artwork never enters the prop
+catalog. Identity and shirt text remain separate accessible text overlays, never executable
+artwork.
 The public `office` subtree composes installation, identity resolution and bounded
 pairing observation, never credentials or HTTP. `office_pairing` separates wire
 values, remote Auth/resource access, vault access, local installation metadata,

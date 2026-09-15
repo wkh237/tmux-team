@@ -320,7 +320,13 @@ fn learn_selects_exact_bundled_guidance_without_breaking_the_core_flag() {
             skill: Some("tmux-team".into())
         }
     );
-    for name in ["tmux-team", "tmt-inbox", "tmt-office", "tmt-prop-create"] {
+    for name in [
+        "tmux-team",
+        "tmt-inbox",
+        "tmt-office",
+        "tmt-prop-create",
+        "tmt-avatar-create",
+    ] {
         assert_eq!(
             parsed(&["learn", "--skill", name]).invocation,
             Invocation::Learn {

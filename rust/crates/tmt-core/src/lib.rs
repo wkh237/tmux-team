@@ -9,6 +9,7 @@ pub mod identity_metadata;
 pub mod limits;
 pub mod names;
 pub mod native_install;
+pub mod office_art_reference;
 pub mod office_block;
 pub mod office_board;
 pub mod office_profile;

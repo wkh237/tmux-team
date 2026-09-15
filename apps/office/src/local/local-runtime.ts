@@ -5,6 +5,8 @@ import { BUILTIN_DIGEST, decodePropPack } from '../props/prop-contract.js';
 import type { CatalogPack } from '../props/prop-contract.js';
 import { decodeAvatarPack } from '../avatars/avatar-contract.js';
 import type { CatalogAvatarPack } from '../avatars/avatar-contract.js';
+import { decodeAvatarCatalog } from '../avatars/avatar-catalog.js';
+import type { AvatarCatalog } from '../avatars/avatar-catalog.js';
 import {
   decodeBoardList,
   decodeBoardShow,
@@ -28,6 +30,7 @@ import {
   decodeProfileMutation,
   decodeProfileSnapshot,
   ProfileConflict,
+  ProfileAvatarUnavailable,
 } from '../profiles/profile-contract.js';
 import type { Profile, ProfilePort } from '../profiles/profile-contract.js';
 
@@ -48,6 +51,7 @@ export interface LocalBlockProjection {
 export interface LocalRuntime {
   blocks: BlockPort;
   profiles: ProfilePort;
+  avatars: { list(): Promise<AvatarCatalog> };
   board: LocalBoardPort;
   list(): Promise<LocalBlockProjection[]>;
   preview(previewId: string): Promise<CatalogPack>;
@@ -377,14 +381,23 @@ export function startLocalRuntime(location: Location): LocalRuntime {
           body: JSON.stringify({ expectedRevision, profile }),
         }
       );
+      if (response.status === 409 && (value as { error?: unknown })?.error === 'AVATAR_UNAVAILABLE')
+        throw new ProfileAvatarUnavailable();
       if (response.status === 409) throw new ProfileConflict();
       return checked(response, value, decodeProfileMutation);
+    },
+  };
+  const avatars = {
+    async list() {
+      const { response, value } = await jsonRequest('/api/v1/local/avatar-catalog');
+      return checked(response, value, decodeAvatarCatalog);
     },
   };
   return {
     blocks,
     board,
     profiles,
+    avatars,
     async preview(previewId) {
       if (!/^[A-Za-z0-9_-]{43}$/.test(previewId)) throw new Error('Invalid prop preview ID.');
       const { response, value } = await jsonRequest(

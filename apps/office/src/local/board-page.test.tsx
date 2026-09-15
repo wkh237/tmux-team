@@ -57,6 +57,7 @@ function runtime(): LocalRuntime {
         throw new Error('Profile not used by board tests.');
       },
     },
+    avatars: { list: async () => ({ catalogRevision: 0, packs: [] }) },
     list: async () => [],
     preview: async () => {
       throw new Error('Preview not used by board tests.');

@@ -161,6 +161,43 @@ describe('local Office runtime', () => {
     runtime.dispose();
   });
 
+  it('loads the bounded avatar catalog once through the authenticated runtime port', async () => {
+    const value = { catalogRevision: 0, packs: [] };
+    const fetch = vi.fn(async () => new Response(JSON.stringify(value), { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    const runtime = startLocalRuntime(window.location);
+    await expect(runtime.avatars.list()).resolves.toEqual(value);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/v1/local/avatar-catalog',
+      expect.objectContaining({ headers: { Authorization: `Bearer ${token}` } })
+    );
+    runtime.dispose();
+  });
+
+  it('distinguishes an unavailable avatar from a profile revision conflict', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('{"error":"AVATAR_UNAVAILABLE"}', { status: 409 }))
+    );
+    const runtime = startLocalRuntime(window.location);
+    const profile = {
+      displayLabel: '',
+      description: '',
+      appearance: {
+        hairStyle: 'short' as const,
+        hairColor: 'ink' as const,
+        skinTone: 'medium' as const,
+        shirtColor: 'blue' as const,
+        shirtMark: '',
+      },
+    };
+    await expect(runtime.profiles.apply(block.identityId, 0, profile)).rejects.toThrow(
+      'selected avatar is no longer installed'
+    );
+    runtime.dispose();
+  });
+
   it('preserves drafts through transient backoff and aborts an active poll on disposal', async () => {
     vi.useFakeTimers();
     let calls = 0;

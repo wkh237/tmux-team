@@ -46,6 +46,18 @@
         "shirtColor": "plum",
         "shirtMark": "AI"
       }
+    },
+    {
+      "displayLabel": "Custom bot",
+      "description": "Keeps default appearance for fallback",
+      "appearance": {
+        "hairStyle": "short",
+        "hairColor": "ink",
+        "skinTone": "medium",
+        "shirtColor": "blue",
+        "shirtMark": "AI"
+      },
+      "avatarRef": "sha256:0000000000000000000000000000000000000000000000000000000000000000/signal-bot"
     }
   ],
   "invalidProfiles": [
@@ -70,6 +82,18 @@
         "shirtColor": "blue",
         "shirtMark": ""
       }
+    },
+    {
+      "displayLabel": "",
+      "description": "",
+      "appearance": {
+        "hairStyle": "short",
+        "hairColor": "ink",
+        "skinTone": "medium",
+        "shirtColor": "blue",
+        "shirtMark": ""
+      },
+      "avatarRef": "https://example.test/avatar"
     }
   ]
 }

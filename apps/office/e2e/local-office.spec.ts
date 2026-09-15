@@ -28,7 +28,17 @@ test('offline local composition renders and conditionally edits shared profile a
     shirtColors: ['blue', 'green', 'clay', 'plum', 'gold', 'ink'],
   };
   const requests: string[] = [];
+  let avatarCatalogRequests = 0;
   page.on('request', (request) => requests.push(request.url()));
+  await page.route('**/api/v1/local/avatar-catalog', async (route) => {
+    expect(route.request().method()).toBe('GET');
+    expect(route.request().headers().authorization).toBe(`Bearer ${token}`);
+    avatarCatalogRequests += 1;
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({ catalogRevision: 0, packs: [] }),
+    });
+  });
   await page.route('**/api/v1/local/profiles', async (route) => {
     expect(route.request().headers().authorization).toBe(`Bearer ${token}`);
     await route.fulfill({
@@ -124,6 +134,7 @@ test('offline local composition renders and conditionally edits shared profile a
   await page.goto(`http://127.0.0.1:4176/local#token=${token}`);
   await expect(page).toHaveURL('http://127.0.0.1:4176/local');
   await expect(page.getByRole('heading', { name: 'Your local office' })).toBeVisible();
+  await expect(page.getByText('Avatar · default robot')).toBeVisible();
   await expect(page.getByText('Saved · revision 1')).toBeVisible();
   await expect(page.locator('.profile-preview .avatar-name')).toHaveText('Alice');
   await expect(page.locator('.profile-preview .avatar-mark')).toHaveText('AI');
@@ -152,6 +163,9 @@ test('offline local composition renders and conditionally edits shared profile a
   await expect(page.getByText('Saved · revision 2')).toBeVisible();
   expect(objects).toHaveLength(2);
   expect(profile.appearance.shirtMark).toBe('UX');
+  // The Vite dev server mounts effects twice under StrictMode. Edits must not
+  // trigger more catalog reads; the production companion verifier asserts one.
+  expect(avatarCatalogRequests).toBe(2);
   expect(requests.every((url) => new URL(url).hostname === '127.0.0.1')).toBe(true);
 });
 

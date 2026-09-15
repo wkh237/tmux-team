@@ -7,6 +7,14 @@ import { resolvedProp } from '../props/prop-contract.js';
 import { BlockScene } from './block-scene.js';
 import './block.css';
 import type { Appearance } from '../profiles/profile-contract.js';
+import type { AvatarArt } from '../profiles/avatar.js';
+
+interface SceneAvatar {
+  appearance: Appearance;
+  name: string;
+  displayLabel?: string;
+  customArt?: AvatarArt;
+}
 
 export const BlockContext = createContext<BlockPort | undefined>(undefined);
 export function BlockPanel({
@@ -18,7 +26,7 @@ export function BlockPanel({
   worldId: string;
   blockPort?: BlockPort;
   label?: string;
-  avatar?: { appearance: Appearance; name: string; displayLabel?: string };
+  avatar?: SceneAvatar;
 }) {
   const defaultPort = useContext(BlockContext);
   const port = blockPort ?? defaultPort;
@@ -38,7 +46,7 @@ export function BlockEditor({
 }: {
   state: BlockState;
   label?: string;
-  avatar?: { appearance: Appearance; name: string; displayLabel?: string };
+  avatar?: SceneAvatar;
 }) {
   const { remote, draft, ready, busy, error } = useSyncExternalStore(
     state.subscribe,

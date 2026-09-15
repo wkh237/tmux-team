@@ -1,7 +1,14 @@
 import { useEffect, useState } from 'react';
 import type { Profile, ProfilePort, ProfileSnapshot } from './profile-contract.js';
-import { PROFILE_CATALOG, ProfileConflict, validProfile } from './profile-contract.js';
+import {
+  PROFILE_CATALOG,
+  ProfileAvatarUnavailable,
+  ProfileConflict,
+  validProfile,
+} from './profile-contract.js';
 import { Avatar } from './avatar.js';
+import type { AvatarCatalog } from '../avatars/avatar-catalog.js';
+import { avatarOptions, resolveAvatar, validAvatarReference } from '../avatars/avatar-catalog.js';
 import './profile.css';
 
 const draftKey = (id: string) => `tmt-office-profile-draft:${id}`;
@@ -10,6 +17,7 @@ interface ProfileDraft {
   baseRevision: number;
   profile: Profile;
 }
+const EMPTY_AVATAR_CATALOG: AvatarCatalog = { catalogRevision: 0, packs: [] };
 const fieldLabel = {
   hairStyle: 'Hair style',
   hairColor: 'Hair color',
@@ -19,7 +27,12 @@ const fieldLabel = {
 function editableProfile(value: unknown): value is Profile {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const profile = value as Record<string, unknown>;
-  if (Object.keys(profile).sort().join(',') !== 'appearance,description,displayLabel') return false;
+  const keys = Object.keys(profile).sort().join(',');
+  if (
+    keys !== 'appearance,description,displayLabel' &&
+    keys !== 'appearance,avatarRef,description,displayLabel'
+  )
+    return false;
   if (
     typeof profile.displayLabel !== 'string' ||
     typeof profile.description !== 'string' ||
@@ -33,6 +46,7 @@ function editableProfile(value: unknown): value is Profile {
     Object.keys(appearance).sort().join(',') ===
       'hairColor,hairStyle,shirtColor,shirtMark,skinTone' &&
     typeof appearance.shirtMark === 'string' &&
+    (profile.avatarRef === undefined || validAvatarReference(profile.avatarRef)) &&
     PROFILE_CATALOG.hairStyles.includes(appearance.hairStyle as never) &&
     PROFILE_CATALOG.hairColors.includes(appearance.hairColor as never) &&
     PROFILE_CATALOG.skinTones.includes(appearance.skinTone as never) &&
@@ -64,16 +78,20 @@ export function ProfilePanel({
   initial,
   port,
   changed,
+  avatarCatalog = EMPTY_AVATAR_CATALOG,
 }: {
   initial: ProfileSnapshot;
   port: ProfilePort;
   changed(snapshot: ProfileSnapshot): void;
+  avatarCatalog?: AvatarCatalog;
 }) {
   const [remote, setRemote] = useState(initial);
   const [draft, setDraft] = useState<ProfileDraft>(() => restoredDraft(initial));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [storageError, setStorageError] = useState<string>();
+  const avatar = resolveAvatar(draft.profile.avatarRef, avatarCatalog);
+  const options = avatarOptions(avatarCatalog);
   useEffect(() => {
     try {
       if (
@@ -100,6 +118,12 @@ export function ProfilePanel({
         appearance: { ...current.profile.appearance, [key]: value },
       },
     }));
+  const setAvatar = (value: string) =>
+    setDraft((current) => {
+      if (value) return { ...current, profile: { ...current.profile, avatarRef: value } };
+      const { avatarRef: _avatarRef, ...profile } = current.profile;
+      return { ...current, profile };
+    });
   async function save() {
     if (!validProfile(draft.profile) || busy) {
       setError('Keep profile text within the limits and choose catalog values.');
@@ -123,7 +147,8 @@ export function ProfilePanel({
       }
       changed(saved);
     } catch (cause) {
-      if (cause instanceof ProfileConflict) setError(cause.message);
+      if (cause instanceof ProfileConflict || cause instanceof ProfileAvatarUnavailable)
+        setError(cause.message);
       else
         setError('Save could not be confirmed. Your draft is preserved; reread before retrying.');
       try {
@@ -145,12 +170,20 @@ export function ProfilePanel({
             appearance={draft.profile.appearance}
             name={remote.identityName}
             displayLabel={draft.profile.displayLabel}
+            customArt={avatar.status === 'available' ? avatar.art : undefined}
           />
         </svg>
         <p>
           {remote.exists
             ? `Saved · revision ${remote.revision}`
             : 'Deterministic default · revision 0'}
+        </p>
+        <p className={`avatar-status avatar-status-${avatar.status}`}>
+          {avatar.status === 'default'
+            ? 'Avatar · default robot'
+            : avatar.status === 'available'
+              ? `Avatar · ${avatar.label}`
+              : 'Avatar · unavailable, showing saved default appearance'}
         </p>
       </div>
       <fieldset className="profile-fields" disabled={busy}>
@@ -175,23 +208,49 @@ export function ProfilePanel({
             }
           />
         </label>
-        <div className="profile-options">
-          {(['hairStyle', 'hairColor', 'skinTone', 'shirtColor'] as const).map((key) => (
-            <label key={key}>
-              {fieldLabel[key]}
-              <select
-                value={draft.profile.appearance[key]}
-                onChange={(event) => setAppearance(key, event.target.value)}
-              >
-                {PROFILE_CATALOG[
-                  `${key}s` as 'hairStyles' | 'hairColors' | 'skinTones' | 'shirtColors'
-                ].map((value) => (
-                  <option key={value}>{value}</option>
-                ))}
-              </select>
-            </label>
-          ))}
-        </div>
+        <label>
+          Avatar art
+          <select
+            value={draft.profile.avatarRef ?? ''}
+            onChange={(event) => setAvatar(event.target.value)}
+          >
+            <option value="">Default robot</option>
+            {avatar.status === 'unavailable' && (
+              <option value={avatar.ref}>Unavailable selection · {avatar.ref.slice(0, 22)}…</option>
+            )}
+            {options.map((option) => (
+              <option key={option.ref} value={option.ref}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <fieldset
+          className="profile-default-options"
+          disabled={busy || Boolean(draft.profile.avatarRef)}
+        >
+          <legend>Default robot appearance</legend>
+          {draft.profile.avatarRef && (
+            <p>Custom art owns its palette. These saved defaults remain available for fallback.</p>
+          )}
+          <div className="profile-options">
+            {(['hairStyle', 'hairColor', 'skinTone', 'shirtColor'] as const).map((key) => (
+              <label key={key}>
+                {fieldLabel[key]}
+                <select
+                  value={draft.profile.appearance[key]}
+                  onChange={(event) => setAppearance(key, event.target.value)}
+                >
+                  {PROFILE_CATALOG[
+                    `${key}s` as 'hairStyles' | 'hairColors' | 'skinTones' | 'shirtColors'
+                  ].map((value) => (
+                    <option key={value}>{value}</option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+        </fieldset>
         <label>
           Shirt mark
           <input

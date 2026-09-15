@@ -14,6 +14,8 @@ pub fn inspect_local_drift(env: &ProviderEnvironment, global: &Path) -> io::Resu
     let current = assets.source();
     let inbox_current = assets.inbox_source();
     let office_current = assets.office_source();
+    let prop_current = assets.prop_create_source();
+    let avatar_current = assets.avatar_create_source();
     let mut seen = BTreeSet::new();
     let mut drift = Vec::new();
     for provider in Provider::ALL {
@@ -26,10 +28,20 @@ pub fn inspect_local_drift(env: &ProviderEnvironment, global: &Path) -> io::Resu
             .parent()
             .expect("skill target parent")
             .join("tmt-office");
+        let prop = target
+            .parent()
+            .expect("skill target parent")
+            .join("tmt-prop-create");
+        let avatar = target
+            .parent()
+            .expect("skill target parent")
+            .join("tmt-avatar-create");
         for (path, legacy, expected) in [
             (target, false, &current),
             (inbox, false, &inbox_current),
             (office, false, &office_current),
+            (prop, false, &prop_current),
+            (avatar, false, &avatar_current),
         ]
         .into_iter()
         .chain(
@@ -98,7 +110,7 @@ mod tests {
     }
 
     #[test]
-    fn optional_office_drift_is_reported_only_after_its_target_exists() {
+    fn optional_office_art_drift_is_reported_only_after_its_target_exists() {
         let root = TestDirectory::new();
         let home = root.path.join("home");
         fs::create_dir(&home).unwrap();
@@ -120,6 +132,12 @@ mod tests {
         let target = home.join(".agents/skills/tmt-office");
         fs::remove_file(&target).unwrap();
         std::os::unix::fs::symlink(home.join("missing-office-skill"), &target).unwrap();
-        assert_eq!(inspect_local_drift(&env, &global).unwrap(), vec![target]);
+        let avatar_target = home.join(".agents/skills/tmt-avatar-create");
+        fs::remove_file(&avatar_target).unwrap();
+        std::os::unix::fs::symlink(home.join("missing-avatar-skill"), &avatar_target).unwrap();
+        assert_eq!(
+            inspect_local_drift(&env, &global).unwrap(),
+            vec![target, avatar_target]
+        );
     }
 }

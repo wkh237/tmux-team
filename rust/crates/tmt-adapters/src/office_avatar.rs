@@ -178,9 +178,7 @@ pub fn parse_pack_digest(value: &str) -> Option<&str> {
 }
 
 pub fn parse_avatar_reference(value: &str) -> Option<(&str, &str)> {
-    let (digest, key) = value.split_once('/')?;
-    parse_pack_digest(digest)?;
-    crate::indexed_art::valid_key(key).then_some((digest, key))
+    tmt_core::office_art_reference::parse_office_art_reference(value)
 }
 
 pub fn command_pack_input(pack: &ValidatedAvatarPack) -> Value {

@@ -36,11 +36,12 @@ value and full-capacity conformance source. Raw JSON duplicate-key admission rem
 Rust file-reader proof because JavaScript object decoding occurs after JSON parsing.
 
 The local [avatar pack v1](avatar-pack-v1.md) contract owns strict data-only character
-art admission, its independent installation catalog, and expiring local preview.
+art admission, its independent installation catalog, expiring local preview and immutable
+profile selection with stored-default fallback.
 [`avatar-pack-vectors.json`](avatar-pack-vectors.json) is the shared Rust/Office
 projection source; the exact-byte sample freezes the separately framed avatar digest.
-This foundation does not add profile selection, fallback state, remote publication, or
-creator guidance.
+The managed `tmt-avatar-create` guidance documents authoring and installation. Remote
+publication, animation, movement and runtime plugins remain out of scope.
 
 ## Single source of truth
 
