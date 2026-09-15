@@ -2,7 +2,7 @@
 
 The verified public pair is TMT CLI `5.0.0-alpha.5` with optional TMT Office
 `0.1.0-alpha.2`. Download the current immutable CLI installer from the
-[README](README.md#install). After installing the CLI, opt into Office with:
+[README][public-install]. After installing the CLI, opt into Office with:
 
 ```sh
 tmt office install --yes --channel alpha
@@ -113,7 +113,7 @@ for tested host OS versions; a deployment target is not testing on every OS.
 
 ## Curl bootstrap
 
-Download the current immutable installer linked from the [README](README.md#install).
+Download the current immutable installer linked from the [README][public-install].
 When downloading it with curl, retain `--proto '=https' --proto-redir '=https'`
 and save the response as `tmt-installer.sh`; do not pipe an unchecked response
 directly into a shell.
@@ -194,3 +194,5 @@ nonzero after binary installation, without claiming rollback. Reload the agent
 or ask it to read the complete `tmt learn --skill`. No historical-session
 continuity or SQLite downgrade is promised; never use the old TypeScript writer
 on a native database.
+
+[public-install]: https://github.com/wkh237/tmux-team#install
