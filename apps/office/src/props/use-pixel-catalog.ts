@@ -17,7 +17,7 @@ type Save =
 export function usePixelCatalog(port: PropCatalogPort) {
   const [page, setPage] = useState<PropCatalogPage>();
   const [readError, setReadError] = useState<string>();
-  const [reading, setReading] = useState(false);
+  const [reading, setReading] = useState(true);
   const [save, setSave] = useState<Save>({ kind: 'idle' });
   const read = useRef<AbortController | undefined>(undefined);
   const write = useRef<AbortController | undefined>(undefined);

@@ -39,7 +39,7 @@ test('Office announcements reuse the real inbox without offering a reply or chan
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
       const canvas = page.locator('.office-canvas canvas');
       const bounds = (await canvas.boundingBox())!;
-      const station = installationWorldPoint(bounds, 10, 23);
+      const station = installationWorldPoint(bounds, 80, 16 + (55 * 61) / 88 - 4);
       await page.mouse.move(station.x, station.y);
       await expect(canvas).toHaveCSS('cursor', 'pointer');
       await page.screenshot({ path: testInfo.outputPath('broadcaster-lobby-desktop.png') });

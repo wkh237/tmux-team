@@ -148,7 +148,9 @@ export function PixelWorkshop({
           Refresh art library
         </button>
       </nav>
-      {catalog.reading && <p role="status">Loading library…</p>}
+      <p role="status" className="pixel-library-status">
+        {catalog.reading ? 'Loading library…' : null}
+      </p>
       {catalog.readError && <p role="alert">{catalog.readError}</p>}
       {placement && <p role="status">{placement}</p>}
       {!canAdd && <p>Start Edit layout to place artwork.</p>}

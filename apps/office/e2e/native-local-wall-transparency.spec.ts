@@ -55,6 +55,7 @@ test('selects and drags furniture behind a full front wall without saving on can
       await page.mouse.down();
       await page.mouse.move(end.x, end.y, { steps: 4 });
       await page.mouse.up();
+      await page.getByText('Precise placement', { exact: true }).click();
       await expect(page.getByRole('spinbutton', { name: 'X', exact: true })).toHaveValue('16');
       await expect(page.getByRole('spinbutton', { name: 'Y', exact: true })).toHaveValue('32');
       await page.screenshot({ path: info.outputPath('drag-behind-wall.png') });

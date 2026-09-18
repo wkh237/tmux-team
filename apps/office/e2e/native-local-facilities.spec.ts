@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { runCli, withSandbox } from '../../../test/support/cli-process.js';
 import { installNativeOffice, unusedLoopbackPort } from './native-office-fixture.js';
 import { openOfficeObjects } from './office-navigation.js';
+import { installationWorldPoint } from './native-world-geometry.js';
 import type { WorldSnapshot } from '../src/world-map/world-port.js';
 
 test('new Lobby facility artwork retains the three real resource entry points without rewriting the world', async ({
@@ -46,12 +47,13 @@ test('new Lobby facility artwork retains the three real resource entry points wi
       await enter();
       await page.getByRole('button', { name: 'Fit office', exact: true }).click();
       await page.screenshot({ path: info.outputPath('new-lobby-facilities.png') });
-      // Independent pixel sample from the fixed 1536x1024 fitted default: the
-      // whiteboard's lower-right control. Do not compute this from the picker.
-      await page.mouse.move(817, 527);
+      // Independent v5 whiteboard lower-right badge, not the production picker.
+      const bounds = (await page.locator('.office-canvas canvas').boundingBox())!;
+      const badge = installationWorldPoint(bounds, 97, 16 + (26 * 61) / 88 - 1);
+      await page.mouse.move(badge.x, badge.y);
       await expect(page.locator('.office-canvas canvas')).toHaveCSS('cursor', 'pointer');
       await page.screenshot({ path: info.outputPath('whiteboard-hover-control.png') });
-      await page.mouse.click(817, 527);
+      await page.mouse.click(badge.x, badge.y);
       await expect(page.getByRole('dialog', { name: 'Whiteboard', exact: true })).toBeVisible();
       for (const [action, panel] of [
         ['Open discussion board', 'Discussion board'],

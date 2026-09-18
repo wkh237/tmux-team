@@ -170,14 +170,15 @@ test('real private-tmux identities project into multiple meetings without moving
           await expect(page.getByRole('button', { name: 'Message Offline' })).toBeVisible();
           await page.getByRole('button', { name: 'Close agent conversation' }).click();
 
-          // Independent known fixture geometry: three empty 36x36 areas, bounds (-4,-20,116,68).
+          // Independent fixture: three empty 36x36 areas, 5/8 floor depth,
+          // 16-high walls, bounds (-4,-20,116,50.5), and 84% Fit framing.
           // This floor fits three previews (center, left, right), not all nine online members.
           // Larger open areas exercise the six-preview ceiling in geometry tests.
           const viewport = (await page.locator('.office-canvas').boundingBox())!;
-          const scale = Math.min(viewport.width / 116, viewport.height / 68);
+          const scale = Math.min(viewport.width / 116, viewport.height / 50.5) * 0.84;
           const point = (x: number, y: number) => ({
             x: viewport.x + (viewport.width - 116 * scale) / 2 + (x + 4) * scale,
-            y: viewport.y + (viewport.height - 68 * scale) / 2 + (y + 20) * scale,
+            y: viewport.y + (viewport.height - 50.5 * scale) / 2 + (y + 20) * scale,
           });
           const previews = [54, 44, 64].map((x, index) => ({
             x,
@@ -186,16 +187,25 @@ test('real private-tmux identities project into multiple meetings without moving
           }));
           previews.push({ x: 90, name: shared.name, meeting: 'Planning' });
           for (const { x, name, meeting } of previews) {
-            const target = point(x, 20);
+            const target = point(x, 11.25);
             await page.mouse.click(target.x, target.y);
             await expect(page.getByRole('heading', { name, level: 2 })).toBeVisible();
             await expect(
               page.getByText(`Room: ${meeting}. Only ${name} receives this message.`)
             ).toBeVisible();
             await expect(page.locator('.agent-hud-host')).toHaveAttribute('data-anchored', 'true');
-            expect(
-              (await page.getByRole('dialog', { name: 'Agent conversation' }).boundingBox())!.height
-            ).toBeLessThan(400);
+            const conversation = page.getByRole('dialog', { name: 'Agent conversation' });
+            const conversationBounds = (await conversation.boundingBox())!;
+            // An empty chat stays below the populated HUD's 440px height and
+            // keeps its composer on screen, including the room-context line.
+            expect(conversationBounds.height).toBeLessThan(440);
+            expect(conversationBounds.y).toBeGreaterThanOrEqual(0);
+            expect(conversationBounds.y + conversationBounds.height).toBeLessThanOrEqual(
+              page.viewportSize()!.height
+            );
+            await expect(
+              conversation.getByRole('button', { name: 'Send', exact: true })
+            ).toBeInViewport();
             const anchor = page.locator('.agent-hud-host');
             const beforeZoom = await anchor.getAttribute('style');
             await page.getByRole('button', { name: 'Zoom in' }).click();
@@ -204,7 +214,9 @@ test('real private-tmux identities project into multiple meetings without moving
             await page.getByRole('button', { name: 'Fit office' }).click();
             await page.getByRole('button', { name: 'Close agent conversation' }).click();
           }
-          const emptyFloor = point(54, 34);
+          // Legacy fixture floor is 36 * 5/8 = 22.5 scene units deep.
+          // Click above the actor previews, not beyond the room's front wall.
+          const emptyFloor = point(54, 5);
           await page.mouse.click(emptyFloor.x, emptyFloor.y);
           await expect(page.getByRole('complementary', { name: 'Area details' })).toBeVisible();
           await expect(page.getByRole('heading', { name: 'Members · 10' })).toBeVisible();

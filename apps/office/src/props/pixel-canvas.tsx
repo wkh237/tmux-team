@@ -83,7 +83,8 @@ export function PixelCanvas({
         onPointerDown={(event) => {
           if (disabled || stroke.current || event.button !== 0) return;
           event.preventDefault();
-          event.currentTarget.focus();
+          // Focus must not scroll the HUD under an active, screen-space stroke.
+          event.currentTarget.focus({ preventScroll: true });
           event.currentTarget.setPointerCapture(event.pointerId);
           const position = cell(event);
           const painted = paintPixels(draft, [position], color);

@@ -70,14 +70,20 @@ test('draw, retry a lost native receipt, cancel placement, discover after restar
     const close = () =>
       page.getByRole('button', { name: 'Close pixel workshop', exact: true }).click();
     const saveArt = page.getByRole('button', { name: 'Save artwork to library', exact: true });
+    let releaseCatalog: (() => void) | undefined;
     try {
       await page.setViewportSize({ width: 1440, height: 1100 });
       await page.goto(started.url);
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
+      const catalogReady = new Promise<void>((resolve) => {
+        releaseCatalog = resolve;
+      });
+      await page.route('**/api/v1/local/props/list', async (route) => {
+        await catalogReady;
+        await route.continue();
+      });
       await open();
-      await expect(
-        page.getByRole('button', { name: 'Refresh art library', exact: true })
-      ).toBeEnabled();
+      await expect(page.getByText('Loading library…', { exact: true })).toBeVisible();
       await expect(saveArt).toBeDisabled();
       const canvas = page.getByRole('group', { name: 'Pixel drawing canvas', exact: true });
       await canvas.scrollIntoViewIfNeeded();
@@ -91,6 +97,11 @@ test('draw, retry a lost native receipt, cancel placement, discover after restar
         end = point(12, 4);
       await page.mouse.move(start.x, start.y);
       await page.mouse.down();
+      // A real catalog response can arrive mid-stroke. It must not move the
+      // canvas or reinterpret the remaining screen-space pointer coordinates.
+      releaseCatalog!();
+      await expect(page.getByText('Loading library…', { exact: true })).toHaveCount(0);
+      expect(await canvas.boundingBox()).toEqual(bounds);
       await page.mouse.move(end.x, end.y, { steps: 2 });
       await page.mouse.up();
       await expect(saveArt).toBeEnabled();
@@ -216,6 +227,7 @@ test('draw, retry a lost native receipt, cancel placement, discover after restar
       expect((await show()).layout).toEqual(baseline.layout);
       expect(artState()).toEqual(stored);
     } finally {
+      releaseCatalog?.();
       await office(['stop']);
     }
   });

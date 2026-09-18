@@ -121,6 +121,13 @@
   border-left: 3px solid #59968a;
   padding-left: 10px;
 }
+.pixel-library-status {
+  /* Catalog completion must not move the canvas beneath an active stroke. */
+  min-height: 1.6em;
+}
+.pixel-library-status:empty {
+  border-color: transparent;
+}
 .pixel-workshop p,
 .pixel-workshop figcaption {
   overflow-wrap: anywhere;

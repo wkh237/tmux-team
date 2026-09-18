@@ -47,6 +47,7 @@ it('renders v2 high palette indices on the same physical footprint without stret
 
 it('keeps every supported appearance on the bounded detailed avatar grid', () => {
   const silhouettes = new Set<string>();
+  const invalidRows: { appearance: string; row: number; pixels: string }[] = [];
   for (const hairStyle of PROFILE_CATALOG.hairStyles) {
     silhouettes.add(avatarArt({ ...appearance, hairStyle }).pixels.join(''));
     for (const hairColor of PROFILE_CATALOG.hairColors)
@@ -55,14 +56,25 @@ it('keeps every supported appearance on the bounded detailed avatar grid', () =>
           const art = avatarArt({ ...appearance, hairStyle, hairColor, skinTone, shirtColor });
           expect(art.indexWidth).toBe(2);
           expect(art.pixels).toHaveLength(48);
-          for (const row of art.pixels) {
-            expect(row).toMatch(/^[0-9a-f]{64}$/);
-            for (const index of row.match(/../g)!)
-              expect(art.palette[Number.parseInt(index, 16)]).toBeDefined();
-          }
+          // Check every cell without creating hundreds of thousands of matcher
+          // objects. Retain the exact appearance and row for failure diagnosis.
+          art.pixels.forEach((row, y) => {
+            if (
+              !/^[0-9a-f]{64}$/.test(row) ||
+              row
+                .match(/../g)!
+                .some((index) => art.palette[Number.parseInt(index, 16)] === undefined)
+            )
+              invalidRows.push({
+                appearance: [hairStyle, hairColor, skinTone, shirtColor].join('/'),
+                row: y,
+                pixels: row,
+              });
+          });
         }
   }
   expect(silhouettes.size).toBe(5);
+  expect(invalidRows).toEqual([]);
 });
 
 it('isolates palette customization and never bakes identity text into pixels', () => {

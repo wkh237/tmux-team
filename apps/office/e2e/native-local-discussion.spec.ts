@@ -107,7 +107,7 @@ test('lobby discussions preserve the world and drafts, persist explicit posts, a
       const canvas = page.locator('.office-canvas canvas');
       const canvasBounds = await canvas.boundingBox();
       expect(canvasBounds).not.toBeNull();
-      const boardPoint = installationWorldPoint(canvasBounds!, 9, 9);
+      const boardPoint = installationWorldPoint(canvasBounds!, 70, 16 + (24 * 61) / 88 - 6);
       await page.screenshot({ path: testInfo.outputPath('lobby-spatial-board.png') });
       await page.mouse.move(boardPoint.x, boardPoint.y);
       await expect(canvas).toHaveCSS('cursor', 'pointer');

@@ -52,6 +52,19 @@ it('commits one captured stroke and erases the same cell with fractional layout 
   expect(commit.mock.calls[1]![0]).toEqual(props.draft);
 });
 
+it('takes keyboard focus without scrolling the drawing surface during a pointer stroke', () => {
+  const { canvas, point, commit } = setup();
+  const focus = vi.spyOn(canvas, 'focus');
+  fireEvent.pointerDown(canvas, point(3, 4));
+  expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+  fireEvent.pointerMove(canvas, point(12, 4));
+  fireEvent.pointerUp(canvas, point(12, 4));
+  expect(commit).toHaveBeenCalledTimes(1);
+  expect(commit.mock.calls[0]![0].pixels[4]).toBe(
+    `${'00'.repeat(3)}${'03'.repeat(10)}${'00'.repeat(3)}`
+  );
+});
+
 it.each(['pointerCancel', 'lostPointerCapture', 'blur'] as const)(
   'discards a pending stroke on %s and accepts the next independent stroke',
   (event) => {
