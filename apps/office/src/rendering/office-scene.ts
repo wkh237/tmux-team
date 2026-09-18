@@ -14,7 +14,7 @@ import { createSceneFloor } from './scene-floor.js';
 import { drawBridgeDeck } from './scene-skybridge.js';
 import { drawWall } from './scene-wall.js';
 import { drawModuleGhost, moduleGhostGeometry } from './scene-module-ghost.js';
-import { officeExpansionPassages, moduleSlotBounds } from '../world-map/module-geometry.js';
+import { officeExpansionPassages } from '../world-map/module-geometry.js';
 import { officeSlotKey } from '../world-map/module-contract.js';
 import type { MeetingSlot, OfficeSlot } from '../world-map/module-contract.js';
 import { mapGeometry } from '../world-map/map-source.js';
@@ -53,7 +53,7 @@ export interface OfficeSceneModel {
 export interface OfficeSceneEditor {
   areaId: string;
   selectedMeeting?: MeetingSlot;
-  tool: 'select' | 'move' | 'office';
+  clearSelection?: () => void;
   officeSlots?: readonly OfficeSlot[];
   selectedOffice?: OfficeSlot;
   chooseOffice?: (slot: OfficeSlot) => void;
@@ -132,6 +132,7 @@ export async function createOfficeScene(
   let fitted = false,
     disposed = false;
   let editor: OfficeSceneEditor | undefined;
+  let objectPickOrder: OfficeSceneModel['world']['objects'] = [];
   let selected: OfficeSelection | undefined;
   let anchoredActor: Extract<OfficeSelection, { kind: 'agent' }> | undefined;
   let focused: string | undefined, hovered: string | undefined;
@@ -198,7 +199,7 @@ export async function createOfficeScene(
         : undefined
     );
     officeAnchor(
-      editor?.tool === 'office' && editor.selectedOffice
+      editor?.selectedOffice
         ? selectionTarget(
             moduleGhostGeometry(editor.selectedOffice, geometry.projection).bounds,
             camera,
@@ -241,11 +242,6 @@ export async function createOfficeScene(
           .ellipse(width * cx, height * cy, width * rx * radius, height * ry * radius)
           .fill({ color, alpha: 0.018 });
       }
-    }
-    if (editor && model && model.world.map.version !== 1) {
-      for (let x = 0; x <= width; x += 32) backdrop.moveTo(x, 0).lineTo(x, height);
-      for (let y = 0; y <= height; y += 32) backdrop.moveTo(0, y).lineTo(width, y);
-      backdrop.stroke({ color: '#3b80b8', alpha: 0.13, width: 1 });
     }
     // Fixed seed and bounded screen density: distant dust, luminous stars and
     // sparse diffraction crosses. No ticker, blur filter or per-star display node.
@@ -422,10 +418,10 @@ export async function createOfficeScene(
       );
       actors.push({ actor, bounds });
     }
-    if (editor?.tool === 'office')
+    if (editor)
       for (const slot of editor.officeSlots ?? []) {
-        if (editor.selectedOffice && officeSlotKey(slot) !== officeSlotKey(editor.selectedOffice))
-          continue;
+        const visible = editor.selectedOffice ?? hoveredOffice;
+        if (!visible || officeSlotKey(slot) !== officeSlotKey(visible)) continue;
         const node = new Container();
         if (model.world.map.version !== 1 && editor.selectedOffice) {
           const preview = new Graphics();
@@ -446,7 +442,7 @@ export async function createOfficeScene(
         );
         layers.push({ depth: bounds.y + bounds.height, node });
       }
-    if (geometry.meetingPreview) {
+    if (geometry.meetingPreview && (hoveredMeeting || editor?.selectedMeeting)) {
       const meeting = geometry.meetingPreview;
       const node = new Container();
       const path = new Graphics();
@@ -520,7 +516,7 @@ export async function createOfficeScene(
     cameraViewport = cameraFrame();
     let bounds = geometry.bounds;
     const slots = [
-      ...(editor?.tool === 'office' ? (editor.officeSlots ?? []) : []),
+      ...(editor?.selectedOffice ? [editor.selectedOffice] : []),
       ...(geometry.meetingPreview ? [geometry.meetingPreview.slot] : []),
     ];
     if (slots.length) {
@@ -545,30 +541,35 @@ export async function createOfficeScene(
   function update(next: OfficeSceneModel) {
     const changed = model?.world !== next.world;
     model = next;
-    if (changed) geometry = worldGeometry(next.world);
+    if (changed) {
+      geometry = worldGeometry(next.world);
+      const projected = geometry;
+      objectPickOrder = [...next.world.objects]
+        .sort((a, b) => projected.objectDepth(a) - projected.objectDepth(b))
+        .reverse();
+    }
     if (!fitted) fit();
     else applyCamera(true);
   }
   function editing(next?: OfficeSceneEditor) {
-    const enteringExpansion = editor?.tool !== 'office' && next?.tool === 'office';
     const redraw =
       Boolean(editor) !== Boolean(next) ||
       editor?.areaId !== next?.areaId ||
-      editor?.tool !== next?.tool ||
       editor?.officeSlots !== next?.officeSlots ||
       editor?.selectedOffice !== next?.selectedOffice ||
       editor?.selectedMeeting?.index !== next?.selectedMeeting?.index;
     editor = next;
     preview.clear();
     if (redraw) sky();
-    if (enteringExpansion) fit();
-    else if (redraw) applyCamera(true);
+    if (redraw) applyCamera(true);
     else selection(selected);
   }
   function at(event: PointerEvent) {
     const bounds = canvas.getBoundingClientRect();
     return scenePoint(camera, event.clientX - bounds.left, event.clientY - bounds.top);
   }
+  let hoveredOffice: OfficeSlot | undefined;
+  let hoveredMeeting = false;
   let pointer:
     | {
         id: number;
@@ -577,19 +578,52 @@ export async function createOfficeScene(
         originX: number;
         originY: number;
         start: { x: number; y: number };
-        draw: boolean;
+        objectId?: string;
+        selecting: boolean;
         moved: boolean;
       }
     | undefined;
+  function objectAt(point: { x: number; y: number }) {
+    if (!geometry) return;
+    const projected = geometry;
+    return objectPickOrder.find((item) =>
+      intersects(projected.objectRect(item), { ...point, width: 0.001, height: 0.001 })
+    );
+  }
+  function actorAt(point: { x: number; y: number }) {
+    return [...actors]
+      .reverse()
+      .find((entry) => intersects(entry.bounds, { ...point, width: 0.001, height: 0.001 }));
+  }
+  function officeAt(point: { x: number; y: number }) {
+    if (!geometry) return;
+    const projected = geometry;
+    return editor?.officeSlots?.find((slot) =>
+      intersects(moduleGhostGeometry(slot, projected.projection).bounds, {
+        ...point,
+        width: 0.001,
+        height: 0.001,
+      })
+    );
+  }
+  function meetingAt(point: { x: number; y: number }) {
+    return geometry?.meetingPreview &&
+      intersects(moduleGhostGeometry(geometry.meetingPreview.slot, geometry.projection).bounds, {
+        ...point,
+        width: 0.001,
+        height: 0.001,
+      })
+      ? geometry.meetingPreview.slot
+      : undefined;
+  }
   function movedObject(point: { x: number; y: number }) {
-    const object = model?.world.objects.find((item) => item.id === editor?.selected);
-    if (!object || !pointer || !geometry) return undefined;
+    const object = model?.world.objects.find((item) => item.id === pointer?.objectId);
+    if (!object || !pointer || !geometry) return;
     const rect = geometry.objectRect(object);
-    const grabbed = intersects(rect, { ...pointer.start, width: 0.001, height: 0.001 });
-    const origin = grabbed
-      ? { x: rect.x + point.x - pointer.start.x, y: rect.y + point.y - pointer.start.y }
-      : { x: point.x - rect.width / 2, y: point.y - rect.height / 2 };
-    const position = geometry.objectPosition(object, origin);
+    const position = geometry.objectPosition(object, {
+      x: rect.x + point.x - pointer.start.x,
+      y: rect.y + point.y - pointer.start.y,
+    });
     return {
       id: object.id,
       position,
@@ -600,33 +634,49 @@ export async function createOfficeScene(
     };
   }
   const down = (event: PointerEvent) => {
-    if (event.button !== 0 && event.button !== 1) return;
+    if (pointer || (event.button !== 0 && event.button !== 1)) return;
+    const point = at(event);
     pointer = {
       id: event.pointerId,
       x: event.clientX,
       y: event.clientY,
       originX: camera.x,
       originY: camera.y,
-      start: at(event),
-      draw: Boolean(editor?.tool === 'move' && event.button === 0 && !event.shiftKey),
+      start: point,
       moved: false,
+      selecting: event.button === 0 && !event.shiftKey,
+      objectId:
+        editor && event.button === 0 && !event.shiftKey && !actorAt(point)
+          ? objectAt(point)?.id
+          : undefined,
     };
+    canvas.focus({ preventScroll: true });
     canvas.setPointerCapture(event.pointerId);
   };
   const move = (event: PointerEvent) => {
     const point = at(event);
     if (!pointer) {
-      hovered = editor ? undefined : componentLayer?.pick(point.x, point.y);
-      canvas.style.cursor = hovered
-        ? 'pointer'
-        : editor && editor.tool !== 'select'
-          ? 'crosshair'
+      hovered = componentLayer?.pick(point.x, point.y);
+      const office = officeAt(point);
+      const meeting = Boolean(meetingAt(point));
+      const changed = office !== hoveredOffice || meeting !== hoveredMeeting;
+      hoveredOffice = office;
+      hoveredMeeting = meeting;
+      canvas.style.cursor = objectAt(point)
+        ? 'grab'
+        : office || meeting || hovered || actorAt(point)
+          ? 'pointer'
           : 'grab';
+      if (changed) draw();
       interaction(focused);
       return;
     }
     if (pointer.id !== event.pointerId) return;
-    if (pointer.draw) {
+    const x = event.clientX - pointer.x,
+      y = event.clientY - pointer.y;
+    if (Math.hypot(x, y) > 5) pointer.moved = true;
+    if (!pointer.moved) return;
+    if (pointer.objectId) {
       const rect = movedObject(point)?.rect;
       if (!rect) return;
       preview
@@ -635,12 +685,7 @@ export async function createOfficeScene(
         .fill({ color: '#70ddc6', alpha: 0.3 })
         .stroke({ color: '#c9fff1', width: 0.15 });
       invalidate();
-      return;
-    }
-    const x = event.clientX - pointer.x,
-      y = event.clientY - pointer.y;
-    if (Math.hypot(x, y) > 5) pointer.moved = true;
-    if (pointer.moved) {
+    } else {
       camera = { ...camera, x: pointer.originX + x, y: pointer.originY + y };
       applyCamera();
     }
@@ -649,68 +694,29 @@ export async function createOfficeScene(
     if (!pointer || pointer.id !== event.pointerId) return;
     const point = at(event);
     if (event.type !== 'pointercancel') {
-      if (pointer.draw) {
-        if (editor?.tool === 'move') {
-          const moved = movedObject(point);
-          if (moved) editor.moveObject(moved.id, moved.position);
+      if (pointer.moved && pointer.objectId) {
+        const moved = movedObject(point);
+        if (moved) {
+          editor?.select?.(moved.id);
+          editor?.moveObject(moved.id, moved.position);
         }
-      } else if (!pointer.moved) {
-        if (
-          geometry?.meetingPreview &&
-          intersects(
-            moduleGhostGeometry(geometry.meetingPreview.slot, geometry.projection).bounds,
-            { ...point, width: 0.001, height: 0.001 }
-          )
-        ) {
-          createMeeting(geometry.meetingPreview.slot);
-        } else if (editor?.tool === 'office' && geometry) {
-          const version = geometry.projection.version;
-          const ground = unprojectGround(point);
-          const selectedSlot = editor.selectedOffice;
-          const slot = editor.officeSlots?.find(
-            (slot) =>
-              (!selectedSlot || officeSlotKey(slot) === officeSlotKey(selectedSlot)) &&
-              intersects(moduleSlotBounds(slot, version), {
-                ...ground,
-                width: 0.001,
-                height: 0.001,
-              })
-          );
-          if (slot) editor.chooseOffice?.(slot);
-        } else if (editor && geometry) {
-          const currentGeometry = geometry;
-          const object = [...(model?.world.objects ?? [])].reverse().find((item) =>
-            intersects(currentGeometry.objectRect(item), {
-              ...point,
-              width: 0.001,
-              height: 0.001,
-            })
-          );
-          if (object) editor.select?.(object.id);
-          else {
-            const ground = unprojectGround(point);
-            const area = geometry?.map.areaAt(Math.floor(ground.x), Math.floor(ground.y));
-            if (area) select({ kind: 'area', areaId: area });
-          }
-        } else {
+      } else if (!pointer.moved && pointer.selecting) {
+        const actor = actorAt(point);
+        const object = objectAt(point);
+        const meeting = meetingAt(point);
+        const office = officeAt(point);
+        if (actor)
+          select({ kind: 'agent', identityId: actor.actor.identityId, areaId: actor.actor.areaId });
+        else if (object && editor) editor.select?.(object.id);
+        else if (meeting) createMeeting(meeting);
+        else if (office) editor?.chooseOffice?.(office);
+        else {
           const component = componentLayer?.pick(point.x, point.y);
-          const actor = [...actors]
-            .reverse()
-            .find((entry) => intersects(entry.bounds, { ...point, width: 0.001, height: 0.001 }));
-          if (component) {
-            canvas.focus({ preventScroll: true });
-            activate(component);
-          } else if (actor)
-            select({
-              kind: 'agent',
-              identityId: actor.actor.identityId,
-              areaId: actor.actor.areaId,
-            });
-          else {
-            const ground = unprojectGround(point);
-            const area = geometry?.map.areaAt(Math.floor(ground.x), Math.floor(ground.y));
-            if (area) select({ kind: 'area', areaId: area });
-          }
+          const ground = unprojectGround(point);
+          const area = geometry?.map.areaAt(Math.floor(ground.x), Math.floor(ground.y));
+          if (component) activate(component);
+          else if (area) select({ kind: 'area', areaId: area });
+          else editor?.clearSelection?.();
         }
       }
     }
@@ -718,6 +724,25 @@ export async function createOfficeScene(
     invalidate();
     if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
     pointer = undefined;
+  };
+  const leave = () => {
+    if (pointer) return;
+    if (hoveredOffice || hoveredMeeting) {
+      hoveredOffice = undefined;
+      hoveredMeeting = false;
+      draw();
+    }
+  };
+  const cancelGesture = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape') return;
+    if (pointer && canvas.hasPointerCapture(pointer.id)) canvas.releasePointerCapture(pointer.id);
+    pointer = undefined;
+    preview.clear();
+    hoveredOffice = undefined;
+    hoveredMeeting = false;
+    editor?.clearSelection?.();
+    draw();
+    event.stopPropagation();
   };
   function zoom(factor: number, x = host.clientWidth / 2, y = host.clientHeight / 2) {
     if (!geometry) return;
@@ -750,6 +775,8 @@ export async function createOfficeScene(
   };
   canvas.addEventListener('pointerdown', down);
   canvas.addEventListener('pointermove', move);
+  canvas.addEventListener('pointerleave', leave);
+  canvas.addEventListener('keydown', cancelGesture);
   canvas.addEventListener('pointerup', up);
   canvas.addEventListener('pointercancel', up);
   canvas.addEventListener('wheel', wheel, { passive: false });
@@ -760,6 +787,8 @@ export async function createOfficeScene(
     signal.removeEventListener('abort', dispose);
     canvas.removeEventListener('pointerdown', down);
     canvas.removeEventListener('pointermove', move);
+    canvas.removeEventListener('pointerleave', leave);
+    canvas.removeEventListener('keydown', cancelGesture);
     canvas.removeEventListener('pointerup', up);
     canvas.removeEventListener('pointercancel', up);
     canvas.removeEventListener('wheel', wheel);

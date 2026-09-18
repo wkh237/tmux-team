@@ -305,6 +305,13 @@ protected loopback route tests, and the real local CLI→SQLite→browser→rest
 Capture desktop and narrow screenshots and inspect name, hair, clothing, mark and
 offline-presence legibility. No cloud account or remote publication is part of this gate.
 
+Direct-manipulation UI changes are covered by `local-office-direct-manipulation.spec.ts`
+(click/drag/cancel, auto-apply, persisted Undo and room properties),
+`local-office-editor-hud.spec.ts` (desktop/narrow context controls) and
+`native-local-skybridges.spec.ts` (native auto-apply and canvas meeting creation).
+The remaining legacy browser scenarios below still contain explicit layout-mode
+scripts and require migration before a release gate can claim full current-UI coverage.
+
 `native-local-world.spec.ts` owns the installation-wide layout lifecycle: a lazy
 furnished 2×2 Lobby plus four unassigned offices, explicit browser Save, one SQLite world revision, empty placements
 remaining empty after restart, and no new per-identity block rows.

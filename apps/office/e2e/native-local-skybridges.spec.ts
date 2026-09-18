@@ -6,7 +6,7 @@ import { installNativeOffice, unusedLoopbackPort } from './native-office-fixture
 import type { WorldSnapshot } from '../src/world-map/world-port.js';
 import { fitWorldCoordinates } from './world-editor-gesture.js';
 
-test('converts retained walls to platforms only after Save and keeps canvas gestures', async ({
+test('auto-applies platform conversion and creates meeting space through direct canvas gestures', async ({
   page,
 }, info) => {
   await withSandbox(async (sandbox) => {
@@ -61,22 +61,17 @@ test('converts retained walls to platforms only after Save and keeps canvas gest
       await page.setViewportSize({ width: 1536, height: 1024 });
       await page.goto(started.url);
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
       const inspector = page.getByRole('complementary', { name: 'Layout tools' });
-      await expect(inspector.getByRole('toolbar', { name: 'Build tools' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Save layout', exact: true })).toHaveCount(0);
       const bounds = await inspector.boundingBox();
       expect(bounds!.x).toBeGreaterThan(1000);
-      await inspector.getByRole('button', { name: 'Preview platforms' }).click();
-      await expect(inspector.getByRole('button', { name: 'Preview platforms' })).toHaveCount(0);
+      await inspector.getByRole('button', { name: 'Convert to platforms' }).click();
+      await expect(inspector.getByRole('button', { name: 'Convert to platforms' })).toHaveCount(0);
       await expect(inspector.getByRole('button', { name: 'Walls', exact: true })).toHaveCount(0);
-      expect(await office<WorldSnapshot>(['layout', 'show'])).toEqual(before);
-      await page.screenshot({ path: info.outputPath('skybridge-preview.png') });
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-      expect(await office<WorldSnapshot>(['layout', 'show'])).toEqual(before);
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
-      await inspector.getByRole('button', { name: 'Preview platforms' }).click();
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect
+        .poll(async () => (await office<WorldSnapshot>(['layout', 'show'])).layout.map.version)
+        .toBe(6);
       const saved = await office<WorldSnapshot>(['layout', 'show']);
       expect(saved.layout.map.version).toBe(6);
       expect(
@@ -99,7 +94,7 @@ test('converts retained walls to platforms only after Save and keeps canvas gest
       await expect(page.locator('.meeting-entry')).toHaveCount(0);
       await page.mouse.move(ghost.x, ghost.y);
       await page.mouse.down();
-      await page.mouse.move(ghost.x + 180, ghost.y - 120, { steps: 6 });
+      await page.mouse.move(ghost.x - 180, ghost.y - 120, { steps: 6 });
       await page.mouse.up();
       await expect(creation).toHaveCount(0);
       await page.mouse.wheel(24, 32);
@@ -116,7 +111,7 @@ test('converts retained walls to platforms only after Save and keeps canvas gest
       // The canvas-owned target follows pan and pinch. A click at its new
       // position must open the form; a drag over the same target must not.
       await page.mouse.click(
-        400 + (ghost.x + 180 - 24 - 400) * Math.exp(0.2),
+        400 + (ghost.x - 180 - 24 - 400) * Math.exp(0.2),
         400 + (ghost.y - 120 - 32 - 400) * Math.exp(0.2)
       );
       await expect(creation.getByRole('textbox', { name: 'Room name', exact: true })).toBeFocused();
@@ -125,8 +120,9 @@ test('converts retained walls to platforms only after Save and keeps canvas gest
         .getByRole('textbox', { name: 'Room name', exact: true })
         .fill('Platform review');
       await creation.getByRole('button', { name: 'Save room', exact: true }).click();
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect
+        .poll(async () => (await office<WorldSnapshot>(['layout', 'show'])).layout.objects.length)
+        .toBe(saved.layout.objects.length + 9);
       const furnished = await office<WorldSnapshot>(['layout', 'show']);
       expect(furnished.layout.objects).toHaveLength(saved.layout.objects.length + 9);
       expect(furnished.layout.objects.every((object) => object.surface.type === 'floor')).toBe(

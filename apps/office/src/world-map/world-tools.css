@@ -247,6 +247,16 @@
 .world-draft-history {
   display: flex;
   gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.world-draft-history [role='status'] {
+  flex: 1;
+  color: var(--hud-muted);
+  font-size: 12px;
+}
+.world-build-tools:empty {
+  display: none;
 }
 .world-draft-primary > button {
   flex: 1;
@@ -391,10 +401,14 @@
   color: var(--hud-danger);
 }
 .world-directory {
+  position: absolute;
+  top: 76px;
+  left: 0;
+  z-index: 6;
   align-self: start;
   box-sizing: border-box;
   min-height: 0;
-  max-height: 100%;
+  max-height: calc(100% - 76px);
   width: min(295px, 100%);
   padding: 14px;
   overflow: auto;

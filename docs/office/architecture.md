@@ -126,9 +126,12 @@ and directory refreshes never use profile revision to order or overwrite status.
 The [identity status contract](../../contracts/identity-status-v1.md) owns semantics.
 
 `use-world-editor` owns one bounded history, saved revision and migration fence.
-Topology, occupancy, furniture and resource attachments share Undo/Redo, Cancel
-and explicit Save. A failed or uncertain save retains the candidate; there is no
-automatic retry, overwrite or rebase. Explicit reload discards the draft only
+Topology, occupancy, furniture and resource attachments share persisted Undo/Redo.
+Completed gestures and property changes auto-apply through a 300 ms coalescing queue.
+One revision-fenced write runs at a time; acknowledgements advance the saved base
+without replacing newer local edits or clearing history. A failed or uncertain
+write pauses the queue and retains local changes; retry or reload is explicit,
+never an automatic overwrite or rebase. Explicit reload discards local changes only
 after a successful read. Native validation owns commit admission and affected
 object diagnostics; the browser may display an invalid intermediate draft.
 
@@ -216,11 +219,11 @@ its native modal owns focus/Escape, with scrollable details and fixed confirmati
 actions. Ordinary area-name or furniture edits do not run removal admission previews.
 Central-grid meeting expansion appends the next stable wing slot through `meeting-module`,
 sharing saved and preview circulation from `module-geometry`. Canonical room
-creation precedes the spatial draft, so Undo/Cancel do not delete that room.
+creation precedes the spatial draft, so Undo do not delete that room.
 V5 uses necessary public branches and adjacent meeting slots; retained v4 geometry
 is unchanged. `module-upgrade` offers an explicit compact draft preview and moves
 room-owned floor and wall objects through the shared relocation function. It
-rejects ambiguous support rather than dropping objects. Undo/Cancel restore the
+rejects ambiguous support rather than dropping objects. Undo restore the
 source, and native whole-world Save remains the admission authority.
 V6 previews short bridges for immediate Lobby neighbors and retains public spine
 access for more distant offices. Meeting pods have a gap from their public spine
@@ -294,40 +297,42 @@ modular editor or the remaining source sheets have been admitted.
 
 HUD panels overlay the entire camera viewport. Directory and canonical room
 management live in a collapsed Office menu; the scene retains meeting creation
-and area/member entry points. Editing has a visible status and a right-side
-draft header above the tools, with Save/Cancel followed by Undo/Redo. The lower
-viewport has no persistent save bar. Lobby inspection does not duplicate the
-global edit action. Draft and navigation changes retain their existing owners.
+and area/member entry points. There is no layout editing mode or Save/Cancel bar.
+The right-side context panel shows room properties when its floor is selected,
+object properties when a placement is selected, and the visual catalog otherwise.
+Changes apply automatically; compact Undo/Redo and pending/error status remain
+visible. Escape or a background click clears selection. Room removal still uses
+an explicit impact confirmation.
 Expansion holograms, plus marks and labels belong to the canvas, not HTML hit
-overlays. They share its pan/pinch and click-versus-drag handling; HUD creation
-actions provide keyboard access. Only the opened naming form captures input.
+overlays. Eligible slots reveal a hologram on hover; clicking pins the preview
+and opens its name form. Directory entries provide keyboard access to the same
+slots. Holograms share pan/pinch and click-versus-drag handling.
 Whole-office creation uses a compact measured card. The renderer supplies the
 entire hologram's screen bounds; `selection-anchor`
 selects a non-overlapping side when space permits and clamps tight layouts to
 the HUD-safe viewport. `use-anchored-panel` measures the actual wrapped build
-toolbar and the editor's lower viewport boundary through shared DOM refs; it does not assume fixed
-header heights. Office and meeting creation hide the general inspector without
-disposing its state. Location selection folds after choosing a slot but stays
-keyboard accessible. Resize observation changes presentation only and ends when
+context controls and the lower viewport boundary through shared DOM refs; it does not assume fixed
+header heights. Creation forms do not dispose the inspector's state. The office
+name form has no location dropdown: select a different canvas slot or use the
+directory's accessible slot list. Resize observation changes presentation only and ends when
 the card unmounts; it does not schedule an idle rendering loop.
 The retained agent Chat/Info HUD is suspended while browsing the directory/area
-roster or editing the map; switching recipients/room contexts guards unsent drafts.
+roster or inspecting an object; switching recipients/room contexts guards unsent drafts.
 Its position uses the renderer's existing selection projection, with a viewport
 fallback for absent/offscreen actors. Profile drafts and resource dialogs retain
 their existing owners. Refreshing the overview preserves these mounted owners,
 including on read failure, instead of discarding open work. The geometry
 editor commits a completed object drag once; pointer cancellation does not enter
-history. Ordinary wheel/two-finger scrolling and Shift/middle drag pan. Browser
+history. Props drag directly after a screen-space movement threshold; floor and
+background drags pan. Ordinary wheel/two-finger scrolling and Shift/middle drag pan. Browser
 control-wheel pinch zooms around the gesture anchor; camera limits remain shared
 with the zoom buttons. Object library cards reuse the admitted indexed-art renderer
 and mount previews only while the library is open. Choosing art closes the library
 and selects the new placement. The inspector shows room settings or the selected
 object, not both forms together; its object preview uses the same admitted art.
 Library search filters existing pack/prop labels without another catalog or draft.
-The parent build mode owns browsing versus placement, including Pixel workshop
-additions; a new edit session starts in Inspect. Library visibility is derived.
-The placement selector uses admitted human labels and retains unavailable objects
-as selectable repair targets.
+Selection owns catalog visibility, including Pixel workshop additions. There
+is no separate placement tool; unavailable objects remain selectable repair targets.
 Modular room plaques anchor to the projected rear wall header; actor/floor anchors
 remain unchanged. The shared nameplate painter keeps text legible across zoom levels.
 Object room context derives from `object-area`, shared with extension discovery;
@@ -342,7 +347,7 @@ Room finish choices show static wall/floor samples from the same reviewed atlas
 and recoloring function as the scene. Native radios preserve keyboard selection;
 preview failure keeps named choices usable. Preview cards allocate no WebGL scene.
 One-time layout conversion controls follow the room/object inspector; their
-explanations are expandable. Preview still creates only an undoable draft.
+explanations are expandable. Conversions create one undoable change and use the same auto-apply queue.
 Named module placement and object coordinate
 forms provide keyboard editing through the same draft and history. Freeform
 painting, zoning, terrain-coordinate forms and manual door gestures are retired.
@@ -360,7 +365,7 @@ discussion category in the existing board store; broadcast still requires an
 explicit audience. Rebinding or removing
 an area preserves existing object references. `RoomPicker` also serves the
 standalone room manager: conditional room writes are immediate, explicitly separate
-from layout Save/Cancel, and feed revision-checked room observations back to the
+from the layout auto-apply queue, and feed revision-checked room observations back to the
 mounted Office. Closing that manager retains its draft without changing a roster.
 `RoomEditor` is shared by that manager and the compact world-anchored creation
 card. An uncertain write retains its UUID and draft; explicit readback and review

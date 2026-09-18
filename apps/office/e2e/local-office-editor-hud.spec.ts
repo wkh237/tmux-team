@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { furnishedOfficeFixture } from './furnished-office-fixture.js';
 import { openOfficeDirectory } from './office-navigation.js';
 
-test('keeps editing status and draft actions above the tools on desktop and narrow screens', async ({
+test('keeps automatic change status and contextual properties visible without an editing mode', async ({
   page,
 }, info) => {
   const fixture = await furnishedOfficeFixture(page);
@@ -14,22 +14,27 @@ test('keeps editing status and draft actions above the tools on desktop and narr
   await openOfficeDirectory(page);
   await page.getByRole('button', { name: 'Lobby · lobby', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Edit this area', exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Save layout', exact: true })).toHaveCount(0);
   for (const viewport of [
     { width: 1440, height: 1000 },
     { width: 390, height: 844 },
   ]) {
     await page.setViewportSize(viewport);
-    const draft = page.getByRole('region', { name: 'Layout draft' });
+    const draft = page.getByRole('region', { name: 'Layout changes' });
     const tools = page.getByRole('complementary', { name: 'Layout tools' });
-    await expect(draft.getByRole('heading', { name: 'Editing layout' })).toBeVisible();
-    await expect(draft.getByRole('button', { name: 'Save layout' })).toBeInViewport();
-    await expect(draft.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport();
+    await expect(draft.getByRole('status')).toHaveText('All changes applied');
+    await expect(draft.getByRole('button', { name: 'Undo' })).toBeInViewport();
+    await expect(tools.getByLabel('Area name')).toBeVisible();
     await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
     await page.getByRole('button', { name: 'Fit office', exact: true }).click();
     const header = (await draft.boundingBox())!;
     const body = (await tools.boundingBox())!;
-    expect(header.y + header.height).toBeLessThanOrEqual(body.y);
+    await page.screenshot({ path: info.outputPath(`editor-${viewport.width}.png`) });
+    expect(
+      header.y + header.height,
+      JSON.stringify({ viewport, header, body })
+    ).toBeLessThanOrEqual(body.y);
     expect(header.x).toBeGreaterThanOrEqual(0);
     expect(header.x + header.width).toBeLessThanOrEqual(viewport.width);
     expect(await page.locator('.office-canvas').boundingBox()).toMatchObject({
@@ -39,8 +44,8 @@ test('keeps editing status and draft actions above the tools on desktop and narr
     });
     await page.screenshot({ path: info.outputPath(`editor-${viewport.width}.png`) });
   }
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Layout draft' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'Furniture & devices' })).toBeVisible();
   expect(fixture.writes).toEqual([]);
   expect(fixture.unexpected).toEqual([]);
 });

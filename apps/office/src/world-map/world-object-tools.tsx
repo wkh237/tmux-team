@@ -13,7 +13,6 @@ export function WorldObjectTools({
   identities,
   mountOnWall,
   wallEditing = true,
-  move,
 }: {
   object: WorldObject;
   change: (object: WorldObject) => void;
@@ -21,7 +20,6 @@ export function WorldObjectTools({
   identities: ProfileProjection[];
   mountOnWall?: () => void;
   wallEditing?: boolean;
-  move?: { active: boolean; start: () => void };
 }) {
   const { surface } = object;
   const existingUrl =
@@ -35,11 +33,6 @@ export function WorldObjectTools({
   return (
     <section aria-label="Selected object">
       <div className="world-object-actions">
-        {move && (
-          <button aria-pressed={move.active} onClick={move.start}>
-            Move object
-          </button>
-        )}
         <button
           onClick={() =>
             change({
@@ -206,9 +199,7 @@ export function WorldObjectTools({
                 placeholder="https://example.com/docs"
               />
             </label>
-            <button type="submit">
-              {existingUrl ? 'Update link in draft' : 'Attach link to object'}
-            </button>
+            <button type="submit">{existingUrl ? 'Update link' : 'Attach link to object'}</button>
             {existingUrl && (
               <button type="button" onClick={() => change({ ...object, extension: null })}>
                 Remove link action

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { WorldObjectActions } from '../extensions/world-object-actions.js';
 import type { ProfileSnapshot } from '../profiles/profile-contract.js';
 import type { IdentityChoice } from '../profiles/identity-choice.js';
@@ -21,7 +21,6 @@ import type { MeetingRoom } from './room-contract.js';
 import { useWorldExtensions } from './use-world-extensions.js';
 import { useWorldEditor } from '../world-map/use-world-editor.js';
 import { WorldTools } from '../world-map/world-tools.js';
-import type { WorldTool } from '../world-map/world-tools.js';
 import { OfficeExpansionForm } from '../world-map/office-expansion-form.js';
 import { MeetingCreationForm } from '../world-map/meeting-creation-form.js';
 import { addMeetingModule, nextMeetingSlot } from '../world-map/meeting-module.js';
@@ -81,14 +80,9 @@ function ReadyOffice({
 }) {
   const worldEditor = useWorldEditor(load.world, load.runtime.world);
   const [roomBusy, setRoomBusy] = useState(false);
-  const [tool, setTool] = useState<WorldTool>('select');
   const editor = {
     ...worldEditor,
     busy: worldEditor.busy || roomBusy,
-    begin() {
-      setTool('select');
-      worldEditor.begin();
-    },
   };
   const [cameraHost, setCameraHost] = useState<HTMLDivElement | null>(null);
   const above = useRef<HTMLDivElement>(null);
@@ -143,12 +137,7 @@ function ReadyOffice({
   );
   const directoryToggle = useRef<HTMLButtonElement>(null);
   const [officeMenuOpen, setOfficeMenuOpen] = useState(false);
-  const detailsHeading = useRef<HTMLHeadingElement>(null);
   const [panel, setPanel] = useState<'directory' | 'details' | null>(null);
-  useEffect(() => {
-    if (panel === 'details' && !editor.editing)
-      detailsHeading.current?.focus({ preventScroll: true });
-  }, [panel, selection, editor.editing]);
   const [officeSlot, setOfficeSlot] = useState<OfficeSlot>();
   const [meetingDraft, setMeetingDraft] = useState<MeetingSlot>();
   const meetingSlot = useMemo(
@@ -156,17 +145,13 @@ function ReadyOffice({
       world.map.version !== 1 && world.map.version >= 4 ? nextMeetingSlot(world.map) : undefined,
     [world.map]
   );
-  useEffect(() => {
-    if (!editor.editing) setMeetingDraft(undefined);
-  }, [editor.editing]);
   function beginMeeting(slot: MeetingSlot) {
     if (editor.busy || slot.index !== meetingSlot?.index) return;
-    if (!editor.editing) editor.begin();
     setPanel(null);
-    setTool('select');
+    setOfficeSlot(undefined);
     setMeetingDraft(slot);
   }
-  const expanding = editor.editing && tool === 'office' && world.map.version !== 1;
+  const expanding = Boolean(officeSlot) && world.map.version !== 1;
   const officeSlots = useMemo(
     () => (world.map.version !== 1 ? officeExpansionSlots(world.map) : []),
     [world.map]
@@ -175,33 +160,43 @@ function ReadyOffice({
     ? officeSlots.find((slot) => officeSlot && officeSlotKey(slot) === officeSlotKey(officeSlot))
     : undefined;
   const [chosenAreaId, setChosenAreaId] = useState<string>(world.map.primaryLobbyId);
-  const [objectId, selectObject] = useState<string>();
+  const [objectId, setObjectId] = useState<string>();
+  function selectObject(id?: string) {
+    setObjectId(id);
+    setSelection(undefined);
+    setPanel(null);
+    setOfficeSlot(undefined);
+    setMeetingDraft(undefined);
+  }
   const floor = useMemo(() => indexFloor(map.floor), [map.floor]);
   const selectedObject = world.objects.find((object) => object.id === objectId);
   const objectAreaId = selectedObject ? objectArea(floor, selectedObject) : undefined;
-  const areaId = objectAreaId === undefined ? chosenAreaId : (objectAreaId ?? '');
+  const areaId =
+    objectAreaId === undefined
+      ? map.areas.some((area) => area.id === chosenAreaId)
+        ? chosenAreaId
+        : world.map.primaryLobbyId
+      : (objectAreaId ?? '');
   function selectArea(id: string) {
     setChosenAreaId(id);
-    selectObject(undefined);
+    setObjectId(undefined);
+    setSelection({ kind: 'area', areaId: id });
+    setPanel('details');
+    setOfficeSlot(undefined);
+    setMeetingDraft(undefined);
   }
   function addArt(pack: CatalogPack, key: string) {
-    if (!editor.editing || editor.busy)
-      throw new Error('Start Edit layout before placing artwork.');
+    if (editor.busy) throw new Error('Wait for the current room operation to finish.');
     const id = crypto.randomUUID();
     const object = createCatalogObject(world, pack, key, areaId || null, id);
     if (!editor.change((current) => ({ ...current, objects: [...current.objects, object] })))
       throw new Error('This artwork could not be added. Check the layout validation message.');
     propObserved(pack);
     selectObject(id);
-    setTool('move');
   }
   const workshop = useExtensionPanel(
     'Pixel workshop',
-    <PixelWorkshop
-      port={load.runtime.propCatalog}
-      canAdd={editor.editing && !editor.busy}
-      add={addArt}
-    />
+    <PixelWorkshop port={load.runtime.propCatalog} canAdd={!editor.busy} add={addArt} />
   );
   const population = useMemo(
     () => officePopulation(world.map, load.profiles, load.rooms),
@@ -214,7 +209,7 @@ function ReadyOffice({
     initial: initialIdentityId
       ? targetFor({ kind: 'agent', identityId: initialIdentityId })
       : undefined,
-    suspended: editor.editing || panel !== null,
+    suspended: panel !== null || Boolean(selectedObject),
     closed: () => {
       setSelection(undefined);
       setPanel(null);
@@ -306,45 +301,54 @@ function ReadyOffice({
     } else {
       const target = targetFor(value);
       if (!target) return;
+      setObjectId(undefined);
+      setOfficeSlot(undefined);
+      setMeetingDraft(undefined);
       setPanel(null);
       conversation.open(target, tab);
     }
   }
   function closePanel() {
-    if (panel === 'details') setSelection(undefined);
+    setSelection(undefined);
+    setObjectId(undefined);
+    setOfficeSlot(undefined);
+    setMeetingDraft(undefined);
     setPanel(null);
     directoryToggle.current?.focus();
   }
-  const sceneEditor: OfficeSceneEditor | undefined = editor.editing
-    ? {
-        areaId,
-        tool: tool === 'walls' || tool === 'furniture' ? 'select' : tool,
-        selectedMeeting: meetingDraft,
-        officeSlots: expanding ? officeSlots : undefined,
-        selectedOffice,
-        chooseOffice: (slot) => {
-          if (!editor.busy) setOfficeSlot(slot);
-        },
-        selected: objectId,
-        select: selectObject,
-        moveObject: (id, position) =>
-          !editor.busy &&
-          editor.change((world) => ({
-            ...world,
-            objects: world.objects.map((object) =>
-              object.id === id
-                ? { ...object, placement: { ...object.placement, ...position } }
-                : object
-            ),
-          })),
+  const sceneEditor: OfficeSceneEditor = {
+    areaId,
+    selectedMeeting: meetingDraft,
+    officeSlots,
+    selectedOffice,
+    chooseOffice: (slot) => {
+      if (!editor.busy) {
+        closePanel();
+        setOfficeSlot(slot);
       }
-    : undefined;
+    },
+    clearSelection: () => {
+      if (!editor.busy) closePanel();
+    },
+    selected: selectedObject?.id,
+    select: (id) => {
+      if (!editor.busy) selectObject(id);
+    },
+    moveObject: (id, position) =>
+      !editor.busy &&
+      editor.change((world) => ({
+        ...world,
+        objects: world.objects.map((object) =>
+          object.id === id ? { ...object, placement: { ...object.placement, ...position } } : object
+        ),
+      })),
+  };
   return (
     <section
       className="office-overview"
       aria-label="Office overview"
       onKeyDown={(event) => {
-        if (event.key === 'Escape' && !editor.editing && panel) {
+        if (event.key === 'Escape' && !roomBusy) {
           event.stopPropagation();
           closePanel();
         }
@@ -379,7 +383,6 @@ function ReadyOffice({
                 hidden={!officeMenuOpen}
               >
                 <button
-                  disabled={editor.editing}
                   aria-expanded={panel === 'directory'}
                   aria-controls="office-directory"
                   onClick={() => {
@@ -406,21 +409,9 @@ function ReadyOffice({
               {map.areas.length} areas ·{' '}
               {load.profiles.filter((profile) => profile.presence === 'active').length} online
             </span>
-            {!editor.editing && (
-              <button
-                disabled={load.refreshing}
-                onClick={() => {
-                  setOfficeMenuOpen(false);
-                  editor.begin();
-                }}
-              >
-                Edit layout
-              </button>
-            )}
-            {editor.editing && <strong className="world-editing-status">Editing layout</strong>}
             <button
               aria-label="Refresh office"
-              disabled={editor.editing || editor.busy || load.refreshing}
+              disabled={editor.dirty || editor.saving || editor.busy || load.refreshing}
               onClick={refresh}
             >
               ↻
@@ -430,40 +421,88 @@ function ReadyOffice({
           </WorldHud>
           <div className="world-camera-dock" ref={setCameraHost} />
         </div>
-        {editor.editing && (
-          <WorldTools
-            obstacles={panelObstacles}
-            creatingMeeting={Boolean(meetingDraft)}
-            createMeeting={meetingSlot ? () => beginMeeting(meetingSlot) : undefined}
-            editor={editor}
-            tool={tool}
-            setTool={setTool}
-            areaId={areaId}
-            selectArea={selectArea}
-            objectId={objectId}
-            selectObject={selectObject}
-            population={population}
-            rooms={load.rooms}
-            catalog={load.props}
-            addArt={addArt}
-            openWorkshop={workshop.open}
-          />
-        )}
-        {!editor.editing && (
-          <aside
-            className="world-directory"
-            id="office-directory"
-            hidden={panel !== 'directory'}
-            aria-label="Office directory"
-          >
-            <OfficeDirectory population={population} selection={selection} select={select} />
-          </aside>
-        )}
+        <WorldTools
+          obstacles={panelObstacles}
+          creatingMeeting={Boolean(meetingDraft)}
+          editor={editor}
+          clearSelection={closePanel}
+          content={
+            selectedObject?.extension ? (
+              <WorldObjectActions
+                groups={extensions.groups
+                  .map((group) => ({
+                    ...group,
+                    entries: group.entries.filter((entry) => entry.instance.id === objectId),
+                  }))
+                  .filter((group) => group.entries.length)}
+                areaId={areaId}
+                activate={extensions.activate}
+                focus={extensions.focus}
+              />
+            ) : selectedArea ? (
+              <>
+                <AreaRoster population={selectedArea} select={select} />
+                {selectedArea.room && (
+                  <>
+                    <button onClick={() => openMeetingRoom(selectedArea.room!.id)}>
+                      Manage members
+                    </button>
+                    <button onClick={() => roomMessage.open(selectedArea.room!)}>
+                      Message room
+                    </button>
+                  </>
+                )}
+                <WorldObjectActions
+                  groups={extensions.groups}
+                  areaId={selectedArea.area.id}
+                  activate={extensions.activate}
+                  focus={extensions.focus}
+                />
+              </>
+            ) : undefined
+          }
+          areaId={selectedObject ? areaId : selectedArea?.area.id}
+          selectArea={selectArea}
+          objectId={selectedObject?.id}
+          selectObject={selectObject}
+          population={population}
+          rooms={load.rooms}
+          catalog={load.props}
+          addArt={addArt}
+          openWorkshop={workshop.open}
+        />
+        <aside
+          className="world-directory"
+          id="office-directory"
+          hidden={panel !== 'directory'}
+          aria-label="Office directory"
+        >
+          <OfficeDirectory population={population} selection={selection} select={select} />
+          <details>
+            <summary>Available spaces</summary>
+            {officeSlots.map((slot) => (
+              <button
+                key={officeSlotKey(slot)}
+                onClick={() => {
+                  closePanel();
+                  setOfficeSlot(slot);
+                }}
+              >
+                Office · column {slot.column}, row {slot.row}
+              </button>
+            ))}
+            {meetingSlot && (
+              <button onClick={() => beginMeeting(meetingSlot)}>New meeting room</button>
+            )}
+          </details>
+        </aside>
       </div>
       <OfficeCanvas
         cameraHost={cameraHost}
         model={sceneModel}
-        select={(value) => select(value, 'chat')}
+        select={(value) => {
+          if (!editor.busy) select(value, 'chat');
+        }}
         selection={selection}
         editor={sceneEditor}
         activate={extensions.activate}
@@ -472,7 +511,7 @@ function ReadyOffice({
         agentOverlay={conversation.render}
         createMeeting={beginMeeting}
         meetingOverlay={(anchor) =>
-          meetingDraft && editor.editing ? (
+          meetingDraft ? (
             <MeetingCreationForm
               key={meetingDraft.index}
               port={load.runtime.rooms}
@@ -499,19 +538,16 @@ function ReadyOffice({
           ) : null
         }
         officeOverlay={
-          expanding
+          selectedOffice
             ? (anchor) => (
                 <OfficeExpansionForm
                   key={selectedOffice ? officeSlotKey(selectedOffice) : 'choose'}
-                  slots={officeSlots}
                   selected={selectedOffice}
                   anchor={anchor}
                   obstacles={panelObstacles}
                   busy={editor.busy}
-                  choose={setOfficeSlot}
                   cancel={() => {
                     setOfficeSlot(undefined);
-                    setTool('select');
                   }}
                   create={(name) => {
                     if (!selectedOffice) return;
@@ -521,7 +557,6 @@ function ReadyOffice({
                     ) {
                       selectArea(id);
                       setOfficeSlot(undefined);
-                      setTool('select');
                     }
                   }}
                 />
@@ -529,75 +564,6 @@ function ReadyOffice({
             : undefined
         }
       />
-      {!editor.editing && (
-        <>
-          {selectedArea && (
-            <aside
-              className="office-inspector"
-              hidden={panel !== 'details'}
-              aria-label="Area details"
-            >
-              <header className="inspector-header">
-                <h2 ref={detailsHeading} tabIndex={-1}>
-                  {selectedArea.area.name}
-                </h2>
-                <button className="inspector-close" aria-label="Close details" onClick={closePanel}>
-                  ×
-                </button>
-              </header>
-              <div className="inspector-body">
-                <>
-                  <p>
-                    {selectedArea?.area.binding.type === 'meeting'
-                      ? 'Linked meeting area. Membership is independent of physical location.'
-                      : selectedArea?.area.binding.type === 'personal'
-                        ? 'A manually assigned personal office.'
-                        : 'Shared space for unassigned saved agents and Contractors.'}
-                  </p>
-                  {selectedArea.area.binding.type === 'meeting' && (
-                    <button
-                      onClick={() => {
-                        if (selectedArea.area.binding.type === 'meeting')
-                          openMeetingRoom(selectedArea.area.binding.roomId);
-                      }}
-                    >
-                      Manage members
-                    </button>
-                  )}
-                  {selectedArea.area.binding.type !== 'lobby' && (
-                    <button
-                      onClick={() => {
-                        selectArea(selectedArea!.area.id);
-                        editor.begin();
-                      }}
-                    >
-                      Edit this area
-                    </button>
-                  )}
-                  {selectedArea && (
-                    <AreaRoster
-                      key={selectedArea.area.id}
-                      population={selectedArea}
-                      select={select}
-                    />
-                  )}
-                  {selectedArea.room && (
-                    <button onClick={() => roomMessage.open(selectedArea.room!)}>
-                      Message room
-                    </button>
-                  )}
-                </>
-                <WorldObjectActions
-                  groups={extensions.groups}
-                  areaId={selectedArea.area.id}
-                  activate={extensions.activate}
-                  focus={extensions.focus}
-                />
-              </div>
-            </aside>
-          )}
-        </>
-      )}
       {extensions.panel}
       {workshop.panel}
       {meetingRooms.panel}

@@ -1,26 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import type { OfficeSlot } from './module-contract.js';
-import { officeSlotKey } from './module-contract.js';
 import { useAnchoredPanel } from './use-anchored-panel.js';
 import type { PanelObstacles } from './use-anchored-panel.js';
 import type { SelectionTarget } from '../rendering/selection-anchor.js';
 
 export function OfficeExpansionForm({
-  slots,
   selected,
   anchor,
   obstacles,
   busy,
-  choose,
   create,
   cancel,
 }: {
-  slots: readonly OfficeSlot[];
-  selected?: OfficeSlot;
+  selected: OfficeSlot;
   anchor?: SelectionTarget;
   obstacles?: PanelObstacles;
   busy: boolean;
-  choose(slot: OfficeSlot): void;
   create(name: string): void;
   cancel(): void;
 }) {
@@ -48,55 +43,20 @@ export function OfficeExpansionForm({
       }}
     >
       <fieldset disabled={busy}>
-        <details open={!selected}>
-          <summary>
-            <h2>
-              New office
-              <small>
-                {selected
-                  ? `Column ${selected.column}, row ${selected.row} · Change`
-                  : 'Choose an office slot'}
-              </small>
-            </h2>
-          </summary>
-          <label>
-            Office slot
-            <select
-              value={selected ? officeSlotKey(selected) : ''}
-              onChange={(event) => {
-                const slot = slots.find((slot) => officeSlotKey(slot) === event.target.value);
-                if (slot) choose(slot);
-              }}
-            >
-              <option value="" disabled>
-                Choose a cyan preview
-              </option>
-              {slots.map((slot) => (
-                <option key={officeSlotKey(slot)} value={officeSlotKey(slot)}>
-                  Column {slot.column}, row {slot.row}
-                </option>
-              ))}
-            </select>
-          </label>
-        </details>
-        {selected ? (
-          <label>
-            Name
-            <input
-              ref={input}
-              required
-              maxLength={80}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </label>
-        ) : (
-          <p>
-            {slots.length
-              ? 'Select a whole office on the map, or choose its slot here.'
-              : 'No adjacent office slots are available.'}
-          </p>
-        )}
+        <h2>New office</h2>
+        <p>
+          Column {selected.column}, row {selected.row}
+        </p>
+        <label>
+          Name
+          <input
+            ref={input}
+            required
+            maxLength={80}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </label>
         <div className="office-expansion-actions">
           <button type="button" aria-label="Cancel placement" onClick={cancel}>
             Cancel

@@ -119,7 +119,7 @@ uncertain saves. Adopting a readback is an explicit action, never an automatic
 overwrite or another room creation. The world-anchored `MeetingCreationForm`
 reuses that editor, retaining a confirmed room UUID and proposed area ID across
 placement failures. `meeting-module` attaches the room through the existing
-world history and furniture recipe; layout Cancel never deletes the room.
+world history and furniture recipe; layout Undo never deletes the room.
 `world-map/meeting-preset` adds ordinary placements/resource bindings to that draft;
 it does not create rooms, whiteboard content or requests. Browser authoring and
 actor preview placement share the sparse `world-map/free-floor` interval owner.
@@ -199,13 +199,19 @@ by rendering, population and discovery. Existing world history and revisioned
 Save retain source modules; modular drafts cannot call the legacy floor writer.
 `world-map/module-authoring` offers unoccupied cardinal office slots using those
 same bounds/reserved-wing rules. Choosing a hologram only selects a slot; naming
-and adding commits a module through the existing world history, not persistence.
+and adding commits a module through the existing world history. The browser has
+no edit-mode gate: selection drives the context inspector, object drags commit
+once, and property changes enter the same serialized auto-apply queue. The queue
+retains history and newer edits across acknowledgements, pauses on write failure,
+and never rebases or retries an uncertain write implicitly. Native revision and
+placement admission remain authoritative.
 `rendering/scene-module-ghost` is disposable presentation of that slot, while
-`office-expansion-form` supplies anchored text entry and keyboard slot selection.
+`office-expansion-form` supplies anchored text entry; the directory exposes the
+same eligible slots for keyboard selection without a separate build mode.
 The renderer projects the complete hologram bounds through `selection-anchor`;
-the shared anchored-panel hook measures the form and actual toolbar/save-bar
-clearance, placing it beside that target within the HUD-safe viewport. Office
-and meeting creation hide the general layout inspector while retaining its state.
+the shared anchored-panel hook measures the form and actual context-panel
+clearance, placing it beside that target within the HUD-safe viewport. Creation
+forms retain the general inspector's state.
 The shared projector still supplies existing point anchors
 for actor and furniture controls. Panel measurement is disposable presentation,
 not another camera or layout state. Its resize observer is released on unmount.

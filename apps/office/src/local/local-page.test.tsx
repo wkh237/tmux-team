@@ -133,9 +133,11 @@ function runtime(profiles = [profile]): LocalRuntime {
     dispose: vi.fn(),
   };
 }
-async function show(local: LocalRuntime, path = '/local') {
+async function show(local: LocalRuntime, path = '/local', ready = true) {
   const router = createOfficeRouter(createMemoryHistory({ initialEntries: [path] }));
-  return { ...render(<OfficeApp router={router} local={local} />), router };
+  const view = render(<OfficeApp router={router} local={local} />);
+  if (ready) await screen.findByRole('button', { name: 'Office menu' });
+  return { ...view, router };
 }
 async function directory() {
   const menu = await screen.findByRole('button', { name: 'Office menu' });
@@ -294,20 +296,16 @@ it('loads the world without saving or dispatching work', async () => {
   expect(local.dispatch.send).not.toHaveBeenCalled();
 });
 
-it('makes draft actions prominent before tools and removes the Lobby edit shortcut', async () => {
+it('has no mode switch and selects room properties directly without writing', async () => {
   const local = runtime();
   await show(local);
-  await directory();
-  await userEvent.click(screen.getByRole('button', { name: 'Lobby · lobby' }));
-  expect(screen.queryByRole('button', { name: 'Edit this area' })).toBeNull();
-  await userEvent.click(screen.getByRole('button', { name: 'Edit layout' }));
-  const draft = screen.getByRole('region', { name: 'Layout draft' });
-  const tools = screen.getByRole('complementary', { name: 'Layout tools' });
-  expect(draft.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(within(draft).getByRole('heading', { name: 'Editing layout' })).toBeDefined();
-  expect(within(draft).getByRole('button', { name: 'Save layout' })).toBeDefined();
-  await userEvent.click(within(draft).getByRole('button', { name: 'Cancel' }));
-  expect(screen.queryByRole('region', { name: 'Layout draft' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Edit layout' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Save layout' })).toBeNull();
+  expect(screen.getByRole('heading', { name: 'Furniture & devices' })).toBeDefined();
+  act(() => canvas.select!({ kind: 'area', areaId: WORLD_LOBBY_ID }));
+  expect(screen.getByLabelText('Area name')).toHaveProperty('value', 'Lobby');
+  await userEvent.keyboard('{Escape}');
+  expect(screen.getByRole('heading', { name: 'Furniture & devices' })).toBeDefined();
   expect(local.world.save).not.toHaveBeenCalled();
 });
 
@@ -545,7 +543,7 @@ it('refreshes the world without unmounting a conversation draft, including faile
   );
   await userEvent.click(screen.getByRole('button', { name: 'Refresh office' }));
   expect(screen.getByRole('textbox', { name: 'Message' })).toBe(message);
-  expect(screen.getByRole('button', { name: 'Edit layout' })).toHaveProperty('disabled', true);
+  expect(screen.queryByRole('button', { name: 'Edit layout' })).toBeNull();
   const base = officeWorldFixture();
   const latest = {
     ...base,
@@ -579,11 +577,10 @@ it('refreshes the world without unmounting a conversation draft, including faile
 it('unifies modular conversion and object changes into one draft with Undo, Redo and Cancel', async () => {
   const local = runtime();
   await show(local);
-  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
   await userEvent.click(screen.getByRole('button', { name: 'Preview modular layout' }));
   const painted = canvas.model!.world;
   expect(painted.map.version).toBe(4);
-  await userEvent.selectOptions(screen.getByLabelText('Object'), painted.objects[0]!.id);
+  act(() => canvas.editor!.select!(painted.objects[0]!.id));
   await userEvent.click(screen.getByRole('button', { name: 'Rotate object' }));
   expect(canvas.model!.world.objects[0]!.placement.rotation).toBe(1);
   await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
@@ -592,7 +589,7 @@ it('unifies modular conversion and object changes into one draft with Undo, Redo
   expect(canvas.model!.world).toEqual(officeWorldFixture().layout);
   await userEvent.click(screen.getByRole('button', { name: 'Redo' }));
   expect(canvas.model!.world).toEqual(painted);
-  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
   expect(canvas.model!.world).toEqual(officeWorldFixture().layout);
   expect(local.world.save).not.toHaveBeenCalled();
 });
@@ -606,78 +603,37 @@ it.each([false, true])(
     if (missing) object.placement.prop = `sha256:${'f'.repeat(64)}/missing-desk`;
     vi.mocked(local.world.show).mockResolvedValue(snapshot);
     await show(local);
-    await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
-    const select = screen.getByRole('combobox', { name: 'Object' });
-    expect(
-      within(select).getByRole('option', { name: missing ? '1 · Unavailable prop' : '1 · Desk' })
-    ).toHaveProperty('value', object.id);
-    await userEvent.selectOptions(select, object.id);
+    act(() => canvas.editor!.select!(object.id));
     expect(canvas.editor!.selected).toBe(object.id);
     expect(screen.getByRole('heading', { name: /^Selected object: / }).textContent).toBe(
       missing ? 'Unavailable prop' : 'Desk'
     );
     expect(screen.getByRole('button', { name: 'Remove placement' })).toBeTruthy();
-    const move = screen.getByRole('button', { name: 'Move object' });
-    expect(move.closest('.world-object-actions')).not.toBeNull();
-    expect(move.getAttribute('aria-pressed')).toBe('false');
-    const beforeMove = structuredClone(canvas.model!.world);
-    await userEvent.click(move);
-    expect(move.getAttribute('aria-pressed')).toBe('true');
-    expect(canvas.editor!.tool).toBe('move');
-    expect(canvas.model!.world).toEqual(beforeMove);
+    expect(screen.queryByRole('button', { name: 'Move object' })).toBeNull();
     expect(local.world.save).not.toHaveBeenCalled();
   }
 );
 
-it('opens wall and furniture tools from one catalog without mutating the layout until an object is added', async () => {
+it('shows the visual catalog by default and selects newly added objects without a tool mode', async () => {
   const local = runtime();
   await show(local);
-  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
   const before = structuredClone(canvas.model!.world);
-  const tools = within(screen.getByRole('toolbar', { name: 'Build tools' }));
-  expect(
-    within(screen.getByRole('complementary', { name: 'Layout tools' })).getByRole('toolbar', {
-      name: 'Build tools',
-    })
-  ).toBe(screen.getByRole('toolbar', { name: 'Build tools' }));
-  await userEvent.click(tools.getByRole('button', { name: 'Move object' }));
-  await userEvent.click(tools.getByRole('button', { name: 'Walls' }));
-  expect(canvas.editor!.tool).toBe('select');
-  expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Wall objects' }));
-  expect(screen.getByRole('button', { name: 'Observatory window' })).toBeTruthy();
-  expect(tools.getByRole('button', { name: 'Walls' }).getAttribute('aria-expanded')).toBe('true');
-  await userEvent.click(tools.getByRole('button', { name: 'Furniture' }));
-  expect(screen.queryByRole('button', { name: 'Observatory window' })).toBeNull();
-  expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Furniture and art' }));
-  expect(canvas.model!.world).toEqual(before);
-  await userEvent.click(tools.getByRole('button', { name: 'Walls' }));
-  await userEvent.click(screen.getByRole('button', { name: 'Orbit poster' }));
-  expect(canvas.editor!.tool).toBe('move');
+  expect(screen.getByRole('heading', { name: 'Furniture & devices' })).toBeDefined();
+  expect(screen.queryByRole('toolbar', { name: 'Build tools' })).toBeNull();
+  expect(local.world.save).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByRole('button', { name: 'Desk' }));
   expect(canvas.model!.world.objects).toHaveLength(before.objects.length + 1);
-  expect(canvas.model!.world.objects.at(-1)!.surface.type).toBe('wall');
+  expect(canvas.editor!.selected).toBe(canvas.model!.world.objects.at(-1)!.id);
   await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
   expect(canvas.model!.world).toEqual(before);
-  await userEvent.click(tools.getByRole('button', { name: 'Inspect' }));
-  expect(screen.queryByRole('region', { name: 'Object library' })).toBeNull();
-  expect(tools.getByRole('button', { name: 'Walls' }).getAttribute('aria-expanded')).toBe('false');
-  await userEvent.click(tools.getByRole('button', { name: 'Furniture' }));
-  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
-  expect(screen.getByRole('button', { name: 'Inspect' }).getAttribute('aria-pressed')).toBe('true');
-  expect(screen.getByRole('button', { name: 'Furniture' }).getAttribute('aria-expanded')).toBe(
-    'false'
-  );
-  expect(local.world.save).not.toHaveBeenCalled();
 });
 
 it('saves the complete world with its existing revision fence and no legacy write', async () => {
   const local = runtime();
   await show(local);
-  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
   await userEvent.click(screen.getByRole('button', { name: 'Preview modular layout' }));
   const draft = structuredClone(canvas.model!.world);
-  await userEvent.click(screen.getByRole('button', { name: 'Save layout' }));
-  await screen.findByRole('button', { name: 'Edit layout' });
+  await waitFor(() => expect(local.world.save).toHaveBeenCalled());
   expect(local.world.save).toHaveBeenCalledWith(
     { expectedRevision: 1, legacyBasis: null, layout: draft },
     expect.any(AbortSignal)
@@ -700,8 +656,7 @@ it('edits wall mounts within the same undo history, preserving the placement and
     layout: { ...snapshot.layout, objects: [original] },
   });
   await show(local);
-  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
-  await userEvent.selectOptions(screen.getByLabelText('Object'), original.id);
+  act(() => canvas.editor!.select!(original.id));
   await userEvent.selectOptions(screen.getByLabelText('Placement surface'), 'wall');
   expect(canvas.model!.world.objects[0]!.surface).toEqual({
     type: 'wall',
@@ -734,9 +689,8 @@ it('edits wall mounts within the same undo history, preserving the placement and
   expect(canvas.model!.world.objects[0]!.surface).toMatchObject({ elevation: 0 });
   await userEvent.click(screen.getByRole('button', { name: 'Redo' }));
   expect(canvas.model!.world.objects[0]).toEqual(expected);
-  await userEvent.click(screen.getByRole('button', { name: 'Save layout' }));
-  await screen.findByRole('button', { name: 'Edit layout' });
-  expect(vi.mocked(local.world.save).mock.calls[0]![0].layout.objects).toEqual([expected]);
+  await waitFor(() => expect(local.world.save).toHaveBeenCalled());
+  expect(vi.mocked(local.world.save).mock.calls.at(-1)![0].layout.objects).toEqual([expected]);
   expect(local.whiteboards.show).not.toHaveBeenCalled();
   expect(local.whiteboards.save).not.toHaveBeenCalled();
   expect(local.dispatch.send).not.toHaveBeenCalled();
@@ -751,10 +705,9 @@ it('preserves an invalid object draft and its resource binding when native admis
     ])
   );
   await show(local);
-  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
   act(() => canvas.editor!.moveObject(id, { x: -100, y: -100 }));
   const invalid = canvas.model!.world;
-  await userEvent.click(screen.getByRole('button', { name: 'Save layout' }));
+  await waitFor(() => expect(local.world.save).toHaveBeenCalled());
   expect(await screen.findByRole('alert')).toHaveProperty(
     'textContent',
     expect.stringContaining('Move affected objects')
@@ -774,18 +727,16 @@ it('retains conflicts until explicit reload, with no automatic read, rebase or r
   const local = runtime();
   vi.mocked(local.world.save).mockRejectedValue(new WorldConflict());
   await show(local);
-  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
   await userEvent.click(screen.getByRole('button', { name: 'Preview modular layout' }));
   const draft = canvas.model!.world;
-  await userEvent.click(screen.getByRole('button', { name: 'Save layout' }));
+  await waitFor(() => expect(local.world.save).toHaveBeenCalled());
   await screen.findByText(/Saved layout changed. Nothing was written./);
   expect(canvas.model!.world).toEqual(draft);
   expect(local.world.show).toHaveBeenCalledTimes(1);
   expect(local.world.save).toHaveBeenCalledTimes(1);
   await userEvent.click(
-    screen.getByRole('button', { name: 'Reload saved layout (discard draft)' })
+    screen.getByRole('button', { name: 'Reload saved layout (discard local changes)' })
   );
-  await screen.findByRole('button', { name: 'Edit layout' });
   expect(canvas.model!.world).toEqual(officeWorldFixture().layout);
 });
 
@@ -813,9 +764,7 @@ it('creates an unassigned office module explicitly and excludes Contractors from
     },
   ]);
   await show(local);
-  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
   await userEvent.click(screen.getByRole('button', { name: 'Preview modular layout' }));
-  await userEvent.click(screen.getByRole('button', { name: 'Add office' }));
   act(() => canvas.editor!.chooseOffice!(canvas.editor!.officeSlots![0]!));
   const form = within(screen.getByRole('form', { name: 'New office' }));
   await userEvent.type(form.getByLabelText('Name'), 'Studio');
@@ -856,7 +805,7 @@ it('requires a replacement Lobby and detaches other areas without deleting place
     },
   });
   await show(local);
-  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
+  act(() => canvas.select!({ kind: 'area', areaId: WORLD_LOBBY_ID }));
   expect(screen.getByRole('button', { name: 'Remove area designation' })).toHaveProperty(
     'disabled',
     true
@@ -866,7 +815,7 @@ it('requires a replacement Lobby and detaches other areas without deleting place
     'textContent',
     expect.stringContaining('Remove the empty area')
   );
-  await userEvent.selectOptions(screen.getByLabelText('Area', { exact: true }), extraId);
+  act(() => canvas.select!({ kind: 'area', areaId: extraId }));
   await userEvent.click(screen.getByRole('button', { name: 'Remove area designation' }));
   expect(mapGeometry(canvas.model!.world.map).areas).toHaveLength(1);
   expect(mapGeometry(canvas.model!.world.map).floor).toEqual(retained.layout.map.floor);
@@ -886,9 +835,9 @@ it('disables refresh and concurrent mutation while Save is pending and aborts on
       })
   );
   const view = await show(local);
-  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
-  await userEvent.click(screen.getByRole('button', { name: 'Save layout' }));
-  expect(screen.getByRole('button', { name: 'Cancel' })).toHaveProperty('disabled', true);
+  act(() => canvas.editor!.moveObject(canvas.model!.world.objects[0]!.id, { x: 10, y: 10 }));
+  await waitFor(() => expect(local.world.save).toHaveBeenCalled());
+  expect(screen.getByRole('button', { name: 'Undo' })).toHaveProperty('disabled', false);
   expect(screen.getByRole('button', { name: 'Refresh office' })).toHaveProperty('disabled', true);
   const signal = vi.mocked(local.world.save).mock.calls[0]![1]!;
   view.unmount();
@@ -948,7 +897,7 @@ it('fences late completion from a replaced runtime', async () => {
     new Promise((done) => {
       resolve = done;
     });
-  const view = await show(old);
+  const view = await show(old, '/local', false);
   await screen.findByText('Opening your office…');
   view.rerender(
     <OfficeApp router={view.router} local={runtime([{ ...profile, identityName: 'Bob' }])} />

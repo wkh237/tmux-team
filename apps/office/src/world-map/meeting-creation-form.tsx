@@ -80,8 +80,8 @@ export function MeetingCreationForm({
             onBusyChange={onBusyChange}
           />
           <p>
-            The room is saved first. Save layout keeps its furnished space; Cancel layout keeps the
-            room available.
+            The room is saved first, then its furnished space applies automatically. Undoing the
+            placement keeps the room and its history available.
           </p>
           {rooms.length > 0 && (
             <details>

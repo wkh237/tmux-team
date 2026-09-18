@@ -1,77 +1,114 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { worldHistory } from './world-draft.js';
 import { sameWorld } from './world-contract.js';
 import type { WorldDocument } from './world-contract.js';
-import type { SnapshotHistory } from '../editor/snapshot-history.js';
 import { WorldConflict, WorldValidationError } from './world-port.js';
 import type { WorldPort, WorldSnapshot, WorldPlacementIssue } from './world-port.js';
 
-/** One mounted world's save fence and draft. No shadow store, autosave or implicit rebase. */
+/** One local history and one serialized, revision-fenced auto-apply queue. */
 export function useWorldEditor(initial: WorldSnapshot, port: WorldPort) {
   const [saved, setSaved] = useState(initial);
-  const [history, setHistory] = useState<SnapshotHistory<WorldDocument>>();
+  const [history, setHistory] = useState(() => worldHistory.create(initial.layout));
+  const current = useRef({ saved, history });
+  const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [blocked, setBlocked] = useState(false);
   const [error, setError] = useState<string>();
   const [issues, setIssues] = useState<readonly WorldPlacementIssue[]>([]);
   const request = useRef<AbortController | undefined>(undefined);
   const observed = useRef(initial);
   useEffect(() => () => request.current?.abort(), []);
-  // Explicit overview refresh may update the saved projection without unmounting
-  // panels. Never rebase an editing draft or roll back a locally confirmed save.
+  const world = worldHistory.current(history);
+  const dirty = !sameWorld(world, saved.layout);
+  function replaceHistory(next: typeof history) {
+    current.current.history = next;
+    setHistory(next);
+  }
+  function acknowledge(next: WorldSnapshot) {
+    current.current.saved = next;
+    setSaved(next);
+  }
   useEffect(() => {
     if (observed.current === initial) return;
     observed.current = initial;
-    if (!history && !busy)
-      setSaved((current) => (initial.revision >= current.revision ? initial : current));
-  }, [initial, history, busy]);
-  const world = history ? worldHistory.current(history) : saved.layout;
-  const dirty = useMemo(
-    () => Boolean(history && !sameWorld(world, saved.layout)),
-    [history, world, saved]
-  );
-  function clearError() {
-    setError(undefined);
-    setIssues([]);
-  }
+    const state = current.current;
+    if (
+      !request.current &&
+      !blocked &&
+      sameWorld(worldHistory.current(state.history), state.saved.layout) &&
+      initial.revision > state.saved.revision
+    ) {
+      acknowledge(initial);
+      replaceHistory(worldHistory.create(initial.layout));
+    }
+  }, [initial, blocked]);
   function change(edit: (world: WorldDocument) => WorldDocument) {
-    if (!history || request.current) return false;
+    if (busy) return false;
     try {
-      const next = worldHistory.commit(history, edit(world));
-      setHistory(next);
-      clearError();
+      const history = current.current.history;
+      replaceHistory(worldHistory.commit(history, edit(worldHistory.current(history))));
+      if (!blocked) {
+        setError(undefined);
+        setIssues([]);
+      }
       return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'This change is invalid.');
       return false;
     }
   }
-  async function save() {
-    if (!history || request.current) return;
+  const apply = useCallback(async () => {
+    if (request.current || busy) return;
+    const { saved, history } = current.current;
+    const layout = worldHistory.current(history);
+    if (sameWorld(layout, saved.layout)) {
+      setBlocked(false);
+      setError(undefined);
+      setIssues([]);
+      return;
+    }
     const controller = new AbortController();
     request.current = controller;
-    setBusy(true);
-    clearError();
+    setSaving(true);
+    setError(undefined);
+    setIssues([]);
     try {
       const result = await port.save(
-        { expectedRevision: saved.revision, legacyBasis: saved.legacyBasis, layout: world },
+        { expectedRevision: saved.revision, legacyBasis: saved.legacyBasis, layout },
         controller.signal
       );
       if (controller.signal.aborted) return;
-      setSaved(result);
-      setHistory(undefined);
+      acknowledge(result);
+      setBlocked(false);
+      // Keep newer local changes and undo history; the next write uses this acknowledgement.
     } catch (cause) {
       if (controller.signal.aborted) return;
+      setBlocked(true);
       setError(
         cause instanceof WorldValidationError || cause instanceof WorldConflict
           ? cause.message
-          : 'Save was not confirmed. Your draft is kept. Resolve a conflict by explicitly reloading the saved layout; no changes were retried.'
+          : 'Changes were not confirmed. Local changes are kept. Retry explicitly or reload the saved layout.'
       );
       if (cause instanceof WorldValidationError) setIssues(cause.issues);
     } finally {
       if (request.current === controller) request.current = undefined;
-      if (!controller.signal.aborted) setBusy(false);
+      if (!controller.signal.aborted) setSaving(false);
     }
-  }
+  }, [busy, port]);
+  useEffect(() => {
+    if (!dirty || saving || busy || blocked) return;
+    const timer = window.setTimeout(() => void apply(), 300);
+    return () => window.clearTimeout(timer);
+  }, [history, saved, dirty, saving, busy, blocked, apply]);
+  useEffect(() => {
+    if (!dirty && !saving) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty, saving]);
   async function reload() {
     if (request.current) return;
     const controller = new AbortController();
@@ -80,12 +117,14 @@ export function useWorldEditor(initial: WorldSnapshot, port: WorldPort) {
     try {
       const latest = await port.show(controller.signal);
       if (!controller.signal.aborted) {
-        setSaved(latest);
-        setHistory(undefined);
-        clearError();
+        acknowledge(latest);
+        replaceHistory(worldHistory.create(latest.layout));
+        setBlocked(false);
+        setError(undefined);
+        setIssues([]);
       }
     } catch {
-      if (!controller.signal.aborted) setError('Reload failed. Your draft is still kept.');
+      if (!controller.signal.aborted) setError('Reload failed. Local changes are still kept.');
     } finally {
       if (request.current === controller) request.current = undefined;
       if (!controller.signal.aborted) setBusy(false);
@@ -94,39 +133,22 @@ export function useWorldEditor(initial: WorldSnapshot, port: WorldPort) {
   return {
     world,
     saved,
-    editing: Boolean(history),
     dirty,
     busy,
+    saving,
+    blocked,
     error,
     issues,
     change,
-    save,
     reload,
-    begin() {
-      if (!request.current) {
-        setHistory(worldHistory.create(saved.layout));
-        clearError();
-      }
-    },
-    cancel() {
-      if (!request.current) {
-        setHistory(undefined);
-        clearError();
-      }
-    },
+    retry: apply,
     undo() {
-      if (history && !request.current) {
-        setHistory(worldHistory.undo(history));
-        clearError();
-      }
+      if (!busy) replaceHistory(worldHistory.undo(current.current.history));
     },
     redo() {
-      if (history && !request.current) {
-        setHistory(worldHistory.redo(history));
-        clearError();
-      }
+      if (!busy) replaceHistory(worldHistory.redo(current.current.history));
     },
-    canUndo: Boolean(history && history.cursor > 0),
-    canRedo: Boolean(history && history.cursor + 1 < history.entries.length),
+    canUndo: history.cursor > 0,
+    canRedo: history.cursor + 1 < history.entries.length,
   };
 }
