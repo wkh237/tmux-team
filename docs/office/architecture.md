@@ -267,6 +267,13 @@ not each boundary/portal split. At equal ground depth, front faces paint after
 side bodies to retain their terminal posts. Overlapping atlas crops are recolored
 once per source pixel. The same geometry
 owns culling extents and wall/mount paint depth; artwork does not define topology.
+V6 mechanical edges use `platform-art`'s explicitly reviewed source frames and
+silhouette clips, decoded once into nearest-neighbor textures. `scene-platform`
+repeats straight sections and fixed-scale lights/brackets over the same derived
+boundary runs; Lobby size never scales up the hardware. The metal kit is shared
+across rooms while floor finishes remain independent. Selection uses a beveled
+floor contour, not filled floor-run rectangles. No per-frame image processing,
+blur filters, interactive sprite nodes or additional stored geometry are added.
 Module passage descriptors come from `world-map/module-geometry`, shared with
 floor projection. A v2 short passage paints its east/south portal only; its other threshold
 remains physically open without a duplicate arch. Standalone and meeting openings
@@ -285,15 +292,20 @@ No user URL or executable artwork is admitted by these rendering owners. This
 architecture slice is under visual verification; it does not imply that the
 modular editor or the remaining source sheets have been admitted.
 
-HUD panels overlay the entire camera viewport. The directory starts collapsed.
+HUD panels overlay the entire camera viewport. Directory and canonical room
+management live in a collapsed Office menu; the scene retains meeting creation
+and area/member entry points. Editing has a visible status and a right-side
+draft header above the tools, with Save/Cancel followed by Undo/Redo. The lower
+viewport has no persistent save bar. Lobby inspection does not duplicate the
+global edit action. Draft and navigation changes retain their existing owners.
 Expansion holograms, plus marks and labels belong to the canvas, not HTML hit
 overlays. They share its pan/pinch and click-versus-drag handling; HUD creation
 actions provide keyboard access. Only the opened naming form captures input.
 Whole-office creation uses a compact measured card. The renderer supplies the
-entire hologram's screen bounds, including raised walls; `selection-anchor`
+entire hologram's screen bounds; `selection-anchor`
 selects a non-overlapping side when space permits and clamps tight layouts to
 the HUD-safe viewport. `use-anchored-panel` measures the actual wrapped build
-toolbar and save feedback through shared DOM refs; it does not assume fixed
+toolbar and the editor's lower viewport boundary through shared DOM refs; it does not assume fixed
 header heights. Office and meeting creation hide the general inspector without
 disposing its state. Location selection folds after choosing a slot but stays
 keyboard accessible. Resize observation changes presentation only and ends when

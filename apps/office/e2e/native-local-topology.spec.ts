@@ -157,7 +157,7 @@ test('repairs retained personal and Lobby designations without deleting identity
       await expect(
         page.getByRole('button', { name: 'Alice · Offline Studio', exact: true })
       ).toBeVisible();
-      await page.getByRole('button', { name: /^Directory · / }).click();
+      await page.keyboard.press('Escape');
       await begin();
       await area.selectOption(studioId);
       const impact = page.getByRole('region', { name: 'Area removal preview' });
@@ -200,7 +200,7 @@ test('repairs retained personal and Lobby designations without deleting identity
         page.getByRole('button', { name: 'Alice · Offline Unassigned · Lobby', exact: true })
       ).toBeVisible();
       await page.screenshot({ path: info.outputPath('personal-area-removed.png') });
-      await page.getByRole('button', { name: /^Directory · / }).click();
+      await page.keyboard.press('Escape');
       // Retained multi-Lobby input comes from the native layout API, not a
       // resurrected area-painting UI. The browser must repair it explicitly.
       const replacementId = 'a0000000-0000-4000-8000-000000000002';
@@ -390,11 +390,11 @@ test('a real external world write rejects stale browser Save without rebasing th
         expect(toolsBox.y).toBeGreaterThanOrEqual(
           Math.max(headerBox.y + headerBox.height, cameraBox.y + cameraBox.height)
         );
-        expect(inspectorBox.y).toBeGreaterThanOrEqual(
-          Math.max(toolsBox.y + toolsBox.height, cameraBox.y + cameraBox.height)
+        expect(saveBox.y).toBeGreaterThanOrEqual(
+          Math.max(headerBox.y + headerBox.height, cameraBox.y + cameraBox.height)
         );
-        expect(saveBox.y).toBeGreaterThanOrEqual(inspectorBox.y + inspectorBox.height);
-        expect(saveBox.y + saveBox.height).toBeLessThanOrEqual(viewport.height);
+        expect(inspectorBox.y).toBeGreaterThanOrEqual(saveBox.y + saveBox.height);
+        expect(inspectorBox.y + inspectorBox.height).toBeLessThanOrEqual(viewport.height);
         expect(await page.locator('.office-canvas').boundingBox()).toMatchObject({
           x: 0,
           y: 0,

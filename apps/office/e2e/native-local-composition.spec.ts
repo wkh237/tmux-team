@@ -323,7 +323,7 @@ test('a furnished native office keeps personal, Contractor and meeting experienc
             await expect(directory.getByRole('button', { name: /^Pip · Online/ })).toBeVisible();
             await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
             await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
-            await page.getByRole('button', { name: /^Directory ·/ }).click();
+            await page.keyboard.press('Escape');
           }
           await page.getByRole('button', { name: 'Fit office', exact: true }).click();
           await page.screenshot({ path: info.outputPath('furnished-overview-narrow.png') });
@@ -349,7 +349,7 @@ test('a furnished native office keeps personal, Contractor and meeting experienc
               ]);
               await page.goto(next.url);
             }
-            await expect(page.getByRole('button', { name: 'Directory · 3' })).toBeVisible();
+            await expect(page.getByRole('button', { name: 'Office menu' })).toBeVisible();
             await openOfficeDirectory(page);
             const directory = page.getByRole('complementary', { name: 'Office directory' });
             await directory.getByRole('searchbox', { name: 'Search directory' }).fill('');

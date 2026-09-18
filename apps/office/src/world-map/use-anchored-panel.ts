@@ -6,7 +6,7 @@ import type { SelectionTarget } from '../rendering/selection-anchor.js';
 /** DOM measurement belongs to the HUD; camera and selected bounds belong to the scene. */
 export interface PanelObstacles {
   above: RefObject<HTMLDivElement | null>;
-  below: RefObject<HTMLDivElement | null>;
+  viewport: RefObject<HTMLDivElement | null>;
 }
 
 export function useAnchoredPanel<T extends HTMLElement>(
@@ -25,12 +25,12 @@ export function useAnchoredPanel<T extends HTMLElement>(
         previous?.width === width && previous?.height === height ? previous : { width, height }
       );
       const above = obstacles?.above.current;
-      const below = obstacles?.below.current;
+      const viewport = obstacles?.viewport.current;
       const origin = element.offsetParent?.getBoundingClientRect();
-      if (above && below && origin) {
+      if (above && viewport && origin) {
         const next = {
           top: above.getBoundingClientRect().bottom - origin.top + 12,
-          bottom: below.getBoundingClientRect().top - origin.top - 12,
+          bottom: viewport.getBoundingClientRect().bottom - origin.top - 12,
         };
         setClearance((previous) =>
           previous?.top === next.top && previous?.bottom === next.bottom ? previous : next
@@ -43,7 +43,7 @@ export function useAnchoredPanel<T extends HTMLElement>(
     if (obstacles?.above.current) observer.observe(obstacles.above.current);
     if (obstacles?.above.current?.parentElement)
       observer.observe(obstacles.above.current.parentElement);
-    if (obstacles?.below.current) observer.observe(obstacles.below.current);
+    if (obstacles?.viewport.current) observer.observe(obstacles.viewport.current);
     if (element.offsetParent) observer.observe(element.offsetParent);
     return () => observer.disconnect();
   }, [obstacles]);

@@ -1,7 +1,6 @@
 .world-hud-layout {
   position: absolute;
   inset: 16px 20px 20px;
-  z-index: 5;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
@@ -17,6 +16,8 @@
   min-width: 0;
 }
 .world-hud-layout .world-hud {
+  /* Lift navigation only; camera controls must not cover the agent HUD. */
+  z-index: 50;
   position: relative;
   inset: auto;
   justify-self: start;
@@ -33,6 +34,7 @@
   align-items: flex-end;
 }
 .world-camera-dock {
+  z-index: 3;
   margin-left: auto;
   flex-shrink: 0;
   pointer-events: auto;
@@ -211,18 +213,48 @@
   font-size: 13px;
 }
 .world-save-bar {
-  align-self: stretch;
-  margin-top: auto;
+  align-self: flex-end;
+  width: min(322px, 100%);
   flex-shrink: 0;
   box-sizing: border-box;
   padding: 12px;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
+  display: grid;
   gap: 8px;
   /* Share the available editor height, not the full viewport behind its header. */
   max-height: 45%;
   overflow: auto;
+  border-color: var(--hud-selected);
+}
+.world-draft-heading {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 0 0 8px;
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid var(--hud-border);
+}
+.world-draft-heading h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+.world-draft-heading [role='status'] {
+  color: var(--hud-muted);
+  font-size: 12px;
+}
+.world-draft-primary,
+.world-draft-history {
+  display: flex;
+  gap: 8px;
+}
+.world-draft-primary > button {
+  flex: 1;
+}
+.world-save-bar .world-draft-save {
+  background: var(--hud-selected);
+  color: #071523;
+  font-weight: 700;
 }
 
 .office-expansion-card {
@@ -353,9 +385,6 @@
 }
 .world-removal-actions button {
   min-height: 44px;
-}
-.world-save-bar > span {
-  margin-right: auto;
 }
 .world-save-bar > [role='alert'] {
   flex-basis: 100%;
@@ -500,16 +529,6 @@
   .world-save-bar {
     gap: 4px;
     padding: 8px;
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-  .world-save-bar > [role='alert'] {
-    grid-column: 1 / -1;
-  }
-  .world-save-bar > span {
-    font-size: 11px;
-    grid-row: 1;
-    grid-column: 1 / -1;
   }
 }
 @media (max-width: 760px) {

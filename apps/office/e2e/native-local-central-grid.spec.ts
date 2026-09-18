@@ -142,7 +142,8 @@ test('central Lobby and roomless corridors retain independent meeting slots thro
       const tools = await page.getByRole('toolbar', { name: 'Build tools' }).boundingBox();
       expect(narrow!.y).toBeGreaterThanOrEqual(tools!.y + tools!.height);
       const draft = await page.getByRole('region', { name: 'Layout draft' }).boundingBox();
-      expect(narrow!.y + narrow!.height).toBeLessThanOrEqual(draft!.y);
+      expect(draft!.y + draft!.height).toBeLessThanOrEqual(tools!.y);
+      expect(narrow!.y + narrow!.height).toBeLessThanOrEqual(844);
       await page.screenshot({ path: info.outputPath('central-grid-expansion-narrow.png') });
       await form.getByRole('textbox', { name: 'Name', exact: true }).focus();
       await page.keyboard.press('Escape');

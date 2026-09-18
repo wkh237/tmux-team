@@ -107,7 +107,7 @@ test('one installation world is lazy, saves through the browser and retains an e
       await installDrawObserver(page);
       await page.goto(started.url);
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
-      await expect(page.getByRole('button', { name: 'Directory · 0' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Office menu' })).toBeVisible();
       expect(observe()).toEqual(unmaterialized);
       await page.screenshot({ path: info.outputPath('native-world-preset.png') });
       await observeIdleScene(page, info, 'starter');
@@ -166,7 +166,7 @@ test('one installation world is lazy, saves through the browser and retains an e
         // A collapsed inspector must leave the unused space transparent to the scene.
         expect(inspector).not.toBeNull();
         expect(saveBar).not.toBeNull();
-        expect(inspector!.y + inspector!.height).toBeLessThan(saveBar!.y - 24);
+        expect(saveBar!.y + saveBar!.height).toBeLessThanOrEqual(inspector!.y);
         await page.screenshot({ path: info.outputPath('native-world-object-actions.png') });
         // Independent v5 framing: 104-wide world plus the meeting ghost through
         // x=168, -48..136 source Y, 7/8 depth and 16 wall reserve.

@@ -104,7 +104,60 @@ export function WorldTools({
     );
   }
   return (
-    <div className="world-editor-hud">
+    <div className="world-editor-hud" ref={obstacles?.viewport}>
+      <section className="world-save-bar" aria-label="Layout draft">
+        <header className="world-draft-heading">
+          <h2>Editing layout</h2>
+          <span role="status">
+            {editor.busy ? 'Saving…' : editor.dirty ? 'Unsaved changes' : 'No changes'}
+          </span>
+        </header>
+        <div className="world-draft-primary">
+          <button disabled={editor.busy} onClick={editor.cancel}>
+            Cancel
+          </button>
+          <button
+            className="world-draft-save"
+            disabled={editor.busy}
+            onClick={() => void editor.save()}
+          >
+            Save layout
+          </button>
+        </div>
+        <div className="world-draft-history">
+          <button disabled={!editor.canUndo || editor.busy} onClick={editor.undo}>
+            Undo
+          </button>
+          <button disabled={!editor.canRedo || editor.busy} onClick={editor.redo}>
+            Redo
+          </button>
+        </div>
+        {editor.error && (
+          <div role="alert">
+            <p>{editor.error}</p>
+            {editor.issues.map((issue, index) => (
+              <p key={index}>
+                {issue.objectId ? (
+                  <button
+                    onClick={() => {
+                      selectObject(issue.objectId!);
+                      objectHeading.current?.focus();
+                    }}
+                  >
+                    Select affected object
+                  </button>
+                ) : (
+                  'Map'
+                )}{' '}
+                · {issue.reason}
+              </p>
+            ))}
+            <button disabled={editor.busy} onClick={() => void editor.reload()}>
+              Reload saved layout (discard draft)
+            </button>
+          </div>
+        )}
+      </section>
       <aside className="world-build-inspector" aria-label="Layout tools">
         <div
           ref={obstacles?.above}
@@ -513,53 +566,6 @@ export function WorldTools({
           )}
         </div>
       </aside>
-      <div
-        ref={obstacles?.below}
-        className="world-save-bar"
-        role="region"
-        aria-label="Layout draft"
-      >
-        <button disabled={!editor.canUndo || editor.busy} onClick={editor.undo}>
-          Undo
-        </button>
-        <button disabled={!editor.canRedo || editor.busy} onClick={editor.redo}>
-          Redo
-        </button>
-        <span role="status">
-          {editor.busy ? 'Saving…' : editor.dirty ? 'Unsaved changes' : 'No changes'}
-        </span>
-        <button disabled={editor.busy} onClick={editor.cancel}>
-          Cancel
-        </button>
-        <button disabled={editor.busy} onClick={() => void editor.save()}>
-          Save layout
-        </button>
-        {editor.error && (
-          <div role="alert">
-            <p>{editor.error}</p>
-            {editor.issues.map((issue, index) => (
-              <p key={index}>
-                {issue.objectId ? (
-                  <button
-                    onClick={() => {
-                      selectObject(issue.objectId!);
-                      objectHeading.current?.focus();
-                    }}
-                  >
-                    Select affected object
-                  </button>
-                ) : (
-                  'Map'
-                )}{' '}
-                · {issue.reason}
-              </p>
-            ))}
-            <button disabled={editor.busy} onClick={() => void editor.reload()}>
-              Reload saved layout (discard draft)
-            </button>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

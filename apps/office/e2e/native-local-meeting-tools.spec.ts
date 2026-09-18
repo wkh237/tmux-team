@@ -1,3 +1,4 @@
+import { openMeetingRooms } from './office-navigation.js';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
@@ -92,7 +93,7 @@ test('meeting management and additive furniture share canonical resources withou
       await page.getByRole('button', { name: 'Redo', exact: true }).click();
       await expect(objects).toHaveCount(10);
 
-      await page.getByRole('button', { name: 'Meeting rooms', exact: true }).click();
+      await openMeetingRooms(page);
       const manager = page.getByRole('dialog', { name: 'Meeting rooms', exact: true });
       await manager
         .getByRole('combobox', { name: 'Meeting room', exact: true })
@@ -105,7 +106,7 @@ test('meeting management and additive furniture share canonical resources withou
       await manager.getByRole('textbox', { name: 'Room name', exact: true }).fill('Planning');
       await manager.getByRole('button', { name: 'Close meeting rooms', exact: true }).click();
       await expect(objects).toHaveCount(10);
-      await page.getByRole('button', { name: 'Meeting rooms', exact: true }).click();
+      await openMeetingRooms(page);
       await expect(manager.getByRole('textbox', { name: 'Room name', exact: true })).toHaveValue(
         'Planning'
       );
@@ -320,7 +321,7 @@ test('meeting management and additive furniture share canonical resources withou
       expect(errors).toEqual([]);
       await discussion.getByRole('button', { name: 'Close discussion board', exact: true }).click();
       await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
-      await page.getByRole('button', { name: 'Meeting rooms', exact: true }).click();
+      await openMeetingRooms(page);
       await manager
         .getByRole('combobox', { name: 'Meeting room', exact: true })
         .selectOption(design.id);

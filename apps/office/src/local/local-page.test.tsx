@@ -138,9 +138,12 @@ async function show(local: LocalRuntime, path = '/local') {
   return { ...render(<OfficeApp router={router} local={local} />), router };
 }
 async function directory() {
-  const toggle = await screen.findByRole('button', { name: /^Directory · / });
-  if (toggle.getAttribute('aria-expanded') !== 'true') await userEvent.click(toggle);
-  return toggle;
+  const menu = await screen.findByRole('button', { name: 'Office menu' });
+  if (!screen.queryByRole('complementary', { name: 'Office directory' })) {
+    if (menu.getAttribute('aria-expanded') !== 'true') await userEvent.click(menu);
+    await userEvent.click(screen.getByRole('button', { name: /^Directory · / }));
+  }
+  return menu;
 }
 
 it.each(['saved', 'temporary'] as const)(
@@ -279,13 +282,33 @@ it('shows exact status and separate endpoint presence, and suppresses the ordina
 it('loads the world without saving or dispatching work', async () => {
   const local = runtime();
   await show(local);
-  const toggle = await screen.findByRole('button', { name: 'Directory · 1' });
+  const toggle = await screen.findByRole('button', { name: 'Office menu' });
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByRole('button', { name: /^Directory · / })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Meeting rooms' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Add meeting room' })).toBeNull();
   expect(screen.queryByRole('complementary', { name: 'Agent details' })).toBeNull();
   expect(screen.queryByRole('complementary', { name: 'Area details' })).toBeNull();
   expect(canvas.model!.world).toEqual(officeWorldFixture().layout);
   expect(local.world.save).not.toHaveBeenCalled();
   expect(local.dispatch.send).not.toHaveBeenCalled();
+});
+
+it('makes draft actions prominent before tools and removes the Lobby edit shortcut', async () => {
+  const local = runtime();
+  await show(local);
+  await directory();
+  await userEvent.click(screen.getByRole('button', { name: 'Lobby · lobby' }));
+  expect(screen.queryByRole('button', { name: 'Edit this area' })).toBeNull();
+  await userEvent.click(screen.getByRole('button', { name: 'Edit layout' }));
+  const draft = screen.getByRole('region', { name: 'Layout draft' });
+  const tools = screen.getByRole('complementary', { name: 'Layout tools' });
+  expect(draft.compareDocumentPosition(tools) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(within(draft).getByRole('heading', { name: 'Editing layout' })).toBeDefined();
+  expect(within(draft).getByRole('button', { name: 'Save layout' })).toBeDefined();
+  await userEvent.click(within(draft).getByRole('button', { name: 'Cancel' }));
+  expect(screen.queryByRole('region', { name: 'Layout draft' })).toBeNull();
+  expect(local.world.save).not.toHaveBeenCalled();
 });
 
 it('does not grow terrain for saved or temporary identities; Contractors stay in the Lobby', async () => {
@@ -490,12 +513,12 @@ it('retains an unsaved appearance draft while browsing suspends the non-modal HU
   const mark = screen.getByLabelText('Shirt mark');
   await userEvent.clear(mark);
   await userEvent.type(mark, 'UX');
-  await userEvent.click(toggle);
+  await directory();
   expect(screen.queryByRole('complementary', { name: 'Agent details' })).toBeNull();
   expect(screen.getByRole('complementary', { name: 'Office directory' })).toBeDefined();
   await userEvent.keyboard('{Escape}');
   expect(document.activeElement).toBe(toggle);
-  await userEvent.click(toggle);
+  await directory();
   await userEvent.click(screen.getByRole('button', { name: /Alice · Online/ }));
   expect(screen.getByLabelText('Shirt mark')).toBe(mark);
   expect(mark).toHaveProperty('value', 'UX');

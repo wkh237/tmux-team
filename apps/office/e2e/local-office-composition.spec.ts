@@ -1,3 +1,4 @@
+import { openOfficeDirectory } from './office-navigation.js';
 import { expect, test } from '@playwright/test';
 import { furnishedOfficeFixture } from './furnished-office-fixture.js';
 import { fitWorldCoordinates } from './world-editor-gesture.js';
@@ -119,7 +120,7 @@ test('renders saved terrain and real furniture beneath floating HUD on desktop a
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(fixture.url);
   await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
-  await expect(page.getByRole('button', { name: 'Directory · 3' })).toHaveAttribute(
+  await expect(page.getByRole('button', { name: 'Office menu' })).toHaveAttribute(
     'aria-expanded',
     'false'
   );
@@ -127,7 +128,7 @@ test('renders saved terrain and real furniture beneath floating HUD on desktop a
   const bounds = await canvas.boundingBox();
   expect(bounds).toMatchObject({ x: 0, y: 0, width: 1440, height: 1000 });
   await page.screenshot({ path: info.outputPath('world-desktop.png') });
-  await page.getByRole('button', { name: 'Directory · 3' }).click();
+  await openOfficeDirectory(page);
   await page.getByRole('button', { name: /Alice · Online/ }).click();
   await expect(page.getByRole('complementary', { name: 'Agent details' })).toBeVisible();
   await expect(canvas).toHaveCount(1);
@@ -162,7 +163,7 @@ test('renders saved terrain and real furniture beneath floating HUD on desktop a
   await readableActions();
   await page.screenshot({ path: info.outputPath('world-agent-hud-narrow.png') });
   await page.getByRole('button', { name: 'Close agent conversation' }).click();
-  await page.getByRole('button', { name: 'Directory · 3' }).click();
+  await openOfficeDirectory(page);
   await page.getByRole('button', { name: 'Fit office' }).click();
   await page.screenshot({ path: info.outputPath('world-narrow.png') });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
@@ -370,7 +371,7 @@ test('web links stay inert through authoring, save and review until an explicit 
       binding: { kind: 'external-link', url: 'https://example.com/tmt-guide' },
     },
   });
-  await page.getByRole('button', { name: 'Directory · 3' }).click();
+  await openOfficeDirectory(page);
   await page.getByRole('button', { name: /Alice · Online/ }).click();
   await page.getByText('Other areas · 1', { exact: true }).click();
   await page.getByRole('button', { name: 'Review web destination' }).click();

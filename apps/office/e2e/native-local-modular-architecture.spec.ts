@@ -154,7 +154,8 @@ test('four module offices and Lobby render derived seams and save source-only ed
       const draftBounds = (await page.getByRole('region', { name: 'Layout draft' }).boundingBox())!;
       expect(cardBounds.x).toBeGreaterThanOrEqual(0);
       expect(cardBounds.x + cardBounds.width).toBeLessThanOrEqual(390);
-      expect(cardBounds.y + cardBounds.height).toBeLessThanOrEqual(draftBounds.y);
+      expect(cardBounds.y).toBeGreaterThanOrEqual(draftBounds.y + draftBounds.height);
+      expect(cardBounds.y + cardBounds.height).toBeLessThanOrEqual(844);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
       await page.screenshot({ path: info.outputPath('modular-office-wireframe-narrow.png') });
       await page.setViewportSize({ width: 1536, height: 1024 });

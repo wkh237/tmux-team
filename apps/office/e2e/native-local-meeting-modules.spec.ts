@@ -1,3 +1,4 @@
+import { beginMeetingCreation } from './office-navigation.js';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
@@ -69,7 +70,7 @@ test('world meeting entry saves canonical rooms separately from undoable spaces 
       await expect(page.locator('.meeting-entry')).toHaveCount(0);
       await page.screenshot({ path: info.outputPath('meeting-empty-wing.png') });
       expect(storedRooms()).toEqual([]);
-      await page.getByRole('button', { name: 'Add meeting room', exact: true }).click();
+      await beginMeetingCreation(page);
       const creation = page.getByRole('region', { name: 'Create meeting space', exact: true });
       const name = creation.getByRole('textbox', { name: 'Room name', exact: true });
       await expect(name).toBeFocused();
@@ -83,7 +84,8 @@ test('world meeting entry saves canonical rooms separately from undoable spaces 
       expect(card!.x).toBeGreaterThanOrEqual(0);
       expect(card!.x + card!.width).toBeLessThanOrEqual(390);
       expect(card!.y).toBeGreaterThanOrEqual(tools!.y + tools!.height);
-      expect(card!.y + card!.height).toBeLessThanOrEqual(draft!.y);
+      expect(draft!.y + draft!.height).toBeLessThanOrEqual(tools!.y);
+      expect(card!.y + card!.height).toBeLessThanOrEqual(844);
       await page.screenshot({ path: info.outputPath('meeting-name-narrow.png') });
       await creation.getByRole('button', { name: 'Save room', exact: true }).click();
       await expect(creation).toHaveCount(0);
@@ -103,7 +105,7 @@ test('world meeting entry saves canonical rooms separately from undoable spaces 
       expect(savedWorld(sandbox.database)).toEqual(baseline);
       expect(storedRooms()).toHaveLength(1);
       await page.setViewportSize({ width: 1536, height: 1024 });
-      await page.getByRole('button', { name: 'Add meeting room', exact: true }).click();
+      await beginMeetingCreation(page);
       await creation.getByText('Place an existing room', { exact: true }).click();
       await creation
         .getByRole('combobox', { name: 'Existing room', exact: true })
@@ -186,7 +188,7 @@ test('world meeting entry saves canonical rooms separately from undoable spaces 
       await page.getByRole('button', { name: 'Fit office', exact: true }).click();
       await page.screenshot({ path: info.outputPath('compact-world.png') });
       expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(converted.layout);
-      await page.getByRole('button', { name: 'Add meeting room', exact: true }).click();
+      await beginMeetingCreation(page);
       await creation.getByRole('textbox', { name: 'Room name', exact: true }).fill('Planning');
       await creation.getByRole('button', { name: 'Save room', exact: true }).click();
       await page.getByRole('button', { name: 'Save layout', exact: true }).click();

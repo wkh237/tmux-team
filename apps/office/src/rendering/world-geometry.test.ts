@@ -26,7 +26,7 @@ it('keeps platform entrances flush and renders only low exposed edges', () => {
   const solid = walls.find(
     (wall) => !wall.open && !wall.circulation && wall.axis === 'horizontal'
   )!;
-  expect(wallProjection(solid, geometry.projection).bounds.height).toBeLessThanOrEqual(4);
+  expect(wallProjection(solid, geometry.projection).bounds.height).toBeLessThanOrEqual(6);
 });
 
 it('fills platform floors to their flush edge without changing public decking', () => {

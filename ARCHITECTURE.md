@@ -371,10 +371,17 @@ observes replies, while closing pauses observation without cancelling work.
 The existing scene camera projects the selected actor anchor; an absent/offscreen
 actor uses a viewport fallback. Hidden details retain unsaved appearance edits;
 changing panels never resizes the canvas. The editing HUD uses one viewport overlay
-grid for the header, tools, inspector and variable-height save feedback. Camera controls remain
+grid for the header and a right-hand editor whose draft status and Save/Cancel
+precede the tools and inspector. Creation cards measure that editor's viewport
+boundary rather than reserving a bottom save bar. Directory and room management
+use a collapsed Office menu. Camera controls remain
 owned by the mounted canvas and portal into one stable top-line dock in both browse
 and edit modes. The header and camera wrap together without fixed-height offsets;
 neither docking nor error feedback rebuilds the scene or reserves physical canvas space.
+V6 platform shells use a shared fixed-scale mechanical sprite kit, owned by
+`platform-art` and `scene-platform`. Repeated hardware and selection contours are
+derived presentation; module topology, bridge openings and persistence remain
+owned by the existing map geometry. See the Office architecture for texture lifetime.
 Same-runtime refresh retains the mounted workspace and its drafts, reports read
 failure in place, and fences late reads from replaced runtimes. The world editor adopts refreshed saved snapshots only
 outside editing and never rolls back a locally confirmed revision. The world

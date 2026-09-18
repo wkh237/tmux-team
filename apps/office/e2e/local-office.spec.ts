@@ -1,3 +1,4 @@
+import { openOfficeDirectory } from './office-navigation.js';
 import { expect, test } from '@playwright/test';
 import type { Request } from '@playwright/test';
 import { installDrawObserver, observeIdleScene } from './scene-observation.js';
@@ -20,7 +21,7 @@ test('world HUD preserves the canvas and profile edits persist independently of 
   // pixels underneath the HUD would test occlusion, not world/camera stability.
   const strip = { x: 400, y: 650, width: 64, height: 64 };
   const pixels = await page.screenshot({ clip: strip });
-  await page.getByRole('button', { name: 'Directory · 3' }).click();
+  await openOfficeDirectory(page);
   const alice = page.getByRole('button', { name: /Alice · Online/ });
   await alice.focus();
   await page.keyboard.press('Enter');
@@ -60,19 +61,21 @@ test('world HUD preserves the canvas and profile edits persist independently of 
   await page.getByLabel('Shirt mark').fill('NEW');
   const close = page.getByRole('button', { name: 'Close agent conversation' });
   const closeBounds = await close.boundingBox();
+  expect(await page.locator('.office-map').evaluate((element) => element.scrollTop)).toBe(0);
   await page.getByRole('tabpanel', { name: 'Info' }).evaluate((body) => {
     body.scrollTop = body.scrollHeight;
   });
+  expect(await page.locator('.office-map').evaluate((element) => element.scrollTop)).toBe(0);
   expect(await close.boundingBox()).toEqual(closeBounds);
   await expect(close).toBeInViewport();
   await page.screenshot({ path: info.outputPath('world-appearance-narrow.png') });
-  await page.getByRole('button', { name: 'Directory · 3' }).click();
+  await openOfficeDirectory(page);
   await expect(page.getByRole('complementary', { name: 'Agent details' })).toBeHidden();
   await expect(page.getByRole('complementary', { name: 'Office directory' })).toBeVisible();
   await page.getByRole('button', { name: /Alice · Online/ }).click();
   await expect(page.getByLabel('Shirt mark')).toHaveValue('NEW');
   await close.click();
-  await expect(page.getByRole('button', { name: 'Directory · 3' })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Office menu' })).toBeFocused();
   expect(fixture.profileWrites).toHaveLength(1);
   expect(fixture.writes).toEqual([]);
   expect(fixture.read()).toEqual(world);
@@ -130,7 +133,10 @@ test('directory growth and empty presence do not rebuild terrain or animate an i
   await page.route('**/api/v1/local/profiles', (route) => route.fulfill({ json: people }));
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(fixture.url);
-  await expect(page.getByRole('button', { name: 'Directory · 24' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Office menu' })).toBeVisible();
+  await expect(
+    page.locator('#office-navigation').getByText('Directory · 24', { exact: true })
+  ).toHaveCount(1);
   await observeIdleScene(page, info, '24-agents-unchanged-terrain');
   const canvas = page.locator('.office-canvas canvas');
   const node = await canvas.elementHandle();
@@ -144,7 +150,10 @@ test('directory growth and empty presence do not rebuild terrain or animate an i
   expect(fixture.read()).toEqual(world);
   await page.route('**/api/v1/local/profiles', (route) => route.fulfill({ json: [] }));
   await page.getByRole('button', { name: 'Refresh office' }).click();
-  await expect(page.getByRole('button', { name: 'Directory · 0' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Office menu' })).toBeVisible();
+  await expect(
+    page.locator('#office-navigation').getByText('Directory · 0', { exact: true })
+  ).toHaveCount(1);
   await expect(canvas).toBeVisible();
   expect(fixture.read()).toEqual(world);
   expect(fixture.writes).toEqual([]);

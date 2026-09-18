@@ -6,6 +6,9 @@ import { avatarArt } from '../profiles/avatar-art.js';
 import { AVATAR_LAYOUT, avatarMarkColor, avatarTopInset } from '../profiles/avatar-layout.js';
 import { createSceneApplication } from './scene-application.js';
 import { createSceneMaterials } from './scene-materials.js';
+import { createPlatformArt } from './platform-art.js';
+import { drawPlatformEdge, platformContour } from './scene-platform.js';
+import { moduleBounds } from '../world-map/module-geometry.js';
 import { createSceneTextures } from './scene-textures.js';
 import { createSceneFloor } from './scene-floor.js';
 import { drawBridgeDeck } from './scene-skybridge.js';
@@ -91,14 +94,23 @@ export async function createOfficeScene(
   application.stage.addChild(backdrop, root);
   const textures = createSceneTextures();
   let materials: Awaited<ReturnType<typeof createSceneMaterials>>;
+  let platformArt: Awaited<ReturnType<typeof createPlatformArt>>;
   try {
     materials = await createSceneMaterials(signal);
+    platformArt = await createPlatformArt(signal);
   } catch (error) {
+    materials?.dispose();
+    platformArt?.dispose();
     disposeApplication();
     if (signal.aborted) return undefined;
     throw error;
   }
-  if (!materials) return undefined;
+  if (!materials || !platformArt) {
+    materials?.dispose();
+    platformArt?.dispose();
+    disposeApplication();
+    return undefined;
+  }
   let model: OfficeSceneModel | undefined;
   let geometry: ReturnType<typeof worldGeometry> | undefined;
   const unprojectGround = (point: { x: number; y: number }) =>
@@ -148,8 +160,19 @@ export async function createOfficeScene(
     highlight.clear();
     if (!model || !geometry) return;
     const view = viewport();
+    if (model.world.map.version >= 6 && model.world.map.version !== 1) {
+      const module = model.world.map.modules.find((item) => item.area.id === value?.areaId);
+      if (module) {
+        const contour = platformContour(
+          geometry.projection.projectModuleFloor(moduleBounds(module, model.world.map.version))
+        );
+        highlight.poly(contour).fill({ color: '#70ddc6', alpha: 0.035 });
+        highlight.poly(contour).stroke({ color: '#70ffdb', width: 1.1, alpha: 0.15 });
+        highlight.poly(contour).stroke({ color: '#9bffe3', width: 0.3 });
+      }
+    }
     for (const floor of value?.areaId ? geometry.visible(view).floors : [])
-      if (floor.areaId === value?.areaId && intersects(view, floor))
+      if (model.world.map.version < 6 && floor.areaId === value?.areaId && intersects(view, floor))
         highlight
           .rect(floor.x, floor.y, floor.width, floor.height)
           .fill({ color: '#70ddc6', alpha: 0.12 });
@@ -281,7 +304,7 @@ export async function createOfficeScene(
       const rect = geometry.floorPaintBounds(source);
       if (!rect) continue;
       if (model.world.map.version >= 6 && rect.areaId === null) {
-        drawBridgeDeck(root, rect, materials.bridgeDeck);
+        drawBridgeDeck(root, rect, platformArt!.textures.deck);
         continue;
       }
       const finish = materials.forMaterial(finishes.get(rect.areaId ?? '') ?? 'workshop');
@@ -299,6 +322,12 @@ export async function createOfficeScene(
     const layers: { depth: number; node: Container; frontFace?: boolean }[] = [];
     for (const wall of part.walls) {
       const node = new Container();
+      if (model.world.map.version >= 6) {
+        const { depth, bounds } = wallProjection(wall, geometry.projection);
+        drawPlatformEdge(node, wall, bounds, platformArt!.textures);
+        layers.push({ depth, node, frontFace: wall.axis === 'horizontal' });
+        continue;
+      }
       const finish = materials.forMaterial(
         wall.circulation ? 'workshop' : (finishes.get(wall.areaId ?? '') ?? 'workshop')
       );
@@ -738,6 +767,7 @@ export async function createOfficeScene(
     disposeApplication();
     textures.dispose();
     materials?.dispose();
+    platformArt?.dispose();
   }
   signal.addEventListener('abort', dispose, { once: true });
   return { update, selection, interaction, editing, anchorActor, fit, zoom, dispose };

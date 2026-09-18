@@ -46,15 +46,17 @@ export function wallProjection(wall: WallRun, projection = flatProjection) {
       ? 0
       : wall.axis === 'horizontal'
         ? wall.raised
-          ? 1
-          : 4
+          ? 1.2
+          : wall.circulation
+            ? 4
+            : 6
         : ground.height;
     return {
       art: 'rail' as const,
       bounds:
         wall.axis === 'horizontal'
           ? { x: wall.x, y: ground.y, width: wall.width, height }
-          : { x: wall.x - 0.75, y: ground.y, width: wall.open ? 0 : 1.5, height },
+          : { x: wall.x - 0.9, y: ground.y, width: wall.open ? 0 : 1.8, height },
       depth: ground.y + ground.height,
     };
   }

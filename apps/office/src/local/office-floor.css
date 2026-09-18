@@ -27,7 +27,8 @@
 .office-map {
   position: absolute;
   inset: 0;
-  overflow: hidden;
+  /* Panel bodies own scrolling; field focus must not scroll the canvas host. */
+  overflow: clip;
 }
 .office-canvas {
   position: absolute;
@@ -68,6 +69,27 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.world-navigation {
+  position: relative;
+}
+.world-navigation-options:not([hidden]) {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 8;
+  display: grid;
+  min-width: 180px;
+  padding: 8px;
+  gap: 6px;
+  border: 1px solid var(--hud-border);
+  border-radius: 12px;
+  background: var(--hud-panel);
+  box-shadow: var(--hud-shadow);
+}
+.world-editing-status {
+  color: var(--hud-selected);
+  white-space: nowrap;
 }
 .world-heading {
   position: absolute;

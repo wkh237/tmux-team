@@ -287,6 +287,13 @@ removal. Switching board scopes must not lose an unsent or unconfirmed operation
 
 ## Platform materials, backdrop and lights
 
+Editing is explicit: show an Editing layout state and keep Save/Cancel at the
+top of the right-hand editor, above tools and scrollable content. Undo/Redo and
+save feedback stay with that draft owner, not a distant bottom bar. Directory
+and meeting management remain accessible through a collapsed Office menu;
+in-world meeting creation and room panels are the primary spatial entry points.
+Lobby details do not repeat the global Edit layout action.
+
 ### Modular material skins
 
 Use one slab kit for floor surfaces, thin edge trim, downward front fascia and

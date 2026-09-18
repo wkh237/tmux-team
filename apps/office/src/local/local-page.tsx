@@ -92,8 +92,8 @@ function ReadyOffice({
   };
   const [cameraHost, setCameraHost] = useState<HTMLDivElement | null>(null);
   const above = useRef<HTMLDivElement>(null);
-  const below = useRef<HTMLDivElement>(null);
-  const panelObstacles = useMemo(() => ({ above, below }), []);
+  const editorViewport = useRef<HTMLDivElement>(null);
+  const panelObstacles = useMemo(() => ({ above, viewport: editorViewport }), []);
   const { world } = editor;
   const map = mapGeometry(world.map);
   const extensions = useWorldExtensions(world, load.props);
@@ -142,6 +142,7 @@ function ReadyOffice({
     initialIdentityId ? { kind: 'agent', identityId: initialIdentityId } : undefined
   );
   const directoryToggle = useRef<HTMLButtonElement>(null);
+  const [officeMenuOpen, setOfficeMenuOpen] = useState(false);
   const detailsHeading = useRef<HTMLHeadingElement>(null);
   const [panel, setPanel] = useState<'directory' | 'details' | null>(null);
   useEffect(() => {
@@ -353,32 +354,70 @@ function ReadyOffice({
       <div className="world-hud-layout">
         <div className="world-hud-topline">
           <WorldHud>
-            <button
-              ref={directoryToggle}
-              aria-expanded={panel === 'directory' && !editor.editing}
-              aria-controls="office-directory"
-              disabled={editor.editing}
-              onClick={() => setPanel(panel === 'directory' ? null : 'directory')}
+            <div
+              className="world-navigation"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && officeMenuOpen) {
+                  event.stopPropagation();
+                  setOfficeMenuOpen(false);
+                  directoryToggle.current?.focus();
+                }
+              }}
             >
-              Directory · {load.profiles.length}
-            </button>
+              <button
+                ref={directoryToggle}
+                aria-expanded={officeMenuOpen}
+                aria-controls="office-navigation"
+                disabled={editor.busy}
+                onClick={() => setOfficeMenuOpen(!officeMenuOpen)}
+              >
+                Office menu
+              </button>
+              <div
+                id="office-navigation"
+                className="world-navigation-options"
+                hidden={!officeMenuOpen}
+              >
+                <button
+                  disabled={editor.editing}
+                  aria-expanded={panel === 'directory'}
+                  aria-controls="office-directory"
+                  onClick={() => {
+                    setPanel(panel === 'directory' ? null : 'directory');
+                    setOfficeMenuOpen(false);
+                    directoryToggle.current?.focus();
+                  }}
+                >
+                  Directory · {load.profiles.length}
+                </button>
+                <button
+                  disabled={editor.busy}
+                  onClick={() => {
+                    setOfficeMenuOpen(false);
+                    directoryToggle.current?.focus();
+                    openMeetingRoom();
+                  }}
+                >
+                  Meeting rooms
+                </button>
+              </div>
+            </div>
             <span className="world-population">
               {map.areas.length} areas ·{' '}
               {load.profiles.filter((profile) => profile.presence === 'active').length} online
             </span>
             {!editor.editing && (
-              <button disabled={load.refreshing} onClick={editor.begin}>
+              <button
+                disabled={load.refreshing}
+                onClick={() => {
+                  setOfficeMenuOpen(false);
+                  editor.begin();
+                }}
+              >
                 Edit layout
               </button>
             )}
-            <button disabled={editor.busy} onClick={() => openMeetingRoom()}>
-              Meeting rooms
-            </button>
-            {!editor.editing && meetingSlot && !meetingDraft && (
-              <button disabled={editor.busy} onClick={() => beginMeeting(meetingSlot)}>
-                Add meeting room
-              </button>
-            )}
+            {editor.editing && <strong className="world-editing-status">Editing layout</strong>}
             <button
               aria-label="Refresh office"
               disabled={editor.editing || editor.busy || load.refreshing}
@@ -525,14 +564,16 @@ function ReadyOffice({
                       Manage members
                     </button>
                   )}
-                  <button
-                    onClick={() => {
-                      selectArea(selectedArea!.area.id);
-                      editor.begin();
-                    }}
-                  >
-                    Edit this area
-                  </button>
+                  {selectedArea.area.binding.type !== 'lobby' && (
+                    <button
+                      onClick={() => {
+                        selectArea(selectedArea!.area.id);
+                        editor.begin();
+                      }}
+                    >
+                      Edit this area
+                    </button>
+                  )}
                   {selectedArea && (
                     <AreaRoster
                       key={selectedArea.area.id}

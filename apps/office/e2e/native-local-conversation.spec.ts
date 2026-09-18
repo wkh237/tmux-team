@@ -62,7 +62,7 @@ test('Office conversation reaches a real inbox, renders its reply, and recovers 
         message
       );
       await panel.getByRole('button', { name: 'Close agent conversation' }).click();
-      await expect(page.getByRole('button', { name: /^Directory · / })).toBeFocused();
+      await expect(page.getByRole('button', { name: 'Office menu' })).toBeFocused();
       await openAgentDetails(page, 'Bob');
       await expect(
         panel.getByRole('region', { name: 'Switch conversation confirmation' })
