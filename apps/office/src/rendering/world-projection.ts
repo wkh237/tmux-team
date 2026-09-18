@@ -20,13 +20,13 @@ export interface ProjectionRooms {
  */
 function centralProjection(rooms: ProjectionRooms, version: number) {
   const depth = version >= 5 ? 7 / 8 : 1;
-  const uprightAnchorOffset = (height: number) => (version >= 5 ? height / 2 : height);
+  const uprightAnchorOffset = (height: number) => (version === 5 ? height / 2 : height);
   const roomAt = (point: { x: number; y: number }) =>
     rooms.areaAt(Math.floor(point.x), Math.floor(point.y));
   const roomBounds = (owner: string | null | undefined) =>
     typeof owner === 'string' ? rooms.bounds.get(owner) : undefined;
   const floorY = (y: number, room?: SceneRect) =>
-    room
+    room && version < 6
       ? room.y * depth +
         WORLD_WALL_RISE +
         ((y - room.y) * (room.height * depth - WORLD_WALL_RISE)) / room.height
@@ -41,11 +41,12 @@ function centralProjection(rooms: ProjectionRooms, version: number) {
     const room = roomBounds(owner);
     return {
       x: point.x,
-      y: room
-        ? room.y +
-          (Math.max(0, point.y - room.y * depth - WORLD_WALL_RISE) * room.height) /
-            (room.height * depth - WORLD_WALL_RISE)
-        : point.y / depth,
+      y:
+        room && version < 6
+          ? room.y +
+            (Math.max(0, point.y - room.y * depth - WORLD_WALL_RISE) * room.height) /
+              (room.height * depth - WORLD_WALL_RISE)
+          : point.y / depth,
     };
   }
   function projectGroundRect(
@@ -94,8 +95,8 @@ function centralProjection(rooms: ProjectionRooms, version: number) {
     ) => unprojectGround(point, wallOwner({ x: point.x, y: point.y / depth }, axis, face)),
     projectModuleFloor: (rect: SceneRect) => ({
       ...rect,
-      y: rect.y * depth + WORLD_WALL_RISE,
-      height: rect.height * depth - WORLD_WALL_RISE,
+      y: rect.y * depth + (version >= 6 ? 0 : WORLD_WALL_RISE),
+      height: rect.height * depth - (version >= 6 ? 0 : WORLD_WALL_RISE),
     }),
   };
 }

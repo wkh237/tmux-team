@@ -16,7 +16,14 @@ export interface OfficeCamera {
 export function fitOfficeCamera(bounds: SceneRect, viewport: SceneRect): OfficeCamera {
   if (viewport.width <= 0 || viewport.height <= 0 || bounds.width <= 0 || bounds.height <= 0)
     return { x: 0, y: 0, scale: 1 };
-  const scale = Math.min(viewport.width / bounds.width, viewport.height / bounds.height) * 0.84;
+  // Percentage-only margins become shorter than the floating controls on
+  // laptop displays. Reserve a readable HUD band without resizing the canvas;
+  // cap it on short viewports so Fit always leaves usable world space.
+  const verticalMargin = Math.min(viewport.height * 0.2, Math.max(96, viewport.height * 0.08));
+  const scale = Math.min(
+    (viewport.width * 0.84) / bounds.width,
+    (viewport.height - verticalMargin * 2) / bounds.height
+  );
   return {
     scale,
     x: viewport.x + (viewport.width - bounds.width * scale) / 2 - bounds.x * scale,

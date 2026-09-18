@@ -56,6 +56,25 @@ it.each([
   );
   expect(fitOfficeCamera(bounds, { ...viewport, width: 0 })).toEqual({ x: 0, y: 0, scale: 1 });
 });
+it.each([600, 806, 900])('keeps tall platform layouts below the HUD at height %i', (height) => {
+  const bounds = { x: -4, y: -46, width: 192, height: 173 };
+  const viewport = { x: 12, y: 8, width: 1512, height };
+  const camera = fitOfficeCamera(bounds, viewport);
+  const top = camera.y + bounds.y * camera.scale;
+  const bottom = camera.y + (bounds.y + bounds.height) * camera.scale;
+  expect(top).toBeGreaterThanOrEqual(viewport.y + 96 - 1e-8);
+  expect(bottom).toBeLessThanOrEqual(viewport.y + height - 96 + 1e-8);
+});
+
+it('keeps Fit usable in a short viewport', () => {
+  const camera = fitOfficeCamera(
+    { x: 0, y: 0, width: 100, height: 100 },
+    { x: 0, y: 0, width: 600, height: 200 }
+  );
+  expect(camera.scale).toBeCloseTo(1.2);
+  expect(camera.y).toBeCloseTo(40);
+});
+
 it('keeps the pointer invariant when zooming a panned camera', () => {
   const camera = { x: -143, y: 59, scale: 6 };
   const zoomed = zoomOfficeCamera(camera, 2, 217, 299, 6);

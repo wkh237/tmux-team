@@ -12,6 +12,23 @@ function render(ui: Parameters<typeof mount>[0]) {
   return view;
 }
 
+it('offers floor placement and actions without wall settings on platforms', () => {
+  render(
+    <WorldObjectTools
+      identities={[]}
+      object={officeWorldFixture().layout.objects[0]!}
+      change={vi.fn()}
+      remove={vi.fn()}
+      wallEditing={false}
+    />
+  );
+  expect(screen.queryByLabelText('Placement surface')).toBeNull();
+  expect(screen.queryByLabelText('Object kind')).toBeNull();
+  expect(screen.queryByLabelText('Wall direction')).toBeNull();
+  expect(screen.getByRole('form', { name: 'Object coordinates' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Rotate object' })).toBeTruthy();
+});
+
 it('starts with precision settings collapsed while common actions remain available', async () => {
   const user = userEvent.setup();
   const object = officeWorldFixture().layout.objects[0]!;

@@ -39,7 +39,7 @@ export function upgradeModuleWorld(world: WorldDocument): WorldDocument {
 
 /** Explicit compact-layout preview; no stored v4 coordinates are reinterpreted. */
 export function compactModuleWorld(world: WorldDocument): WorldDocument {
-  if (world.map.version === 5) return world;
+  if (world.map.version >= 5) return world;
   const prepared = upgradeModuleWorld(world);
   const source = prepared.map;
   if (source.version === 1) throw new Error('A modular layout is required.');
@@ -52,6 +52,55 @@ export function compactModuleWorld(world: WorldDocument): WorldDocument {
       after: moduleBounds(module, 5),
     })),
   });
+}
+
+/** A reversible preview, never an implicit reinterpretation of a saved layout. */
+export function skybridgeModuleWorld(world: WorldDocument): WorldDocument {
+  if (world.map.version === 6) return world;
+  const prepared = upgradeModuleWorld(world);
+  const source = prepared.map;
+  if (source.version === 1) throw new Error('A modular layout is required.');
+  const map: ModuleMapDocument = { ...source, version: 6 };
+  return relocateModuleObjects(prepared, {
+    map,
+    moves: source.modules.map((module) => ({
+      areaId: module.area.id,
+      before: moduleBounds(module, source.version),
+      after: moduleBounds(module, 6),
+    })),
+  });
+}
+
+/** Explicit platform draft: keep every object and resource, remove wall support. */
+export function platformModuleWorld(world: WorldDocument): WorldDocument {
+  const prepared = skybridgeModuleWorld(world);
+  if (!prepared.objects.some((object) => object.surface.type === 'wall')) return prepared;
+  const source = prepared.map;
+  if (source.version === 1) throw new Error('A modular layout is required.');
+  const floor = indexFloor(mapGeometry(source).floor);
+  const objects = prepared.objects.map((object) => {
+    if (object.surface.type === 'floor') return object;
+    const tile = wallInteriorTile(
+      { ...object.placement, axis: object.surface.axis },
+      object.surface.face
+    );
+    const owner = floor.areaAt(tile.x, tile.y);
+    const module = source.modules.find((value) => value.area.id === owner);
+    if (!module) throw new Error(`Object ${object.id} has no owning platform.`);
+    const bounds = moduleBounds(module, source.version);
+    const size = footprint(object.placement);
+    if (size.width > bounds.width || size.height > bounds.height)
+      throw new Error(`Object ${object.id} does not fit its platform.`);
+    const x = Math.max(bounds.x, Math.min(tile.x, bounds.x + bounds.width - size.width));
+    const y = Math.max(bounds.y, Math.min(tile.y, bounds.y + bounds.height - size.height));
+    return {
+      ...object,
+      kind: 'decoration' as const,
+      surface: { type: 'floor' as const },
+      placement: { ...object.placement, x, y },
+    };
+  });
+  return decodeWorldDocument({ ...prepared, objects });
 }
 
 function relocateModuleObjects(

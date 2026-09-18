@@ -1,10 +1,10 @@
-# User-built Office, rooms, wall objects and communication
+# User-built Office platforms, objects and communication
 
 Status: local visual and interaction refinement in progress; not a released feature.
-World editing, wall authoring, scoped delivery and compact browser conversations
+World editing, platform furnishing, scoped delivery and compact browser conversations
 and room-scoped discussion, saved-notebook entry points and browser pixel-art
 authoring are implemented locally. Earlier functional checks do not constitute
-acceptance of the revised wall depth, starter layout or canvas-first editing experience.
+acceptance of the platform finish, starter layout or canvas-first editing experience.
 Publishing and user-preview replacement remain separate actions.
 The local room CLI, scoped direct delivery, inbox fan-out and listen behavior are
 defined in [meeting rooms](meeting-room-v1.md). Local direct chat now projects
@@ -36,8 +36,8 @@ Do not publish or replace the user's running preview as part of this local stage
   Room CLI use must not require installing or starting the optional Office.
 - Retain the current request/inbox/reply store and operation receipts. Room
   context belongs to canonical exchanges, not a second message/chat database.
-- Wall objects reuse admitted artwork and placed-instance/resource definitions.
-  Walls supply placement surfaces, not another decoration catalog.
+- Platform objects reuse admitted artwork and placed-instance/resource definitions.
+  Historical wall mounts are retained data, not a second platform authoring mode.
 - The world paints projections and emits object/identity/room IDs. It does not
   infer membership, execute shell strings, scrape terminals or own request state.
 
@@ -115,16 +115,13 @@ by selecting an eligible adjacent slot, not by painting individual floor tiles
 and subsequently zoning a rectangle. The Lobby is the layout origin; its wider
 preset occupies four cells, not a variable brush region. Its horizontal and
 vertical centerlines align with the gaps between office rows and columns.
-Public corridors extend out along those centerlines; they do not require rooms
-on both sides, and an empty neighboring cell remains empty space. Derive
-circulation, shared edges, door openings and exterior boundaries from the same
-module arrangement. Circulation is a continuous checkerboard corridor network
-between module rows and columns, with connected junctions around the central
-Lobby. Keep passage widths narrow and independent of the Lobby dimensions.
-Short door-to-door bridges alone do not satisfy this layout: users must
-be able to trace the common corridor without passing through a private office.
-The corridor must remain visibly readable beneath the cutaway walls; rendering
-and creation wireframes use the same real corridor geometry. Only offer slots
+Short bridges connect immediate Lobby neighbors. Distant offices use shared
+public bridge spines without crossing private interiors; empty neighboring slots
+do not generate dangling corridors. The separate meeting wing uses one public
+spine with perpendicular branches to occupied pods. Keep bridge widths narrow
+and independent of Lobby dimensions. Derive floor, openings and exposed slab
+edges from one module arrangement. Platforms and bridges share one floor plane:
+no doors, raised thresholds, arches or ramps. Only offer slots
 with valid access; additions must not
 strand a room, sever circulation or block the meeting-zone connector. Keep one
 connected, bounded floor: no diagonal-only attachment, stairs, multi-floor system
@@ -132,9 +129,9 @@ or simulated walking/pathfinding in this stage. The former Floor/Erase/Zone
 workflow is replaced, not retained as a second editing mode.
 
 Project module occupancy and generated circulation into one floor/area geometry;
-derive exterior walls, partitions and access openings from it. Do not persist a
+derive exposed platform edges and access openings from it. Do not persist a
 competing editable floor or wall graph. Rendering, picking and placement
-validation share geometry, including door/window exclusions. Areas must be
+validation share geometry, including clear bridge entrances. Areas must be
 non-overlapping, supported by the projected floor, with
 usable access verified structurally rather than through agent movement.
 
@@ -148,13 +145,13 @@ Promotion preserves UUID and makes assignment eligible, without building a room.
 Retirement removes active projections through the existing lifecycle and does
 not erase retained content.
 
-The editor provides Select, Add office, Remove, Style, Walls and Furniture tools,
+The editor provides inspection, module creation/removal, platform finishes and Furniture,
 whole-module preview, undo/redo, explicit Cancel and Save. A selected office's
 anchored properties expose its label and optional saved resident. Changing its
 purpose through arbitrary zoning is not part of this model. Meeting creation
 and membership use their own contextual controls.
-Walls and Furniture open the same admitted object catalog, grouped for discovery;
-walls themselves remain derived geometry, not a separately painted object layer.
+There is no Walls tab, wall-height setting or mounting action on platforms.
+Furniture and functional stations use the admitted object catalog.
 Gestures do not autosave. Undo only affects layout drafts, not messages or
 independently saved resource contents.
 
@@ -168,18 +165,14 @@ the world. Creation cards must use their measured size and the full hologram
 bounds to avoid covering the selected module whenever the viewport permits;
 keep the name field focused, location selection expandable, and Escape a
 non-saving cancellation. Tight viewports retain scrollable, reachable actions.
-Wall-height refinement must expose usable interior elevations on
-partitions, not merely thicken floor-border lines.
-
-Creation previews are cyan holographic module wireframes, not flat dashed floor
-rectangles: show the projected wall height, corner posts, translucent floor grid
-and access connection. Keep the preview visible behind its anchored name form.
+Creation previews are cyan holographic slabs with a translucent floor grid,
+thin trim and downward front-edge thickness, not tall wireframe boxes.
+Show the access connection and keep the preview behind its anchored name form.
 The same visual language applies to office expansion and the first/next meeting
 slot. The deep-space background must have visibly distinct star brightness and
 depth; neither stars nor preview glow may require a continuous idle render loop.
-One short connecting passage reads as one portal assembly, not two stacked full
-door frames. Both logical openings remain available to topology and placement
-validation; presentation must not remove physical access edges.
+Logical openings remain available to topology and placement validation but have
+no portal artwork; their walking surface is flush with adjacent platforms.
 
 Define one revision-aware commit boundary for topology, dependent placements and
 personal assignments. Validate the whole candidate state before atomic commit;
@@ -292,40 +285,31 @@ an existing room, not membership; unknown room categories cannot silently fall
 back to General. Existing content and exact receipts remain retained after room
 removal. Switching board scopes must not lose an unsent or unconfirmed operation.
 
-## Background, windows and lights
+## Platform materials, backdrop and lights
 
 ### Modular material skins
 
-Use a common architectural kit for straight walls, front elevations, left/right
-side faces, convex/concave corners, junctions, open door portals and circulation
-connectors. A module arrangement owns geometry once; its skin selects surface
-art and material parameters only. Shared edges have one deterministic owner,
-not two overlapping room sprites. Rendered bounds, occlusion, picking, mounts,
-door clearances and native admission derive from that same arrangement.
+Use one slab kit for floor surfaces, thin edge trim, downward front fascia and
+flush bridge connectors. A module arrangement owns geometry once; its skin
+selects surface art and material parameters only. Shared edges have one
+deterministic owner, not overlapping room sprites. Rendered bounds, picking,
+entrance clearances and native admission derive from that same arrangement.
 
-The default Workshop skin uses teal structural trim, ivory plaster, oak and brass.
-Moonlight and Copper are alternate visual targets, not newly installed packs or
-shipped settings. Their material changes cannot alter footprints, opening sizes,
+The default Workshop finish uses teal metal trim, oak and brass.
+Moonlight and Copper reuse the same geometry and admitted material choices.
+Material changes cannot alter footprints, opening sizes,
 assignments, identity UUIDs, room membership or extension bindings. Adjacent
-different skins need a deterministic shared crown/connector treatment, not
-independently conflicting wall geometry. No executable theme/plugin loader is
+different finishes need a deterministic connector treatment, not
+independently conflicting geometry. No executable theme/plugin loader is
 introduced by this design.
 
-Use authored wall faces, caps, bevels, contact shadows and bounded local glows;
-not just thicker floor outlines. Front and rear walls share the same height;
-thick side returns connect them continuously. A foreground wall
-has a substantial structural cap, visible vertical face, base shadow and connected
-corner posts; a thin floor edging is not an acceptable substitute. Front and rear
-are the same wall construction, not different material styles. Foreground
-visibility must not be implemented by permanently halving the wall height;
-view direction may affect lighting, not introduce a different architectural kit.
-While the layout editor is open, the selected area's walls become translucent and corner
-posts remain discernible so furniture can be selected and moved behind them.
-Leaving the editor restores opacity. This is presentation only: wall height,
-support, collision, placement validation and persisted layout remain unchanged.
-Door holes must be
-physically and visually open. Separately placed windows, lamps, signs and
-functional objects remain independently editable across a skin switch.
+The platform is a board in space, not a room with shortened walls. Perimeter
+trim stays on its top plane; visible front thickness extends down below it.
+No rear plaster face, side wall, corner pillar or doorway may be layered over
+that plane. Bridges meet interrupted trim without gaps, wooden exterior strips
+or doubled frames. Static amber guide lights run along bridge edges and never
+span an entrance. Furniture and functional stations remain independently
+editable across finish changes; boards and whiteboards are freestanding objects.
 Names, board contents, live status and action cues are rendered from their
 existing owners, never inferred from or baked into decorative pixels.
 
@@ -335,7 +319,7 @@ art, not admitted sprite atlases; verify alpha, extraction, authored scale,
 directional views, palette bounds and seam alignment before runtime integration.
 No source sheet may bypass the existing data-only custom-art boundary.
 
-### Backdrop and mounted objects
+### Backdrop and furniture
 
 Use a quiet dark-space backdrop: sparse stars, low-contrast nebula, prominent warm
 interiors and readable cream HUD. Default to static rendering, without continuous
@@ -347,25 +331,18 @@ bounded reusable textures, local baked lamp glows and invalidation-driven painti
 A Motion selector in a concept is not a requirement to ship animation or a theme
 marketplace. Decorative celestial scenery is not another simulated world.
 
-Windows and wall lamps are admitted mounted objects, not baked into every room.
-Windows require an outward-facing exterior segment and a bounded scene matching
-the Office backdrop. Lamps have independent placement and limited glow. Validate
-overlap and door/window clearance. Turning an exterior wall into a partition
-must not silently retain an invalid window.
+New presets contain no mounted windows, lamps or wall decorations. Legacy
+surface support is a retained-data concern, not a platform customization feature.
+An explicit conversion preserves artwork, IDs and linked content as floor
+decorations; ambiguous ownership or oversized objects reject the draft without
+deleting anything. The user reviews the result before Save. Native validation
+for retained layouts remains in force until their conversion.
 
-## Wall workshop
+## Furniture artwork and actions
 
-Add a versioned placement surface discriminator and wall-local coordinates to
-the existing layout contract. Share geometry for painting, picking, bounds,
-door/window exclusions and editing. Keep floor coordinates unchanged. Start with
-the visible interior back/side wall surfaces; present an explicit unsupported
-surface error rather than flattening an object onto the floor.
-
-Separate baked architectural windows/lights from editable mounted objects before
-offering them as individually editable. Preserve existing room appearance and
-saved layouts during migration. Initial items include posters, signs and small
-indexed-pixel artwork; mounted boards retain the same functional resource binding
-as freestanding boards. Art authoring uses the admitted pack/palette pipeline,
+Share the platform projection for painting, picking, bounds and editing.
+Keep native floor coordinates authoritative. Resource bindings belong to placed
+instances, not their art or former mounting surface. Art authoring uses the admitted pack/palette pipeline,
 including a bounded browser pixel editor, preview, validation and explicit Save.
 Do not create an unrestricted remote-image or HTML/SVG upload path.
 
@@ -443,15 +420,17 @@ executor is exposed. Remote HTTP/MCP deployment is not part of this local stage.
 
 ## Delivery and verification
 
-1. Use the current modular visual package for composition, materials and operation
-   states. This document controls semantics; freeform floor painting and zoning,
-   independent room islands and identity-generated expansion are superseded.
+1. Use the cosmic-platform direction for composition and operation states, with
+   admitted modular artwork for furnishings. This document controls semantics;
+   high-wall cutaways, freeform floor painting and zoning, disconnected room
+   islands and identity-generated expansion are superseded.
 2. Inspect current owners and tests; preserve verified room/context CLI, direct
    history, retry and fan-out work rather than replacing them with UI-only state.
 3. Implement world topology/areas/occupancy and existing-layout migration. Integrate
    the editor and renderer through one geometry/revision owner.
-4. Add wall placement, windows, lamps, pixel-poster authoring and safe link actions
-   with native/browser conformance and existing artwork/extension bindings.
+4. Provide floor-object placement, platform finishes, pixel-art authoring and safe
+   link actions through existing artwork/extension bindings. Retained wall mounts
+   convert only through an explicit reversible platform preview.
 5. Integrate canonical meeting resources, default facilities, status/mood, compact
    direct chat and explicit room audiences. Verify CLI/browser interoperability.
 6. Refine real desktop/narrow renders against the reference hierarchy; update
@@ -465,8 +444,8 @@ Acceptance must include:
 - Saved assignment, Contractor rejection, unassigned/offline views, promotion and
   retirement, multiple meeting memberships and UUID-preserving projections.
 - Module removal versus resource retention; last-Lobby protection; affected
-  furniture/wall/window handling; undo/cancel; invalid/stale-save atomicity.
-- Wall/art/link admission and custom-art fallback; explicit user-click-only
+  furniture and retained-mount handling; undo/cancel; invalid/stale-save atomicity.
+- Platform/art/link admission and custom-art fallback; explicit user-click-only
   HTTP(S) links; saved-only notes; no arbitrary file or executable plugin access.
 - Status update/expiry, honest presence, reply bubble priority, direct-only sends,
   explicit room audience, exact operation retry and no duplicate requests.
@@ -478,7 +457,7 @@ Acceptance must include:
 Use isolated native/browser fixtures, deterministic mock agents and local checks,
 not paid AI calls. Keep test evidence and per-run logs outside user manuals.
 Update existing canonical skills for core room creation/membership, Office layout,
-wall/prop authoring, status and passive inbox use; avoid duplicate provider copies.
+floor-prop authoring, status and passive inbox use; avoid duplicate provider copies.
 Remove obsolete visual instructions from the active reference set; preserve any
 unique retained functional requirements in their owning contract.
 

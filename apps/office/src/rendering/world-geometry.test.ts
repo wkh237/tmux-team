@@ -13,7 +13,60 @@ import central from '../../../../contracts/office/modules-central-grid-vectors.j
 import { moduleGhostGeometry } from './scene-module-ghost.js';
 import { mapGeometry } from '../world-map/map-source.js';
 
-it.each([4, 5])(
+it('keeps platform entrances flush and renders only low exposed edges', () => {
+  const geometry = worldGeometry({
+    ...officeWorldFixture().layout,
+    map: decodeModuleMap({ ...central.map, version: 6 }),
+    objects: [],
+  });
+  const walls = geometry.visible(geometry.bounds).walls;
+  const doors = walls.filter((wall) => wall.open);
+  expect(doors).toHaveLength(0);
+  expect(geometry.map.boundaries.some((boundary) => boundary.open)).toBe(true);
+  const solid = walls.find(
+    (wall) => !wall.open && !wall.circulation && wall.axis === 'horizontal'
+  )!;
+  expect(wallProjection(solid, geometry.projection).bounds.height).toBeLessThanOrEqual(4);
+});
+
+it('fills platform floors to their flush edge without changing public decking', () => {
+  const world = {
+    ...officeWorldFixture().layout,
+    map: decodeModuleMap({ ...central.map, version: 6 }),
+    objects: [],
+  };
+  const geometry = worldGeometry(world);
+  const floor = { x: 0, y: 16, width: 104, height: 61, areaId: world.map.primaryLobbyId };
+  expect(geometry.floorPaintBounds(floor)).toEqual({
+    x: 0,
+    y: 16,
+    width: 104,
+    height: 61,
+    areaId: floor.areaId,
+  });
+  expect(floor).toMatchObject({ x: 0, y: 16, width: 104, height: 61 });
+  const bridge = { x: 20, y: -7, width: 8, height: 7, areaId: null };
+  expect(geometry.floorPaintBounds(bridge)).toBe(bridge);
+});
+
+it('projects platform and public coordinates onto one plane without wall reserves', () => {
+  const geometry = worldGeometry({
+    ...officeWorldFixture().layout,
+    map: decodeModuleMap({ ...central.map, version: 6 }),
+    objects: [],
+  });
+  for (const point of [
+    { x: 20, y: 0 },
+    { x: 20, y: 88 },
+    { x: 0, y: 20 },
+  ]) {
+    const floor = geometry.projection.projectGround(point, geometry.map.areaAt(point.x, point.y));
+    expect(floor).toEqual(geometry.projection.projectGround(point, null));
+    expect(floor.y).toBe((point.y * 7) / 8);
+  }
+});
+
+it.each([4, 5, 6])(
   'places modular nameplates on rear wall headers without moving floor or actor anchors (v%s)',
   (version) => {
     const world = {
@@ -24,18 +77,18 @@ it.each([4, 5])(
     const original = structuredClone(world);
     const geometry = worldGeometry(world);
     const byName = new Map(mapGeometry(world.map).areas.map((area) => [area.name, area.id]));
-    expect(geometry.nameplate(byName.get('Lobby')!)).toEqual({ x: 52, y: 6 });
+    expect(geometry.nameplate(byName.get('Lobby')!)).toEqual({ x: 52, y: version >= 6 ? 3 : 6 });
     expect(geometry.nameplate(byName.get('North west')!)).toEqual({
       x: 24,
-      y: version === 5 ? -36 : -42,
+      y: version >= 6 ? -39 : version >= 5 ? -36 : -42,
     });
     expect(geometry.nameplate(byName.get('North east')!)).toEqual({
       x: 80,
-      y: version === 5 ? -36 : -42,
+      y: version >= 6 ? -39 : version >= 5 ? -36 : -42,
     });
     expect(geometry.nameplate(byName.get('South west')!)).toEqual({
       x: 24,
-      y: version === 5 ? 90 : 102,
+      y: version >= 6 ? 87 : version >= 5 ? 90 : 102,
     });
     expect(geometry.nameplate('missing-area')).toBeUndefined();
     expect(geometry.anchors.get(byName.get('Lobby')!)?.y).toBe(44.5);

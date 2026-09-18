@@ -2,17 +2,16 @@
 
 use super::{lobby_objects, placement_id};
 use crate::office_prop::{
-    MODULAR_FACILITIES_DIGEST, MODULAR_LOUNGE_DIGEST, MODULAR_MOUNTED_DIGEST,
-    MODULAR_RECEPTION_DIGEST, MODULAR_WORKSTATION_DIGEST, STUDY_DIGEST, WALL_DIGEST,
-    WORKSHOP_DIGEST, builtin_packs,
+    builtin_packs, MODULAR_FACILITIES_DIGEST, MODULAR_LOUNGE_DIGEST, MODULAR_RECEPTION_DIGEST,
+    MODULAR_WORKSTATION_DIGEST, STUDY_DIGEST, WORKSHOP_DIGEST,
 };
 use tmt_core::{
-    office_block::{PropCustomization, PropPlacement},
+    office_block::PropPlacement,
     office_map::{
-        Area, AreaKind, Axis, OfficeMap,
         modules::{Material, Module, ModuleDraft, ModuleLayout, Slot},
+        Area, AreaKind, OfficeMap,
     },
-    office_world::{ObjectKind, Surface, WallFace, WorldLayout, WorldObject},
+    office_world::{ObjectKind, Surface, WorldLayout, WorldObject},
 };
 
 /// The catalog, not the composition, owns artwork dimensions and identity.
@@ -43,15 +42,6 @@ fn prop(seed: &str, ordinal: usize, digest: &str, key: &str, x: i32, y: i32) -> 
     }
 }
 
-fn mount(object: &mut WorldObject, kind: ObjectKind, elevation: u8) {
-    object.kind = kind;
-    object.surface = Surface::Wall {
-        axis: Axis::Horizontal,
-        face: WallFace::Positive,
-        elevation,
-    };
-}
-
 pub(crate) fn new_world(seed: &str) -> WorldLayout {
     let lobby_id = placement_id(seed, u64::MAX);
     let mut modules = vec![Module {
@@ -77,7 +67,7 @@ pub(crate) fn new_world(seed: &str) -> WorldLayout {
     let map = OfficeMap::from_modules(ModuleDraft {
         primary_lobby_id: lobby_id.clone(),
         modules,
-        layout: ModuleLayout::CompactGrid,
+        layout: ModuleLayout::Skybridges,
     })
     .expect("starter modules have connected cardinal circulation");
 
@@ -146,32 +136,6 @@ pub(crate) fn new_world(seed: &str) -> WorldLayout {
     ] {
         objects.push(prop(seed, objects.len(), STUDY_DIGEST, key, x, y));
     }
-    for (key, x, elevation) in [
-        ("mounted-shelf", 4, 3),
-        ("mounted-shelf", 84, 3),
-        ("mounted-sconce", 18, 5),
-        ("mounted-sconce", 72, 5),
-    ] {
-        let mut object = prop(seed, objects.len(), MODULAR_MOUNTED_DIGEST, key, x, 0);
-        mount(
-            &mut object,
-            if key == "mounted-sconce" {
-                ObjectKind::WallLight
-            } else {
-                ObjectKind::Decoration
-            },
-            elevation,
-        );
-        objects.push(object);
-    }
-    let mut sign = prop(seed, objects.len(), WALL_DIGEST, "crew-sign", 32, 0);
-    sign.placement.customization = Some(PropCustomization {
-        tint: None,
-        text: Some("TMT OFFICE".into()),
-    });
-    mount(&mut sign, ObjectKind::Decoration, 7);
-    objects.push(sign);
-
     // Identical furniture does not create identities or assign residents.
     let source = map.modules().expect("starter uses modules");
     for module in source
@@ -183,14 +147,21 @@ pub(crate) fn new_world(seed: &str) -> WorldLayout {
             .bounds(source.layout)
             .expect("admitted office bounds");
         let (x, y) = (bounds.x, bounds.y);
-        // Place the workstation behind the full-height foreground wall. The
-        // chair sits behind the desk; the terminal remains independent art.
-        // Keep x=20..28 clear for the southern rooms' rear entrance.
+        // A centered workstation forms a furnished island on the open slab.
+        // Keep both bridge approaches clear; the rug paints below the desk.
+        objects.push(prop(
+            seed,
+            objects.len(),
+            WORKSHOP_DIGEST,
+            "woven-rug",
+            x + 12,
+            y + 18,
+        ));
         for (key, dx, dy) in [
-            ("workstation-chair", 8, 0),
-            ("workstation-desk", 4, 0),
-            ("workstation-terminal", 8, 4),
-            ("workstation-bookcase", 30, 4),
+            ("workstation-chair", 16, 10),
+            ("workstation-desk", 12, 14),
+            ("workstation-terminal", 16, 16),
+            ("workstation-bookcase", 34, 8),
         ] {
             objects.push(prop(
                 seed,
@@ -206,39 +177,12 @@ pub(crate) fn new_world(seed: &str) -> WorldLayout {
             objects.len(),
             WORKSHOP_DIGEST,
             "leafy-plant",
-            x + 42,
-            y + 4,
+            x + 4,
+            y + 6,
         ));
-        for (key, dx, elevation) in [("mounted-frame", 2, 4), ("mounted-sconce", 38, 5)] {
-            let mut object = prop(seed, objects.len(), MODULAR_MOUNTED_DIGEST, key, x + dx, y);
-            mount(
-                &mut object,
-                if key == "mounted-sconce" {
-                    ObjectKind::WallLight
-                } else {
-                    ObjectKind::Decoration
-                },
-                elevation,
-            );
-            objects.push(object);
-        }
-        // Only the northern rooms have an exterior back wall. No false windows
-        // on the southern rooms' corridor partitions.
-        if y < 0 {
-            let mut window = prop(
-                seed,
-                objects.len(),
-                MODULAR_MOUNTED_DIGEST,
-                "mounted-window",
-                x + 16,
-                y,
-            );
-            mount(&mut window, ObjectKind::Window, 0);
-            objects.push(window);
-        }
     }
     // Functional objects sit on top of their supporting furniture. Preserve
     // relative order within each group; this is the normal editable prop stack.
     objects.sort_by_key(|object| object.extension.is_some());
-    WorldLayout::new(map, objects).expect("starter placements retain wall and doorway support")
+    WorldLayout::new(map, objects).expect("starter placements fit their platforms")
 }

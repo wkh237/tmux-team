@@ -18,7 +18,7 @@ it('keeps every reviewed crop within the bundled image and every fixed cap withi
     expect(frame.height).toBeGreaterThan(0);
     expect(frame.x + frame.width).toBeLessThanOrEqual(ARCHITECTURE_SOURCE_SIZE);
     expect(frame.y + frame.height).toBeLessThanOrEqual(ARCHITECTURE_SOURCE_SIZE);
-    if (key === 'floor') continue;
+    if (!(key in ARCHITECTURE_BORDERS)) continue;
     const [left, right, top, bottom] =
       ARCHITECTURE_BORDERS[key as keyof typeof ARCHITECTURE_BORDERS];
     expect(left + right).toBeLessThan(frame.width);

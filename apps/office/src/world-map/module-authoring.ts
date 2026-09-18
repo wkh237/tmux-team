@@ -64,7 +64,10 @@ export function officeExpansionSlots(source: ModuleMapDocument): OfficeSlot[] {
       if (candidates.has(officeSlotKey(slot))) continue;
       try {
         const rect = moduleSlotBounds(slot, source.version);
-        if (!meetsReservedWing(rect) && !occupied.some((other) => modulesOverlap(rect, other))) {
+        if (
+          !meetsReservedWing(rect, source.version) &&
+          !occupied.some((other) => modulesOverlap(rect, other))
+        ) {
           // A valid saved lattice can be close to its budget. Do not expose a
           // ghost whose derived preview would throw during scene rendering.
           if (source.version >= 4) officeExpansionPassages(source, slot);

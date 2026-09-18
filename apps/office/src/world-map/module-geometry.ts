@@ -5,7 +5,7 @@ import { canonicalMapDraft } from './map-draft.js';
 import { subtractFloorInterval } from './free-floor.js';
 
 import { MODULE_METRICS } from './module-metrics.js';
-import { compactCirculation } from './compact-circulation.js';
+import { compactCirculation, skybridgeCirculation } from './compact-circulation.js';
 export { MODULE_METRICS } from './module-metrics.js';
 export interface ModuleRect {
   x: number;
@@ -48,8 +48,8 @@ export function moduleSlotBounds(slot: ModuleSlot, version: number): ModuleRect 
     };
   else
     rect = {
-      x: m.meetingX,
-      y: slot.index * (version >= 5 ? m.roomHeight : m.rowStep),
+      x: m.meetingX + (version >= 6 ? 2 * m.passageWidth : 0),
+      y: slot.index * (version === 5 ? m.roomHeight : m.rowStep),
       width: m.roomWidth,
       height: m.roomHeight,
     };
@@ -64,12 +64,12 @@ export function moduleSlotBounds(slot: ModuleSlot, version: number): ModuleRect 
   return rect;
 }
 
-export function meetsReservedWing(rect: ModuleRect): boolean {
+export function meetsReservedWing(rect: ModuleRect, version = 4): boolean {
   const m = MODULE_METRICS;
   return modulesOverlap(rect, {
     x: m.meetingX - m.passageWidth,
     y: 0,
-    width: m.roomWidth + m.passageWidth,
+    width: m.roomWidth + m.passageWidth + (version >= 6 ? 2 * m.passageWidth : 0),
     height: MAP_LIMITS.coordinate,
   });
 }
@@ -132,7 +132,7 @@ export function moduleConnections(
 }
 
 /** Internal projection of validated main bounds, always including the primary Lobby. */
-function centralGridCirculation(rooms: readonly ModuleRect[], compact = false) {
+function centralGridCirculation(rooms: readonly ModuleRect[], compact = false, bridges = false) {
   const m = MODULE_METRICS;
   const left = Math.min(...rooms.map((rect) => rect.x));
   const rightEdge = Math.max(...rooms.map(right));
@@ -143,7 +143,7 @@ function centralGridCirculation(rooms: readonly ModuleRect[], compact = false) {
     {
       x: m.meetingX - m.passageWidth,
       y: 0,
-      width: m.roomWidth + m.passageWidth,
+      width: m.roomWidth + m.passageWidth + (bridges ? 2 * m.passageWidth : 0),
       height: MAP_LIMITS.coordinate,
     },
   ];
@@ -151,7 +151,8 @@ function centralGridCirculation(rooms: readonly ModuleRect[], compact = false) {
   const rows = new Map<number, { start: number; end: number }[]>();
   let tiles = rooms.reduce((sum, room) => sum + room.width * room.height, 0);
   let spans = rooms.reduce((sum, room) => sum + room.height, 0);
-  const required = compact ? compactCirculation(rooms) : [];
+  const skybridges = bridges ? skybridgeCirculation(rooms) : undefined;
+  const required = skybridges?.passages ?? (compact ? compactCirculation(rooms) : []);
   for (let y = top; y < bottomEdge; y++) {
     const localY = ((y % m.rowStep) + m.rowStep) % m.rowStep;
     let runs: { start: number; end: number }[] = [];
@@ -192,7 +193,8 @@ function centralGridCirculation(rooms: readonly ModuleRect[], compact = false) {
   const contains = (x: number, y: number) =>
     rows.get(y)?.some((run) => run.start <= x && x < run.end) ?? false;
   const offsets = Array.from({ length: m.passageWidth }, (_, i) => i);
-  const openings: MapEdge[] = [];
+  const openings: MapEdge[] = skybridges?.openings ?? [];
+  if (bridges) return { passages, openings };
   for (const room of rooms) {
     const x = room.x + (room.width - m.passageWidth) / 2;
     const y = room.y + (room.height - m.passageWidth) / 2;
@@ -233,13 +235,18 @@ export function officeExpansionPassages(source: ModuleMapDocument, slot: OfficeS
     .filter((module) => module.slot.type !== 'meeting')
     .map((module) => moduleBounds(module, source.version));
   const before = new Map<number, ModuleRect[]>();
-  for (const rect of centralGridCirculation(rooms, source.version >= 5).passages) {
+  for (const rect of centralGridCirculation(rooms, source.version >= 5, source.version >= 6)
+    .passages) {
     const row = before.get(rect.y) ?? [];
     row.push(rect);
     before.set(rect.y, row);
   }
   const result: ModuleRect[] = [];
-  for (const rect of centralGridCirculation([...rooms, room], source.version >= 5).passages) {
+  for (const rect of centralGridCirculation(
+    [...rooms, room],
+    source.version >= 5,
+    source.version >= 6
+  ).passages) {
     let intervals = [{ start: rect.x, end: right(rect) }];
     for (const old of before.get(rect.y) ?? [])
       intervals = subtractFloorInterval(intervals, old.x, right(old), 1);
@@ -270,6 +277,14 @@ export function meetingCirculation(slots: readonly ModuleSlot[], version: number
         width: m.passageWidth,
         height: last + m.passageWidth - first,
       },
+      ...(version >= 6
+        ? meetings.map((rect) => ({
+            x: m.meetingX,
+            y: rect.y + roomDoorY,
+            width: rect.x - m.meetingX,
+            height: m.passageWidth,
+          }))
+        : []),
     ],
     openings: [
       { x: m.lobbyWidth, y, axis: 'vertical' as const },
@@ -288,7 +303,7 @@ export function projectModules(source: ModuleMapDocument): MapDocument {
     throw new Error('Office requires one primary Lobby module.');
   for (const [index, module] of source.modules.entries()) {
     if (
-      (module.slot.type === 'office' && meetsReservedWing(bounds[index]!)) ||
+      (module.slot.type === 'office' && meetsReservedWing(bounds[index]!, source.version)) ||
       bounds.slice(0, index).some((other) => modulesOverlap(other, bounds[index]!))
     )
       throw new Error('Office module overlaps another module or the reserved meeting wing.');
@@ -320,7 +335,7 @@ export function projectModules(source: ModuleMapDocument): MapDocument {
   }
   if (source.version >= 4) {
     const main = bounds.filter((_, index) => source.modules[index]!.slot.type !== 'meeting');
-    const grid = centralGridCirculation(main, source.version >= 5);
+    const grid = centralGridCirculation(main, source.version >= 5, source.version >= 6);
     for (const rect of grid.passages) passage(rect);
     for (const edge of grid.openings) door(edge.x, edge.y, edge.axis);
   } else {
@@ -365,6 +380,11 @@ export function projectModules(source: ModuleMapDocument): MapDocument {
     }
     floor.push(...merged.map((range) => ({ y, ...range, areaId: null })));
   }
+  if (
+    floor.length > MAP_LIMITS.spans ||
+    floor.reduce((sum, span) => sum + span.end - span.start, 0) > MAP_LIMITS.tiles
+  )
+    throw new Error('Office grid exceeds floor budgets.');
   return canonicalMapDraft({
     version: 1,
     primaryLobbyId: source.primaryLobbyId,

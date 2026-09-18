@@ -84,7 +84,11 @@ fn fresh_world_has_furnished_central_lobby_and_four_unassigned_offices_without_w
     identity(&storage, TEMP, "temporary");
     let initial = storage.show_local_world().unwrap();
     let value = world_value(&initial.layout);
-    assert_eq!(value["map"]["version"], 5);
+    assert_eq!(value["map"]["version"], 6);
+    assert!(initial.layout.objects().iter().all(|object| {
+        object.surface == tmt_core::office_world::Surface::Floor
+            && object.kind == tmt_core::office_world::ObjectKind::Decoration
+    }));
     let modules = value["map"]["modules"].as_array().unwrap();
     assert_eq!(modules.len(), 5);
     assert_eq!(
@@ -121,18 +125,25 @@ fn fresh_world_has_furnished_central_lobby_and_four_unassigned_offices_without_w
             })
             .collect();
         assert_eq!(workstation.len(), 4);
+        let desk = workstation
+            .iter()
+            .find(|object| object.placement.prop.ends_with("/workstation-desk"))
+            .unwrap();
+        let terminal = workstation
+            .iter()
+            .find(|object| object.placement.prop.ends_with("/workstation-terminal"))
+            .unwrap();
+        assert_eq!(terminal.placement.x, desk.placement.x + 4);
+        assert_eq!(terminal.placement.y, desk.placement.y + 2);
+        assert!(initial.layout.objects().iter().any(|object| {
+            object.placement.prop.ends_with("/woven-rug")
+                && object.placement.x == column * 56 + 12
+                && object.placement.y == row * 48 + 18
+        }));
         for object in workstation {
-            // Independent cutaway contract: 40-deep cell, 16-high rear reserve
-            // and 16-high front wall. At most 2 units of the workstation base
-            // may sit behind the foreground; its useful silhouette stays clear.
             let floor_bottom =
                 object.placement.y - row * 48 + i32::from(object.placement.footprint_height);
-            let painted_bottom = 16.0 + f64::from(floor_bottom) * 24.0 / 40.0;
-            assert!(
-                painted_bottom <= 26.0,
-                "{} is hidden by the front wall",
-                object.placement.prop
-            );
+            assert!(floor_bottom <= 40, "workstation stays inside its platform");
         }
     }
     assert!(initial.layout.objects().len() > 40);
@@ -285,14 +296,12 @@ fn fresh_world_has_furnished_central_lobby_and_four_unassigned_offices_without_w
         world_value(&storage.show_local_world().unwrap().layout),
         world_value(&cleared.layout)
     );
-    assert!(
-        storage
-            .show_local_world()
-            .unwrap()
-            .layout
-            .objects()
-            .is_empty()
-    );
+    assert!(storage
+        .show_local_world()
+        .unwrap()
+        .layout
+        .objects()
+        .is_empty());
 }
 
 #[test]
@@ -401,7 +410,7 @@ fn observation_is_stable_read_only_and_new_identities_do_not_build_rooms() {
     assert_eq!(first.legacy_basis, second.legacy_basis);
     assert_eq!(first.revision, 0);
     assert_eq!(first.layout.map().draft().areas.len(), 5);
-    assert_eq!(first.layout.objects().len(), 57); // Furnished Lobby and four unassigned offices.
+    assert_eq!(first.layout.objects().len(), 46); // Furnished platforms without mounted props.
     assert_eq!(count(&storage, "office_local_worlds"), 0);
     assert_eq!(count(&storage, "office_local_blocks"), 0);
     let saved = save(&mut storage, &first, &first.layout, 100).unwrap();
@@ -479,11 +488,9 @@ fn migration_preserves_all_saved_temporary_retired_layouts_and_empty_lobby_overr
     assert_eq!(count(&storage, "office_local_blocks"), 0);
     assert_eq!(count(&storage, "identities"), 4);
     assert_eq!(world_value(&saved.layout), world_value(&before.layout));
-    assert!(
-        storage
-            .apply_local_block(&LocalBlockTarget::Identity(ALICE.into()), 0, &layout())
-            .is_err()
-    );
+    assert!(storage
+        .apply_local_block(&LocalBlockTarget::Identity(ALICE.into()), 0, &layout())
+        .is_err());
     assert_eq!(count(&storage, "office_local_blocks"), 0); // Old binaries cannot resurrect a second owner.
 }
 
@@ -506,13 +513,11 @@ fn concurrent_legacy_edits_and_world_edits_are_fenced_without_rebasing() {
     ));
     let current = a.show_local_world().unwrap();
     assert_eq!(current.layout.objects().len(), 3);
-    assert!(
-        current
-            .layout
-            .objects()
-            .iter()
-            .all(|object| object.extension.is_some())
-    );
+    assert!(current
+        .layout
+        .objects()
+        .iter()
+        .all(|object| object.extension.is_some()));
     let saved = save(&mut a, &current, &current.layout, 101).unwrap();
     let other = b.show_local_world().unwrap();
     let mut map = saved.layout.map().draft().clone();
@@ -926,7 +931,7 @@ fn functional_objects_share_existing_resources_and_removal_never_resets_the_pres
     )
     .unwrap();
     let removed = save(&mut storage, &moved, &removed, 103).unwrap();
-    assert_eq!(removed.layout.objects().len(), 54);
+    assert_eq!(removed.layout.objects().len(), 43);
     assert_eq!(storage.show_whiteboard("lobby").unwrap(), resource);
     drop(storage);
     let mut reopened = Storage::open(path).unwrap();
@@ -1005,7 +1010,7 @@ fn external_link_is_layout_data_and_survives_reopen_without_creating_resources()
 
 #[test]
 fn wall_catalog_objects_persist_with_native_mount_rules_without_a_second_store() {
-    use crate::office_prop::{WALL_DIGEST, builtin_by_digest};
+    use crate::office_prop::{builtin_by_digest, WALL_DIGEST};
     use crate::office_world::decode_world;
     use serde_json::json;
     let directory = TestDirectory::new();

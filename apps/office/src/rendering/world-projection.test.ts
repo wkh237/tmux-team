@@ -8,6 +8,24 @@ import {
   createWorldProjection,
 } from './world-projection.js';
 
+it('keeps platform ghosts flat and bridge seams on the same invertible plane', () => {
+  const projection = createWorldProjection(6, { bounds: new Map(), areaAt: () => undefined });
+  const ghost = moduleGhostGeometry({ type: 'meeting', index: 1 }, projection);
+  expect(ghost.bounds).toEqual({ ...ghost.floor, height: ghost.floor.height + 4 });
+  const room = projection.projectModuleFloor({ x: 0, y: -48, width: 48, height: 40 });
+  const bridge = projection.projectGroundRect({ x: 20, y: -8, width: 8, height: 8 });
+  expect(room.y + room.height).toBe(bridge.y);
+  expect(bridge.y + bridge.height).toBe(0);
+  const art = { x: 4, y: -40, width: 16, height: 16 };
+  const painted = projection.projectUpright(art);
+  expect(painted.y + painted.height).toBe(projection.projectGround({ x: 12, y: -24 }).y);
+  expect(projection.uprightAnchorOffset(16)).toBe(16);
+  for (const y of [-48, -8, 0, 40, 88]) {
+    const point = { x: 24, y };
+    expect(projection.unprojectGround(projection.projectGround(point))).toEqual(point);
+  }
+});
+
 it('shortens compact floor depth while keeping upright art rigid and editing invertible', () => {
   const room = { x: 0, y: -48, width: 48, height: 40 };
   const projection = createWorldProjection(5, {

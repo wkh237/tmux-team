@@ -177,6 +177,14 @@ draft: offices south of the Lobby move one row with their interior contents,
 the Lobby's south mounts follow its enlarged boundary, and meetings stay fixed.
 Area IDs, assignments, materials and resource attachments remain unchanged.
 Ambiguous corridor/exterior objects block conversion without mutation.
+V6 adds an explicit platform preview through the same relocation boundary:
+immediate Lobby neighbors use entrance-only links, remote offices retain public
+access, and separated meeting pods branch from an independent spine. Both native
+and browser module projection own the topology; rendering does not invent paths.
+Stored v4/v5 geometry remains unchanged until explicit conversion.
+The platform draft converts mounted objects into floor decorations while keeping
+their IDs, artwork and resource bindings. Ownerless or oversized objects reject
+the draft without mutating the source. Undo and Cancel retain the original value.
 `world-map/freeform-upgrade` proposes v1 modules through the same eligible-slot
 policy: one primary Lobby, personal areas near their previous relative positions,
 and a separate ordered meeting wing. It preserves area IDs and bindings. Shared
@@ -211,14 +219,15 @@ room membership remains with the targeted room manager. The agent Info panel's
 Add to meeting entry seeds that manager's existing `RoomEditor` draft with one
 candidate; it does not write or dispatch. Conditional roster Save retains other
 members, and an unsaved draft fences both room and candidate switching.
-The native `office_world::starter` supplies a furnished CompactGrid Lobby and four
+The native `office_world::starter` supplies a furnished v6 platform Lobby and four
 unassigned offices only when neither a saved world layout nor retained blocks
 exist. Stable placement IDs and bundled resource bindings remain read-only until
 explicit Save; the existing revision-zero source fingerprint fences that Save.
 Saved layouts never reseed. Explicit conversion is separate from this initializer;
 legacy layouts retain object editing and explicit area removal for conversion
 repair, but no floor painting, zoning or manual door authoring. The new-world
-preset is not a migration of existing content.
+preset is not a migration of existing content. New objects use floor support;
+the initializer does not create wall-mounted lights, windows or decorations.
 `world-map/module-geometry` derives the shared connection descriptors used by
 floor projection and portal presentation. Two physical thresholds remain in the
 admitted map; v2 rendering paints one frame per short passage. V3 corridors
@@ -235,6 +244,10 @@ and the admitted floor index identifies the owner for room-floor and wall/mount
 projection. Geometry owns this map-specific transform instance, including ghost
 placement, Fit and HUD anchors. Upright artwork is never stretched with the floor.
 It owns no persisted layout or placement state.
+V6 removes the wall reserve: rooms and bridges share one projected floor plane.
+Closed boundaries paint thin platform trim and downward front-edge thickness;
+open boundaries have no door art. Flat construction ghosts use the same projection.
+The following cutaway wall rendering rules apply to retained pre-v6 layouts.
 `world-map/floor-index` provides sparse row ownership queries for both boundary
 projection and extension discovery; it does not allocate a second per-tile map or
 persist object-area membership. Wall discovery and placement suggestions use the

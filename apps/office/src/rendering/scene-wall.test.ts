@@ -1,10 +1,21 @@
-import { Container, Texture, TextureSource } from 'pixi.js';
+import {
+  Container,
+  Graphics,
+  NineSliceSprite,
+  Texture,
+  TextureSource,
+  TilingSprite,
+} from 'pixi.js';
 import { expect, it } from 'vitest';
 import { drawWall } from './scene-wall.js';
 import { ARCHITECTURE_FRAMES } from './architecture-art.js';
 import { wallProjection } from './world-geometry.js';
 import type { WallRun } from './world-geometry.js';
 import { flatProjection } from './world-projection.js';
+
+function assertAtlasSprite(value: Container): asserts value is NineSliceSprite {
+  if (!(value instanceof NineSliceSprite)) throw new Error('Expected retained atlas wall art.');
+}
 
 function wall(changes: Partial<WallRun> = {}): WallRun {
   return {
@@ -77,11 +88,15 @@ it('keeps painted bounds and reserves a source center even on short walls and do
     rightCrown: texture,
     portal: texture,
     sidePortal: texture,
+    bridgeDeck: texture,
+    bridgeRail: texture,
+    bridgeDock: texture,
   };
   try {
     const rail = new Container();
     try {
       const { sprite } = drawWall(rail, wall({ width: 8, circulation: true }), textures);
+      assertAtlasSprite(sprite);
       expect(sprite.texture).toBe(textures.rail);
       expect(sprite.width * sprite.scale.x).toBeCloseTo(8);
       expect(sprite.height * sprite.scale.y).toBeCloseTo(4);
@@ -94,6 +109,7 @@ it('keeps painted bounds and reserves a source center even on short walls and do
       try {
         const run = wall({ width });
         const { sprite, depth } = drawWall(parent, run, textures);
+        assertAtlasSprite(sprite);
         expect(depth).toBe(25);
         expect(parent.children).toHaveLength(1);
         expect(sprite.leftWidth).toBe(0);
@@ -112,6 +128,7 @@ it('keeps painted bounds and reserves a source center even on short walls and do
     const door = new Container();
     try {
       const { sprite } = drawWall(door, wall({ width: 8, open: true }), textures);
+      assertAtlasSprite(sprite);
       expect(sprite.width - sprite.leftWidth - sprite.rightWidth).toBeGreaterThan(100);
       expect(sprite.width * sprite.scale.x).toBeCloseTo(8);
       expect(sprite.texture).toBe(textures.portal);
@@ -126,10 +143,13 @@ it('keeps painted bounds and reserves a source center even on short walls and do
         textures
       );
       // Cutaway keeps the same physical crown and base as the full-height wall.
-      expect(sprite.topHeight * sprite.scale.y).toBeCloseTo(46 * 0.08);
-      expect(sprite.bottomHeight * sprite.scale.y).toBeCloseTo(35 * 0.08);
+      assertAtlasSprite(sprite);
+      expect(sprite.topHeight * sprite.scale.y).toBeCloseTo(35 * 0.08);
+      expect(sprite.bottomHeight * sprite.scale.y).toBeCloseTo(21 * 0.08);
       expect(sprite.height - sprite.topHeight - sprite.bottomHeight).toBeGreaterThan(0);
       expect(sprite.height * sprite.scale.y).toBeCloseTo(16);
+      expect(sprite.x).toBe(26);
+      expect(sprite.width * sprite.scale.x).toBeCloseTo(36);
       expect(front.children).toHaveLength(3);
       expect(
         front.children.slice(1).map((post) => [post.x, post.y, post.width, post.height])
@@ -158,6 +178,38 @@ it('keeps painted bounds and reserves a source center even on short walls and do
       }
     } finally {
       front.destroy({ children: true });
+    }
+    for (const axis of ['horizontal', 'vertical'] as const) {
+      const dock = new Container();
+      try {
+        const run = wall({ axis, width: 8, height: 8, open: true, circulation: true });
+        const { sprite } = drawWall(dock, run, textures, { ...flatProjection, version: 6 });
+        expect(sprite).toBeInstanceOf(Container);
+        expect(sprite.width * sprite.height).toBe(0);
+        expect(dock.children).toHaveLength(1);
+        expect(sprite).not.toBeInstanceOf(NineSliceSprite);
+        expect(sprite.eventMode).toBe('none');
+        expect(sprite.filters ?? []).toHaveLength(0);
+        expect(sprite.children.some((child) => child instanceof TilingSprite)).toBe(false);
+      } finally {
+        dock.destroy({ children: true });
+      }
+    }
+    for (const axis of ['horizontal', 'vertical'] as const) {
+      const bridge = new Container();
+      try {
+        drawWall(bridge, wall({ axis, width: 16, height: 16, circulation: true }), textures, {
+          ...flatProjection,
+          version: 6,
+        });
+        expect(bridge.children).toHaveLength(2);
+        expect(bridge.children[1]).toBeInstanceOf(Graphics);
+        expect(bridge.children[1]!.width).toBeGreaterThan(0);
+        expect(bridge.children[1]!.eventMode).toBe('none');
+        expect(bridge.children[1]!.filters ?? []).toHaveLength(0);
+      } finally {
+        bridge.destroy({ children: true });
+      }
     }
     expect(source.destroyed).toBe(false);
   } finally {

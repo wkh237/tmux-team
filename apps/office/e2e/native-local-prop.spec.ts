@@ -95,8 +95,9 @@ async function signalColorMask(page: Page) {
         .map((byte) => byte.toString(16).padStart(2, '0'))
         .join('');
       // Independent v1 fixture oracle: 36x36 floor at 5/8 depth, a
-      // sixteen-tile rear wall, 8x12 total padding and 84% camera fit.
-      const scale = Math.min(bitmap.width / 44, bitmap.height / 50.5) * 0.84;
+      // sixteen-tile rear wall, 8x12 total padding and a reserved HUD band.
+      const margin = Math.min(bitmap.height * 0.2, Math.max(96, bitmap.height * 0.08));
+      const scale = Math.min((bitmap.width * 0.84) / 44, (bitmap.height - 2 * margin) / 50.5);
       const left = (bitmap.width - 44 * scale) / 2;
       const top = (bitmap.height - 50.5 * scale) / 2;
       const sample = (x: number, y: number) =>
@@ -185,7 +186,8 @@ async function rugChannelSamples(page: Page, rotation: number) {
         context.drawImage(bitmap, 0, 0);
         // Fixed v1 fixture: 22.5 projected floor depth + 16 rear wall +
         // 12 padding. Upright art keeps its height and anchors at its base.
-        const scale = Math.min(bitmap.width / 44, bitmap.height / 50.5) * 0.84;
+        const margin = Math.min(bitmap.height * 0.2, Math.max(96, bitmap.height * 0.08));
+        const scale = Math.min((bitmap.width * 0.84) / 44, (bitmap.height - 2 * margin) / 50.5);
         const left = (bitmap.width - 44 * scale) / 2;
         const top = (bitmap.height - 50.5 * scale) / 2;
         const sample = (x: number, y: number) =>

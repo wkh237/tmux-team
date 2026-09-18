@@ -62,6 +62,142 @@ fn central_starter() -> ModuleDraft {
 }
 
 #[test]
+fn skybridges_connect_neighbors_without_empty_slot_branches() {
+    let mut source = central_starter();
+    source.layout = ModuleLayout::Skybridges;
+    let map = OfficeMap::from_modules(source).unwrap();
+    let at = |x, y| {
+        map.draft()
+            .floor
+            .iter()
+            .find(|span| span.y == y && span.start <= x && x < span.end)
+    };
+    for (x, y) in skybridge_samples("starterPublic") {
+        assert!(at(x, y).is_some_and(|span| span.area_id.is_none()));
+    }
+    for (x, y) in skybridge_samples("starterEmpty") {
+        assert!(at(x, y).is_none());
+    }
+}
+
+#[test]
+fn skybridge_meeting_spine_retains_access_across_an_empty_slot() {
+    let mut source = central_starter();
+    source.layout = ModuleLayout::Skybridges;
+    source.modules.extend([meeting(6, 0), meeting(7, 2)]);
+    let map = OfficeMap::from_modules(source).unwrap();
+    let at = |x, y| {
+        map.draft()
+            .floor
+            .iter()
+            .find(|span| span.y == y && span.start <= x && x < span.end)
+    };
+    for (x, y) in skybridge_samples("meetingPublic") {
+        assert!(at(x, y).is_some_and(|span| span.area_id.is_none()));
+    }
+    for (x, y) in skybridge_samples("meetingEmpty") {
+        assert!(at(x, y).is_none());
+    }
+}
+
+fn skybridge_samples(key: &str) -> Vec<(i32, i32)> {
+    let vectors: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../../contracts/office/modules-skybridge-vectors.json"
+    ))
+    .unwrap();
+    serde_json::from_value(vectors[key].clone()).unwrap()
+}
+
+#[test]
+fn skybridge_west_chain_uses_public_perimeter_without_incidental_doors() {
+    for (rows, prefix) in [
+        (vec![-1, 0], "westChain"),
+        (vec![-2, 0], "sparseWest"),
+        (vec![-2, -1, 0], "sparseWest"),
+    ] {
+        let mut source = central_starter();
+        source.layout = ModuleLayout::Skybridges;
+        source.modules.extend(
+            rows.iter()
+                .enumerate()
+                .map(|(index, row)| office(6 + index, -1, *row)),
+        );
+        let map = OfficeMap::from_modules(source).unwrap();
+        let at = |x, y| {
+            map.draft()
+                .floor
+                .iter()
+                .find(|span| span.y == y && span.start <= x && x < span.end)
+        };
+        for (x, y) in skybridge_samples(&format!("{prefix}Public")) {
+            assert!(at(x, y).is_some_and(|span| span.area_id.is_none()));
+        }
+        for (x, y) in skybridge_samples(&format!("{prefix}Empty")) {
+            assert!(at(x, y).is_none());
+        }
+        for (x, y) in skybridge_samples(&format!("{prefix}Doors")) {
+            assert!(
+                map.draft()
+                    .doors
+                    .iter()
+                    .any(|edge| edge.x == x && edge.y == y && edge.axis == Axis::Vertical)
+            );
+        }
+        for (x, y) in skybridge_samples(&format!("{prefix}ForbiddenHorizontalDoors")) {
+            assert!(
+                !map.draft()
+                    .doors
+                    .iter()
+                    .any(|edge| edge.x == x && edge.y == y && edge.axis == Axis::Horizontal)
+            );
+        }
+        if rows.contains(&-1) {
+            assert!(
+                map.draft()
+                    .doors
+                    .iter()
+                    .any(|edge| edge.x == -8 && edge.y == -28 && edge.axis == Axis::Vertical)
+            );
+            assert!(
+                !map.draft()
+                    .doors
+                    .iter()
+                    .any(|edge| edge.x == -36 && edge.y == -8 && edge.axis == Axis::Horizontal)
+            );
+        }
+    }
+}
+
+#[test]
+fn skybridge_diagonal_pods_reuse_nearest_north_south_bridge() {
+    for row in [-1, 2] {
+        let mut source = central_starter();
+        source.layout = ModuleLayout::Skybridges;
+        source.modules.push(office(9, -1, row));
+        let map = OfficeMap::from_modules(source).unwrap();
+        let y = if row < 0 { -4 } else { 92 };
+        for x in [-32, -4, 24] {
+            assert!(map.draft().floor.iter().any(|span| span.y == y
+                && span.start <= x
+                && x < span.end
+                && span.area_id.is_none()));
+        }
+        assert!(
+            !map.draft()
+                .floor
+                .iter()
+                .any(|span| span.y == y && span.start <= 50 && 50 < span.end)
+        );
+        assert!(map.draft().doors.iter().any(|edge| edge.x == -36
+            && edge.y == if row < 0 { -8 } else { 96 }
+            && edge.axis == Axis::Horizontal));
+        assert!(!map.draft().doors.iter().any(|edge| edge.x == 48
+            && edge.y == if row < 0 { 0 } else { 88 }
+            && edge.axis == Axis::Horizontal));
+    }
+}
+
+#[test]
 fn compact_routes_skip_unused_branches_and_meeting_slots_touch() {
     let mut source = central_starter();
     source.layout = ModuleLayout::CompactGrid;

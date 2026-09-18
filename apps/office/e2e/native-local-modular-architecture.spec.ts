@@ -139,8 +139,8 @@ test('four module offices and Lobby render derived seams and save source-only ed
       const tools = page.getByRole('toolbar', { name: 'Build tools' });
       await tools.getByRole('button', { name: 'Add office', exact: true }).click();
       // Independent literal framing for the eight eligible starter neighbors:
-      // scene bounds [-60,-80]..[164,89], Fit margin84%, left Lobby neighbor center[-32,12.5].
-      const scale = Math.min(1536 / 224, 1024 / 169) * 0.84;
+      // scene bounds [-60,-80]..[164,89], 96px HUD band, left Lobby neighbor center[-32,12.5].
+      const scale = Math.min((1536 * 0.84) / 224, (1024 - 192) / 169);
       await page.mouse.click(768 + (-32 - 52) * scale, 512 + (12.5 - 4.5) * scale);
       const form = page.getByRole('form', { name: 'New office' });
       await expect(form.locator('summary')).toContainText('Column -1, row 0 · Change');

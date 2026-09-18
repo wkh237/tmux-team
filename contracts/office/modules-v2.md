@@ -1,13 +1,10 @@
 # Versioned modular topology
 
-Status: native projection, strict codec/storage, browser decoding/rendering and
-source-preserving area/object edits, named whole-office additions and V4 meeting additions are
-implemented locally. Version 4 adds the 2×2 Lobby and independent public lattice,
-used by the new-install preset and explicit legacy-layout conversion. Older versions remain
-readable without changing their geometry. Source-only module removal is available with
-placement impact preview and the existing native Save gate. Legacy editing tools
-remain during conversion-blocker resolution. This is not
-visual sign-off or a released editor.
+Status: native projection, strict codec/storage, browser rendering and
+source-preserving edits are implemented locally. New installations use v6
+platforms. Older versions retain their geometry until explicit draft conversion.
+Module removal uses placement-impact review and the native Save gate. Retained
+editing tools support conversion-blocker repair. This is not visual sign-off.
 
 The [rooms and walls contract](rooms-and-walls.md) owns the product behavior.
 This document owns the versioned module map value and its deterministic topology.
@@ -124,7 +121,7 @@ remains authoritative for remaining-room connectivity and full layout validity.
 
 `tmt-core::office_map::modules` is the pure projection owner. An admitted
 `OfficeMap` retains the immutable module source and its derived geometry.
-`tmt-adapters::office_map` retains source version 2, 3, 4 or 5, never the derivative
+`tmt-adapters::office_map` retains source version 2 through 6, never the derivative
 as another editable input. The world codec and storage path reuse this map codec.
 
 Browser `world-map/map-source` decodes the source union and supplies a cached,
@@ -171,3 +168,43 @@ art and resource bindings; wall mounts follow the corresponding room edge.
 Ambiguous support or out-of-room objects reject the conversion without mutation.
 The ordinary Save gate checks all new wall support and connectivity; Undo and
 Cancel restore the previous source. Reading v4 never applies v5 dimensions.
+
+## Version 6: cosmic platforms
+
+The approved visual model is an open floating floor slab, not a cutaway room.
+All v6 floor coordinates use one projection without an upright wall reserve.
+Exposed edges have a thin metal rim and a downward front fascia; entrances and
+skybridges remain flush with the floor. There are no visible walls, doors, wall
+styles or new wall-mounted decorations in the platform editor. The logical map
+boundaries still own support and public-route connectivity; they are not rendered
+as architectural walls. Construction ghosts show the floor slab, not a tall box.
+
+Existing mounted content requires an explicit draft conversion before removal
+of its historical admission path. Functional object IDs and resource bindings
+must survive; conversion must not delete a board, whiteboard or broadcaster.
+The current implementation is transitional until this conversion is verified.
+
+V6 retains the central Lobby and office bounds. Immediate Lobby neighbors use
+only an eight-unit bridge centered on each office entrance, with a matching
+Lobby doorway. Offices in the same column as a direct west/east neighbor
+join its public perimeter bridge, including across empty slots; they do not add a duplicate route
+across the north/south offices. Without a matching side-column bridge, pods in a
+direct north/south neighbor's row join that row's nearest bridge. Distance and
+coordinate tie-breaks keep routing independent of module order. Other distant
+offices retain public lattice access.
+Doorways belong to planned route endpoints, not every room touching public floor;
+no route depends on walking through another private office. Empty neighboring
+slots do not generate branches. Existing v4/v5 geometry is unchanged.
+
+Meeting pods begin at x=136 and return to a 48-unit vertical step. The public
+spine stays at x=112..120; a 16-unit horizontal branch connects each occupied
+pod's west doorway. Only one Lobby connector is generated. The reserved wing
+extends through x=184. Missing indices keep spine access but add no branch.
+[Skybridge vectors](modules-skybridge-vectors.json) supply independent samples
+shared by native and browser tests.
+
+**Preview platforms** uses the existing relocation owner and draft history.
+Room-owned contents move with their room and keep IDs, order and bindings;
+ambiguous corridor objects block conversion. Save remains the only durable
+transition. Mounted objects become floor decorations without replacing their
+IDs or linked resources. This conversion is not a visual sign-off.

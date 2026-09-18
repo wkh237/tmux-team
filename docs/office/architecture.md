@@ -169,20 +169,35 @@ room or object coordinates change. V4 no longer expands those gaps: its wall
 and mounted-object projection use the derived room owner, including the inverse
 for side-wall dragging. Side faces stay inside their owning cells. Whole-cell
 ghosts, their measured HUD target and Fit share the same wall-reserve bounds.
+Public circulation paints below compressed interior floors and wall art. Interior
+wood is inset within module silhouettes so transparent atlas corners reveal sky.
+Only door openings receive underlays through the wall reserve; rectangular wood
+foundations must not be painted beneath entire rooms. These are paint bounds,
+not occupancy or placement coordinates.
 These dimensions remain under visual review.
 Exterior common-floor edges render as low circulation rails, derived from the
 same floor ownership. Horizontal rails reuse the atlas's metal crown rather than
-compressing a room facade. Front and rear room walls and portals share the same full
-rise. Selected-area walls become translucent during editing; occlusion is not
-resolved by lowering foreground walls. These are rendering choices, not a second
-saved wall graph.
+compressing a room facade. Front and rear room walls share the same full
+rise, even when visual references show a lower foreground wall; use those
+references for materials and junctions, not wall-height differences.
+Older layouts retain their portal artwork. Atlas frames are owned by
+`architecture-art`, not per-room styles. Threshold decking belongs to the floor
+pass below wall faces.
+These cutaway rules describe retained pre-v6 layouts only. The approved v6
+platform model supersedes equal-height walls: its single floor projection has no
+wall reserve, closed boundaries render low slab edges, and open boundaries have
+no doorway art. Skybridges and platforms share the same floor plane. Construction
+ghosts use that same flat footprint. V6 authoring no longer offers the Walls
+library or mounting action; historical mounted content still requires explicit
+conversion, not silent deletion. See the owning
+[platform contract](../../contracts/office/modules-v2.md#version-6-cosmic-platforms).
 This describes the current implementation. The
 [modular-cell target](../../contracts/office/rooms-and-walls.md#user-built-world-and-area-lifecycle)
 derives circulation and boundaries from fixed slots, replacing freeform authoring
 without independently editable module/floor graphs.
 Native [versioned modular topology](../../contracts/office/modules-v2.md) projects module
 slots into the same map validator and preserves the source in the world codec.
-Browser `world-map/map-source` owns the v1–v5 source union and read-only projection
+Browser `world-map/map-source` owns the v1–v6 source union and read-only projection
 cache. Rendering, population and object discovery consume that geometry; world
 history and Save keep the source, including material changes. Modular area/object
 edits share those owners and reject direct floor writes. `module-authoring`
@@ -207,7 +222,13 @@ is unchanged. `module-upgrade` offers an explicit compact draft preview and move
 room-owned floor and wall objects through the shared relocation function. It
 rejects ambiguous support rather than dropping objects. Undo/Cancel restore the
 source, and native whole-world Save remains the admission authority.
-New installations receive the native furnished CompactGrid preset described in
+V6 previews short bridges for immediate Lobby neighbors and retains public spine
+access for more distant offices. Meeting pods have a gap from their public spine
+and separate entrance branches; missing slots do not add branches. The existing
+native module projection and browser counterpart own openings and floor together.
+The explicit platform preview reuses the same object relocation and draft history;
+it never silently reinterprets or overwrites a stored v4/v5 layout.
+New installations receive the native furnished v6 platform preset described in
 [root architecture](../../ARCHITECTURE.md#office-workspace-boundary). Existing-world
 conversion uses the explicit module-upgrade preview described in root architecture;
 retained layouts keep object editing and explicit area removal to repair rejected inputs.
@@ -265,6 +286,9 @@ architecture slice is under visual verification; it does not imply that the
 modular editor or the remaining source sheets have been admitted.
 
 HUD panels overlay the entire camera viewport. The directory starts collapsed.
+Expansion holograms, plus marks and labels belong to the canvas, not HTML hit
+overlays. They share its pan/pinch and click-versus-drag handling; HUD creation
+actions provide keyboard access. Only the opened naming form captures input.
 Whole-office creation uses a compact measured card. The renderer supplies the
 entire hologram's screen bounds, including raised walls; `selection-anchor`
 selects a non-overlapping side when space permits and clamps tight layouts to

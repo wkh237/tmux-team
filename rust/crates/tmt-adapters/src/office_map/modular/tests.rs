@@ -13,6 +13,22 @@ fn fixture() -> Value {
 }
 
 #[test]
+fn skybridge_source_round_trips_without_reinterpreting_old_versions() {
+    let mut source = fixture();
+    for version in [4, 5, 6] {
+        source["version"] = json!(version);
+        let admitted = decode_map(&serde_json::to_vec(&source).unwrap()).unwrap();
+        assert_eq!(map_value(&admitted), source);
+        assert_eq!(
+            decode_map(&serde_json::to_vec(&map_value(&admitted)).unwrap())
+                .unwrap()
+                .draft(),
+            admitted.draft()
+        );
+    }
+}
+
+#[test]
 fn compact_revision_round_trips_without_reinterpreting_central_grid() {
     let corpus: Value = serde_json::from_str(include_str!(
         "../../../../../../contracts/office/modules-central-grid-vectors.json"

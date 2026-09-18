@@ -8,6 +8,7 @@ import { createSceneApplication } from './scene-application.js';
 import { createSceneMaterials } from './scene-materials.js';
 import { createSceneTextures } from './scene-textures.js';
 import { createSceneFloor } from './scene-floor.js';
+import { drawBridgeDeck } from './scene-skybridge.js';
 import { drawWall } from './scene-wall.js';
 import { drawModuleGhost, moduleGhostGeometry } from './scene-module-ghost.js';
 import { officeExpansionPassages, moduleSlotBounds } from '../world-map/module-geometry.js';
@@ -31,7 +32,7 @@ import {
 } from './office-geometry.js';
 import type { SceneRect } from './office-geometry.js';
 import { flatProjection } from './world-projection.js';
-import { intersects, worldGeometry } from './world-geometry.js';
+import { intersects, wallProjection, worldGeometry } from './world-geometry.js';
 
 export interface OfficeActor {
   identityId: string;
@@ -270,11 +271,30 @@ export async function createOfficeScene(
         ? []
         : model.world.map.modules.map((module) => [module.area.id, module.material] as const)
     );
-    for (const rect of part.floors) {
+    // Public decking is behind room interiors. Only real openings need an
+    // underlay; extending wood beneath the entire shell leaks past its alpha.
+    const floors = [
+      ...part.floors.filter((rect) => rect.areaId === null),
+      ...part.floors.filter((rect) => rect.areaId !== null),
+    ];
+    for (const source of floors) {
+      const rect = geometry.floorPaintBounds(source);
+      if (!rect) continue;
+      if (model.world.map.version >= 6 && rect.areaId === null) {
+        drawBridgeDeck(root, rect, materials.bridgeDeck);
+        continue;
+      }
       const finish = materials.forMaterial(finishes.get(rect.areaId ?? '') ?? 'workshop');
       const floor = createSceneFloor(finish.floor, rect);
       if (rect.areaId === null) floor.tint = '#839e98';
       root.addChild(floor);
+    }
+    for (const wall of part.walls.filter((wall) => wall.open)) {
+      const bounds = wallProjection(wall, geometry.projection).bounds;
+      if (model.world.map.version < 6) {
+        const finish = materials.forMaterial(finishes.get(wall.areaId ?? '') ?? 'workshop');
+        root.addChild(createSceneFloor(finish.floor, bounds));
+      }
     }
     const layers: { depth: number; node: Container; frontFace?: boolean }[] = [];
     for (const wall of part.walls) {

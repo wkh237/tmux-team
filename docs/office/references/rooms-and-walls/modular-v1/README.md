@@ -1,7 +1,10 @@
 # Modular Office visual package v1
 
-Status: approved visual direction and generated art sources, with runtime
-assembly in progress. This is not a shipped skin system or a pixel-perfect
+Status: historical high-wall design package and retained generated art sources.
+The current [platform contract](../../../../../contracts/office/rooms-and-walls.md)
+supersedes its wall geometry, doorway, mounted-authoring and wall-HUD requirements.
+The assembly and acceptance sections below describe the historical package, not
+the current platform target. This is not a shipped skin system or a pixel-perfect
 implementation claim. Generated images were visually inspected and PNG
 dimensions checked. Architecture alpha spans 0–255; reviewed frame bounds are
 now used by the local renderer. Seam, scale and occlusion acceptance is pending.

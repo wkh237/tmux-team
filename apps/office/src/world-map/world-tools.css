@@ -30,6 +30,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  align-items: flex-end;
 }
 .world-camera-dock {
   margin-left: auto;
@@ -54,18 +55,36 @@
   box-shadow: var(--hud-shadow);
 }
 .world-build-tools {
-  align-self: start;
+  align-self: end;
   flex-shrink: 0;
   max-width: 100%;
   box-sizing: border-box;
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   padding: 7px;
   min-width: 0;
   overflow-x: auto;
+  width: min(322px, 100%);
+  border: 0;
+  border-bottom: 1px solid var(--hud-border);
+  border-radius: 0;
+  box-shadow: none;
+  position: sticky;
+  top: 0;
 }
 .world-build-tools button {
   flex-shrink: 0;
+}
+.world-build-tools > button {
+  flex: 1;
+}
+.world-build-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex-basis: 100%;
+  padding-top: 6px;
 }
 .world-build-tools button[aria-pressed='true'],
 .world-object-actions button[aria-pressed='true'],
@@ -95,6 +114,9 @@
   box-sizing: border-box;
   width: min(322px, 100%);
   overflow: auto;
+  padding: 0;
+}
+.world-build-content {
   padding: 16px;
 }
 .world-build-inspector h2 {
@@ -189,6 +211,7 @@
   font-size: 13px;
 }
 .world-save-bar {
+  align-self: stretch;
   margin-top: auto;
   flex-shrink: 0;
   box-sizing: border-box;
@@ -353,23 +376,6 @@
   margin: 6px 0;
   text-align: left;
 }
-.meeting-entry {
-  position: absolute;
-  z-index: 4;
-  transform: translate(-50%, -50%);
-  display: grid;
-  place-items: center;
-  gap: 4px;
-  width: max-content;
-  white-space: nowrap;
-  min-height: 44px;
-  padding: 8px;
-  color: var(--hud-focus);
-  border: 1px dashed var(--hud-focus);
-  border-radius: 12px;
-  background: #071c28df;
-  font-size: 13px;
-}
 .world-art-options {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
@@ -433,10 +439,6 @@
 .room-material-choices strong,
 .room-material-choices span {
   font-size: 12px;
-}
-.meeting-entry span {
-  font-size: 28px;
-  line-height: 1;
 }
 .meeting-expansion-card {
   width: min(280px, calc(100% - 24px));

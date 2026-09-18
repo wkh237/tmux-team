@@ -1,7 +1,10 @@
 # Office visual references
 
-The current reference is the [modular v1 design package](modular-v1/README.md).
-It replaces freeform floor-painting, zoning and room-island storyboards.
+The current direction is wall-free cosmic platforms: flush metal-trimmed slabs,
+downward front fascia, green skybridges and freestanding furnishings. High walls,
+doorframes and wall-decoration authoring are no longer visual requirements.
+The [modular v1 package](modular-v1/README.md) supplies retained artwork and
+provenance, not the current wall geometry or editor specification.
 [Rooms and walls](../../../../contracts/office/rooms-and-walls.md) remains the
 single product-behavior owner; images are design targets, not runtime evidence.
 

@@ -612,6 +612,11 @@ it('opens wall and furniture tools from one catalog without mutating the layout 
   await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
   const before = structuredClone(canvas.model!.world);
   const tools = within(screen.getByRole('toolbar', { name: 'Build tools' }));
+  expect(
+    within(screen.getByRole('complementary', { name: 'Layout tools' })).getByRole('toolbar', {
+      name: 'Build tools',
+    })
+  ).toBe(screen.getByRole('toolbar', { name: 'Build tools' }));
   await userEvent.click(tools.getByRole('button', { name: 'Move object' }));
   await userEvent.click(tools.getByRole('button', { name: 'Walls' }));
   expect(canvas.editor!.tool).toBe('select');

@@ -5,6 +5,7 @@ import { addMeetingPreset } from './meeting-preset.js';
 import { worldHistory, updateWorldMap } from './world-draft.js';
 import { removeArea } from './map-draft.js';
 import { footprint } from '../blocks/block-contract.js';
+import { platformModuleWorld } from './module-upgrade.js';
 
 const roomId = '20000000-0000-4000-8000-000000000002';
 const areaId = '20000000-0000-4000-8000-000000000003';
@@ -26,6 +27,24 @@ function fixture() {
     },
   };
 }
+
+it('builds platform meeting facilities on the floor with distinct resource placements', () => {
+  const original = platformModuleWorld(fixture());
+  const before = structuredClone(original);
+  const candidate = addMeetingPreset(original, areaId);
+  const added = candidate.objects.slice(original.objects.length);
+  expect(added).toHaveLength(9);
+  expect(
+    added.every((object) => object.surface.type === 'floor' && object.kind === 'decoration')
+  ).toBe(true);
+  expect(added.slice(0, 3).map((object) => object.extension?.binding)).toEqual([
+    { kind: 'whiteboard', documentId: roomId },
+    { kind: 'office-board', roomId },
+    { kind: 'office-broadcast' },
+  ]);
+  expect(new Set(added.slice(0, 3).map((object) => object.placement.x)).size).toBe(3);
+  expect(original).toEqual(before);
+});
 
 it('adds one undoable set without modifying existing objects, floor, membership or resources', () => {
   const original = fixture();

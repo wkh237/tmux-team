@@ -49,16 +49,28 @@ export function addMeetingPreset(
     );
   const origin = { x: floorRectangleIntervals(free, y, height, width)[0]!.start, y };
   const objects: WorldObject[] = [];
+  const platform = world.map.version >= 6;
   function resource(definition: ExtensionDefinition, binding: ResourceBinding) {
     const object: WorldObject = {
       id: newId(),
       kind: 'decoration',
       surface: { type: 'floor' },
-      placement: { ...definition.appearance, x: origin.x, y: origin.y, rotation: 0 },
+      placement: {
+        ...definition.appearance,
+        x: origin.x + (platform ? objects.length * 12 : 0),
+        y: origin.y + (platform ? 24 : 0),
+        rotation: 0,
+      },
       extension: { definition: definition.id, binding },
     };
     objects.push(
-      suggestWallPlacement({ ...world, objects: [...world.objects, ...objects] }, object, areaId)
+      platform
+        ? object
+        : suggestWallPlacement(
+            { ...world, objects: [...world.objects, ...objects] },
+            object,
+            areaId
+          )
     );
   }
   // One shared whiteboard reference per canonical meeting, including multiple
@@ -73,7 +85,7 @@ export function addMeetingPreset(
     [MODULAR_WORKSTATION, 'workstation-chair', 28, 0, 3],
     [MODULAR_WORKSTATION, 'workstation-chair', 14, 0, 2],
     [MODULAR_WORKSTATION, 'workstation-chair', 14, 12, 0],
-    [WORKSHOP_FURNITURE, 'leafy-plant', 0, 26, 0],
+    [WORKSHOP_FURNITURE, 'leafy-plant', platform ? 30 : 0, platform ? 16 : 26, 0],
   ] as const) {
     objects.push({
       id: newId(),

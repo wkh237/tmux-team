@@ -10,7 +10,8 @@ export function installationWorldPoint(
   x: number,
   y: number
 ) {
-  const scale = Math.min(viewport.width / 176, viewport.height / 189) * 0.84;
+  const margin = Math.min(viewport.height * 0.2, Math.max(96, viewport.height * 0.08));
+  const scale = Math.min((viewport.width * 0.84) / 176, (viewport.height - 2 * margin) / 189);
   return {
     x: viewport.x + (viewport.width - 176 * scale) / 2 + (x + 4) * scale,
     y: viewport.y + (viewport.height - 189 * scale) / 2 + (y + 62) * scale,

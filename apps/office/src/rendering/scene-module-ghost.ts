@@ -3,12 +3,16 @@ import type { ModuleSlot } from '../world-map/module-contract.js';
 import { moduleSlotBounds } from '../world-map/module-geometry.js';
 import { flatProjection } from './world-projection.js';
 import { WORLD_WALL_RISE } from './world-geometry.js';
+import { sceneLabel } from './scene-label.js';
 
 export function moduleGhostGeometry(slot: ModuleSlot, projection = flatProjection) {
   const floor = projection.projectModuleFloor(moduleSlotBounds(slot, projection.version));
   return {
     floor,
-    bounds: { ...floor, y: floor.y - WORLD_WALL_RISE, height: floor.height + WORLD_WALL_RISE },
+    bounds:
+      projection.version >= 6
+        ? { ...floor, height: floor.height + 4 }
+        : { ...floor, y: floor.y - WORLD_WALL_RISE, height: floor.height + WORLD_WALL_RISE },
   };
 }
 
@@ -27,6 +31,38 @@ export function drawModuleGhost(
   const ink = '#5ce7ee';
   const surface = new Graphics();
   parent.addChild(surface);
+  if (projection.version >= 6) {
+    surface.rect(x, y, width, height).fill({ color: ink, alpha: selected ? 0.14 : 0.055 });
+    for (let gx = x + 4; gx < x + width; gx += 4) surface.moveTo(gx, y).lineTo(gx, front);
+    for (let gy = y + 3.5; gy < front; gy += 3.5) surface.moveTo(x, gy).lineTo(x + width, gy);
+    surface.stroke({ color: ink, alpha: 0.18, width: 0.65 / scale });
+    surface.rect(x, y, width, height).stroke({ color: ink, alpha: 0.9, width: 1.5 / scale });
+    surface
+      .moveTo(x, front)
+      .lineTo(x, front + 4)
+      .lineTo(x + width, front + 4)
+      .lineTo(x + width, front)
+      .stroke({ color: ink, alpha: 0.45, width: 1 / scale });
+    const cx = x + width / 2,
+      cy = y + height / 2;
+    surface
+      .circle(cx, cy, 3)
+      .moveTo(cx - 1.6, cy)
+      .lineTo(cx + 1.6, cy)
+      .moveTo(cx, cy - 1.6)
+      .lineTo(cx, cy + 1.6)
+      .stroke({ color: ink, width: 1.5 / scale });
+    sceneLabel(
+      parent,
+      slot.type === 'meeting' ? 'Create meeting room' : 'Add office',
+      cx,
+      cy + 5,
+      2.5,
+      ink,
+      width - 8
+    ).anchor.set(0.5, 0);
+    return floor;
+  }
   surface.rect(x, y, width, height).fill({ color: ink, alpha: selected ? 0.14 : 0.055 });
   surface.poly([x, far, x + width, far, x + width, y, x, y]).fill({ color: ink, alpha: 0.08 });
   surface
@@ -80,5 +116,14 @@ export function drawModuleGhost(
     .moveTo(cx, cy - 1.6)
     .lineTo(cx, cy + 1.6);
   lines.stroke({ color: ink, alpha: 0.95, width: 1.5 / scale });
+  sceneLabel(
+    parent,
+    slot.type === 'meeting' ? 'Create meeting room' : 'Add office',
+    cx,
+    cy + 5,
+    2.5,
+    ink,
+    width - 8
+  ).anchor.set(0.5, 0);
   return floor;
 }

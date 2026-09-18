@@ -20,7 +20,7 @@ export interface OfficeModule {
   readonly material: ModuleMaterial;
 }
 export interface ModuleMapDocument {
-  readonly version: 2 | 3 | 4 | 5;
+  readonly version: 2 | 3 | 4 | 5 | 6;
   readonly primaryLobbyId: string;
   readonly modules: readonly OfficeModule[];
 }
@@ -56,7 +56,11 @@ function slot(value: unknown): ModuleSlot {
 export function decodeModuleMap(value: unknown): ModuleMapDocument {
   const data = exactRecord(value, ['version', 'primaryLobbyId', 'modules'], 'module map');
   if (
-    (data.version !== 2 && data.version !== 3 && data.version !== 4 && data.version !== 5) ||
+    (data.version !== 2 &&
+      data.version !== 3 &&
+      data.version !== 4 &&
+      data.version !== 5 &&
+      data.version !== 6) ||
     !Array.isArray(data.modules) ||
     data.modules.length > MAP_LIMITS.areas
   )

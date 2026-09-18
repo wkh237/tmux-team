@@ -64,41 +64,12 @@ test('world meeting entry saves canonical rooms separately from undoable spaces 
       await page.goto(started.url);
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
       await page.getByRole('button', { name: 'Fit office', exact: true }).click();
-      const entry = page.getByRole('button', { name: 'Create meeting room', exact: true });
-      await expect(entry).toHaveCSS('white-space', 'nowrap');
-      const beforePan = (await entry.boundingBox())!;
-      const canvas = page.locator('.office-canvas canvas');
-      await canvas.dispatchEvent('wheel', { deltaX: 24, deltaY: 32, deltaMode: 0, ctrlKey: false });
-      await expect
-        .poll(async () => Math.round((await entry.boundingBox())!.x - beforePan.x))
-        .toBe(-24);
-      await expect
-        .poll(async () => Math.round((await entry.boundingBox())!.y - beforePan.y))
-        .toBe(-32);
-      expect((await entry.boundingBox())!.width).toBe(beforePan.width);
-      const beforePinch = (await entry.boundingBox())!;
-      const centerBefore = beforePinch.x + beforePinch.width / 2;
-      await canvas.dispatchEvent('wheel', {
-        deltaX: 0,
-        deltaY: -20,
-        deltaMode: 0,
-        ctrlKey: true,
-        clientX: 400,
-        clientY: 400,
-      });
-      await expect
-        .poll(async () => {
-          const after = (await entry.boundingBox())!;
-          return Math.round(
-            after.x + after.width / 2 - (400 + (centerBefore - 400) * Math.exp(0.2))
-          );
-        })
-        .toBe(0);
-      expect((await entry.boundingBox())!.width).toBe(beforePan.width);
-      await page.getByRole('button', { name: 'Fit office', exact: true }).click();
+      // The hologram is canvas content; the HUD supplies keyboard access.
+      // Pointer pan/pinch/click behavior is covered by native-local-skybridges.
+      await expect(page.locator('.meeting-entry')).toHaveCount(0);
       await page.screenshot({ path: info.outputPath('meeting-empty-wing.png') });
       expect(storedRooms()).toEqual([]);
-      await page.getByRole('button', { name: 'Create meeting room', exact: true }).click();
+      await page.getByRole('button', { name: 'Add meeting room', exact: true }).click();
       const creation = page.getByRole('region', { name: 'Create meeting space', exact: true });
       const name = creation.getByRole('textbox', { name: 'Room name', exact: true });
       await expect(name).toBeFocused();

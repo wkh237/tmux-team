@@ -13,7 +13,7 @@ const finishes = [
 /** Static finish samples use the same atlas and recoloring as the world, without
  * allocating another WebGL scene or maintaining a second set of theme colors.
  */
-async function materialSamples(): Promise<Record<ModuleMaterial, string>> {
+async function materialSamples(platform: boolean): Promise<Record<ModuleMaterial, string>> {
   const image = new Image();
   image.src = architectureUrl;
   await image.decode();
@@ -42,9 +42,29 @@ async function materialSamples(): Promise<Record<ModuleMaterial, string>> {
     }
     target.clearRect(0, 0, preview.width, preview.height);
     const floor = ARCHITECTURE_FRAMES.floor;
-    const wall = ARCHITECTURE_FRAMES.back;
-    target.drawImage(source, floor.x, floor.y, floor.width, floor.height, 8, 40, 184, 64);
-    target.drawImage(source, wall.x, wall.y, wall.width, wall.height, 8, 8, 184, 54);
+    const edge = platform ? ARCHITECTURE_FRAMES.rail : ARCHITECTURE_FRAMES.back;
+    target.drawImage(
+      source,
+      floor.x,
+      floor.y,
+      floor.width,
+      floor.height,
+      8,
+      platform ? 8 : 40,
+      184,
+      platform ? 88 : 64
+    );
+    target.drawImage(
+      source,
+      edge.x,
+      edge.y,
+      edge.width,
+      edge.height,
+      8,
+      platform ? 96 : 8,
+      184,
+      platform ? 8 : 54
+    );
     samples[finish.value] = preview.toDataURL('image/png');
   }
   return samples;
@@ -53,16 +73,18 @@ async function materialSamples(): Promise<Record<ModuleMaterial, string>> {
 export function RoomMaterialChoices({
   value,
   change,
+  platform = false,
 }: {
   value: ModuleMaterial;
   change: (value: ModuleMaterial) => void;
+  platform?: boolean;
 }) {
   const name = useId();
   const [samples, setSamples] = useState<Partial<Record<ModuleMaterial, string>>>({});
   const [error, setError] = useState(false);
   useEffect(() => {
     let active = true;
-    void materialSamples().then(
+    void materialSamples(platform).then(
       (result) => {
         if (active) setSamples(result);
       },
@@ -73,10 +95,10 @@ export function RoomMaterialChoices({
     return () => {
       active = false;
     };
-  }, []);
+  }, [platform]);
   return (
     <fieldset className="room-material-choices">
-      <legend>Room style</legend>
+      <legend>{platform ? 'Platform finish' : 'Room style'}</legend>
       <div>
         {finishes.map((finish) => (
           <label key={finish.value}>
@@ -89,7 +111,10 @@ export function RoomMaterialChoices({
               onChange={() => change(finish.value)}
             />
             {samples[finish.value] && (
-              <img src={samples[finish.value]} alt={`${finish.label} wall and floor preview`} />
+              <img
+                src={samples[finish.value]}
+                alt={`${finish.label} ${platform ? 'platform' : 'wall and floor'} preview`}
+              />
             )}
             <strong>{finish.label}</strong>
             <span>{finish.description}</span>

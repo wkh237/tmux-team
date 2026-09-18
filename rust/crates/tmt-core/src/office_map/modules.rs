@@ -52,11 +52,15 @@ pub enum ModuleLayout {
     Grid,
     CentralGrid,
     CompactGrid,
+    Skybridges,
 }
 
 impl ModuleLayout {
     fn central(self) -> bool {
-        matches!(self, Self::CentralGrid | Self::CompactGrid)
+        matches!(
+            self,
+            Self::CentralGrid | Self::CompactGrid | Self::Skybridges
+        )
     }
 }
 
@@ -105,7 +109,12 @@ impl Module {
                 ROOM_WIDTH,
             ),
             (AreaKind::Meeting { .. }, Slot::Meeting { index }) => (
-                MEETING_X,
+                MEETING_X
+                    + if layout == ModuleLayout::Skybridges {
+                        2 * PASSAGE_WIDTH
+                    } else {
+                        0
+                    },
                 i32::try_from(index)
                     .ok()
                     .and_then(|index| {
@@ -161,7 +170,13 @@ impl ModuleDraft {
         let reserved = ModuleRect {
             x: MEETING_X - PASSAGE_WIDTH,
             y: 0,
-            width: ROOM_WIDTH + PASSAGE_WIDTH,
+            width: ROOM_WIDTH
+                + PASSAGE_WIDTH
+                + if self.layout == ModuleLayout::Skybridges {
+                    2 * PASSAGE_WIDTH
+                } else {
+                    0
+                },
             height: COORDINATE_LIMIT,
         };
         for (index, module) in self.modules.iter().enumerate() {
@@ -208,7 +223,11 @@ impl ModuleDraft {
                 &mut circulation,
                 &main,
                 reserved,
-                self.layout == ModuleLayout::CompactGrid,
+                matches!(
+                    self.layout,
+                    ModuleLayout::CompactGrid | ModuleLayout::Skybridges
+                ),
+                self.layout == ModuleLayout::Skybridges,
             )?;
         }
         if self.layout == ModuleLayout::Grid {
@@ -257,6 +276,14 @@ impl ModuleDraft {
             });
             circulation.door(LOBBY_WIDTH, start_y, Axis::Vertical);
             for rect in meetings {
+                if self.layout == ModuleLayout::Skybridges {
+                    circulation.rect(ModuleRect {
+                        x: MEETING_X,
+                        y: rect.y + room_door_y,
+                        width: rect.x - MEETING_X,
+                        height: PASSAGE_WIDTH,
+                    });
+                }
                 circulation.door(rect.x, rect.y + room_door_y, Axis::Vertical);
             }
         }

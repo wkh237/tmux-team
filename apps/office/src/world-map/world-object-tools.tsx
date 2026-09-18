@@ -12,6 +12,7 @@ export function WorldObjectTools({
   remove,
   identities,
   mountOnWall,
+  wallEditing = true,
   move,
 }: {
   object: WorldObject;
@@ -19,6 +20,7 @@ export function WorldObjectTools({
   remove: () => void;
   identities: ProfileProjection[];
   mountOnWall?: () => void;
+  wallEditing?: boolean;
   move?: { active: boolean; start: () => void };
 }) {
   const { surface } = object;
@@ -56,98 +58,106 @@ export function WorldObjectTools({
           <button onClick={mountOnWall}>Place on a suitable wall in this area</button>
         )}
         <p>{object.id}</p>
-        <label>
-          Object kind
-          <select
-            value={object.kind}
-            onChange={(event) => {
-              const kind = event.target.value as WorldObject['kind'];
-              change({
-                ...object,
-                kind,
-                surface:
-                  kind !== 'decoration' && surface.type === 'floor'
-                    ? { type: 'wall', axis: 'horizontal', face: 'positive', elevation: 0 }
-                    : surface,
-              });
-            }}
-          >
-            <option value="decoration">Decoration</option>
-            <option value="window">Window · exterior wall only</option>
-            <option value="wallLight">Wall light · static glow</option>
-          </select>
-        </label>
-        <p>
-          Changing kind or surface keeps the coordinates. Use the wall placement action to find
-          support in this area.
-        </p>
-        <label>
-          Placement surface
-          <select
-            value={surface.type}
-            onChange={(event) =>
-              change({
-                ...object,
-                surface:
-                  event.target.value === 'floor'
-                    ? { type: 'floor' }
-                    : {
-                        type: 'wall',
-                        axis: 'horizontal',
-                        face: 'positive',
-                        elevation: 0,
-                      },
-              })
-            }
-          >
-            <option value="floor" disabled={object.kind !== 'decoration'}>
-              Floor
-            </option>
-            <option value="wall">Wall</option>
-          </select>
-        </label>
-        {surface.type === 'wall' && (
+        {wallEditing && (
           <>
             <label>
-              Wall direction
+              Object kind
               <select
-                value={surface.axis}
-                onChange={(event) =>
+                value={object.kind}
+                onChange={(event) => {
+                  const kind = event.target.value as WorldObject['kind'];
                   change({
                     ...object,
-                    surface: {
-                      ...surface,
-                      axis: event.target.value as typeof surface.axis,
-                    },
-                  })
-                }
+                    kind,
+                    surface:
+                      kind !== 'decoration' && surface.type === 'floor'
+                        ? { type: 'wall', axis: 'horizontal', face: 'positive', elevation: 0 }
+                        : surface,
+                  });
+                }}
               >
-                <option value="horizontal">Horizontal · extends east</option>
-                <option value="vertical">Vertical · extends south</option>
-              </select>
-            </label>
-            <label>
-              Indoor face
-              <select
-                value={surface.face}
-                onChange={(event) =>
-                  change({
-                    ...object,
-                    surface: {
-                      ...surface,
-                      face: event.target.value as typeof surface.face,
-                    },
-                  })
-                }
-              >
-                <option value="positive">{surface.axis === 'horizontal' ? 'South' : 'East'}</option>
-                <option value="negative">{surface.axis === 'horizontal' ? 'North' : 'West'}</option>
+                <option value="decoration">Decoration</option>
+                <option value="window">Window · exterior wall only</option>
+                <option value="wallLight">Wall light · static glow</option>
               </select>
             </label>
             <p>
-              X and Y locate the starting wall edge. Elevation is above the floor. Save checks
-              continuous wall support, indoor face and door clearance.
+              Changing kind or surface keeps the coordinates. Use the wall placement action to find
+              support in this area.
             </p>
+            <label>
+              Placement surface
+              <select
+                value={surface.type}
+                onChange={(event) =>
+                  change({
+                    ...object,
+                    surface:
+                      event.target.value === 'floor'
+                        ? { type: 'floor' }
+                        : {
+                            type: 'wall',
+                            axis: 'horizontal',
+                            face: 'positive',
+                            elevation: 0,
+                          },
+                  })
+                }
+              >
+                <option value="floor" disabled={object.kind !== 'decoration'}>
+                  Floor
+                </option>
+                <option value="wall">Wall</option>
+              </select>
+            </label>
+            {surface.type === 'wall' && (
+              <>
+                <label>
+                  Wall direction
+                  <select
+                    value={surface.axis}
+                    onChange={(event) =>
+                      change({
+                        ...object,
+                        surface: {
+                          ...surface,
+                          axis: event.target.value as typeof surface.axis,
+                        },
+                      })
+                    }
+                  >
+                    <option value="horizontal">Horizontal · extends east</option>
+                    <option value="vertical">Vertical · extends south</option>
+                  </select>
+                </label>
+                <label>
+                  Indoor face
+                  <select
+                    value={surface.face}
+                    onChange={(event) =>
+                      change({
+                        ...object,
+                        surface: {
+                          ...surface,
+                          face: event.target.value as typeof surface.face,
+                        },
+                      })
+                    }
+                  >
+                    <option value="positive">
+                      {surface.axis === 'horizontal' ? 'South' : 'East'}
+                    </option>
+                    <option value="negative">
+                      {surface.axis === 'horizontal' ? 'North' : 'West'}
+                    </option>
+                  </select>
+                </label>
+                <p>
+                  X and Y locate the starting wall edge. Elevation is above the floor. Save checks
+                  continuous wall support, indoor face and door clearance.
+                </p>
+              </>
+            )}
           </>
         )}
         <WorldObjectCoordinates

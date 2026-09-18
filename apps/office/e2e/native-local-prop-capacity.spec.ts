@@ -79,10 +79,11 @@ async function capacityPixels(page: Page, outputPath: string) {
       const context = canvas.getContext('2d')!;
       context.drawImage(bitmap, 0, 0);
       // Authored 36x64 floor with 5/8 floor depth and full sixteen-tile walls:
-      // camera bounds (-4,-20,44,68), with the 84% Fit framing margin.
+      // camera bounds (-4,-20,44,68), with the reserved HUD framing band.
       // Upright art stays unscaled and bottom-anchored. No production projection
       // is the oracle; these samples test the visible frame, not hidden back rows.
-      const scale = Math.min(bitmap.width / 44, bitmap.height / 68) * 0.84;
+      const margin = Math.min(bitmap.height * 0.2, Math.max(96, bitmap.height * 0.08));
+      const scale = Math.min((bitmap.width * 0.84) / 44, (bitmap.height - 2 * margin) / 68);
       const left = (bitmap.width - 44 * scale) / 2;
       const top = (bitmap.height - 68 * scale) / 2;
       return Array.from({ length: 16 }, (_, index) =>

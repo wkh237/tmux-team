@@ -56,6 +56,7 @@ pub(super) fn admit(document: ModuleDocument) -> Result<OfficeMap, MapCodecError
         3 => ModuleLayout::Grid,
         4 => ModuleLayout::CentralGrid,
         5 => ModuleLayout::CompactGrid,
+        6 => ModuleLayout::Skybridges,
         _ => return Err(MapCodecError::UnsupportedVersion),
     };
     OfficeMap::from_modules(ModuleDraft {
@@ -89,6 +90,7 @@ pub(super) fn value(draft: &ModuleDraft) -> Value {
             ModuleLayout::Grid => 3,
             ModuleLayout::CentralGrid => 4,
             ModuleLayout::CompactGrid => 5,
+            ModuleLayout::Skybridges => 6,
         },
         primary_lobby_id: draft.primary_lobby_id.clone(),
         modules: draft

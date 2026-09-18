@@ -64,11 +64,11 @@ it('shares one architecture source across reviewed frames and disposes views bef
   expect(materials!.floor.frame).toMatchObject(ARCHITECTURE_FRAMES.floor);
   materials!.dispose();
   expect(evidence.disposed).toEqual([
-    ...Array(13).fill('frame:false'),
+    ...Array(16).fill('frame:false'),
     `${evidence.decoded[0]}:true`,
   ]);
   materials!.dispose();
-  expect(evidence.disposed).toHaveLength(14);
+  expect(evidence.disposed).toHaveLength(17);
 });
 
 it('lazily caches at most one source per finish and releases every frame before its source', async () => {
@@ -101,10 +101,10 @@ it('lazily caches at most one source per finish and releases every frame before 
   expect(copper.floor.source).not.toBe(moonlight.floor.source);
   expect(moonlight.portal.frame).toMatchObject(ARCHITECTURE_FRAMES.portal);
   materials.dispose();
-  expect(evidence.disposed.slice(0, 39)).toEqual(Array(39).fill('frame:false'));
-  expect(evidence.disposed).toHaveLength(42);
+  expect(evidence.disposed.slice(0, 48)).toEqual(Array(48).fill('frame:false'));
+  expect(evidence.disposed).toHaveLength(51);
   materials.dispose();
-  expect(evidence.disposed).toHaveLength(42);
+  expect(evidence.disposed).toHaveLength(51);
   expect(() => materials.forMaterial('copper')).toThrow('disposed');
 });
 

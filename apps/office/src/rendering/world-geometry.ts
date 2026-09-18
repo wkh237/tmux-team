@@ -41,6 +41,23 @@ export interface WallRun extends SceneRect {
 /** One cutaway projection used for visible bounds and architectural painting. */
 export function wallProjection(wall: WallRun, projection = flatProjection) {
   const ground = projection.projectGroundRect(wall, wall.areaId);
+  if (projection.version >= 6) {
+    const height = wall.open
+      ? 0
+      : wall.axis === 'horizontal'
+        ? wall.raised
+          ? 1
+          : 4
+        : ground.height;
+    return {
+      art: 'rail' as const,
+      bounds:
+        wall.axis === 'horizontal'
+          ? { x: wall.x, y: ground.y, width: wall.width, height }
+          : { x: wall.x - 0.75, y: ground.y, width: wall.open ? 0 : 1.5, height },
+      depth: ground.y + ground.height,
+    };
+  }
   const rise = wall.circulation ? WORLD_RAIL_RISE : WORLD_WALL_RISE;
   if (wall.axis === 'horizontal') {
     const height = rise;
@@ -57,6 +74,8 @@ export function wallProjection(wall: WallRun, projection = flatProjection) {
     };
   }
   const thickness = wall.circulation ? 2 : projection.version >= 3 && !wall.exterior ? 4 : 6;
+  const top = ground.y - rise;
+  const bottom = ground.y + ground.height;
   return {
     art: wall.open
       ? ('sidePortal' as const)
@@ -68,9 +87,9 @@ export function wallProjection(wall: WallRun, projection = flatProjection) {
         projection.version >= 4 && !wall.circulation
           ? wall.x - (wall.facing === 'negative' ? thickness : 0)
           : wall.x - thickness / 2,
-      y: ground.y - rise,
+      y: top,
       width: thickness,
-      height: ground.height + rise,
+      height: Math.max(0, bottom - top),
     },
     depth: ground.y + ground.height,
   };
@@ -315,7 +334,8 @@ export function worldGeometry(world: WorldDocument) {
   );
   for (const wall of walls) {
     if (wall.open && unframed.has(thresholdKey(wall))) continue;
-    visit(projectedWall(wall).bounds, (part) => part.walls.push(wall));
+    const bounds = projectedWall(wall).bounds;
+    if (bounds.height > 0 && bounds.width > 0) visit(bounds, (part) => part.walls.push(wall));
   }
   world.objects.forEach((object, index) =>
     visit(objectRect(object), (part) => part.objects.add(index))
@@ -326,7 +346,10 @@ export function worldGeometry(world: WorldDocument) {
   );
   const extents = world.objects.map(objectRect);
   const left = Math.min(raw.x, ...extents.map((rect) => rect.x));
-  const top = Math.min(raw.y - WORLD_WALL_RISE, ...extents.map((rect) => rect.y));
+  const top = Math.min(
+    raw.y - (projection.version >= 6 ? 0 : WORLD_WALL_RISE),
+    ...extents.map((rect) => rect.y)
+  );
   const right = Math.max(raw.x + raw.width, ...extents.map((rect) => rect.x + rect.width));
   const bottom = Math.max(raw.y + raw.height, ...extents.map((rect) => rect.y + rect.height));
   const bounds = { x: left - 4, y: top - 4, width: right - left + 8, height: bottom - top + 12 };
@@ -382,6 +405,24 @@ export function worldGeometry(world: WorldDocument) {
       : undefined;
   return {
     meetingPreview,
+    /** Floor paint stops inside the wall silhouette. Transparent atlas corners
+     * must reveal the sky, not an oversized rectangular wood foundation.
+     * This changes pixels only, never occupancy or placement coordinates.
+     */
+    floorPaintBounds(rect: FloorRect): FloorRect | undefined {
+      const room = rect.areaId && roomBounds.get(rect.areaId);
+      if (!room) return rect;
+      const shell = projection.projectGroundRect(room, null);
+      const sideInset = projection.version >= 6 ? 0 : 6;
+      const depthInset = projection.version >= 6 ? 0 : 1.5;
+      const x = Math.max(rect.x, shell.x + sideInset);
+      const y = Math.max(rect.y, shell.y + depthInset);
+      const right = Math.min(rect.x + rect.width, shell.x + shell.width - sideInset);
+      const bottom = Math.min(rect.y + rect.height, shell.y + shell.height - depthInset);
+      return right > x && bottom > y
+        ? { x, y, width: right - x, height: bottom - y, areaId: rect.areaId }
+        : undefined;
+    },
     projection,
     objectRect,
     objectPosition: (object: WorldObject, origin: { x: number; y: number }) =>
@@ -394,7 +435,7 @@ export function worldGeometry(world: WorldDocument) {
       const room = roomBounds.get(areaId);
       if (room) {
         const ground = projection.projectGround({ x: room.x + room.width / 2, y: room.y }, areaId);
-        return { x: ground.x, y: ground.y - WORLD_WALL_RISE + 6 };
+        return { x: ground.x, y: ground.y + (projection.version >= 6 ? 3 : -WORLD_WALL_RISE + 6) };
       }
       const center = anchors.get(areaId);
       if (!center) return undefined;

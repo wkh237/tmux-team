@@ -9,7 +9,7 @@ export type MapSource = MapDocument | ModuleMapDocument;
 export function decodeMapSource(value: unknown): MapSource {
   const version = (value as { version?: unknown } | null)?.version;
   const source =
-    version === 2 || version === 3 || version === 4 || version === 5
+    version === 2 || version === 3 || version === 4 || version === 5 || version === 6
       ? decodeModuleMap(value)
       : decodeMapDocument(value);
   // Reject unrenderable module geometry at the draft/transport boundary, where

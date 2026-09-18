@@ -126,12 +126,15 @@ export function createCatalogObject(
   if (!row) throw new Error('Choose an area with floor before adding an object.');
   const object: WorldObject = {
     id,
-    kind: WALL_PRESETS[pack.digest]?.[key] ?? 'decoration',
+    kind:
+      world.map.version >= 6 ? 'decoration' : (WALL_PRESETS[pack.digest]?.[key] ?? 'decoration'),
     surface: { type: 'floor' },
     placement: catalogFurniture(pack, key, row.start, row.y),
     extension: null,
   };
   // Pack membership only chooses an authoring preset. User art can independently
   // choose its kind and mount; no executable or geometry fields enter prop packs.
-  return isWallCatalog(pack.digest) ? suggestWallPlacement(world, object, areaId) : object;
+  return world.map.version < 6 && isWallCatalog(pack.digest)
+    ? suggestWallPlacement(world, object, areaId)
+    : object;
 }

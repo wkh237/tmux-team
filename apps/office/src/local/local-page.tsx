@@ -374,7 +374,7 @@ function ReadyOffice({
             <button disabled={editor.busy} onClick={() => openMeetingRoom()}>
               Meeting rooms
             </button>
-            {meetingSlot && !meetingDraft && (
+            {!editor.editing && meetingSlot && !meetingDraft && (
               <button disabled={editor.busy} onClick={() => beginMeeting(meetingSlot)}>
                 Add meeting room
               </button>
@@ -395,6 +395,7 @@ function ReadyOffice({
           <WorldTools
             obstacles={panelObstacles}
             creatingMeeting={Boolean(meetingDraft)}
+            createMeeting={meetingSlot ? () => beginMeeting(meetingSlot) : undefined}
             editor={editor}
             tool={tool}
             setTool={setTool}
@@ -456,19 +457,6 @@ function ReadyOffice({
                 return true;
               }}
             />
-          ) : anchor && meetingSlot ? (
-            <button
-              className="meeting-entry"
-              aria-label="Create meeting room"
-              disabled={editor.busy}
-              style={{
-                left: anchor.bounds.x + anchor.bounds.width / 2,
-                top: anchor.bounds.y + anchor.bounds.height * 0.65,
-              }}
-              onClick={() => beginMeeting(meetingSlot)}
-            >
-              <span aria-hidden="true">＋</span>Create meeting room
-            </button>
           ) : null
         }
         officeOverlay={

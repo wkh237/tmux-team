@@ -171,11 +171,15 @@ test('real private-tmux identities project into multiple meetings without moving
           await page.getByRole('button', { name: 'Close agent conversation' }).click();
 
           // Independent fixture: three empty 36x36 areas, 5/8 floor depth,
-          // 16-high walls, bounds (-4,-20,116,50.5), and 84% Fit framing.
+          // 16-high walls, bounds (-4,-20,116,50.5), and a reserved HUD band.
           // This floor fits three previews (center, left, right), not all nine online members.
           // Larger open areas exercise the six-preview ceiling in geometry tests.
           const viewport = (await page.locator('.office-canvas').boundingBox())!;
-          const scale = Math.min(viewport.width / 116, viewport.height / 50.5) * 0.84;
+          const margin = Math.min(viewport.height * 0.2, Math.max(96, viewport.height * 0.08));
+          const scale = Math.min(
+            (viewport.width * 0.84) / 116,
+            (viewport.height - 2 * margin) / 50.5
+          );
           const point = (x: number, y: number) => ({
             x: viewport.x + (viewport.width - 116 * scale) / 2 + (x + 4) * scale,
             y: viewport.y + (viewport.height - 50.5 * scale) / 2 + (y + 20) * scale,

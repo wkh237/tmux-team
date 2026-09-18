@@ -9,9 +9,25 @@ import {
 } from './world-object-placement.js';
 import { projectMap } from './map-geometry.js';
 import type { WorldDocument, WorldObject } from './world-contract.js';
+import { platformModuleWorld } from './module-upgrade.js';
 
 const pack = BUILTIN_CATALOG.find((entry) => entry.digest === WALL_DIGEST)!;
 const id = (index: number) => `30000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
+
+it('places imported wall-pack art as ordinary floor decoration on a platform', () => {
+  const world = platformModuleWorld(officeWorldFixture().layout);
+  const before = structuredClone(world);
+  const object = createCatalogObject(world, pack, 'observatory-window', WORLD_LOBBY_ID, id(2));
+  expect(object).toMatchObject({
+    id: id(2),
+    kind: 'decoration',
+    surface: { type: 'floor' },
+    extension: null,
+    placement: { prop: `${pack.digest}/observatory-window` },
+  });
+  expect(hasObjectSupport(projectMap(world.map), object)).toBe(true);
+  expect(world).toEqual(before);
+});
 
 it('groups the approved mounts with walls and derives their kinds without art-owned authority', () => {
   const mounted = BUILTIN_CATALOG.find((entry) => entry.digest === MODULAR_MOUNTED_DIGEST)!;
