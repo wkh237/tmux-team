@@ -1,15 +1,36 @@
 //! Readable block input/output. Firestore envelopes belong to the remote adapter.
 
+use crate::json_integer::whole;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::path::Path;
+use std::{path::Path, sync::OnceLock};
 use tmt_core::{
     office_block::{
         BLOCK_SIZE, BlockLayout, Furniture, FurnitureAsset, INPUT_LIMIT, LocalBlockLayout,
-        MAX_REVISION, OBJECT_LIMIT, PropPlacement,
+        LocalBlockTarget, MAX_REVISION, OBJECT_LIMIT, PropCustomization, PropPlacement,
     },
     office_protocol::OfficeError,
 };
+
+/// Shipped defaults are projected, not materialized by observation.
+pub fn default_local_layout(target: &LocalBlockTarget) -> LocalBlockLayout {
+    match target {
+        LocalBlockTarget::Identity(_) => {
+            LocalBlockLayout::new(Vec::new()).expect("empty layout is valid")
+        }
+        LocalBlockTarget::Lobby => {
+            static LOBBY: OnceLock<LocalBlockLayout> = OnceLock::new();
+            LOBBY
+                .get_or_init(|| {
+                    decode_local_layout(include_bytes!(
+                        "../../../../contracts/office/lobby-preset-v1.json"
+                    ))
+                    .expect("bundled lobby layout must be admitted")
+                })
+                .clone()
+        }
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -35,31 +56,72 @@ struct ObjectInput {
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum LocalLayoutInput {
-    V2(LocalLayoutV2Input),
+    Local(LocalLayoutVersionedInput),
     V1(LayoutInput),
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct LocalLayoutV2Input {
+struct LocalLayoutVersionedInput {
     version: u8,
     objects: Vec<PropPlacementInput>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct PropPlacementInput {
+pub(crate) struct PropPlacementInput {
     prop: String,
     footprint: FootprintInput,
-    x: u8,
-    y: u8,
+    #[serde(deserialize_with = "whole")]
+    x: i32,
+    #[serde(deserialize_with = "whole")]
+    y: i32,
+    #[serde(deserialize_with = "whole")]
     rotation: u8,
+    #[serde(default, deserialize_with = "present")]
+    customization: Option<CustomizationInput>,
+}
+
+impl PropPlacementInput {
+    pub(crate) fn into_placement(self) -> PropPlacement {
+        PropPlacement {
+            prop: self.prop,
+            footprint_width: self.footprint.width,
+            footprint_height: self.footprint.height,
+            x: self.x,
+            y: self.y,
+            rotation: self.rotation,
+            customization: self.customization.map(|value| PropCustomization {
+                tint: value.tint,
+                text: value.text,
+            }),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CustomizationInput {
+    #[serde(default, deserialize_with = "present")]
+    tint: Option<String>,
+    #[serde(default, deserialize_with = "present")]
+    text: Option<String>,
+}
+
+fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FootprintInput {
+    #[serde(deserialize_with = "whole")]
     width: u8,
+    #[serde(deserialize_with = "whole")]
     height: u8,
 }
 
@@ -93,12 +155,6 @@ pub fn decode_layout(bytes: &[u8]) -> Result<BlockLayout, OfficeError> {
     input.validate()
 }
 
-pub fn read_local_layout_file(path: &Path) -> Result<LocalBlockLayout, OfficeError> {
-    let bytes =
-        crate::bounded_file::read(path, INPUT_LIMIT).map_err(|_| OfficeError::LayoutInvalid)?;
-    decode_local_layout(&bytes)
-}
-
 pub fn decode_local_layout(bytes: &[u8]) -> Result<LocalBlockLayout, OfficeError> {
     if bytes.len() > INPUT_LIMIT {
         return Err(OfficeError::LayoutInvalid);
@@ -109,36 +165,52 @@ pub fn decode_local_layout(bytes: &[u8]) -> Result<LocalBlockLayout, OfficeError
         LocalLayoutInput::V1(input) => input
             .validate()
             .map(|layout| LocalBlockLayout::from_legacy(&layout)),
-        LocalLayoutInput::V2(input) if input.version == 2 => {
+        LocalLayoutInput::Local(input) if matches!(input.version, 2 | 3) => {
+            if input.version == 2
+                && input
+                    .objects
+                    .iter()
+                    .any(|object| object.customization.is_some())
+            {
+                return Err(OfficeError::LayoutInvalid);
+            }
             let objects = input
                 .objects
                 .into_iter()
-                .map(|object| PropPlacement {
-                    prop: object.prop,
-                    footprint_width: object.footprint.width,
-                    footprint_height: object.footprint.height,
-                    x: object.x,
-                    y: object.y,
-                    rotation: object.rotation,
-                })
+                .map(PropPlacementInput::into_placement)
                 .collect();
             LocalBlockLayout::new(objects).map_err(|_| OfficeError::LayoutInvalid)
         }
-        LocalLayoutInput::V2(_) => Err(OfficeError::LayoutInvalid),
+        LocalLayoutInput::Local(_) => Err(OfficeError::LayoutInvalid),
     }
 }
 
 pub fn local_layout_value(layout: &LocalBlockLayout) -> Value {
     json!({
-        "version":2,
-        "objects":layout.objects().iter().map(|object| json!({
-            "prop":object.prop,
-            "footprint":{"width":object.footprint_width,"height":object.footprint_height},
-            "x":object.x,
-            "y":object.y,
-            "rotation":object.rotation
-        })).collect::<Vec<_>>()
+        "version":if layout.objects().iter().any(|object| object.customization.is_some()) { 3 } else { 2 },
+        "objects":layout.objects().iter().map(placement_value).collect::<Vec<_>>()
     })
+}
+
+pub(crate) fn placement_value(object: &PropPlacement) -> Value {
+    let mut value = json!({
+    "prop":object.prop,
+    "footprint":{"width":object.footprint_width,"height":object.footprint_height},
+    "x":object.x,
+    "y":object.y,
+    "rotation":object.rotation
+    });
+    if let Some(customization) = &object.customization {
+        let mut fields = serde_json::Map::new();
+        if let Some(tint) = &customization.tint {
+            fields.insert("tint".into(), json!(tint));
+        }
+        if let Some(text) = &customization.text {
+            fields.insert("text".into(), json!(text));
+        }
+        value["customization"] = Value::Object(fields);
+    }
+    value
 }
 
 pub fn layout_value(layout: &BlockLayout) -> Value {
@@ -210,6 +282,32 @@ impl BlockSnapshot {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn local_customization_values_match_shared_vectors_and_require_v3() {
+        let vectors: Value = serde_json::from_str(include_str!(
+            "../../../../contracts/office/prop-customization-vectors.json"
+        ))
+        .unwrap();
+        for case in vectors["placementCases"].as_array().unwrap() {
+            let mut input = json!({"version":3,"objects":[{
+                "prop":format!("sha256:{}/rug", "1".repeat(64)), "footprint":{"width":2,"height":1},
+                "x":0,"y":0,"rotation":0,"customization":case["value"]
+            }]});
+            let decoded = decode_local_layout(&serde_json::to_vec(&input).unwrap());
+            assert_eq!(
+                decoded.is_ok(),
+                case["valid"].as_bool().unwrap(),
+                "{}",
+                case["name"]
+            );
+            if let Ok(layout) = decoded {
+                assert_eq!(local_layout_value(&layout), input);
+            }
+            input["version"] = json!(2);
+            assert!(decode_local_layout(&serde_json::to_vec(&input).unwrap()).is_err());
+        }
+    }
 
     #[test]
     fn readable_wire_round_trips_without_exposing_storage_tokens() {

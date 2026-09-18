@@ -1,14 +1,106 @@
-//! Owner-local Markdown notebook initialization for saved identities.
+//! Owner-local Markdown notebook initialization and bounded reads for saved identities.
 
 use crate::config::ConfigPaths;
-use nix::fcntl::OFlag;
+use nix::{
+    fcntl::{OFlag, openat},
+    sys::stat::Mode,
+};
 use std::{
-    fs::{self, DirBuilder, OpenOptions},
+    fs::{self, DirBuilder, File, OpenOptions},
     io,
     os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
 };
 use tmt_core::identity::NotesIdentityId;
+
+/// Read-side bound only; this never truncates or limits the agent's Markdown file.
+pub const NOTEBOOK_READ_LIMIT: usize = 1_048_576;
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct Notebook {
+    pub identity_id: String,
+    pub name: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotebookError {
+    InvalidIdentity,
+    IdentityNotFound,
+    SavedIdentityRequired,
+    Missing,
+    TooLarge,
+    InvalidText,
+    Unavailable,
+}
+
+/// The browser selects an identity, never a path. Reading does not initialize notes.
+pub fn read(paths: &ConfigPaths, identity_id: &str) -> Result<Notebook, NotebookError> {
+    if !tmt_core::dispatch::canonical_id(identity_id) {
+        return Err(NotebookError::InvalidIdentity);
+    }
+    let mut storage = crate::storage::Storage::open(paths.database.clone())
+        .map_err(|_| NotebookError::Unavailable)?;
+    let pending = storage.find_active_identity_by_id(identity_id);
+    let closed = storage.close();
+    let identity = pending
+        .map_err(|_| NotebookError::Unavailable)?
+        .ok_or(NotebookError::IdentityNotFound)?;
+    closed.map_err(|_| NotebookError::Unavailable)?;
+    let notes_id = NotesIdentityId::try_from(&identity).map_err(|error| match error {
+        tmt_core::identity::NotesIdentityError::SavedIdentityRequired => {
+            NotebookError::SavedIdentityRequired
+        }
+        tmt_core::identity::NotesIdentityError::InvalidIdentityId => NotebookError::InvalidIdentity,
+    })?;
+    let bytes = read_existing(paths, &notes_id).map_err(|error| match error {
+        crate::bounded_file::FileReadError::TooLarge => NotebookError::TooLarge,
+        crate::bounded_file::FileReadError::Io(error)
+            if error.kind() == io::ErrorKind::NotFound =>
+        {
+            NotebookError::Missing
+        }
+        crate::bounded_file::FileReadError::Io(_) => NotebookError::Unavailable,
+    })?;
+    Ok(Notebook {
+        identity_id: identity.id,
+        name: identity.name,
+        content: String::from_utf8(bytes).map_err(|_| NotebookError::InvalidText)?,
+    })
+}
+
+fn read_existing(
+    paths: &ConfigPaths,
+    identity_id: &NotesIdentityId,
+) -> Result<Vec<u8>, crate::bounded_file::FileReadError> {
+    use crate::bounded_file::{FileReadError, read_opened};
+    let acquire = || -> io::Result<File> {
+        let (root, _, file) = paths.notes_layout(identity_id)?;
+        let mut directory = OpenOptions::new()
+            .read(true)
+            .custom_flags((OFlag::O_NOFOLLOW | OFlag::O_DIRECTORY).bits())
+            .open(&root)?;
+        let relative = file.strip_prefix(root).map_err(io::Error::other)?;
+        let mut components = relative.components().peekable();
+        while let Some(component) = components.next() {
+            let std::path::Component::Normal(name) = component else {
+                return Err(io::Error::other("Invalid notes path component."));
+            };
+            let flags = OFlag::O_RDONLY
+                | OFlag::O_NOFOLLOW
+                | OFlag::O_CLOEXEC
+                | OFlag::O_NONBLOCK
+                | if components.peek().is_some() {
+                    OFlag::O_DIRECTORY
+                } else {
+                    OFlag::empty()
+                };
+            directory = File::from(openat(&directory, Path::new(name), flags, Mode::empty())?);
+        }
+        Ok(directory)
+    };
+    read_opened(acquire().map_err(FileReadError::Io)?, NOTEBOOK_READ_LIMIT)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NotesPath {

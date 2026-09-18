@@ -1,19 +1,26 @@
 mod bindings;
 pub(crate) mod catalog_cursor;
 mod catalog_replay;
+mod dispatch;
 mod errors;
 mod identities;
 mod identity_hooks;
 mod identity_metadata;
+mod identity_status;
 mod migrations;
 mod office_avatar;
 mod office_board;
 mod office_local;
 mod office_profile;
 mod office_prop;
+mod office_whiteboard;
+mod office_world;
 mod profiles;
 mod requests;
+mod room;
 
+#[cfg(test)]
+mod test_support;
 #[cfg(test)]
 mod tests;
 
@@ -24,6 +31,7 @@ use std::{
     time::Duration,
 };
 
+pub use dispatch::DispatchError;
 pub use errors::{StorageError, StorageErrorCode};
 use errors::{classify, incompatible};
 pub use office_avatar::{
@@ -36,6 +44,9 @@ pub use office_profile::{LocalProfileError, LocalProfileMutation, LocalProfileSn
 pub use office_prop::{
     LocalPropCatalogError, LocalPropCatalogList, LocalPropMutation, LocalPropSnapshot,
 };
+pub use office_whiteboard::WhiteboardStoreError;
+pub use office_world::{LocalWorldSnapshot, WorldStoreError};
+pub use room::RoomStoreError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckpointMode {

@@ -6,6 +6,7 @@ import {
   validatePairingReplacement,
 } from './pairing-contract.js';
 import type { PairingPort } from './pairing-contract.js';
+import { readBoundedBody } from '../transport/response-body.js';
 
 async function responseBody(response: Response): Promise<unknown> {
   if (
@@ -13,22 +14,9 @@ async function responseBody(response: Response): Promise<unknown> {
     !response.body
   )
     throw new PairingActionError('uncertain');
-  const reader = response.body.getReader();
-  const bytes: number[] = [];
-  try {
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      if (bytes.length + value.length > 4096) {
-        await reader.cancel();
-        throw new PairingActionError('uncertain');
-      }
-      bytes.push(...value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(bytes)));
+  return JSON.parse(
+    new TextDecoder('utf-8', { fatal: true }).decode(await readBoundedBody(response, 4096))
+  );
 }
 
 interface TokenSession {

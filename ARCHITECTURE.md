@@ -30,6 +30,293 @@ Rust, test, release script and canonical skill paths remain stable. Read
 the chosen React/Vite/TanStack/Jotai stack and the
 [Office design](docs/office/design.md) for planned trust/lifecycle semantics.
 Office runtime code must not import local SQLite/process adapters or native test helpers.
+The accepted [World extension design](contracts/office/functional-props.md)
+separates spatial composition from concrete board/notebook/broadcast features.
+Bundled features are not automatically World core. Reuse existing domain services;
+extract capability interfaces from consumers rather than adding another command
+runner or exchange engine. The first [data-only binding](contracts/office/extension-v1.md)
+composes discussion and whiteboard resource views with physical instances through
+a guarded host registry; native/browser admission is separate from capability
+registration. Shared `useExtensionPanel` owns the native modal lifetime, while
+each resource retains its own draft and persistence owner. Whiteboard
+`useWhiteboardPanel` admits document switches from the editor's aggregate leave
+state: unsaved content requires confirmation, while pending document/snapshot/send
+operations retain their original owner until resolved. Closing a panel is not a
+document switch or disposal.
+The local [whiteboard scene contract](contracts/office/whiteboard-v1.md) keeps
+drawing values separate from World placement, request delivery and resource storage.
+Pure scene policy belongs to `tmt-core::office_whiteboard`, its strict JSON boundary
+to `tmt-adapters::office_whiteboard`, and the matching browser projection to
+`whiteboard/scene-contract.ts`; literal vectors cover both projections.
+Document revision policy lives in its core `document` module, envelope admission
+in the adapter, and atomic document/operation persistence in
+`storage/office_whiteboard`. The local HTTP adapter and browser document port
+reuse the existing session transport; neither owns editor history or request
+delivery. World singleton creation is shared by world layout, board ownership
+and document persistence through `storage/office_world` inside caller transactions.
+Whiteboard `snapshot` policy captures a specific saved revision and validates its
+selection/annotation. Its adapter owns metadata admission; the storage child module
+appends an immutable scene copy using the capture operation as its replay receipt.
+It reuses the document read/transaction/error boundaries, not request or board receipt
+tables. The adapter's `image` module admits bounded PNG pixels and normalizes uploads;
+`snapshot/image` stores one immutable attachment with pixel-equivalent retries.
+Reads revalidate pixels without re-encoding the original stored bytes. Image admission
+does not attest scene semantics. The local HTTP module owns exact typed resource
+routing shared with body-budget selection; image writes reuse the existing Origin
+policy with a PNG content type. The browser snapshot state owns capture/image retry,
+reusing the document painter and the local runtime's shared request lifetime;
+the view owns only form state and disposable preview URLs. Native snapshot access
+uses the same repository through `office_whiteboard::access` in the verified
+companion, with exact per-operation JSON/PNG limits. `office_companion::whiteboard`
+validates replies over its parent's existing bounded process owner. The CLI owns
+the explicit export path, while `office_whiteboard::export` publishes a private,
+no-clobber file. The core snapshot module owns local reference identity; browser
+formatting/resolution shares conformance vectors.
+The local [request dispatch capability](contracts/office/dispatch-v1.md) composes
+explicit recipients over `RequestService::enqueue`. Core `dispatch` owns
+composition values, its adapter owns JSON/digests, and `storage::dispatch`
+owns an immutable acceptance ledger in schema 23. `storage::requests` lends its
+existing row adapter through `TransactionRequests` inside the caller's transaction;
+there is no nested transaction or parallel request SQL/state. One operation and
+all accepted/failed recipient attempts commit together. The HTTP adapter retains
+the existing browser authority and settings/connection owners. `LocalRuntime.dispatch`
+uses the shared authenticated transport and validates receipt operation/audience.
+The shared `local/dispatch-composer-state` owns frozen message/audience intent and
+explicit retries. Whiteboard `snapshot-send-state` adds immutable reference/message
+formatting; the broadcaster selects announcement semantics. Capture/image state
+does not own sends.
+Direct `local/agent-conversation` composes that same state with canonical request
+history. `use-agent-conversation` owns one retained non-modal Chat/Info HUD;
+`conversation-cue` derives waiting/reply attention from canonical history with a
+view-local seen marker, never a stored acknowledgment or execution state.
+`conversation-state` owns bounded visible-only observation; the optional
+scope-checked `dispatch-journal` keeps only unconfirmed intent in tab session
+storage, separating direct recipient/context keys from room-roster keys.
+`local/room-message` retains one room composer with explicit roster adoption,
+review and guarded target switching; it uses the same composer and receipt recovery.
+Accepted history and replies remain host-owned; credentials are never
+written to the journal. Receipt lookup is read-only and retries preserve the
+original operation and audience.
+Discussion `local/board-share` supplies a live thread UUID and native reader
+instruction to the same composer; it does not create snapshot storage or another
+reference parser. The board retains its content/draft owner while the request
+view freezes the selected thread and requires explicit discard before leaving.
+The [meeting-room resource](contracts/office/meeting-room-v1.md) owns explicit local
+rosters in schema 24. Fan-out reads its effective membership inside the existing
+enqueue transaction and fences both room revision and UUID audience, after replay
+lookup. Retirement filters active projections without changing core identity hooks.
+Browser `RoomPicker` uses the shared local port and `IdentityChecklist`; refreshing
+a list cannot expand frozen intent. Canonical `RequestKind` distinguishes replyable
+requests from inbox-only announcements (schema 25); the request service owns
+no-response policy, incoming attention and settlement. Dispatch includes kind in
+intent comparison without changing existing request digests. The bundled broadcaster
+opens the shared composer through the guarded extension binding; opening never
+selects an audience or sends automatically. Physical meeting areas reference these
+room UUIDs; `office-population` projects memberships without duplicating identities.
+The same `RoomPicker` manages room definitions independently of a layout draft.
+Its shared `RoomEditor` owns revision-fenced writes and explicit readback after
+uncertain saves. Adopting a readback is an explicit action, never an automatic
+overwrite or another room creation. The world-anchored `MeetingCreationForm`
+reuses that editor, retaining a confirmed room UUID and proposed area ID across
+placement failures. `meeting-module` attaches the room through the existing
+world history and furniture recipe; layout Cancel never deletes the room.
+`world-map/meeting-preset` adds ordinary placements/resource bindings to that draft;
+it does not create rooms, whiteboard content or requests. Browser authoring and
+actor preview placement share the sparse `world-map/free-floor` interval owner.
+Derived actor slots prefer clear views using `world-geometry`'s existing wall
+projection and paint depth, then fall back to safe floor when an area is crowded.
+This preference changes neither saved positions nor membership and is cached per geometry.
+Core `office_whiteboard::document::empty_document` describes a virtual blank for
+any admitted unsaved document ID. Storage reads do not materialize it; explicit
+conditional Save remains the only content creation path. The Lobby has no special
+storage branch, and snapshot capture still requires a persisted document.
+CLI `room send` and `room broadcast` use that same atomic composition owner,
+returning immutable per-recipient inbox acceptance without waiting for replies.
+The trusted CLI adapter resolves optional sender provenance through the existing
+identity context; HTTP admission still rejects caller-selected senders. Known
+sender provenance participates in intent hashing and canonical request attention.
+Unknown-sender HTTP digests and the historical ledger table name remain unchanged.
+An explicit operation UUID permits identical-intent retry; a changed room roster
+is a conflict, never permission to enqueue a new audience under the old UUID.
+Core `operation` owns UUID generation for both board mutation and dispatch retry
+identities. Direct `talk --room` selects only its named recipient; it never fans
+out. The shared request service verifies effective membership within preparation's
+transaction through `RequestRecords`, backed by the existing room reader. This
+applies to inbox enqueue and pane preparation, before cadence or attention writes;
+CLI preflight alone is not treated as an atomic membership fence.
+Core `room::RoomRepository` is the shared CLI/HTTP roster boundary. Its resolver
+accepts canonical UUIDs or unique exact labels and rejects ambiguous names.
+Adapter `room` owns the wire projection used by both transports; storage table
+names remain unchanged. CLI `room` creation/list/show/join/leave requires no Office
+installation; explicit identity selection does not probe tmux. `ls --room` filters
+the existing presence projection rather than introducing another presence owner.
+Office preserves that projection's `active`, `offline`, and `unknown` states
+through HTTP and UI; self-reported status and roster membership do not override it.
+Atomic membership set changes reuse the same `storage::room` writer and
+immediate transaction as conditional roster replacement; callers do not perform
+an unlocked read-modify-write. Room retirement is a revision-checked transition
+in that same row; the repository separates active selection from historical UUID
+lookup. Dispatch and new spatial bindings use active selection, while committed
+receipts, delivered requests and retained areas remain intact. CLI and HTTP reuse
+the transition; no archive database or cascading content deletion is introduced.
+Scoped delivery and spatial integration are defined
+in [rooms and walls](contracts/office/rooms-and-walls.md), not implemented by roster
+commands alone.
+The local [map v1 foundation](contracts/office/map-v1.md) separates topology from
+resource contents. `tmt-core::office_map` owns native admission and derived walls.
+Its `modules` owner projects fixed room slots and circulation into that same
+admission boundary. [Versioned modular topology](contracts/office/modules-v2.md) stores
+the module source only; the admitted map's immutable floor/edge projection is
+not another write model. The map codec preserves v1 values until explicit
+conversion; v2 retains short links and v3 derives continuous grid
+corridors. V4 adds a 2×2 Lobby and a bounded public lattice independent of paired
+rooms. Its row-run generator excludes private interiors and the reserved meeting
+wing; centered entrances are derived from adjacent public floor. Old geometry
+remains readable. `world-map/module-upgrade` converts v2/v3 into V4 as a single
+draft: offices south of the Lobby move one row with their interior contents,
+the Lobby's south mounts follow its enlarged boundary, and meetings stay fixed.
+Area IDs, assignments, materials and resource attachments remain unchanged.
+Ambiguous corridor/exterior objects block conversion without mutation.
+`world-map/freeform-upgrade` proposes v1 modules through the same eligible-slot
+policy: one primary Lobby, personal areas near their previous relative positions,
+and a separate ordered meeting wing. It preserves area IDs and bindings. Shared
+object relocation checks complete source support, including holes, and rejects
+contents that cannot fit the destination. Empty areas and extra Lobbies require
+explicit resolution; no rooms, objects or attachments are silently discarded.
+Upgrading is never a bare version toggle or an
+implicit repacking operation. It is an explicit draft change validated by the normal Save,
+not a read-time migration. Browser
+`world-map/map-source` decodes that union and caches the read-only projection used
+by rendering, population and discovery. Existing world history and revisioned
+Save retain source modules; modular drafts cannot call the legacy floor writer.
+`world-map/module-authoring` offers unoccupied cardinal office slots using those
+same bounds/reserved-wing rules. Choosing a hologram only selects a slot; naming
+and adding commits a module through the existing world history, not persistence.
+`rendering/scene-module-ghost` is disposable presentation of that slot, while
+`office-expansion-form` supplies anchored text entry and keyboard slot selection.
+The renderer projects the complete hologram bounds through `selection-anchor`;
+the shared anchored-panel hook measures the form and actual toolbar/save-bar
+clearance, placing it beside that target within the HUD-safe viewport. Office
+and meeting creation hide the general layout inspector while retaining its state.
+The shared projector still supplies existing point anchors
+for actor and furniture controls. Panel measurement is disposable presentation,
+not another camera or layout state. Its resize observer is released on unmount.
+Module removal uses the same source/history owner. Its preview checks all retained
+placements against candidate spatial support, including disappearing common floor
+and partitions; blocked placements must be moved or explicitly removed first.
+It never mutates canonical identities, membership or linked resources. Native Save
+still owns full connectivity and content admission. V4 meeting expansion uses
+the same wing descriptors for the saved topology and cyan construction preview;
+room membership remains with the targeted room manager. The agent Info panel's
+Add to meeting entry seeds that manager's existing `RoomEditor` draft with one
+candidate; it does not write or dispatch. Conditional roster Save retains other
+members, and an unsaved draft fences both room and candidate switching.
+The native `office_world::starter` supplies a furnished CompactGrid Lobby and four
+unassigned offices only when neither a saved world layout nor retained blocks
+exist. Stable placement IDs and bundled resource bindings remain read-only until
+explicit Save; the existing revision-zero source fingerprint fences that Save.
+Saved layouts never reseed. Explicit conversion is separate from this initializer;
+legacy layouts retain object editing and explicit area removal for conversion
+repair, but no floor painting, zoning or manual door authoring. The new-world
+preset is not a migration of existing content.
+`world-map/module-geometry` derives the shared connection descriptors used by
+floor projection and portal presentation. Two physical thresholds remain in the
+admitted map; v2 rendering paints one frame per short passage. V3 corridors
+separate the physical thresholds and expose their shared floor.
+`tmt-adapters::office_map` owns its strict codec. Browser `world-map` owns bounded
+draft editing and disposable rendering projection, not save authority. Literal
+vectors cover shared geometry and intentional draft/admission differences.
+Browser `rendering/world-projection` separates saved ground coordinates from
+cutaway scene coordinates. Floors contract in depth, upright artwork keeps
+its proportions, and object picking/dragging uses the same forward/inverse
+transform. V3 retains expanded inter-row display gaps. V4 reserves rear-wall
+space inside each derived module instead: public circulation stays unexpanded,
+and the admitted floor index identifies the owner for room-floor and wall/mount
+projection. Geometry owns this map-specific transform instance, including ghost
+placement, Fit and HUD anchors. Upright artwork is never stretched with the floor.
+It owns no persisted layout or placement state.
+`world-map/floor-index` provides sparse row ownership queries for both boundary
+projection and extension discovery; it does not allocate a second per-tile map or
+persist object-area membership. Wall discovery and placement suggestions use the
+same mounted-face interior tile convention.
+`rendering/world-geometry` derives cutaway bounds and wall/mount paint depth from
+those boundaries. Front corner posts derive from owned side-wall endpoints;
+door splits never create duplicate posts. `world-projection` owns one room-wall
+rise and a distinct circulation-rail rise shared by drawing and previews.
+Room portals retain the same rise as their walls.
+The existing editor lifetime controls wall translucency in `scene-wall`; entering
+or leaving editing redraws presentation without changing geometry or hit testing.
+The bundled architecture atlas supplies reviewed frame views
+through `scene-materials`; front and rear share one straight-wall frame and
+nine-slice crown/base definition, with cutaway height owned by geometry.
+It cannot introduce independent topology or placement
+state. Texture views share one mount-owned source and are disposed before it.
+`editor/snapshot-history` supplies bounded undo/redo to map and whiteboard drafts;
+domain decoders retain value ownership. The production UI uses a whole-world
+draft and the same revisioned native persistence, not per-identity block editors.
+The [world value foundation](contracts/office/world-v1.md) composes that map with
+stable placement IDs. `tmt-core::office_world` validates floor/wall support,
+door clearance and window exclusions over the map index. Shared prop appearance
+admission is independent of the legacy 32x32 bounds; signed positions support
+world coordinates without loosening legacy block validity. The world adapter
+composes the existing typed map and prop codecs. `storage/office_world` persists
+the all-or-error candidate in the existing world row (schema 28), checking revision,
+identity/room eligibility and artwork within one immediate transaction. Before
+explicit cutover, retained blocks have a read-only deterministic projection fenced
+by a source fingerprint. First Save retires those rows atomically; schema triggers
+prevent renewed block writes. `office layout show/apply` and the world HTTP route
+share `office_world::access` for storage execution and public diagnostics; strict
+companion decoding and bounded file acquisition remain adapter responsibilities.
+The CLI has no local block alias. Old local block HTTP/private companion operations
+and browser port are removed; legacy native/browser scenario fixtures still need
+conversion, not a compatibility wrapper or competing layout writer. The world contract owns
+the migration and uncertain-save behavior; resources keep their existing owners.
+`office_extension::ResourceBinding` owns pure resource-reference validity; the
+adapter reuses its codec for preflight and world attachments. Former bundled
+functional entries become ordinary placements, never content copies.
+External links extend that binding with an inert URL, not a new placement action
+store. Core admission uses the workspace-pinned `url` parser for pure syntax and
+credential checks; the reviewed core dependency policy permits parsing, not HTTP
+clients. Browser admission shares literal vectors and uses its platform parser.
+The guarded `link.open` handler opens a destination review, never a URL itself;
+only the review's explicit no-opener anchor navigates. Neither storage nor rendering
+fetches links, and artwork remains independent of the action.
+`local_service/world` and the browser world port use the existing authenticated,
+bounded transport. Browser `world-draft` supplies one complete-candidate history
+to the production editor and renderer. Surface controls change the same placement,
+not a second wall layout; resource bindings survive moves and unmounting.
+The wall collection is an ordinary immutable indexed prop pack. Native and browser
+catalogs admit the same bytes; windows, lights and decorations share art resolution
+and missing-art fallback. A wall light adds a static renderer-owned glow, not a
+shader/runtime capability. Browser placement suggestions inspect derived boundaries
+and occupied silhouettes, but never authorize Save or move other objects. Numeric
+coordinates and appearance text stay in local input forms until one complete edit
+enters world history. Shared prop customization controls serve both editor callers.
+Schema 26 retains an optional original room UUID on canonical request attempts.
+Shared dispatch distinguishes single-recipient room context from reviewed full-roster
+fan-out. Only fan-out checks the roster revision; canonical `RequestService` checks
+recipient membership for both inside the enqueue transaction. The tagged mode is
+part of immutable retry intent, not another delivery path. Dispatch copies its
+room UUID into `PrepareRequest`; it does
+not make the dispatch ledger a second context store. Shared row projection and
+attention models carry that value through detail and incoming results. Room-scoped
+listen filters the watermark and both incoming queries in the same request owner,
+using participant/room indexes before pagination. The CLI resolves the room once;
+subsequent roster changes do not hide already-delivered work. Unscoped requests
+and JSON retain their existing behavior. Room lifecycle cannot cascade into
+request retention, and transport adapters do not infer historical membership.
+Schema 27 adds indexed keyset history over those same attempts, not chat storage.
+`request::history` owns the owner-visible projection, and its service composes
+retention and the existing attention final-state interpretation. Storage reuses
+the canonical attempt/response row decoders; bounded UTF-8 previews preserve
+embedded NUL without loading full message bodies into lists. The `request_history`
+adapter admits/encodes the owner API without reply proofs or pane paths. HTTP
+inspection requires the same bearer/Origin admission as dispatch. Operation lookup
+and dispatch replay share the existing immutable ledger decoder; lookup cannot
+resubmit. Browser `LocalRuntime.requests` owns only bounded typed transport and
+response-scope checks, not another request cache or completion policy.
+The [workshop references](docs/office/references/workshop/README.md)
+own visual intent, not evidence that proposed extension APIs are implemented.
 Its browser E2E may reuse the established test-only process and artifact owners.
 The pairing issuer is implemented for local emulator verification and disabled
 by default outside that environment; it is not deployed. `contracts/office`
@@ -56,25 +343,74 @@ native implementations share the versioned block contract and literal vectors;
 neither creates a second scene store. The CLI owns grammar and presentation, not
 credentials, grant renewal or Firestore transactions.
 The offline local Office path is separate from the Firebase runtime. Both one-shot CLI
-block commands and the loopback HTTP service call the same SQLite repository in
+layout commands and the loopback HTTP service call the same whole-world access boundary in
 `tmt-adapters`; neither mirrors state into the SPA. `tmt-office` embeds the Vite local
 build at compile time, so the fixed native archive inventory does not gain mutable web
 files. A private receipt coordinates one installation-wide process. Browser and control
 tokens are distinct, status is token-free, and only exact IPv4 loopback Host/Origin
-requests reach the bounded HTTP adapter. Identity UUID remains ownership authority;
-retirement hides but does not delete its block.
-The local overview and personal-room routes share one mounted snapshot loader
-and admitted profile/prop values. The overview uses a mount-owned Pixi renderer,
-camera and texture cache; React owns its HUD and accessible directory. The local
-personal editor supplies that same renderer through the existing editor's controlled
-scene slot. Remote block views retain SVG. Both use the same revision-aware draft owner.
-Neither renderer owns persisted layout or identity state. Rendering is invalidation-driven,
-with bounded pixel density and cancellation/teardown of browser and GPU resources.
-Fixed architectural floor/back-wall materials share one decoded texture set per
-mount; they do not enter the editable prop catalog or occupy saved floor tiles.
-HTTP block access targets identity UUIDs, using
-the same absent-read and first-apply transaction as the CLI; opening a room does
-not materialize defaults or create parallel persistence.
+requests reach the bounded HTTP adapter. Manual area bindings use identity UUIDs;
+retirement does not erase stored placements or linked content.
+The local overview and identity deep links select the same whole-world loader,
+editor and mount-owned Pixi renderer. React owns browse panels independently of
+selection and the world draft. Directory/area browsing and layout editing suspend
+the retained agent HUD. Chat/Info share one recipient/context; minimized chat
+observes replies, while closing pauses observation without cancelling work.
+The existing scene camera projects the selected actor anchor; an absent/offscreen
+actor uses a viewport fallback. Hidden details retain unsaved appearance edits;
+changing panels never resizes the canvas. The editing HUD uses one viewport overlay
+grid for the header, tools, inspector and variable-height save feedback. Camera controls remain
+owned by the mounted canvas and portal into one stable top-line dock in both browse
+and edit modes. The header and camera wrap together without fixed-height offsets;
+neither docking nor error feedback rebuilds the scene or reserves physical canvas space.
+Same-runtime refresh retains the mounted workspace and its drafts, reports read
+failure in place, and fences late reads from replaced runtimes. The world editor adopts refreshed saved snapshots only
+outside editing and never rolls back a locally confirmed revision. The world
+port distinguishes a confirmed revision rejection from an
+unconfirmed write. Area-removal previews consume the same population projection
+and physical object-anchor lookup as browsing, not separate ownership state.
+Physical viewport changes preserve the viewed world center and relative zoom.
+Remote block
+views retain their separate SVG/editor path. Neither renderer owns persistence.
+Sparse world geometry supplies floor/wall object bounds for artwork, selection,
+culling and interaction; object dragging inverts that projection before editing
+stored coordinates. The component overlay consumes those bounds and inert action
+metadata, not a competing placement format. It owns measured action-label bounds
+and matching paint/hit order. Rendering is invalidation-driven with bounded pixel
+density and cancellation/teardown of browser and GPU resources.
+Long wall faces retain their original bounds and material phase; repeated seam
+and crown detail is generated only across the rendered viewport. Camera movement
+must not create artificial wall ends or tessellate offscreen detail along an
+otherwise visible wall run.
+Fixed architectural materials share one decoded source per mount with bounded,
+lazy finish variants owned by `scene-materials`; they do not enter the editable
+prop catalog or occupy saved floor tiles. Module source selects the finish through
+the existing world draft, without changing geometry or resource bindings.
+The in-progress directional prop format extends the existing catalog and raster
+projection, not the scene state owner; see the versioned
+[prop contract](contracts/office/prop-pack-v2.md). Prop-specific byte budgets and
+schema 18 do not change avatar admission or unrelated command envelopes.
+Reviewed modular source art is encoded offline into the same immutable v2 prop
+packs; both native and browser registries admit those exact contract bytes.
+The optional `scripts/art` authoring tool is not a runtime decoder or validator.
+Its source-hashed crop manifest and derivative policy live with the visual package.
+`world-object-placement` owns bundled wall-authoring hints used by both library
+grouping and initial kind/mount selection. These hints grant no capability or
+placement authority; arbitrary admitted artwork still uses the same world validation.
+Legacy local blocks are retained migration input, not live HTTP write targets.
+The whole-world draft owns per-placement tint/text and its CAS commit; pack
+capabilities remain the source of allowed fields. Browser artwork authoring uses
+the existing native prop validator and catalog install transaction through the
+local props adapter. Exact source bytes determine immutable identity; artwork
+Save never writes a world placement. The typed browser port verifies digest and
+revision receipts and resolves saved packs on demand. `pixel-canvas` commits one
+completed pointer stroke or keyboard edit into shared bounded snapshot history;
+`use-pixel-catalog` owns catalog observations and frozen save/retry intent.
+`pixel-workshop` composes drawing, existing indexed previews and on-demand library
+selection. Both library art and built-in furniture enter the same world-draft
+placement action; catalog Save and layout Save remain separate transactions.
+Shared prop resolution and frame projection feed both renderers, with value-aware
+texture keys. Authoring warnings inspect admitted packs without replacing strict
+admission or granting executable capabilities.
 Owner approval may select a revoked grant's retained block through the same
 bounded space projection. The pairing transaction reserves that source grant
 with a transfer receipt and records immutable approval intent; no second
@@ -98,6 +434,9 @@ contracts below. They share only reviewed indexed-art, framed-digest, cursor and
 mechanics; each retains typed validation, storage tables, revision/cursor domain and quotas.
 Profiles may select admitted avatar art through immutable digest/key references; catalog
 removal leaves the reference intact and falls back to the stored default appearance.
+Avatar built-ins use the same validated native registry for list/show, profile
+admission and the authenticated browser catalog. They do not seed database rows
+or consume retained-pack quotas; custom catalog revisions remain storage-owned.
 Community exchange and exploration remain a [sandbox plan](docs/office/sandbox.md), not a
 runtime SDK, identity registry or alternate exchange engine.
 
@@ -146,8 +485,15 @@ Native commands and authenticated loopback HTTP reuse that owner. A profile chan
 different custom reference and its catalog admission are checked in one immediate SQLite
 transaction. A retained reference remains editable when its pack is removed or corrupt,
 and exact reinstall restores its art without rewriting the profile. Layout, role, notes,
-identity and presence are never profile fields. The shared browser `Avatar` composes either
-repository-owned robot art or admitted indexed custom art. `rendering/indexed-raster` draws
+identity and presence are never profile fields. Browser SVG and canvas share the default
+`profiles/avatar-art` projection and `profiles/avatar-layout` display metrics; admitted
+custom art keeps its immutable raster. The bundled v2 default uses named material
+slots and the same palette-tint operation as furniture; these authoring slots do
+not add a catalog or installed-pack schema. Avatar v1/v2 preserve their own versioned
+digest domains and one-/two-digit encodings within the same file, cell and catalog
+budgets. Native `office_avatar::avatar_format` owns versioned admission and summary
+dimensions; browser `avatars/avatar-contract::avatarRaster` preserves encoding for
+catalog resolution and previews. `rendering/indexed-raster` draws
 inert pixels for both avatars and admitted props; avatar artwork never enters the prop
 catalog. Identity and shirt text remain separate accessible text overlays, never executable
 artwork.
@@ -200,7 +546,9 @@ completion.
 Help retains its selected public command path. The grammar-aware presentation scan
 shares option-value boundaries with error-mode recovery, so `-h`/`--help` can bypass
 required operands without interpreting payload data as flags. Public help and
-completion use command-owned options, not inherited placement-only options. Help
+completion use command-owned options, not inherited placement-only options. The
+public projection preserves command-owned supplemental help instead of adding
+per-command presentation branches. Help
 never enters runtime dispatch or skill-drift inspection; JSON help remains unsupported.
 
 The maintained public surface is:
@@ -216,7 +564,7 @@ The maintained public surface is:
 - managed native updates through `upgrade`/`update`, with the hidden
   `__native-install` and `__native-refresh-skills` composition points used by
   verified release tooling;
-- optional `office`, `office install|upgrade|status|uninstall`, local block and
+- optional `office`, `office install|upgrade|status|uninstall`, local layout and
   local discussion-board operations. Installation
   requires consent; noninteractive root/status never download or prompt.
 
@@ -249,12 +597,25 @@ Dependency upgrades must not renormalize stored keys.
 filters, typed results and shared metadata operations. Metadata is descriptive,
 untrusted data; it does not grant permissions, capabilities, availability or
 prompt authority.
+`tmt-core::identity_status` owns typed self-reported activity/mood, byte limits,
+expiry and set/show/clear semantics. `storage::identity_status` stores one atomic
+record per active UUID in schema 29; it neither promotes identities nor mutates
+their timestamps, appearance or requests. Expired data stays inspectable but is
+not current activity. `identity_command::status` reuses verified caller resolution;
+`tmt-adapters::identity_status` owns the shared JSON projection. The
+[status contract](contracts/identity-status-v1.md) distinguishes this state from
+presence and completion. The Office directory reads active UUID statuses in one
+batch and composes that projection beside, never inside, appearance snapshots.
+`identities/use-status-clock` schedules the next expiry for the mounted directory;
+scene cues and Info consume the same observation. Appearance revision merging
+preserves independent status observations. No actor polling or status writes occur
+in the renderer.
 `tmt-core::binding` owns evidence evaluation, retirement authorization and
 binding use cases. Unknown or conflicting endpoint evidence is never treated as
 proof of death. Saved identities detach and remain offline; temporary identities
 may retire only after conclusive evidence.
 
-The concrete implementations are `storage::{identities,identity_metadata,bindings}`
+The concrete implementations are `storage::{identities,identity_metadata,identity_status,bindings}`
 and `tmux::{metadata,evidence,binding,caller,transport}`.
 `binding_command` performs caller/target preflight and composes those owners.
 Presence is observation, not routing permission; an explicit socket or pane
@@ -287,8 +648,17 @@ creates one directory component at a time with owner-only modes, uses exclusive
 no-follow file creation, rejects linked/non-directory subtree components and
 nonregular targets, and never opens an existing notebook for writing. The file
 body, edit concurrency, and retention are ordinary user-filesystem concerns;
-there is no SQLite body copy, revision protocol, watcher, lock, size limit,
-authentication, isolation, or secure deletion claim.
+there is no SQLite body copy, revision protocol, watcher, lock, file-size policy,
+per-agent isolation, or secure deletion claim.
+
+The local Office notebook extension reads that same file through `notes::read`,
+which revalidates active saved identity eligibility. It pins directory handles,
+refuses symlinks/nonregular files and delegates to `bounded_file::read_opened`;
+it never initializes missing notes. The authenticated loopback GET adapter exposes
+only UUID/name/exact UTF-8 content, not caller-selected paths or writes. Its separate
+1 MiB viewer ceiling does not restrict agent file edits. The browser port and
+read-only panel own response admission and cancellable read lifetime, not storage.
+See the [notebook contract](contracts/office/notebook-v1.md).
 
 Identity retirement deliberately leaves notebooks in place. A later same-name
 identity has a different UUID and therefore a different path. No command moves
@@ -343,6 +713,21 @@ one-shot protocol, while the stopped-service-independent companion and authentic
 loopback HTTP adapter call the same repository. Repository categories are
 credential-free Git remote identifiers, not permissions, and category discovery
 is a synthetic-general plus stored-root projection rather than a registry.
+Schema 30 generalizes the stored category identifier and adds canonical room UUID
+categories to this same board store. It transactionally preserves existing roots,
+replies, tombstones, sequence/revision values and operation receipts. New room
+threads require an existing room, not room membership; retained threads and exact
+operation replays remain readable after room removal. Room scope is classification,
+not access control. Category discovery uses the same indexed keyset ordering for
+repository and room identifiers; pre-upgrade category cursors require a fresh page.
+CLI `--room` selection reuses the canonical room resolver. The browser discussion
+binding selects General or an explicit room UUID in that same store; placement
+changes cannot retarget it. `local/board-navigation` aggregates form-owned leave
+protection for category, thread and spatial-entry switches. `use-board-mutation`
+owns a frozen operation per form; refresh and ordering preserve selection and
+unconfirmed writes. Confirmed discard resets forms, not stored content. Closing
+the panel retains its mounted session, while explicit retry reuses the original
+scope, entry revision and operation UUID.
 
 `tmt-core::request::RequestService` owns preparation, delivery-state
 transitions, exact final submission, waiter release, attention revisions and
@@ -369,6 +754,14 @@ submission. The settings owner defines retention defaults and limits.
 `RequestRoute` distinguishes verified pane delivery from durable identity inbox
 queueing. Pane attempts retain server/pane evidence; inbox attempts retain only
 the resolved active recipient UUID and settle as `queued`, never `sent`.
+`RequestService::enqueue` prepares the attempt, stores its exact prompt and
+publishes recipient attention in one repository transaction. CLI inbox sends use
+this path; pane effects retain the separate prepare/send/settle lifecycle.
+Both paths reuse the same preparation and queue-transition policy. Database
+errors roll back all enqueue writes. A recipient found inactive commits a failed,
+non-waiting attempt without recipient attention, matching the prepared queue path.
+Interrupting a sender after publication only releases its wait; it does not
+retract queued recipient work.
 The recipient revision is allocated atomically with the `queued` transition, so
 a merely prepared attempt cannot wake a listener and every newly eligible item
 advances that identity's shared participant sequence. Recipient request attention

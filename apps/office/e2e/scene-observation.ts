@@ -3,17 +3,34 @@ import { writeFile } from 'node:fs/promises';
 import { cpus, platform, arch } from 'node:os';
 import type { Page, TestInfo } from '@playwright/test';
 
-/** Test-only observation of actual WebGL submissions, not a product debug API. */
+export interface SceneActivity {
+  draws: number;
+  submittedVertices: number;
+  texturesCreated: number;
+  texturesDeleted: number;
+  texturesLive: number;
+}
+
+/** Test-only observation of actual WebGL submissions/resources, not a product debug API. */
 export async function installDrawObserver(page: Page) {
   await page.addInitScript(() => {
-    let draws = 0;
-    Object.defineProperty(window, '__officeDrawCount', { get: () => draws });
+    const activity = {
+      draws: 0,
+      submittedVertices: 0,
+      texturesCreated: 0,
+      texturesDeleted: 0,
+      texturesLive: 0,
+    };
+    const textures = new WeakSet<WebGLTexture>();
+    Object.defineProperty(window, '__officeDrawCount', { get: () => activity.draws });
+    Object.defineProperty(window, '__officeSceneActivity', { get: () => ({ ...activity }) });
     for (const type of [WebGLRenderingContext, WebGL2RenderingContext]) {
       for (const method of [
         'drawArrays',
         'drawElements',
         'drawArraysInstanced',
         'drawElementsInstanced',
+        'drawRangeElements',
       ]) {
         const original = Reflect.get(type.prototype, method);
         if (typeof original !== 'function') continue;
@@ -21,13 +38,71 @@ export async function installDrawObserver(page: Page) {
           configurable: true,
           writable: true,
           value: function (this: WebGLRenderingContext, ...args: number[]) {
-            draws++;
+            activity.draws++;
+            activity.submittedVertices +=
+              method === 'drawArrays'
+                ? args[2]!
+                : method === 'drawArraysInstanced'
+                  ? args[2]! * args[3]!
+                  : method === 'drawElementsInstanced'
+                    ? args[1]! * args[4]!
+                    : method === 'drawRangeElements'
+                      ? args[3]!
+                      : args[1]!;
             return Reflect.apply(original, this, args);
           },
         });
       }
+      const create = type.prototype.createTexture;
+      const destroy = type.prototype.deleteTexture;
+      type.prototype.createTexture = function () {
+        const texture = Reflect.apply(create, this, []) as ReturnType<typeof create>;
+        if (texture) {
+          textures.add(texture);
+          activity.texturesCreated++;
+          activity.texturesLive++;
+        }
+        return texture;
+      };
+      type.prototype.deleteTexture = function (texture: WebGLTexture | null) {
+        Reflect.apply(destroy, this, [texture]);
+        if (texture && textures.delete(texture)) {
+          activity.texturesDeleted++;
+          activity.texturesLive--;
+        }
+      };
     }
   });
+}
+
+/** Finish scheduled paints before reading cumulative counters; no wall-clock sleep. */
+export async function sceneActivity(page: Page): Promise<SceneActivity> {
+  return page.evaluate(async () => {
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
+    return Reflect.get(window, '__officeSceneActivity');
+  });
+}
+
+/** Exact world comparison excludes changing DOM controls and compositor shadows. */
+export async function captureWorldScene(page: Page, info: TestInfo, name: string) {
+  await sceneActivity(page);
+  const hud = page.locator('.world-hud-layout');
+  // Native CSP rejects injected stylesheets. Change only existing presentation;
+  // never disable CSP, resize the canvas or mutate application state for a capture.
+  const visibility = await hud.evaluate((element: HTMLElement) => {
+    const previous = element.style.visibility;
+    element.style.visibility = 'hidden';
+    return previous;
+  });
+  try {
+    await expect(hud).toHaveCSS('visibility', 'hidden');
+    return await page.locator('.office-canvas canvas').screenshot({ path: info.outputPath(name) });
+  } finally {
+    await hud.evaluate((element: HTMLElement, value) => {
+      element.style.visibility = value;
+    }, visibility);
+  }
 }
 
 export async function observeIdleScene(page: Page, testInfo: TestInfo, name: string) {

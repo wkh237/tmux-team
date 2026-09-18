@@ -132,7 +132,7 @@ jobs:
           TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo build --locked -p tmt-office --features local-service
           TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo test --locked -p tmt-office --features local-service
           cd ..
-          TMT_TEST_CLI="${{ github.workspace }}/rust/target/debug/tmt" TMT_TEST_OFFICE="${{ github.workspace }}/rust/target/debug/tmt-office" pnpm office:local:e2e
+          pnpm office:local:e2e
       - name: Verify native process and shared parser contracts
         env:
           TMT_TEST_CLI: '{"executable":"${{ github.workspace }}/rust/target/debug/tmt","args":[]}'

@@ -17,3 +17,9 @@ pub fn request_ids() -> (String, String) {
         uuid::Uuid::new_v4().to_string(),
     )
 }
+
+/// Public IDs emitted by the native request factory and admitted by owner APIs.
+pub fn valid_request_id(id: &str) -> bool {
+    id.strip_prefix("req_")
+        .is_some_and(tmt_core::dispatch::canonical_id)
+}

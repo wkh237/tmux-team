@@ -245,8 +245,8 @@ fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> 
             OfficeInvocation::Probe | OfficeInvocation::Capabilities | OfficeInvocation::Sync => {
                 Err(OfficeError::CredentialsInvalid)
             }
-            OfficeInvocation::LocalBlockShow
-            | OfficeInvocation::LocalBlockApply
+            OfficeInvocation::LocalWorldShow
+            | OfficeInvocation::LocalWorldApply
             | OfficeInvocation::LocalProfileShow
             | OfficeInvocation::LocalProfileApply
             | OfficeInvocation::LocalPropValidate
@@ -259,13 +259,16 @@ fn run(operation: OfficeInvocation, bytes: &[u8]) -> Result<Value, OfficeError> 
             | OfficeInvocation::LocalAvatarRemove
             | OfficeInvocation::LocalAvatarList
             | OfficeInvocation::LocalAvatarShow
+            | OfficeInvocation::LocalExtensionValidate
             | OfficeInvocation::BoardPost
             | OfficeInvocation::BoardList
             | OfficeInvocation::BoardShow
             | OfficeInvocation::BoardReply
             | OfficeInvocation::BoardEdit
             | OfficeInvocation::BoardDelete
-            | OfficeInvocation::BoardCategories => Err(OfficeError::CredentialsInvalid),
+            | OfficeInvocation::BoardCategories
+            | OfficeInvocation::WhiteboardSnapshotShow
+            | OfficeInvocation::WhiteboardSnapshotImage => Err(OfficeError::CredentialsInvalid),
         }
     };
     if operation == OfficeInvocation::PairStatus {

@@ -141,8 +141,8 @@ fn office_install_adds_optional_guidance_to_detected_and_managed_custom_roots() 
                 "tmt office prop validate --file",
                 "tmt office prop list --local",
                 "tmt office prop install --local",
-                "tmt office block show --local",
-                "tmt office block apply --local",
+                "tmt office layout show",
+                "tmt office layout apply",
                 "tmt office prop remove --local",
                 "`.layout`",
             ] {
@@ -154,7 +154,9 @@ fn office_install_adds_optional_guidance_to_detected_and_managed_custom_roots() 
         } else if name == "tmt-avatar-create" {
             assert!(!guidance.contains("contracts/office/"));
             for required in [
-                "\"formatVersion\": 1",
+                "`formatVersion: 1` for 16×24 pixels",
+                "`2` for 32×48 pixels",
+                "V2 rows contain exactly 64 characters",
                 "tmt office avatar validate --file",
                 "tmt office avatar list --local",
                 "tmt office avatar install --local",
@@ -176,7 +178,9 @@ fn office_install_adds_optional_guidance_to_detected_and_managed_custom_roots() 
                 "tmt office prop install --local",
                 "tmt office prop remove --local",
                 "`.layout`",
-                "{\"version\":2,\"objects\":[...]}",
+                "{\"version\":1,\"map\":{...},\"objects\":[...]}",
+                "tmt office layout show",
+                "tmt office layout apply",
             ] {
                 assert!(
                     guidance.contains(required),

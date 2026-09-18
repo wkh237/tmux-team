@@ -9,7 +9,7 @@ interface Snapshot {
   error: string | null;
 }
 /** Created by the mounted block effect, never during React rendering. */
-export function createBlockState(port: BlockPort, worldId: string) {
+export function createBlockState(port: BlockPort, blockKey: string) {
   let snapshot: Snapshot = { ready: false, remote: null, draft: null, busy: false, error: null };
   let disposed = false;
   let watchFailed = false;
@@ -25,7 +25,7 @@ export function createBlockState(port: BlockPort, worldId: string) {
     return (snapshot.remote?.revision ?? 0) > (remote?.revision ?? 0) ? snapshot.remote : remote;
   }
   const stop = port.watch(
-    worldId,
+    blockKey,
     (remote) => {
       if (!watchFailed) publish({ ready: true, remote: latest(remote) });
     },
@@ -52,7 +52,10 @@ export function createBlockState(port: BlockPort, worldId: string) {
     edit(objects: Furniture[]) {
       if (disposed || !snapshot.ready || snapshot.busy) return;
       if (!validLayout(objects)) {
-        publish({ error: 'Keep furniture inside the room and use at most 16 items.' });
+        publish({
+          error:
+            'Use at most 16 pieces inside the room, valid tint colors, and single-line text up to 24 characters / 64 UTF-8 bytes.',
+        });
         return;
       }
       publish({
@@ -64,11 +67,16 @@ export function createBlockState(port: BlockPort, worldId: string) {
       if (!snapshot.busy) publish({ draft: null, error: null });
     },
     async save() {
-      if (disposed || !snapshot.ready || !snapshot.draft || snapshot.busy) return;
-      const draft = snapshot.draft;
+      if (disposed || !snapshot.ready || snapshot.busy) return;
+      const draft =
+        snapshot.draft ??
+        (snapshot.remote?.revision === 0
+          ? { revision: 0, objects: snapshot.remote.objects }
+          : null);
+      if (!draft) return;
       publish({ busy: true, error: null });
       try {
-        const remote = await port.apply(worldId, draft.revision, draft.objects);
+        const remote = await port.apply(blockKey, draft.revision, draft.objects);
         if (disposed || watchFailed) return;
         publish({
           remote: latest(remote),

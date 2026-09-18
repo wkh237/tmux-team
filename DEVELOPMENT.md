@@ -305,14 +305,125 @@ protected loopback route tests, and the real local CLI→SQLite→browser→rest
 Capture desktop and narrow screenshots and inspect name, hair, clothing, mark and
 offline-presence legibility. No cloud account or remote publication is part of this gate.
 
-For local discussion-board changes, extend `scripts/verify-local-office.mjs`: use
+`native-local-world.spec.ts` owns the installation-wide layout lifecycle: a lazy
+furnished 2×2 Lobby plus four unassigned offices, explicit browser Save, one SQLite world revision, empty placements
+remaining empty after restart, and no new per-identity block rows.
+`test/support/office-world.ts` owns explicit legacy fixtures for older topology
+scenarios; do not translate the evolving new-world preset to simulate old inputs.
+`native-local-topology.spec.ts` owns personal-area removal, replacement Lobby,
+retained identity content and real external-write conflicts using explicit legacy
+inputs rather than retired terrain-authoring controls. Its error-state
+desktop/short/narrow viewport checks require non-overlapping, operable HUD controls
+without resizing the canvas. `native-local-walls.spec.ts` covers browser-authored
+wall art, native exterior/support admission, retained rejected drafts, explicit
+repair and restart. Shared read-only SQL and pointer helpers live in
+`native-world-state.ts` and `world-editor-gesture.ts`; keep expected fixture extents
+independent of production geometry and assertions inside their scenarios.
+`native-local-composition.spec.ts` combines private-tmux saved/temporary identities,
+furnished personal areas, a meeting set, editable wall objects and floating
+Chat/Info/room-audience panels. Inspect its desktop/narrow renders after readiness;
+it supplements, rather than replaces, the focused lifecycle and delivery tests.
+`native-local-profile.spec.ts` independently verifies that profile edits, retries
+and conflicts do not mutate the saved world or role definition, and retirement
+retains profile and world bytes.
+`native-local-meeting-modules.spec.ts` exercises the V4 in-world name entry,
+independent canonical-room creation, layout Undo/Redo/Cancel, existing-room
+reattachment, furnished Save, targeted membership and blocked spatial removal.
+Independent SQLite reads distinguish room writes from layout writes. Inspect its
+1536×1024 DPR-1 and narrow screenshots; `native-local-central-grid.spec.ts` adds
+sparse circulation, wall mounts and DPR-2 idle evidence. These fixtures do not
+prove default-world conversion or final visual fidelity.
+`native-local-agent-meeting.spec.ts` verifies agent Info → room selection → member
+review → Save using the installed companion and independent SQLite/CLI reads.
+It covers retained members, discard, draft protection across agent switching,
+restart, unchanged world bytes and no dispatch. DOM dialog visibility is emulated
+once in `src/test-setup.ts`; native browser tests own real modal/focus behavior.
+Native browser navigation selects agents in the whole-world Directory; identities
+without assigned areas do not acquire implicit rooms. Avatar reinstall/fallback
+and inbox/reply scenarios use the same installed companion and isolated fixture.
+
+`native-local-module-keyboard.spec.ts` verifies keyboard name entry and button
+activation, Undo/Redo/Save, restart and narrow-screen object admission/repair,
+with independent SQLite observations and no terrain-painting interface. Native
+select values use Playwright selection; this does not prove OS-level popup
+keyboard navigation, which requires a separate native-input accessibility check.
+
+`native-local-prop.spec.ts` verifies whole-world placement, directional artwork,
+per-object customization, restart and missing/corrupt-pack recovery without an
+identity-owned room. Observe layout bytes independently of catalog mutations;
+compare rendered pixels, not only object selectors. `native-local-prop-capacity.spec.ts`
+covers full catalog admission, overflow immutability and actual visible artwork
+from every installed pack. Keep pixel probes clear of architectural occlusion.
+`native-local-workstation.spec.ts` verifies source-derived bundled furniture and wall props through
+real catalog placement, authored chair views and native Save/reopen. Offline art
+encoding and its source-review gates are documented in the
+[modular visual package](docs/office/references/rooms-and-walls/modular-v1/README.md).
+`native-local-room-materials.spec.ts` checks exact world-pixel Undo/Redo, retained
+content and bounded finish textures. `captureWorldScene` excludes HUD presentation
+for pixel comparisons; separate unmodified screenshots verify the visible HUD.
+`native-local-world-capacity.spec.ts` exercises dense tile-budget and connected
+sparse worlds through native admission and the browser. `scene-observation.ts`
+observes actual WebGL submissions and texture lifetimes across zoom, pan, revisit
+and replacement; the idle window must submit no new draws. Keep measured startup,
+CPU and heap evidence separate from portable assertions: texture counts are not
+GPU bytes, and JS heap is not total browser memory.
+
+For local discussion-board changes, extend `native-local-discussion-admin.spec.ts`: use
 one-shot CLI mutations while the service is stopped, the rendered browser through
 the real loopback API, a fresh CLI read and independent SQLite observations. Cover
 category isolation, inert text and attribution, board-specific stale revisions with
 unchanged storage, owner moderation tombstones, CLI replies visible after browser
-refresh, restart durability, rotated-token rejection, loopback-only traffic and an
+refresh, restart durability, loopback-only traffic and an
 asserted stopped service. No browser route interception or cloud approval is part of
 this local gate.
+
+`native-local-service.spec.ts` owns installed-service faults and cleanup: separate
+browser/control authority, live-session reuse, bounded incomplete-write shutdown,
+rotated credentials, version drift, dead-child recovery, occupied ports, early
+companion exit and uncertain receipts. Use the shared native Office fixture;
+do not recreate its installer, process sandbox or executable selection in scripts.
+
+`apps/office/e2e/native-local-discussion.spec.ts` owns spatial presentation checks:
+opening and closing over the same panned canvas, unsent draft retention, explicit
+post/reply persistence without task dispatch, mobile navigation and focus return.
+It uses the shared native Office fixture, not a second service harness.
+
+Whiteboard drawing and snapshot/reference scenarios share that fixture. The
+snapshot scenario paints in a real browser, checks frozen JSON/PNG against SQLite,
+copies a token-free reference, stops the web service, then verifies native reads
+and no-clobber PNG export. It saves the exported image for visual inspection;
+structured text alone is not image-access evidence. The Send scenario additionally
+checks no enqueue before confirmation, frozen recipient UUIDs across retirement
+and same-name recreation, exact-envelope replay, native inbox/reply/result and PNG
+access. Mounted-state tests cover uncertain transport and exact Retry send input;
+the native scenario does not intercept routes to fabricate a successful send.
+After the sequential SPA and
+native builds below, run these without Vite servers or Firebase:
+
+```bash
+pnpm --filter @tmt/office test:browser:native native-local-whiteboard
+```
+
+The native browser config reuses the normal one-worker/no-retry policy. Fixtures
+own and stop their isolated services. `TMT_TEST_BROWSER_CHANNEL` selects the local
+browser (default `chrome`).
+
+`native-local-conversation.spec.ts` verifies direct chat against that same native
+fixture: draft retention, target-switch confirmation, inbox delivery, real CLI
+reply, browser display, and reload recovery after the host accepts a send but its
+HTTP response is dropped. Independent SQLite counts prove recovery creates no
+duplicate requests and reading the chat does not acknowledge incoming work.
+The transport-fault case forwards to the real host before aborting the browser
+response; it never fabricates acceptance. It captures desktop/narrow screenshots
+and asserts service shutdown. State tests separately cover bounded page/body
+reads, observation deadlines, hidden-tab cancellation and failed-read recovery.
+
+`native-local-status.spec.ts` adds private-tmux actors and real CLI self-reports:
+one canonical record reaches the directory and Info, browser-only time advancement
+expires the rendered cue without another read or stored mutation, and a real
+request/reply takes visual priority without changing status. It checks saved and
+Contractor presentation, restart persistence and desktop/narrow rendering. Unit
+tests own exact deadline/rollback scheduling and appearance/status read races.
 
 Build the local SPA from the repository root:
 
@@ -320,7 +431,9 @@ Build the local SPA from the repository root:
 pnpm office:build:local
 ```
 
-Then run the pinned toolchain from `rust/`, where `rust-toolchain.toml` applies:
+After the SPA build exits successfully, run the pinned toolchain from `rust/`,
+where `rust-toolchain.toml` applies. Never overlap these producer/consumer steps:
+Cargo can otherwise reuse the old embedded assets before Vite replaces them.
 
 ```bash
 TMT_OFFICE_SPA_DIR="$PWD/../target/office-spa" CARGO_PROFILE_DEV_DEBUG=0 cargo clippy --locked -p tmt-office --features local-service -- -D warnings
@@ -332,7 +445,7 @@ CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked -p tmt-cli
 Finally, return to the repository root and exercise the real installed-style flow:
 
 ```bash
-TMT_TEST_CLI="$PWD/rust/target/debug/tmt" TMT_TEST_OFFICE="$PWD/rust/target/debug/tmt-office" pnpm office:local:e2e
+pnpm office:local:e2e
 ```
 
 Run the complete applicable local gates before pushing the reviewed commit.

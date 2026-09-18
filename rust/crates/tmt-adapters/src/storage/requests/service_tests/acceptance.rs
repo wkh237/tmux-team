@@ -5,8 +5,8 @@ use super::support::{
 };
 use crate::storage::Storage;
 use tmt_core::request::{
-    Originator, RequestError, RequestPrompt, RequestService, ResponseProof, ResponseRejection,
-    Settlement, SubmitResponse,
+    Originator, RequestError, RequestPrompt, RequestService, ResponseLookup, ResponseProof,
+    ResponseRejection, Settlement, SubmitResponse,
 };
 
 #[test]
@@ -57,7 +57,7 @@ fn retained_final_survives_restart_and_missing_attempt_without_renewing_retry_de
     );
     assert_eq!(
         service(&mut fixture).get_response("orphan").unwrap(),
-        Some(first.clone())
+        ResponseLookup::Available(Box::new(first.clone()))
     );
     assert_eq!(count_rows(&fixture.database, "request_attempts"), 0);
     let oracle = rusqlite::Connection::open_with_flags(
@@ -84,11 +84,9 @@ fn retained_final_survives_restart_and_missing_attempt_without_renewing_retry_de
         1,
         "rejection does not run housekeeping"
     );
-    assert!(
-        service(&mut fixture)
-            .get_response("orphan")
-            .unwrap()
-            .is_none()
+    assert_eq!(
+        service(&mut fixture).get_response("orphan").unwrap(),
+        ResponseLookup::Unavailable
     );
     assert_eq!(count_rows(&fixture.database, "request_responses"), 0);
     assert!(matches!(
@@ -238,14 +236,12 @@ fn late_final_extends_metadata_not_original_prompt_or_attention_acknowledgment()
     ));
     assert_eq!(
         service(&mut fixture).get_response("horizons").unwrap(),
-        Some(final_response)
+        ResponseLookup::Available(Box::new(final_response))
     );
     fixture.set_now(NOW_MS + 93 * DAY_MS);
-    assert!(
-        service(&mut fixture)
-            .get_response("horizons")
-            .unwrap()
-            .is_none()
+    assert_eq!(
+        service(&mut fixture).get_response("horizons").unwrap(),
+        ResponseLookup::Unavailable
     );
     assert!(
         service(&mut fixture)

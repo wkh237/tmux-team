@@ -3,6 +3,9 @@
 Status: implemented for strict local admission, catalog storage, preview, profile selection
 and unavailable-selection fallback.
 
+[V2](avatar-pack-v2.md) adds higher-detail static rasters without changing this
+version's dimensions, digest framing or retained catalog behavior.
+
 An avatar pack is one UTF-8 `.tmtavatar.json` regular file of at most 32 KiB. Readers
 must not follow symbolic links and reject a UTF-8 BOM, invalid UTF-8, duplicate JSON
 members, and members not named below.
@@ -31,16 +34,39 @@ still consume capacity and may be explicitly removed. Catalog revisions, conditi
 mutations, exact retry, pagination, and stale-cursor behavior follow the typed local
 avatar protocol; they never change the prop catalog revision.
 
+The bundled modular robot pack is immutable and does not consume retained capacity.
+Native `list` exposes it in `builtins`, separately from paginated installed `packs`;
+`show` resolves either source. Snapshots include `builtin` and `installedAtMs`
+(null for built-ins, positive for installed packs). Installing identical bundled
+bytes at the current revision is a no-op; removing a built-in returns
+`OFFICE_AVATAR_INVALID` without changing the catalog. Reads never seed SQLite.
+The browser merges both sources into the existing catalog envelope, bounded by
+65 packs and 260 avatars, without changing default or explicitly saved appearances.
+
 Preview requires an already-running authenticated loopback Office service, is bounded
 and expiring, and does not install a pack or alter a profile. Raster data is validated
 before reaching the inert indexed renderer; labels and credits remain untrusted text.
 
 The optional profile `avatarRef` is exactly `<digest>/<key>`. Selecting a new reference
-requires the installed catalog row and key in the same immediate transaction as the profile
+requires an admitted bundled key or installed catalog row and key in the same immediate transaction as the profile
 write. Removing a pack never edits profiles. A retained missing or corrupt reference renders
 the profile's stored default robot appearance, and exact reinstall restores the art without a
 profile revision change. The browser receives one bounded authenticated catalog projection at
 startup; animation, movement, arbitrary URLs and runtime plugins are outside this contract.
+
+## Authoring warnings
+
+CLI `avatar validate` appends `warnings` after strict admission. Each warning has
+`avatar` (the source key), stable `code`, and `message`. `opaque-edge` means an
+opaque cell touches a canvas boundary; `small-silhouette` means fewer than 48 of
+384 cells are opaque; `single-color` means the visible cells resolve to just one
+distinct RGBA color, excluding unused palette entries. Intentional cropped art,
+small characters and flat silhouettes remain valid.
+
+Warnings are read-only advice, not visual approval or another admission gate.
+They do not alter source bytes, digest, catalog or profile. Install/show summaries
+and the companion protocol remain unchanged. Preview at actual display size to
+judge aesthetics, silhouette and the optional shirt-mark overlay.
 
 [`avatar-pack-vectors.json`](avatar-pack-vectors.json) contains shared projection
 values. It does not claim to test duplicate-member, raw-byte, file-kind, or symlink

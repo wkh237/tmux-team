@@ -130,11 +130,11 @@ fn cleanup_scrubs_prompt_and_final_body_at_equality_before_metadata() {
     {
         let mut requests = service(&mut fixture);
         requests.cleanup().expect("cleanup expired bodies");
-        assert!(
+        assert_eq!(
             requests
                 .get_response(&prepared.request_id)
-                .expect("read final")
-                .is_none()
+                .expect("read final"),
+            tmt_core::request::ResponseLookup::Unavailable
         );
         let context = requests
             .get_context(&prepared.request_id)

@@ -4,7 +4,8 @@ use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
 use super::{Storage, StorageError, StorageErrorCode, errors::classify};
 use crate::office_avatar::{
-    PACK_INPUT_LIMIT, ValidatedAvatarPack, parse_pack_digest, validate_pack,
+    PACK_INPUT_LIMIT, ValidatedAvatarPack, builtin_by_digest, builtin_packs, parse_pack_digest,
+    validate_pack,
 };
 
 const PACK_QUOTA: u64 = 64;
@@ -15,7 +16,7 @@ const CURSOR_DOMAIN: u8 = 2;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalAvatarSnapshot {
     pub catalog_revision: u64,
-    pub installed_at_ms: u64,
+    pub installed_at_ms: Option<u64>,
     pub pack: ValidatedAvatarPack,
 }
 
@@ -53,6 +54,7 @@ pub struct LocalAvatarExcluded {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalAvatarCatalogList {
     pub catalog_revision: u64,
+    pub builtins: Vec<LocalAvatarSnapshot>,
     pub packs: Vec<LocalAvatarSnapshot>,
     pub excluded: Vec<LocalAvatarExcluded>,
     pub next_cursor: Option<String>,
@@ -174,7 +176,7 @@ impl Storage {
             digest: candidate.digest().into(),
             snapshot: Some(LocalAvatarSnapshot {
                 catalog_revision: next,
-                installed_at_ms: now,
+                installed_at_ms: Some(now),
                 pack: candidate.clone(),
             }),
         })
@@ -185,7 +187,7 @@ impl Storage {
         expected_revision: u64,
         digest: &str,
     ) -> Result<LocalAvatarMutation, LocalAvatarCatalogError> {
-        if parse_pack_digest(digest).is_none() {
+        if parse_pack_digest(digest).is_none() || builtin_by_digest(digest).is_some() {
             return Err(LocalAvatarCatalogError::Invalid);
         }
         let transaction = self
@@ -329,6 +331,10 @@ impl Storage {
             .map_err(|error| classify(error, "Finish local avatar catalog page"))?;
         Ok(LocalAvatarCatalogList {
             catalog_revision: revision,
+            builtins: builtin_packs()
+                .iter()
+                .map(|pack| builtin_snapshot(revision, pack))
+                .collect(),
             packs,
             excluded,
             next_cursor,
@@ -429,6 +435,9 @@ fn load_snapshot(
     revision: u64,
     digest: &str,
 ) -> Result<Option<LocalAvatarSnapshot>, LocalAvatarCatalogError> {
+    if let Some(pack) = builtin_by_digest(digest) {
+        return Ok(Some(builtin_snapshot(revision, pack)));
+    }
     load_row(connection, digest)?
         .map(|row| snapshot_from_row(revision, row))
         .transpose()
@@ -467,9 +476,16 @@ fn snapshot_from_row(
     }
     Ok(LocalAvatarSnapshot {
         catalog_revision: revision,
-        installed_at_ms: stored_u64(row.installed_at_ms)?,
+        installed_at_ms: Some(stored_u64(row.installed_at_ms)?),
         pack,
     })
+}
+fn builtin_snapshot(revision: u64, pack: &ValidatedAvatarPack) -> LocalAvatarSnapshot {
+    LocalAvatarSnapshot {
+        catalog_revision: revision,
+        installed_at_ms: None,
+        pack: pack.clone(),
+    }
 }
 fn exclusion_reason(row: &BoundedRow) -> LocalAvatarExcludedReason {
     if row.length < 0
@@ -597,6 +613,43 @@ mod tests {
             .collect::<rusqlite::Result<Vec<_>>>()
             .unwrap();
         (catalog, packs)
+    }
+
+    #[test]
+    fn bundled_robots_resolve_without_seeding_or_advancing_the_catalog() {
+        let directory = crate::test_support::TestDirectory::new();
+        let mut storage = Storage::open(directory.path.join("avatar.db")).unwrap();
+        let before = catalog_state(&storage);
+        let pack = &builtin_packs()[0];
+        let listed = storage.list_local_avatar_packs(20, None).unwrap();
+        assert_eq!(listed.builtins.len(), 1);
+        assert!(listed.packs.is_empty());
+        assert_eq!(listed.catalog_revision, 0);
+        let shown = storage.show_local_avatar_pack(pack.digest()).unwrap();
+        assert_eq!(shown.pack, *pack);
+        assert_eq!(shown.installed_at_ms, None);
+        for avatar in &pack.pack().avatars {
+            assert!(
+                reference_available(
+                    storage.connection().unwrap(),
+                    &format!("{}/{}", pack.digest(), avatar.key)
+                )
+                .unwrap()
+            );
+        }
+        assert!(
+            !reference_available(
+                storage.connection().unwrap(),
+                &format!("{}/missing", pack.digest())
+            )
+            .unwrap()
+        );
+        assert!(!storage.install_local_avatar_pack(0, pack).unwrap().changed);
+        assert!(matches!(
+            storage.remove_local_avatar_pack(0, pack.digest()),
+            Err(LocalAvatarCatalogError::Invalid)
+        ));
+        assert_eq!(catalog_state(&storage), before);
     }
 
     #[test]

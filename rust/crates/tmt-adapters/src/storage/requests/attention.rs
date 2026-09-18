@@ -6,13 +6,7 @@ use tmt_core::request::attention::AttentionRecord;
 use super::{checked_i64, checked_limit, checked_now, rows};
 use crate::storage::{StorageError, errors::classify};
 
-fn qualified_attempt_columns() -> String {
-    rows::ATTEMPT_COLUMNS
-        .split(',')
-        .map(|column| format!("a.{}", column.trim()))
-        .collect::<Vec<_>>()
-        .join(", ")
-}
+use rows::qualified_attempt_columns;
 
 fn attention_select_from(source: &str, where_clause: &str) -> String {
     format!(
@@ -94,20 +88,34 @@ pub(super) fn list_attention(
 pub(super) fn list_response_attention(
     connection: &Connection,
     identity_id: &str,
+    room_id: Option<&str>,
     after: u64,
     limit: u64,
     now_ms: u64,
 ) -> Result<Vec<AttentionRecord>, StorageError> {
+    let source = if room_id.is_some() {
+        "request_attempts AS a INDEXED BY request_attempts_room_response_attention"
+    } else {
+        "request_attempts AS a INDEXED BY request_attempts_response_attention"
+    };
+    let scope = if room_id.is_some() {
+        "a.room_id = ?4"
+    } else {
+        "?4 IS NULL"
+    };
     let query = format!(
-        "{}\n         ORDER BY a.attention_revision, a.request_id\n         LIMIT ?",
+        "{}\n         ORDER BY a.attention_revision, a.request_id\n         LIMIT ?5",
         attention_select_from(
-            "request_attempts AS a INDEXED BY request_attempts_response_attention",
-            "a.originator_identity_id = ?
+            source,
+            &format!(
+                "a.originator_identity_id = ?1
              AND a.response_submitted_at_ms IS NOT NULL
-             AND a.attention_revision > ?
-             AND a.retention_expires_at_ms > ?
+             AND a.attention_revision > ?2
+             AND a.retention_expires_at_ms > ?3
+             AND {scope}
              AND a.attention_acknowledged_revision < a.attention_revision
-             AND state.acknowledged_through < a.attention_revision",
+             AND state.acknowledged_through < a.attention_revision"
+            ),
         ),
     );
     let mut statement = connection
@@ -119,6 +127,7 @@ pub(super) fn list_response_attention(
                 identity_id,
                 checked_i64(after, "Response attention cursor")?,
                 checked_now(now_ms, "Response attention retention cutoff")?,
+                room_id,
                 checked_limit(limit)?
             ],
             rows::attention_row,
@@ -167,11 +176,11 @@ pub(super) fn acknowledge_through(
     Ok(changed == 1)
 }
 
-fn recipient_attention_select(where_clause: &str) -> String {
+fn recipient_attention_select(source: &str, where_clause: &str) -> String {
     format!(
         "SELECT {}, state.acknowledged_through,
                 response.submitted_at_ms, response.body_bytes, response.response_expires_at_ms
-         FROM request_attempts AS a
+         FROM {source}
          JOIN request_recipient_attention_identities AS state ON state.identity_id = a.recipient_identity_id
          LEFT JOIN request_responses AS response ON response.request_id = a.request_id
          WHERE {where_clause}", qualified_attempt_columns())
@@ -185,6 +194,7 @@ pub(super) fn find_recipient_attention(
     connection
         .query_row(
             &recipient_attention_select(
+                "request_attempts AS a",
                 "a.route_kind = 'inbox' AND a.status = 'queued'
              AND a.recipient_identity_id = ? AND a.request_id = ?
              AND a.recipient_attention_revision > 0",
@@ -199,18 +209,33 @@ pub(super) fn find_recipient_attention(
 pub(super) fn list_recipient_attention(
     connection: &Connection,
     identity_id: &str,
+    room_id: Option<&str>,
     after: u64,
     limit: u64,
     now_ms: u64,
 ) -> Result<Vec<AttentionRecord>, StorageError> {
+    let source = if room_id.is_some() {
+        "request_attempts AS a INDEXED BY request_attempts_room_recipient_attention"
+    } else {
+        "request_attempts AS a INDEXED BY request_attempts_recipient_attention"
+    };
+    let scope = if room_id.is_some() {
+        "a.room_id = ?4"
+    } else {
+        "?4 IS NULL"
+    };
     let query = format!(
-        "{} ORDER BY a.recipient_attention_revision, a.request_id LIMIT ?",
+        "{} ORDER BY a.recipient_attention_revision, a.request_id LIMIT ?5",
         recipient_attention_select(
-            "a.route_kind = 'inbox' AND a.status = 'queued'
-             AND a.recipient_identity_id = ? AND a.recipient_attention_revision > ?
-             AND a.retention_expires_at_ms > ?
+            source,
+            &format!(
+                "a.route_kind = 'inbox' AND a.status = 'queued'
+             AND a.recipient_identity_id = ?1 AND a.recipient_attention_revision > ?2
+             AND a.retention_expires_at_ms > ?3
+             AND {scope}
              AND a.recipient_attention_acknowledged_revision < a.recipient_attention_revision
              AND state.acknowledged_through < a.recipient_attention_revision"
+            )
         )
     );
     let mut statement = connection
@@ -222,6 +247,7 @@ pub(super) fn list_recipient_attention(
                 identity_id,
                 checked_i64(after, "Recipient attention cursor")?,
                 checked_now(now_ms, "Recipient attention retention cutoff")?,
+                room_id,
                 checked_limit(limit)?
             ],
             rows::recipient_attention_row,

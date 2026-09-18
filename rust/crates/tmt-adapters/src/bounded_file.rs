@@ -4,7 +4,7 @@ use nix::fcntl::OFlag;
 use std::{
     error::Error,
     fmt,
-    fs::OpenOptions,
+    fs::{File, OpenOptions},
     io::{self, Read},
     os::unix::fs::OpenOptionsExt,
     path::Path,
@@ -42,12 +42,17 @@ pub fn read_no_follow(path: &Path, maximum: usize) -> Result<Vec<u8>, FileReadEr
 }
 
 fn read_with_flags(path: &Path, maximum: usize, flags: OFlag) -> Result<Vec<u8>, FileReadError> {
-    let bound = maximum.checked_add(1).ok_or(FileReadError::TooLarge)?;
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(flags.bits())
         .open(path)
         .map_err(FileReadError::Io)?;
+    read_opened(file, maximum)
+}
+
+/// Share bounded acquisition with callers that resolve files through pinned directories.
+pub(crate) fn read_opened(file: File, maximum: usize) -> Result<Vec<u8>, FileReadError> {
+    let bound = maximum.checked_add(1).ok_or(FileReadError::TooLarge)?;
     if !file.metadata().map_err(FileReadError::Io)?.is_file() {
         return Err(FileReadError::Io(io::Error::new(
             io::ErrorKind::InvalidInput,

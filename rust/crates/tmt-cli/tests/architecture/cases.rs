@@ -454,6 +454,24 @@ fn companion_uses_only_reviewed_local_service_dependencies() {
 }
 
 #[test]
+fn core_may_parse_link_values_but_cannot_fetch_them() {
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-core",
+            vec![dependency("url", "normal", None, None)]
+        ))
+        .is_empty()
+    );
+    assert!(
+        !policy::dependency_violations(&package(
+            "tmt-core",
+            vec![dependency("ureq", "normal", None, None)]
+        ))
+        .is_empty()
+    );
+}
+
+#[test]
 fn receipt_dependencies_stay_at_their_reviewed_layer() {
     assert!(
         policy::dependency_violations(&package(
@@ -490,6 +508,33 @@ fn display_width_dependency_stays_in_cli_presentation() {
             expected
         );
     }
+}
+
+#[test]
+fn png_runtime_dependency_stays_in_the_image_adapter() {
+    for (owner, expected) in [
+        ("tmt-adapters", 0),
+        ("tmt-core", 1),
+        ("tmt-cli", 1),
+        ("tmt-office", 1),
+    ] {
+        assert_eq!(
+            policy::dependency_violations(&package(
+                owner,
+                vec![dependency("png", "normal", None, None)],
+            ))
+            .len(),
+            expected,
+            "{owner}",
+        );
+    }
+    assert!(
+        policy::dependency_violations(&package(
+            "tmt-office",
+            vec![dependency("png", "dev", None, None)],
+        ))
+        .is_empty()
+    );
 }
 
 struct FixtureDirectory {

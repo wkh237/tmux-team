@@ -15,26 +15,37 @@ use std::{
 use tmt_adapters::{
     config::ConfigPaths,
     office_avatar::{ValidatedAvatarPack, validate_pack as validate_avatar_pack},
-    office_local::local_snapshot,
     office_profile::{
         mutation_value as local_profile_mutation, snapshot_value as local_profile_snapshot,
     },
     office_profile_wire,
     office_prop::{PACK_INPUT_LIMIT, ValidatedPropPack, validate_pack as validate_prop_pack},
     office_service::{self, ServiceReceipt},
-    storage::{LocalOfficeError, LocalProfileError, Storage},
+    storage::{LocalProfileError, Storage},
     tmux::{BindingSession, CallerEnvironment, Tmux},
 };
-use tmt_core::binding::{self, Presence};
+use tmt_core::binding;
 use tmt_core::office_protocol::OfficeInvocation;
 
 use crate::local_assets;
+
+mod dispatch;
+mod notebooks;
+mod props;
+mod request_history;
+mod rooms;
+#[cfg(test)]
+mod test_fixture;
+mod whiteboard;
+mod world;
 
 const HEADER_LIMIT: usize = 16 * 1024;
 const BODY_LIMIT: usize = 64 * 1024;
 const PREVIEW_LIMIT: usize = 4;
 const PREVIEW_LIFETIME: Duration = Duration::from_secs(5 * 60);
-const AVATAR_CATALOG_OUTPUT_LIMIT: usize = 256 * 1024;
+// Preserve the retained-catalog envelope and reserve one maximum bundled pack.
+const AVATAR_CATALOG_OUTPUT_LIMIT: usize =
+    256 * 1024 + tmt_adapters::office_avatar::PACK_INPUT_LIMIT;
 const MAX_CONNECTIONS: usize = 16;
 const REQUEST_DEADLINE: Duration = Duration::from_secs(3);
 const RESPONSE_DEADLINE: Duration = Duration::from_secs(15);
@@ -119,13 +130,6 @@ impl Request {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ApplyInput {
-    expected_revision: u64,
-    layout: Value,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ApplyProfileInput {
     expected_revision: u64,
     profile: Value,
@@ -167,6 +171,10 @@ fn serve() -> Result<(), ServeError> {
             }
         })?;
     let port = listener.local_addr()?.port();
+    // Initialize the shared schema before concurrent browser requests arrive.
+    // Readiness means storage is usable, not only that the port can accept a socket.
+    let mut storage = Storage::open(&paths.database).map_err(io::Error::other)?;
+    storage.close().map_err(io::Error::other)?;
     let receipt = ServiceReceipt {
         schema_version: 1,
         pid: std::process::id(),
@@ -220,17 +228,7 @@ fn serve() -> Result<(), ServeError> {
                 let previews = Arc::clone(&previews);
                 workers.push(std::thread::spawn(move || {
                     let _guard = guard;
-                    let _ = stream.set_write_timeout(Some(RESPONSE_DEADLINE));
-                    if let Err(error) = handle(&mut stream, &paths, &receipt, &stopping, &previews)
-                    {
-                        let _ = response(
-                            &mut stream,
-                            400,
-                            "application/json",
-                            br#"{"error":"BAD_REQUEST"}"#,
-                        );
-                        let _ = error;
-                    }
+                    let _ = serve_connection(&mut stream, &paths, &receipt, &stopping, &previews);
                 }));
             }
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
@@ -247,6 +245,25 @@ fn serve() -> Result<(), ServeError> {
     office_service::remove_matching_receipt(&paths, &receipt)
         .map_err(io::Error::other)
         .map_err(ServeError::Other)
+}
+
+fn serve_connection(
+    stream: &mut TcpStream,
+    paths: &ConfigPaths,
+    receipt: &ServiceReceipt,
+    stopping: &AtomicBool,
+    previews: &Previews,
+) -> io::Result<()> {
+    let _ = stream.set_write_timeout(Some(RESPONSE_DEADLINE));
+    match handle(stream, paths, receipt, stopping, previews) {
+        Ok(()) => Ok(()),
+        Err(_) => response(
+            stream,
+            400,
+            "application/json",
+            br#"{"error":"BAD_REQUEST"}"#,
+        ),
+    }
 }
 
 fn handle(
@@ -562,6 +579,31 @@ fn api(
     if request.path.starts_with("/api/v1/local/board/") {
         return board_api(stream, request, paths, receipt);
     }
+    if request.path.starts_with(notebooks::PREFIX) {
+        return notebooks::api(stream, request, paths);
+    }
+    if props::handles(&request.path) {
+        return props::api(stream, request, paths, receipt);
+    }
+    if request.path == dispatch::PATH {
+        return dispatch::api(stream, request, paths, receipt);
+    }
+    if request.path == world::PATH {
+        return world::api(stream, request, paths, receipt);
+    }
+    if request_history::handles(&request.path) {
+        return request_history::api(stream, request, paths, receipt);
+    }
+    if request.path == rooms::PATH || request.path.starts_with("/api/v1/local/rooms/") {
+        return rooms::api(stream, request, paths, receipt);
+    }
+    if request.path.starts_with("/api/v1/local/whiteboards/")
+        || request
+            .path
+            .starts_with("/api/v1/local/whiteboard-snapshots/")
+    {
+        return whiteboard::api(stream, request, paths, receipt);
+    }
     if request.method == "GET" && request.path == "/api/v1/local/avatar-catalog" {
         return avatar_catalog_api(stream, paths);
     }
@@ -570,147 +612,7 @@ fn api(
     {
         return profile_api(stream, request, paths, receipt);
     }
-    if request.method == "GET" && request.path == "/api/v1/local/blocks" {
-        let mut storage = match Storage::open(&paths.database) {
-            Ok(storage) => storage,
-            Err(_) => {
-                return response(
-                    stream,
-                    500,
-                    "application/json",
-                    br#"{"error":"STORAGE_UNAVAILABLE"}"#,
-                );
-            }
-        };
-        let blocks = match storage.list_active_local_blocks() {
-            Ok(blocks) => blocks,
-            Err(_) => {
-                let _ = storage.close();
-                return response(
-                    stream,
-                    500,
-                    "application/json",
-                    br#"{"error":"STORAGE_UNAVAILABLE"}"#,
-                );
-            }
-        };
-        let body = serde_json::to_vec(
-            &blocks
-                .into_iter()
-                .map(|snapshot| local_snapshot(snapshot, false))
-                .collect::<Vec<_>>(),
-        )?;
-        if storage.close().is_err() {
-            return response(
-                stream,
-                500,
-                "application/json",
-                br#"{"error":"STORAGE_UNAVAILABLE"}"#,
-            );
-        }
-        return response(stream, 200, "application/json", &body);
-    }
-    let Some(identity_id) = request
-        .path
-        .strip_prefix("/api/v1/local/identities/")
-        .and_then(|path| path.strip_suffix("/block"))
-        .filter(|path| !path.contains('/'))
-    else {
-        return response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#);
-    };
-    if uuid::Uuid::parse_str(identity_id)
-        .ok()
-        .is_none_or(|id| id.to_string() != identity_id)
-    {
-        return response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#);
-    }
-    let put = request.method == "PUT";
-    if request.method != "GET" && !put {
-        return response(
-            stream,
-            405,
-            "application/json",
-            br#"{"error":"METHOD_NOT_ALLOWED"}"#,
-        );
-    }
-    if put {
-        let origin = format!("http://127.0.0.1:{}", receipt.port);
-        if request.header("origin") != Some(origin.as_str())
-            || request
-                .header("content-type")
-                .is_none_or(|value| value.split(';').next() != Some("application/json"))
-        {
-            return response(
-                stream,
-                403,
-                "application/json",
-                br#"{"error":"ORIGIN_REJECTED"}"#,
-            );
-        }
-    }
-    let edit = if put {
-        let input: ApplyInput = serde_json::from_slice(&request.body).map_err(io::Error::other)?;
-        if input.expected_revision >= tmt_core::office_block::MAX_REVISION {
-            return response(
-                stream,
-                400,
-                "application/json",
-                br#"{"error":"LAYOUT_INVALID"}"#,
-            );
-        }
-        let layout =
-            tmt_adapters::office_block::decode_local_layout(&serde_json::to_vec(&input.layout)?)
-                .map_err(io::Error::other)?;
-        Some((input.expected_revision, layout))
-    } else {
-        None
-    };
-    let mut storage = match Storage::open(&paths.database) {
-        Ok(storage) => storage,
-        Err(_) => {
-            return response(
-                stream,
-                500,
-                "application/json",
-                br#"{"error":"STORAGE_UNAVAILABLE"}"#,
-            );
-        }
-    };
-    let result = match edit {
-        None => storage.show_local_block(identity_id),
-        Some((expected_revision, layout)) => {
-            storage.apply_local_block(identity_id, expected_revision, &layout)
-        }
-    };
-    let status = match &result {
-        Ok(_) => 200,
-        Err(LocalOfficeError::RevisionConflict | LocalOfficeError::RevisionExhausted) => 409,
-        Err(LocalOfficeError::LayoutInvalid) => 400,
-        Err(LocalOfficeError::PropNotFound | LocalOfficeError::PropCorrupt) => 404,
-        Err(LocalOfficeError::IdentityInactive) => 404,
-        Err(_) => 500,
-    };
-    let body = match result {
-        Ok(block) => serde_json::to_vec(&local_snapshot(block, put))?,
-        Err(LocalOfficeError::RevisionConflict | LocalOfficeError::RevisionExhausted) => {
-            br#"{"error":"REVISION_CONFLICT"}"#.to_vec()
-        }
-        Err(LocalOfficeError::IdentityInactive) => br#"{"error":"NOT_FOUND"}"#.to_vec(),
-        Err(LocalOfficeError::LayoutInvalid) => br#"{"error":"OFFICE_LAYOUT_INVALID"}"#.to_vec(),
-        Err(LocalOfficeError::PropNotFound) => br#"{"error":"OFFICE_PROP_NOT_FOUND"}"#.to_vec(),
-        Err(LocalOfficeError::PropCorrupt) => br#"{"error":"OFFICE_PROP_CORRUPT"}"#.to_vec(),
-        Err(_) => br#"{"error":"STORAGE_UNAVAILABLE"}"#.to_vec(),
-    };
-    let close = storage.close();
-    if status == 200 && close.is_err() {
-        return response(
-            stream,
-            500,
-            "application/json",
-            br#"{"error":"STORAGE_UNAVAILABLE"}"#,
-        );
-    }
-    response(stream, status, "application/json", &body)
+    response(stream, 404, "application/json", br#"{"error":"NOT_FOUND"}"#)
 }
 
 fn avatar_catalog_api(stream: &mut TcpStream, paths: &ConfigPaths) -> io::Result<()> {
@@ -742,10 +644,20 @@ fn avatar_catalog_api(stream: &mut TcpStream, paths: &ConfigPaths) -> io::Result
             }
         };
         revision = Some(page.catalog_revision);
-        packs.extend(
-            page.packs.into_iter().map(
+        if cursor.is_none() {
+            packs.extend(page.builtins.into_iter().map(
                 |snapshot| json!({"digest":snapshot.pack.digest(),"pack":snapshot.pack.pack()}),
-            ),
+            ));
+        }
+        packs.extend(
+            page.packs
+                .into_iter()
+                .filter(|snapshot| {
+                    tmt_adapters::office_avatar::builtin_by_digest(snapshot.pack.digest()).is_none()
+                })
+                .map(
+                    |snapshot| json!({"digest":snapshot.pack.digest(),"pack":snapshot.pack.pack()}),
+                ),
         );
         cursor = page.next_cursor;
         if cursor.is_none() {
@@ -786,20 +698,19 @@ fn profile_api(
             }
         };
         // A persisted binding is not presence: verify the recorded tmux
-        // endpoints and treat unknown evidence conservatively as offline.
+        // endpoints without collapsing unavailable evidence into offline.
         let tmux = Tmux::default();
         let environment = CallerEnvironment::current();
         let mut endpoint = BindingSession::new(&tmux);
-        let online = match binding::list_presence(
+        let presence = match binding::list_presence(
             &mut storage,
             &mut endpoint,
             environment.selected_socket(),
         ) {
             Ok(rows) => rows
                 .into_iter()
-                .filter(|row| row.presence == Presence::Active)
-                .map(|row| row.identity.id)
-                .collect::<HashSet<_>>(),
+                .map(|row| (row.identity.id, (row.presence, row.identity.lifetime)))
+                .collect::<HashMap<_, _>>(),
             Err(_) => {
                 return response(
                     stream,
@@ -820,11 +731,36 @@ fn profile_api(
                 );
             }
         };
+        let statuses = match storage.list_active_identity_statuses() {
+            Ok(statuses) => statuses,
+            Err(_) => {
+                return response(
+                    stream,
+                    500,
+                    "application/json",
+                    br#"{"error":"STORAGE_UNAVAILABLE"}"#,
+                );
+            }
+        };
+        let observed_at_ms = tmt_adapters::request_runtime::wall_time_ms();
         let mut values = Vec::with_capacity(profiles.len());
         for profile in profiles {
-            let is_online = online.contains(&profile.identity_id);
+            let Some((observation, lifetime)) = presence.get(&profile.identity_id) else {
+                return response(
+                    stream,
+                    409,
+                    "application/json",
+                    br#"{"error":"IDENTITY_DIRECTORY_CHANGED"}"#,
+                );
+            };
+            let status = tmt_adapters::identity_status::status_value(
+                statuses.get(&profile.identity_id),
+                observed_at_ms,
+            );
             let mut value = local_profile_snapshot(profile);
-            value["online"] = json!(is_online);
+            value["presence"] = json!(observation.as_str());
+            value["lifetime"] = json!(lifetime.as_str());
+            value["selfReportedStatus"] = status;
             values.push(value);
         }
         let body = serde_json::to_vec(&values)?;
@@ -990,17 +926,30 @@ fn board_api(
     response(stream, status, "application/json", &body)
 }
 
+fn require_json_origin(request: &Request, origin: &str) -> Result<(), (u16, &'static [u8])> {
+    require_content_origin(request, origin, "application/json")
+}
+
+fn require_content_origin(
+    request: &Request,
+    origin: &str,
+    content_type: &str,
+) -> Result<(), (u16, &'static [u8])> {
+    if request.header("origin") != Some(origin)
+        || request
+            .header("content-type")
+            .is_none_or(|value| value.split(';').next() != Some(content_type))
+    {
+        return Err((403, br#"{"error":"ORIGIN_REJECTED"}"#));
+    }
+    Ok(())
+}
+
 fn prepare_board_request(
     request: &Request,
     origin: &str,
 ) -> Result<(OfficeInvocation, Value), (u16, &'static [u8])> {
-    if request.header("origin") != Some(origin)
-        || request
-            .header("content-type")
-            .is_none_or(|value| value.split(';').next() != Some("application/json"))
-    {
-        return Err((403, br#"{"error":"ORIGIN_REJECTED"}"#));
-    }
+    require_json_origin(request, origin)?;
     let (operation, actor, path_id) = match (request.method.as_str(), request.path.as_str()) {
         ("POST", "/api/v1/local/board/categories/list") => {
             (OfficeInvocation::BoardCategories, false, None)
@@ -1121,6 +1070,18 @@ fn read_request(stream: &mut TcpStream, deadline: Instant) -> io::Result<Request
         PACK_INPUT_LIMIT
     } else if method == "POST" && path == "/control/v1/avatar-previews" {
         tmt_adapters::office_avatar::PACK_INPUT_LIMIT
+    } else if let Some(limit) = whiteboard::input_limit(&method, &path) {
+        limit
+    } else if method == "POST" && path == dispatch::PATH {
+        tmt_adapters::dispatch::INPUT_LIMIT
+    } else if method == "POST" && request_history::handles(&path) {
+        tmt_adapters::request_history::HISTORY_INPUT_LIMIT
+    } else if let Some(limit) = rooms::input_limit(&method, &path) {
+        limit
+    } else if let Some(limit) = world::input_limit(&method, &path) {
+        limit
+    } else if let Some(limit) = props::input_limit(&method, &path) {
+        limit
     } else {
         BODY_LIMIT
     };
@@ -1179,7 +1140,7 @@ fn response(
     };
     write!(
         stream,
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nContent-Security-Policy: default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nCross-Origin-Resource-Policy: same-origin\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nContent-Security-Policy: default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self'; script-src 'self'; base-uri 'none'; frame-ancestors 'none'\r\nReferrer-Policy: no-referrer\r\nX-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nCross-Origin-Resource-Policy: same-origin\r\nConnection: close\r\n\r\n",
         body.len()
     )?;
     stream.write_all(body)
@@ -1196,7 +1157,7 @@ mod tests {
     use super::*;
     use std::{collections::BTreeSet, thread};
 
-    fn test_receipt() -> ServiceReceipt {
+    pub(super) fn test_receipt() -> ServiceReceipt {
         ServiceReceipt {
             schema_version: 1,
             pid: std::process::id(),
@@ -1209,13 +1170,17 @@ mod tests {
     }
 
     fn call_handler(run: impl FnOnce(&mut TcpStream) -> io::Result<()>) -> String {
+        String::from_utf8(call_handler_bytes(run)).unwrap()
+    }
+
+    fn call_handler_bytes(run: impl FnOnce(&mut TcpStream) -> io::Result<()>) -> Vec<u8> {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let address = listener.local_addr().unwrap();
         let receiver = thread::spawn(move || {
             let mut stream = TcpStream::connect(address).unwrap();
             let mut bytes = Vec::new();
             stream.read_to_end(&mut bytes).unwrap();
-            String::from_utf8(bytes).unwrap()
+            bytes
         });
         let (mut stream, _) = listener.accept().unwrap();
         run(&mut stream).unwrap();
@@ -1223,7 +1188,7 @@ mod tests {
         receiver.join().unwrap()
     }
 
-    fn response_value(response: &str) -> Value {
+    pub(super) fn response_value(response: &str) -> Value {
         serde_json::from_str(response.split_once("\r\n\r\n").unwrap().1).unwrap()
     }
 
@@ -1255,16 +1220,24 @@ mod tests {
         call_handler(|stream| create_preview(stream, &request, receipt, previews, kind))
     }
 
-    fn parse_wire(wire: &'static [u8]) -> io::Result<Request> {
+    pub(super) fn parse_wire(wire: &[u8]) -> io::Result<Request> {
+        let wire = wire.to_vec();
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let address = listener.local_addr().unwrap();
         let sender = thread::spawn(move || {
             let mut stream = TcpStream::connect(address).unwrap();
-            stream.write_all(wire).unwrap();
+            stream.set_write_timeout(Some(REQUEST_DEADLINE)).unwrap();
+            stream.write_all(&wire)
         });
         let (mut stream, _) = listener.accept().unwrap();
         let result = read_request(&mut stream, Instant::now() + REQUEST_DEADLINE);
-        sender.join().unwrap();
+        // Rejection may happen from Content-Length before the body is drained.
+        // Close the receiver before joining so a large sender cannot deadlock.
+        drop(stream);
+        let sent = sender.join().unwrap();
+        if result.is_ok() {
+            sent.unwrap();
+        }
         result
     }
 
@@ -1537,9 +1510,21 @@ mod tests {
         }
     }
 
-    fn call_api(request: Request, paths: &ConfigPaths, receipt: &ServiceReceipt) -> String {
+    pub(super) fn call_api(
+        request: Request,
+        paths: &ConfigPaths,
+        receipt: &ServiceReceipt,
+    ) -> String {
+        String::from_utf8(call_api_bytes(request, paths, receipt)).unwrap()
+    }
+
+    pub(super) fn call_api_bytes(
+        request: Request,
+        paths: &ConfigPaths,
+        receipt: &ServiceReceipt,
+    ) -> Vec<u8> {
         let previews = Arc::new(Mutex::new(HashMap::new()));
-        call_handler(|stream| api(stream, request, paths, receipt, &previews))
+        call_handler_bytes(|stream| api(stream, request, paths, receipt, &previews))
     }
 
     #[test]
@@ -1597,6 +1582,15 @@ mod tests {
         .unwrap();
         storage.install_local_avatar_pack(0, &avatar).unwrap();
         let avatar_ref = format!("{}/{}", avatar.digest(), avatar.pack().avatars[0].key);
+        let identity_status = tmt_core::identity_status::set_identity_status(
+            &mut storage,
+            &id,
+            "Reviewing the room".into(),
+            Some("focused".into()),
+            tmt_adapters::request_runtime::wall_time_ms(),
+            60_000,
+        )
+        .unwrap();
         storage.close().unwrap();
         let receipt = ServiceReceipt {
             schema_version: 1,
@@ -1671,6 +1665,7 @@ mod tests {
         let created_body = json_body(&created);
         assert_eq!(created_body["revision"], 1);
         assert_eq!(created_body["changed"], true);
+        assert!(created_body.get("selfReportedStatus").is_none());
         let created_at = created_body["updatedAtMs"].as_u64().unwrap();
         let retry = Request {
             method: "PUT".into(),
@@ -1732,235 +1727,33 @@ mod tests {
             body: vec![],
         };
         let listed = call_api(list, &paths, &receipt);
-        assert!(listed.contains("\"online\":false"));
+        assert!(listed.contains("\"presence\":\"offline\""));
+        assert!(listed.contains("\"lifetime\":\"saved\""));
         assert!(listed.contains(&avatar_ref));
-
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn protected_identity_block_http_creates_retries_and_never_targets_by_block_id() {
-        let root =
-            std::env::temp_dir().join(format!("tmt-identity-block-http-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&root).unwrap();
-        let paths = ConfigPaths::resolve(&root, &root, Some(&root), None);
-        let mut storage = Storage::open(&paths.database).unwrap();
-        let alice = tmt_core::identity::create_or_resolve(
-            &mut storage,
-            "Alice",
-            tmt_core::identity::Lifetime::Saved,
-        )
-        .unwrap()
-        .identity
-        .id;
-        let bob = tmt_core::identity::create_or_resolve(
-            &mut storage,
-            "Bob",
-            tmt_core::identity::Lifetime::Saved,
-        )
-        .unwrap()
-        .identity
-        .id;
-        let prop_pack = validate_prop_pack(include_bytes!(
-            "../../../../contracts/office/builtin-props-v1.tmtprop.json"
-        ))
-        .unwrap();
-        storage.install_local_prop_pack(0, &prop_pack).unwrap();
-        storage.close().unwrap();
-        let receipt = test_receipt();
-        let headers = || {
-            vec![
-                ("Authorization".into(), "Bearer browser".into()),
-                ("Origin".into(), "http://127.0.0.1:1234".into()),
-                ("Content-Type".into(), "application/json".into()),
-            ]
-        };
-        let route = |identity: &str| format!("/api/v1/local/identities/{identity}/block");
-        let empty_layout = json!({"version":2,"objects":[]});
-
-        let unauthorized = call_api(
-            Request {
-                method: "GET".into(),
-                path: route(&alice),
-                headers: vec![],
-                body: vec![],
-            },
-            &paths,
-            &receipt,
-        );
-        assert!(unauthorized.starts_with("HTTP/1.1 401"));
-
-        let missing = call_api(
-            Request {
-                method: "GET".into(),
-                path: route(&alice),
-                headers: headers(),
-                body: vec![],
-            },
-            &paths,
-            &receipt,
-        );
-        assert!(missing.starts_with("HTTP/1.1 200"));
         assert_eq!(
-            response_value(&missing),
-            json!({
-                "layout":{"version":2,"objects":[]},
-                "resolutions":[],
-                "exists":false,
-                "identityId":alice,
-                "identityName":"Alice",
-                "blockId":null,
-                "revision":0,
-                "updatedAtMs":0
-            })
-        );
-        let observation = rusqlite::Connection::open_with_flags(
-            &paths.database,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )
-        .unwrap();
-        assert_eq!(
-            observation
-                .query_row("SELECT count(*) FROM office_local_blocks", [], |row| row
-                    .get::<_, i64>(0))
-                .unwrap(),
-            0
-        );
-        observation.close().unwrap();
-
-        let create_body =
-            serde_json::to_vec(&json!({"expectedRevision":0,"layout":empty_layout})).unwrap();
-        let created = call_api(
-            Request {
-                method: "PUT".into(),
-                path: route(&alice),
-                headers: headers(),
-                body: create_body.clone(),
-            },
-            &paths,
-            &receipt,
-        );
-        assert!(created.starts_with("HTTP/1.1 200"));
-        let created_body = response_value(&created);
-        assert_eq!(created_body["exists"], true);
-        assert_eq!(created_body["identityId"], alice);
-        assert_eq!(created_body["revision"], 1);
-        assert_eq!(created_body["changed"], true);
-        let block_id = created_body["blockId"].as_str().unwrap().to_owned();
-        let updated_at = created_body["updatedAtMs"].clone();
-
-        let retry = call_api(
-            Request {
-                method: "PUT".into(),
-                path: route(&alice),
-                headers: headers(),
-                body: create_body,
-            },
-            &paths,
-            &receipt,
-        );
-        let retry_body = response_value(&retry);
-        assert_eq!(retry_body["changed"], false);
-        assert_eq!(retry_body["blockId"], block_id);
-        assert_eq!(retry_body["updatedAtMs"], updated_at);
-
-        let wrong_identity = call_api(
-            Request {
-                method: "GET".into(),
-                path: route(&bob),
-                headers: headers(),
-                body: vec![],
-            },
-            &paths,
-            &receipt,
-        );
-        let wrong_identity_body = response_value(&wrong_identity);
-        assert_eq!(wrong_identity_body["identityId"], bob);
-        assert_eq!(wrong_identity_body["exists"], false);
-        assert_eq!(wrong_identity_body["blockId"], Value::Null);
-
-        let desk_layout = json!({
-            "version":2,
-            "objects":[{
-                "prop":format!("{}/desk", prop_pack.digest()),
-                "footprint":{"width":4,"height":2},
-                "x":0,
-                "y":0,
-                "rotation":0
-            }]
-        });
-        let empty_request = Request {
-            method: "PUT".into(),
-            path: route(&bob),
-            headers: headers(),
-            body: serde_json::to_vec(&json!({"expectedRevision":0,"layout":empty_layout})).unwrap(),
-        };
-        let desk_request = Request {
-            method: "PUT".into(),
-            path: route(&bob),
-            headers: headers(),
-            body: serde_json::to_vec(&json!({"expectedRevision":0,"layout":desk_layout})).unwrap(),
-        };
-        let left_paths = paths.clone();
-        let left_receipt = receipt.clone();
-        let left = thread::spawn(move || call_api(empty_request, &left_paths, &left_receipt));
-        let right_paths = paths.clone();
-        let right_receipt = receipt.clone();
-        let right = thread::spawn(move || call_api(desk_request, &right_paths, &right_receipt));
-        let mut statuses = [left.join().unwrap(), right.join().unwrap()]
-            .map(|response| response.split_whitespace().nth(1).unwrap().to_owned());
-        statuses.sort();
-        assert_eq!(statuses, ["200", "409"]);
-
-        let old_route = call_api(
-            Request {
-                method: "GET".into(),
-                path: format!("/api/v1/local/blocks/{block_id}"),
-                headers: headers(),
-                body: vec![],
-            },
-            &paths,
-            &receipt,
-        );
-        assert!(old_route.starts_with("HTTP/1.1 404"));
-
-        let fixture = rusqlite::Connection::open(&paths.database).unwrap();
-        fixture
-            .execute(
-                "UPDATE identities SET retired_at_ms = 1 WHERE id = ?",
-                [&alice],
+            response_value(&listed)[0]["selfReportedStatus"],
+            tmt_adapters::identity_status::status_value(
+                Some(&identity_status),
+                identity_status.updated_at_ms
             )
-            .unwrap();
-        fixture.close().unwrap();
-        for method in ["GET", "PUT"] {
-            let retired = call_api(
-                Request {
-                    method: method.into(),
-                    path: route(&alice),
-                    headers: headers(),
-                    body: if method == "PUT" {
-                        serde_json::to_vec(&json!({"expectedRevision":1,"layout":empty_layout}))
-                            .unwrap()
-                    } else {
-                        vec![]
-                    },
-                },
-                &paths,
-                &receipt,
-            );
-            assert!(retired.starts_with("HTTP/1.1 404"), "{method}: {retired}");
-        }
-        let unknown = call_api(
+        );
+        let mut storage = Storage::open(&paths.database).unwrap();
+        tmt_core::identity_status::clear_identity_status(&mut storage, &id).unwrap();
+        storage.close().unwrap();
+        let cleared = call_api(
             Request {
                 method: "GET".into(),
-                path: "/api/v1/local/identities/33333333-3333-4333-8333-333333333333/block".into(),
+                path: "/api/v1/local/profiles".into(),
                 headers: headers(),
                 body: vec![],
             },
             &paths,
             &receipt,
         );
-        assert!(unknown.starts_with("HTTP/1.1 404"));
+        assert_eq!(
+            response_value(&cleared)[0]["selfReportedStatus"],
+            Value::Null
+        );
 
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -1972,11 +1765,11 @@ mod tests {
                 .unwrap();
         assert_eq!(duplicate_host.header("host"), None);
         assert!(parse_wire(
-            b"PUT /api/v1/local/blocks/x HTTP/1.1\r\nHost: 127.0.0.1:1\r\nContent-Length: 0\r\nContent-Length: 0\r\n\r\n"
+            b"PUT /api/v1/local/world HTTP/1.1\r\nHost: 127.0.0.1:1\r\nContent-Length: 0\r\nContent-Length: 0\r\n\r\n"
         )
         .is_err());
         assert!(parse_wire(
-            b"PUT /api/v1/local/blocks/x HTTP/1.1\r\nHost: 127.0.0.1:1\r\nTransfer-Encoding: chunked\r\n\r\n"
+            b"PUT /api/v1/local/world HTTP/1.1\r\nHost: 127.0.0.1:1\r\nTransfer-Encoding: chunked\r\n\r\n"
         )
         .is_err());
     }

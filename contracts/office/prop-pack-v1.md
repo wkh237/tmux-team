@@ -180,9 +180,11 @@ become placeholders until the same valid bytes are reinstalled.
 
 Every list, show, preview, or browser catalog load runs the same domain validation
 used by install. A query reads validated digest keys and SQLite `length(bytes)`
-before loading a payload. A row over 128 KiB is excluded without loading its BLOB.
-Each catalog page scans at most 20 rows and therefore loads at most 2.5 MiB of
-candidate bytes; the stored row/prop quotas bound a complete traversal.
+before loading a payload. Acquisition uses the largest supported pack-version
+ceiling; rows above it are excluded without loading their BLOB. V1 admission
+still rejects sources over 128 KiB. Each catalog page scans at most 20 rows;
+the [v2 storage bounds](prop-pack-v2.md#process-storage-and-presentation) cover
+mixed-version catalogs. Stored row/prop quotas bound a complete traversal.
 
 Each list, show, or browser refresh opens one bounded read transaction, observes
 its catalog revision, loads the required bytes, and rehashes them into a validated
@@ -227,7 +229,11 @@ tmt office prop list --local [--limit <1..20>] [--cursor <opaque-cursor>] --json
 tmt office prop show --local <digest> --json
 ```
 
-Validate performs no durable mutation and returns:
+Validate performs no durable mutation and returns the pack projection below,
+plus a CLI-only `warnings` array of advisory authoring findings. The
+[directional pack contract](prop-pack-v2.md#identity-and-compatibility) defines
+warning fields and codes for both formats. Warnings do not reject valid art;
+v1 inspects only its single raster and has no directional-scale requirement.
 
 ```json
 {

@@ -58,6 +58,18 @@ fn help_uses_public_ownership_and_resolves_aliases() {
 }
 
 #[test]
+fn notes_help_identifies_the_shared_file_and_explicit_creation_boundary() {
+    let text = grammar::help_command(&["notes".into(), "path".into()])
+        .unwrap()
+        .render_long_help()
+        .to_string();
+    assert!(text.contains("Saved identities only"));
+    assert!(text.contains("Edit the returned Markdown file directly"));
+    assert!(text.contains("Office reads never create missing notes"));
+    assert!(text.contains("--identity"));
+}
+
+#[test]
 fn help_respects_data_boundaries_and_machine_mode() {
     for argv in [
         vec!["talk", "peer", "--", "--help"],
@@ -81,7 +93,7 @@ fn help_respects_data_boundaries_and_machine_mode() {
 
 #[test]
 fn bare_office_groups_report_usage_instead_of_panicking() {
-    for group in ["block", "profile", "prop", "avatar", "board"] {
+    for group in ["block", "profile", "prop", "avatar", "board", "extension"] {
         let error = parse(&arguments(&["office", group])).unwrap_err();
         assert_eq!(error.code, "USAGE_ERROR");
         assert!(error.message.contains("subcommand"), "{error:?}");
@@ -130,6 +142,9 @@ fn public_help_preserves_required_subcommands_and_argument_groups() {
         );
     }
     let text = post.render_long_help().to_string();
-    assert!(text.contains("<--repo <repo>|--general>"), "{text}");
+    assert!(
+        text.contains("<--repo <repo>|--general|--room <room>>"),
+        "{text}"
+    );
     assert!(text.contains("<--body <body>|--file <file>>"), "{text}");
 }

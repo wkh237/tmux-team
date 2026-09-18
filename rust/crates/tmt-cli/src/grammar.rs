@@ -26,6 +26,56 @@ pub fn grammar() -> Command {
         root = root.arg(option(id).global(true));
     }
     root = root.subcommand(office_commands());
+    root = root.subcommand(
+        storage(
+            "room",
+            "Manage shared communication rooms (not access controls)",
+        )
+        .subcommand_required(true)
+        .subcommand(storage("create", "Create an empty room").arg(operand("name", true)))
+        .subcommand(storage("list", "List rooms and membership counts").visible_alias("ls"))
+        .subcommand(
+            storage(
+                "retire",
+                "Stop new room work while retaining content and history",
+            )
+            .arg(operand("room", true)),
+        )
+        .subcommand(
+            storage("show", "Show a room by UUID or unique exact name").arg(operand("room", true)),
+        )
+        .subcommand(
+            with_options(
+                storage("join", "Join a room without changing other members"),
+                &["identity"],
+            )
+            .arg(operand("room", true)),
+        )
+        .subcommand(
+            with_options(
+                storage("leave", "Leave a room without deleting its history"),
+                &["identity"],
+            )
+            .arg(operand("room", true)),
+        )
+        .subcommands(
+            [
+                ("send", "Queue one replyable inbox request per room member"),
+                ("broadcast", "Queue a no-reply announcement per room member"),
+            ]
+            .into_iter()
+            .map(|(name, about)| {
+                with_options(storage(name, about), &["identity"])
+                    .arg(operand("room", true))
+                    .arg(operand("message", true))
+                    .arg(
+                        Arg::new("operation-id")
+                            .long("operation-id")
+                            .help("Reuse a UUID for safe retry of the same composition"),
+                    )
+            }),
+        ),
+    );
     root.subcommand(
         general("help", "Show help for a command")
             .arg(operand("command-path", false).num_args(0..)),
@@ -39,7 +89,8 @@ pub fn grammar() -> Command {
     .subcommand(
         general("list", "List global identities, lifetime and live presence")
             .visible_alias("ls")
-            .arg(operand("target", false)),
+            .arg(operand("target", false).conflicts_with("room"))
+            .arg(option("room")),
     )
     .subcommand(
         with_options(
@@ -79,6 +130,7 @@ pub fn grammar() -> Command {
                 "no-preamble",
                 "identity",
                 "inbox",
+                "room",
             ],
         )
         .visible_alias("send")
@@ -149,45 +201,71 @@ pub fn grammar() -> Command {
         ))
         .subcommand(with_options(
             storage("listen", "Wait for incoming inbox activity"),
-            &["identity", "timeout", "debounce"],
+            &["identity", "room", "timeout", "debounce"],
         )),
     )
     .subcommand(
-        storage("identity", "Manage durable identity records and metadata")
+        storage(
+            "identity",
+            "Manage identity records, metadata and self-reported status",
+        )
+        .subcommand_required(true)
+        .subcommand(storage("create", "Create or save an identity").arg(operand("name", true)))
+        .subcommand(storage("show", "Show an identity").arg(operand("name", true)))
+        .subcommand(with_options(
+            storage("list", "List non-retired identities"),
+            &["where", "has"],
+        ))
+        .subcommand(
+            storage(
+                "status",
+                "Manage expiring self-reported activity, not endpoint presence",
+            )
             .subcommand_required(true)
-            .subcommand(storage("create", "Create or save an identity").arg(operand("name", true)))
-            .subcommand(storage("show", "Show an identity").arg(operand("name", true)))
             .subcommand(with_options(
-                storage("list", "List non-retired identities"),
-                &["where", "has"],
+                storage("show", "Show current or stale status"),
+                &["identity"],
             ))
             .subcommand(
-                storage("meta", "Manage descriptive identity metadata")
-                    .subcommand_required(true)
-                    .subcommand(
-                        with_options(storage("set", "Set a metadata value"), &["identity"])
-                            .arg(operand("key", true))
-                            .arg(operand("value", true)),
-                    )
-                    .subcommand(
-                        with_options(storage("get", "Get a metadata value"), &["identity"])
-                            .arg(operand("key", true)),
-                    )
-                    .subcommand(with_options(
-                        storage("list", "List metadata values"),
-                        &["identity"],
-                    ))
-                    .subcommand(
-                        with_options(storage("rm", "Remove a metadata value"), &["identity"])
-                            .arg(operand("key", true)),
-                    ),
-            ),
+                with_options(
+                    storage("set", "Replace status and renew its expiry"),
+                    &["identity", "mood", "for"],
+                )
+                .arg(operand("activity", true)),
+            )
+            .subcommand(with_options(
+                storage("clear", "Clear this identity's self-reported status"),
+                &["identity"],
+            )),
+        )
+        .subcommand(
+            storage("meta", "Manage descriptive identity metadata")
+                .subcommand_required(true)
+                .subcommand(
+                    with_options(storage("set", "Set a metadata value"), &["identity"])
+                        .arg(operand("key", true))
+                        .arg(operand("value", true)),
+                )
+                .subcommand(
+                    with_options(storage("get", "Get a metadata value"), &["identity"])
+                        .arg(operand("key", true)),
+                )
+                .subcommand(with_options(
+                    storage("list", "List metadata values"),
+                    &["identity"],
+                ))
+                .subcommand(
+                    with_options(storage("rm", "Remove a metadata value"), &["identity"])
+                        .arg(operand("key", true)),
+                ),
+        ),
     )
     .subcommand(
         storage("notes", "Access saved identity notes")
             .subcommand_required(true)
             .subcommand(with_options(
-                storage("path", "Initialize and print the local Markdown path"),
+                storage("path", "Initialize and print the local Markdown path")
+                    .after_help("Saved identities only. Edit the returned Markdown file directly; an Office notebook object reads this same file. Office reads never create missing notes."),
                 &["identity"],
             )),
     )
@@ -327,13 +405,45 @@ fn office_commands() -> Command {
             "Deliver pending identity retirement hooks to Office",
         ))
         .subcommand(
-            office("block", "Read or edit an Office block")
+            office("layout", "Read or edit the complete local Office layout")
                 .subcommand_required(true)
-                .subcommand(office_block_scope(
+                .subcommand(office(
+                    "show",
+                    "Show the local world, layout and save revision",
+                ))
+                .subcommand(
+                    office("apply", "Atomically apply a complete local world layout")
+                        .arg(
+                            Arg::new("file")
+                                .long("file")
+                                .required(true)
+                                .help("World layout JSON, containing version, map and objects"),
+                        )
+                        .arg(
+                            Arg::new("if-revision")
+                                .long("if-revision")
+                                .required(true)
+                                .value_parser(
+                                    clap::value_parser!(u64)
+                                        .range(0..=tmt_core::limits::MAX_JS_SAFE_INTEGER),
+                                ),
+                        )
+                        .arg(
+                            Arg::new("legacy-basis")
+                                .long("legacy-basis")
+                                .help("Exact legacyBasis from show; required only at revision 0"),
+                        ),
+                ),
+        )
+        .subcommand(
+            office("block", "Read or edit a remote Firestore Office block")
+                .subcommand_required(true)
+                .subcommand(office_scope(
                     office("show", "Show the selected Office block")
                         .arg(operand("block-id", false)),
+                    true,
                 ))
-                .subcommand(office_block_scope(
+                .subcommand(office_scope(
                     office("apply", "Apply a complete layout to an Office block")
                         .arg(operand("block-id", false))
                         .arg(Arg::new("file").long("file").required(true))
@@ -346,6 +456,7 @@ fn office_commands() -> Command {
                                         .range(0..tmt_core::office_block::MAX_REVISION),
                                 ),
                         ),
+                    true,
                 )),
         )
         .subcommand(
@@ -393,7 +504,58 @@ fn office_commands() -> Command {
         )
         .subcommand(office_prop_commands())
         .subcommand(office_avatar_commands())
+        .subcommand(
+            office("extension", "Check data-only World extension descriptions")
+                .subcommand_required(true)
+                .subcommand(
+                    office(
+                        "validate",
+                        "Validate definition and instance structure; does not install or authorize",
+                    )
+                    .arg(Arg::new("file").long("file").required(true))
+                    .arg(Arg::new("instance").long("instance").required(true)),
+                ),
+        )
         .subcommand(office_board_commands())
+        .subcommand(
+            office("whiteboard", "Read local immutable whiteboard snapshots")
+                .subcommand_required(true)
+                .subcommand(
+                    office(
+                        "snapshot",
+                        "Read a captured revision without starting the web service",
+                    )
+                    .subcommand_required(true)
+                    .subcommand(
+                        office(
+                            "show",
+                            "Print the retained scene, selection and annotation as JSON",
+                        )
+                        .arg(
+                            Arg::new("snapshot-reference")
+                                .required(true)
+                                .value_name("ID_OR_REFERENCE"),
+                        ),
+                    )
+                    .subcommand(
+                        office(
+                            "export",
+                            "Export the stored PNG to a new file (never overwrites)",
+                        )
+                        .arg(
+                            Arg::new("snapshot-reference")
+                                .required(true)
+                                .value_name("ID_OR_REFERENCE"),
+                        )
+                        .arg(
+                            Arg::new("output")
+                                .long("output")
+                                .required(true)
+                                .value_name("PATH"),
+                        ),
+                    ),
+                ),
+        )
         .subcommand(office_scope(
             office(
                 "inspect",
@@ -571,13 +733,18 @@ fn office_board_commands() -> Command {
         command
             .arg(Arg::new("repo").long("repo"))
             .arg(
+                Arg::new("room")
+                    .long("room")
+                    .help("Meeting UUID or exact unambiguous name"),
+            )
+            .arg(
                 Arg::new("general")
                     .long("general")
                     .action(ArgAction::SetTrue),
             )
             .group(
                 clap::ArgGroup::new("board-category")
-                    .args(["repo", "general"])
+                    .args(["repo", "general", "room"])
                     .required(true),
             )
     };
@@ -685,29 +852,6 @@ fn office_board_commands() -> Command {
         ))))
 }
 
-fn office_block_scope(command: Command) -> Command {
-    command
-        .arg(Arg::new("world").long("world").conflicts_with("local"))
-        .arg(
-            Arg::new("local")
-                .long("local")
-                .conflicts_with_all(["world", "emulator", "block-id"])
-                .action(ArgAction::SetTrue),
-        )
-        .arg(option("identity"))
-        .arg(
-            Arg::new("emulator")
-                .long("emulator")
-                .requires("world")
-                .action(ArgAction::SetTrue),
-        )
-        .group(
-            clap::ArgGroup::new("office-block-target")
-                .args(["world", "local"])
-                .required(true),
-        )
-}
-
 fn office_scope(command: Command, required: bool) -> Command {
     command
         .arg(Arg::new("world").long("world").required(required))
@@ -746,6 +890,9 @@ pub fn public_grammar(definition: &Command, root: bool) -> Command {
         .visible_aliases(definition.get_visible_aliases().map(str::to_owned));
     if let Some(about) = definition.get_about() {
         result = result.about(about.clone());
+    }
+    if let Some(after_help) = definition.get_after_help() {
+        result = result.after_help(after_help.clone());
     }
     for argument in definition.get_arguments() {
         if !argument.is_hide_set() && (!root || root_allowed(argument.get_id().as_str())) {
@@ -836,8 +983,11 @@ fn option(id: &'static str) -> Arg {
         "timeout" => value("Observer timeout in seconds or with ms/s/m suffix"),
         "delay" => value("Pre-send delay in seconds or with ms/s/m suffix"),
         "debounce" => value("Trailing quiet interval in seconds or with ms/s/m suffix"),
+        "mood" => value("Optional self-reported mood, up to 32 UTF-8 bytes"),
+        "for" => value("Status duration: seconds or ms/s/m; default 60m, range 1s to 1440m"),
         "lines" => value("Diagnostic capture line count"),
         "identity" => value("Select an explicit identity").global(true),
+        "room" => value("Restrict to a room UUID or unique exact name"),
         "file" => value("Read content from a regular file"),
         "message" => value("Submit exact inline content"),
         "receipt" => value("Receipt supplied by talk"),

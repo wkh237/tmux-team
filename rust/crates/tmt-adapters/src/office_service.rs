@@ -257,17 +257,29 @@ pub fn stop(paths: &ConfigPaths) -> Result<bool, ServiceError> {
 pub fn preview(
     paths: &ConfigPaths,
     installed_version: &str,
-    bytes: &[u8],
+    pack: &crate::office_prop::ValidatedPropPack,
 ) -> Result<serde_json::Value, PreviewError> {
-    preview_pack(paths, installed_version, bytes, PreviewKind::Prop)
+    preview_pack(
+        paths,
+        installed_version,
+        pack.bytes(),
+        pack.digest(),
+        PreviewKind::Prop,
+    )
 }
 
 pub fn preview_avatar(
     paths: &ConfigPaths,
     installed_version: &str,
-    bytes: &[u8],
+    pack: &crate::office_avatar::ValidatedAvatarPack,
 ) -> Result<serde_json::Value, PreviewError> {
-    preview_pack(paths, installed_version, bytes, PreviewKind::Avatar)
+    preview_pack(
+        paths,
+        installed_version,
+        pack.bytes(),
+        pack.digest(),
+        PreviewKind::Avatar,
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -277,12 +289,6 @@ enum PreviewKind {
 }
 
 impl PreviewKind {
-    fn input_limit(self) -> usize {
-        match self {
-            Self::Prop => crate::office_prop::PACK_INPUT_LIMIT,
-            Self::Avatar => crate::office_avatar::PACK_INPUT_LIMIT,
-        }
-    }
     fn control_path(self) -> &'static str {
         match self {
             Self::Prop => "/control/v1/prop-previews",
@@ -307,23 +313,15 @@ impl PreviewKind {
             Self::Avatar => "avatars",
         }
     }
-    fn digest(self, bytes: &[u8]) -> String {
-        match self {
-            Self::Prop => crate::office_prop::framed_digest(bytes),
-            Self::Avatar => crate::office_avatar::framed_digest(bytes),
-        }
-    }
 }
 
 fn preview_pack(
     paths: &ConfigPaths,
     installed_version: &str,
     bytes: &[u8],
+    digest: &str,
     kind: PreviewKind,
 ) -> Result<serde_json::Value, PreviewError> {
-    if bytes.len() > kind.input_limit() {
-        return Err(PreviewError::Invalid);
-    }
     let status = status(paths, installed_version).map_err(|error| match error {
         ServiceError::RestartRequired => PreviewError::RestartRequired,
         ServiceError::Unavailable(error) => PreviewError::Unavailable(error),
@@ -384,7 +382,7 @@ fn preview_pack(
             "Local Office rejected the preview request",
         )));
     }
-    if !valid_preview_reply(&value, &receipt, bytes, kind) {
+    if !valid_preview_reply(&value, &receipt, digest, kind) {
         return Err(PreviewError::Invalid);
     }
     Ok(value)
@@ -393,7 +391,7 @@ fn preview_pack(
 fn valid_preview_reply(
     value: &serde_json::Value,
     receipt: &ServiceReceipt,
-    pack: &[u8],
+    digest: &str,
     kind: PreviewKind,
 ) -> bool {
     let Some(object) = value.as_object() else {
@@ -409,7 +407,7 @@ fn valid_preview_reply(
         receipt.browser_token
     );
     object.len() == 4
-        && value["digest"].as_str() == Some(kind.digest(pack).as_str())
+        && value["digest"].as_str() == Some(digest)
         && value["expiresAtMs"].as_u64().is_some()
         && value["url"].as_str() == Some(expected_url.as_str())
 }
@@ -563,10 +561,10 @@ mod tests {
     #[test]
     fn preview_reply_must_match_candidate_and_exact_private_target() {
         let receipt = receipt();
-        let pack = br#"{"formatVersion":1}"#;
+        let pack = crate::office_prop::builtin_pack();
         let preview_id = "p".repeat(43);
         let valid = serde_json::json!({
-            "digest": crate::office_prop::framed_digest(pack),
+            "digest": pack.digest(),
             "previewId": preview_id,
             "expiresAtMs": 1,
             "url": format!(
@@ -577,13 +575,13 @@ mod tests {
         assert!(valid_preview_reply(
             &valid,
             &receipt,
-            pack,
+            pack.digest(),
             PreviewKind::Prop
         ));
         for invalid in [
             {
                 let mut value = valid.clone();
-                value["digest"] = serde_json::json!(crate::office_prop::framed_digest(b"other"));
+                value["digest"] = serde_json::json!(format!("sha256:{}", "0".repeat(64)));
                 value
             },
             {
@@ -614,12 +612,31 @@ mod tests {
             assert!(!valid_preview_reply(
                 &invalid,
                 &receipt,
-                pack,
+                pack.digest(),
                 PreviewKind::Prop
             ));
         }
+        let directional = crate::office_prop::validate_pack(include_bytes!(
+            "../../../../contracts/office/prop-pack-v2-sample.tmtprop.json"
+        ))
+        .unwrap();
+        let mut directional_reply = valid.clone();
+        directional_reply["digest"] = serde_json::json!(directional.digest());
+        assert!(valid_preview_reply(
+            &directional_reply,
+            &receipt,
+            directional.digest(),
+            PreviewKind::Prop
+        ));
+        assert!(!valid_preview_reply(
+            &valid,
+            &receipt,
+            directional.digest(),
+            PreviewKind::Prop
+        ));
+        let avatar_digest = crate::office_avatar::framed_digest(pack.bytes(), 1);
         let avatar = serde_json::json!({
-            "digest": crate::office_avatar::framed_digest(pack),
+            "digest": avatar_digest,
             "previewId": preview_id,
             "expiresAtMs": 1,
             "url": format!(
@@ -630,7 +647,7 @@ mod tests {
         assert!(valid_preview_reply(
             &avatar,
             &receipt,
-            pack,
+            &avatar_digest,
             PreviewKind::Avatar
         ));
     }

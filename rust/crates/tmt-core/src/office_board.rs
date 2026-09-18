@@ -20,6 +20,7 @@ pub const SERIALIZED_RESPONSE_MAX_BYTES: usize = 2 * 1024 * 1024;
 pub enum Category {
     General,
     Repository(String),
+    Room(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -303,10 +304,6 @@ fn base64url_decode(value: &str) -> Result<String, BoardError<std::convert::Infa
         return Err(BoardError::policy(BoardErrorCode::CursorInvalid));
     }
     Ok(decoded)
-}
-
-pub fn new_operation_id() -> String {
-    Uuid::new_v4().to_string()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -611,7 +608,10 @@ fn validate_category<E>(category: &Category) -> Result<(), BoardError<E>> {
     match category {
         Category::General => Ok(()),
         Category::Repository(value) if valid_repository_id(value) => Ok(()),
-        Category::Repository(_) => Err(BoardError::policy(BoardErrorCode::Invalid)),
+        Category::Room(value) if crate::dispatch::canonical_id(value) => Ok(()),
+        Category::Repository(_) | Category::Room(_) => {
+            Err(BoardError::policy(BoardErrorCode::Invalid))
+        }
     }
 }
 
@@ -690,7 +690,7 @@ mod tests {
             ),
             (
                 "title".into(),
-                format!("{}a", "界".repeat((ROOT_BODY_MAX_BYTES - 1) / 3)),
+                format!("{}a", "\u{754c}".repeat((ROOT_BODY_MAX_BYTES - 1) / 3)),
                 true,
             ),
             ("a".repeat(TITLE_MAX_BYTES + 1), "x".into(), false),

@@ -20,10 +20,14 @@ use tmt_adapters::{
 };
 use tmt_core::{
     exact_text::{MAX_EXCHANGE_TEXT_BYTES, validate_exact_text},
-    request::{FinalResponse, RequestError, RequestService, ResponseRejection, SubmitResponse},
+    request::{
+        FinalResponse, RequestError, RequestService, ResponseLookup, ResponseRejection,
+        SubmitResponse,
+    },
 };
 
 enum Report {
+    NotRequired(String),
     Submitted(FinalResponse),
     Completed(FinalResponse),
 }
@@ -51,6 +55,7 @@ fn response_failure(error: RequestError<StorageError>) -> Failure {
         return unavailable(error);
     };
     let (status, message) = match reason {
+        ResponseRejection::NotRequired => (1, "Announcements do not accept replies."),
         ResponseRejection::InputInvalid => (1, "Response input is invalid."),
         ResponseRejection::InputTooLarge => (1, "Response body exceeds the UTF-8 byte limit."),
         ResponseRejection::RequestNotFound => (3, "Request was not found."),
@@ -124,15 +129,15 @@ fn run(request: Invocation) -> Result<Report, Failure> {
         None => service
             .get_response(&request_id)
             .map_err(response_failure)
-            .and_then(|record| {
-                record.map(Report::Completed).ok_or_else(|| {
-                    Failure::new(
-                        "RESPONSE_NOT_AVAILABLE",
-                        format!("Response for request '{request_id}' is not available."),
-                        3,
-                    )
-                    .with_request(request_id.clone(), Some("unavailable"))
-                })
+            .and_then(|record| match record {
+                ResponseLookup::Available(response) => Ok(Report::Completed(*response)),
+                ResponseLookup::NotRequired => Ok(Report::NotRequired(request_id.clone())),
+                ResponseLookup::Unavailable => Err(Failure::new(
+                    "RESPONSE_NOT_AVAILABLE",
+                    format!("Response for request '{request_id}' is not available."),
+                    3,
+                )
+                .with_request(request_id.clone(), Some("unavailable"))),
             }),
     };
     after_cleanup(pending, || storage.close()).map_err(|error| {
@@ -151,6 +156,15 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
     };
     let mut stdout = io::stdout().lock();
     match report {
+        Report::NotRequired(request_id) if mode.json => writeln!(
+            stdout,
+            "{}",
+            json!({"status": "not_required", "requestId": request_id})
+        )?,
+        Report::NotRequired(request_id) => writeln!(
+            stdout,
+            "Announcement '{request_id}' does not require a response."
+        )?,
         Report::Submitted(record) if mode.json => writeln!(
             stdout,
             "{}",

@@ -29,6 +29,143 @@ fn paths(directory: &TestDirectory) -> ConfigPaths {
     )
 }
 
+fn notebook_fixture(lifetime: Lifetime) -> (TestDirectory, ConfigPaths, Identity) {
+    let directory = TestDirectory::new();
+    let paths = paths(&directory);
+    let mut storage = crate::storage::Storage::open(&paths.database).unwrap();
+    let identity = tmt_core::identity::create_or_resolve(&mut storage, "Researcher", lifetime)
+        .unwrap()
+        .identity;
+    storage.close().unwrap();
+    (directory, paths, identity)
+}
+
+#[test]
+fn notebook_read_is_exact_bounded_and_never_initializes_or_rewrites() {
+    let (_directory, paths, identity) = notebook_fixture(Lifetime::Saved);
+    assert_eq!(read(&paths, &identity.id), Err(NotebookError::Missing));
+    assert!(!paths.global_dir.join("notes").exists());
+    let notes_id = NotesIdentityId::try_from(&identity).unwrap();
+    let file = initialize(&paths, &notes_id).unwrap().path;
+    let content = "# Notebook\r\n<script>inert</script>\0\u{feff} exact 🦀";
+    fs::write(&file, content).unwrap();
+    let before = fs::metadata(&file).unwrap();
+    assert_eq!(
+        read(&paths, &identity.id).unwrap(),
+        Notebook {
+            identity_id: identity.id.clone(),
+            name: identity.name,
+            content: content.into()
+        }
+    );
+    assert_eq!(fs::metadata(&file).unwrap().ino(), before.ino());
+    assert_eq!(
+        fs::metadata(&file).unwrap().modified().unwrap(),
+        before.modified().unwrap()
+    );
+    assert_eq!(fs::read(&file).unwrap(), content.as_bytes());
+    fs::write(&file, "Updated by the agent").unwrap();
+    assert_eq!(
+        read(&paths, &identity.id).unwrap().content,
+        "Updated by the agent"
+    );
+    fs::write(&file, vec![b'a'; NOTEBOOK_READ_LIMIT]).unwrap();
+    assert_eq!(
+        read(&paths, &identity.id).unwrap().content.len(),
+        NOTEBOOK_READ_LIMIT
+    );
+    fs::write(&file, vec![b'a'; NOTEBOOK_READ_LIMIT + 1]).unwrap();
+    assert_eq!(read(&paths, &identity.id), Err(NotebookError::TooLarge));
+    assert_eq!(
+        fs::metadata(&file).unwrap().len(),
+        (NOTEBOOK_READ_LIMIT + 1) as u64
+    );
+    fs::write(&file, [0xff]).unwrap();
+    assert_eq!(read(&paths, &identity.id), Err(NotebookError::InvalidText));
+    assert_eq!(fs::read(&file).unwrap(), [0xff]);
+}
+
+#[test]
+fn notebook_reader_rejects_nonregular_files_and_symlinks_at_each_notes_component() {
+    let (directory, paths, identity) = notebook_fixture(Lifetime::Saved);
+    let notes_id = NotesIdentityId::try_from(&identity).unwrap();
+    let file = initialize(&paths, &notes_id).unwrap().path;
+    let outside = directory.path.join("private-sentinel");
+    fs::write(&outside, b"not notebook content").unwrap();
+    fs::remove_file(&file).unwrap();
+    symlink(&outside, &file).unwrap();
+    assert_eq!(read(&paths, &identity.id), Err(NotebookError::Unavailable));
+    fs::remove_file(&file).unwrap();
+    fs::create_dir(&file).unwrap();
+    assert_eq!(read(&paths, &identity.id), Err(NotebookError::Unavailable));
+    fs::remove_dir(&file).unwrap();
+    nix::unistd::mkfifo(&file, nix::sys::stat::Mode::S_IRUSR).unwrap();
+    assert_eq!(read(&paths, &identity.id), Err(NotebookError::Unavailable));
+    fs::remove_file(&file).unwrap();
+    fs::write(&file, b"retained notebook").unwrap();
+    for (index, parent) in [
+        file.parent().unwrap().to_path_buf(),
+        paths.global_dir.join("notes"),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let retained = directory.path.join(format!("retained-{index}"));
+        fs::rename(parent, &retained).unwrap();
+        symlink(&retained, parent).unwrap();
+        assert_eq!(read(&paths, &identity.id), Err(NotebookError::Unavailable));
+        fs::remove_file(parent).unwrap();
+        fs::rename(retained, parent).unwrap();
+    }
+    assert_eq!(fs::read(outside).unwrap(), b"not notebook content");
+    assert_eq!(fs::read(file).unwrap(), b"retained notebook");
+}
+
+#[test]
+fn notebook_reader_requires_the_original_active_saved_identity() {
+    let (_directory, paths, temporary) = notebook_fixture(Lifetime::Temporary);
+    assert_eq!(
+        read(&paths, "../notes"),
+        Err(NotebookError::InvalidIdentity)
+    );
+    assert_eq!(
+        read(&paths, &temporary.id),
+        Err(NotebookError::SavedIdentityRequired)
+    );
+    assert!(!paths.global_dir.join("notes").exists());
+    let mut storage = crate::storage::Storage::open(&paths.database).unwrap();
+    let saved = tmt_core::identity::create_or_resolve(&mut storage, "Researcher", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    assert_eq!(saved.id, temporary.id);
+    storage.close().unwrap();
+    let file = initialize(&paths, &NotesIdentityId::try_from(&saved).unwrap())
+        .unwrap()
+        .path;
+    fs::write(&file, b"Retained after retirement").unwrap();
+    let database = rusqlite::Connection::open(&paths.database).unwrap();
+    database
+        .execute(
+            "UPDATE identities SET retired_at_ms = 100 WHERE id = ?",
+            [&saved.id],
+        )
+        .unwrap();
+    drop(database);
+    assert_eq!(
+        read(&paths, &saved.id),
+        Err(NotebookError::IdentityNotFound)
+    );
+    let mut storage = crate::storage::Storage::open(&paths.database).unwrap();
+    let replacement =
+        tmt_core::identity::create_or_resolve(&mut storage, "Researcher", Lifetime::Saved)
+            .unwrap()
+            .identity;
+    storage.close().unwrap();
+    assert_ne!(replacement.id, saved.id);
+    assert_eq!(read(&paths, &replacement.id), Err(NotebookError::Missing));
+    assert_eq!(fs::read(file).unwrap(), b"Retained after retirement");
+}
+
 #[test]
 fn creates_private_empty_file_and_preserves_existing_bytes_and_inode() {
     let directory = TestDirectory::new();

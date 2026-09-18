@@ -21,6 +21,7 @@ export interface AttemptRow {
   originator_kind: 'unknown' | 'explicit' | 'verified';
   originator_identity_id: string | null;
   recipient_identity_id: string | null;
+  room_id: string | null;
   message_text: string | null;
   message_bytes: number | null;
   message_expires_at_ms: number | null;

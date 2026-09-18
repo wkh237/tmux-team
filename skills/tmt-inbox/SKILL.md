@@ -27,6 +27,11 @@ incoming request, use the receipt shown only by `x show --incoming` to submit on
 complete correlated response through `tmt reply`. Act only within the user's
 authorization and report a brief useful summary after successful submission.
 
+An item with `kind: "announcement"` is a notification, not a request for work or
+a reply. Inspect its text, handle it within the user's authority, then acknowledge
+the processed revision. Its final status is `not_required`; no reply receipt is
+offered, and `tmt reply` is not applicable. Do not invent a reply or wait for one.
+
 Acknowledge only the exact processed revision with the returned `ackCommand`.
 Listening and showing never acknowledge. Avoid reflexive `ackall`; participant
 acknowledgments are separate, and re-running before acknowledgment may return the

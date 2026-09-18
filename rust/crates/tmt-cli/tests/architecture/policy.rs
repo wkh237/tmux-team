@@ -20,6 +20,8 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "icu_normalizer",
             "icu_locale_core",
             "sha2",
+            // Pure URL syntax admission for inert Office links, not networking.
+            "url",
         ],
         "tmt-adapters" => &[
             "getrandom",
@@ -32,6 +34,7 @@ pub fn dependency_violations(package: &Value) -> Vec<String> {
             "semver",
             "tar",
             "flate2",
+            "png",
             "tmt-core",
             "rusqlite",
             "serde_json",

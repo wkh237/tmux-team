@@ -15,6 +15,15 @@ fn selector<E>(value: &str) -> Result<(), RequestError<E>> {
     }
 }
 
+fn validate_room_scope<E>(room_id: Option<&str>) -> Result<(), RequestError<E>> {
+    if room_id.is_some_and(|id| !crate::dispatch::canonical_id(id)) {
+        return Err(RequestError::Attention(AttentionRejection::Invalid(
+            "Invalid room UUID.",
+        )));
+    }
+    Ok(())
+}
+
 fn missing<E>() -> RequestError<E> {
     RequestError::Attention(AttentionRejection::NotFound)
 }
@@ -31,11 +40,14 @@ fn retained<E>(
         .ok_or_else(missing)
 }
 
-fn final_state<T, E>(
+pub(super) fn final_state<T, E>(
     record: &AttentionRecord,
     now: u64,
     content: Option<T>,
 ) -> Result<FinalState<T>, RequestError<E>> {
+    if record.attempt.kind == RequestKind::Announcement {
+        return Ok(FinalState::NotRequired);
+    }
     let Some(submitted_at_ms) = record.attempt.response_submitted_at_ms else {
         return Ok(FinalState::NotSubmitted);
     };
@@ -69,24 +81,32 @@ fn exchange<T>(record: AttentionRecord, final_state: FinalState<T>) -> Exchange<
         || record.acknowledged_through >= record.revision;
     Exchange {
         request_id: record.attempt.request_id,
+        room_id: record.attempt.room_id,
         recipient_identity_id: record.attempt.recipient_identity_id,
         prepared_at_ms: record.attempt.prepared_at_ms,
         delivery: record.attempt.status,
         final_state,
         revision: record.revision,
         acknowledged,
-        settled: acknowledged && record.attempt.response_submitted_at_ms.is_some(),
+        settled: acknowledged
+            && (record.attempt.kind == RequestKind::Announcement
+                || record.attempt.response_submitted_at_ms.is_some()),
         retention_expires_at_ms: record.attempt.retention_expires_at_ms,
     }
 }
 
 impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
-    pub fn incoming_watermark(&mut self, identity: &str) -> Result<u64, RequestError<R::Error>> {
+    pub fn incoming_watermark(
+        &mut self,
+        identity: &str,
+        room_id: Option<&str>,
+    ) -> Result<u64, RequestError<R::Error>> {
         selector(identity)?;
+        validate_room_scope(room_id)?;
         let clock = &self.clock;
         self.repository.with_request_observation(|records| {
             records
-                .incoming_watermark(identity, positive(clock())?)
+                .incoming_watermark(identity, room_id, positive(clock())?)
                 .map_err(RequestError::Repository)
         })
     }
@@ -94,10 +114,12 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
     pub fn list_incoming(
         &mut self,
         identity: &str,
+        room_id: Option<&str>,
         limit: Option<u64>,
         after: Option<u64>,
     ) -> Result<IncomingPage, RequestError<R::Error>> {
         selector(identity)?;
+        validate_room_scope(room_id)?;
         let limit = limit.unwrap_or(DEFAULT_LIST_LIMIT);
         let after = after.unwrap_or(0);
         if limit == 0 || limit > MAX_LIST_LIMIT || after > MAX_JS_SAFE_INTEGER {
@@ -109,18 +131,26 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
         self.repository.with_request_observation(|records| {
             let now = positive(clock())?;
             let mut items = Vec::new();
-            for record in records.list_recipient_attention(identity, after, limit + 1, now)? {
+            for record in
+                records.list_recipient_attention(identity, room_id, after, limit + 1, now)?
+            {
+                let kind = match record.attempt.kind {
+                    RequestKind::Request => IncomingKind::Request,
+                    RequestKind::Announcement => IncomingKind::Announcement,
+                };
                 let sender_identity_id = record.attempt.originator.identity_id().map(str::to_owned);
                 let recipient_identity_id = record.attempt.recipient_identity_id.clone();
                 let state = final_state(&record, now, Some(()))?;
                 items.push(IncomingItem {
                     exchange: exchange(record, state),
-                    kind: IncomingKind::Request,
+                    kind,
                     sender_identity_id,
                     recipient_identity_id,
                 });
             }
-            for record in records.list_response_attention(identity, after, limit + 1, now)? {
+            for record in
+                records.list_response_attention(identity, room_id, after, limit + 1, now)?
+            {
                 let sender_identity_id = record.attempt.recipient_identity_id.clone();
                 let recipient_identity_id =
                     record.attempt.originator.identity_id().map(str::to_owned);

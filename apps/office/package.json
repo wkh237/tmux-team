@@ -9,9 +9,10 @@
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
     "test:browser": "playwright test",
+    "test:browser:native": "playwright test --config playwright.native.config.ts",
     "type:check": "tsc --noEmit",
     "type:check:e2e": "tsc -p tsconfig.e2e.json --noEmit",
-    "lint": "oxlint --deny-warnings --react-plugin src e2e vite.config.ts playwright.config.ts",
+    "lint": "oxlint --deny-warnings --react-plugin src e2e vite.config.ts playwright.config.ts playwright.native.config.ts",
     "format": "oxfmt .",
     "format:check": "oxfmt --check .",
     "check": "pnpm type:check && pnpm lint && pnpm format:check"

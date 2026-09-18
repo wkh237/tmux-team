@@ -56,47 +56,38 @@ function expectNativeSchema(
 ): void {
   expect(migrated.migrations.slice(0, 8)).toEqual(reference.migrations);
   expect(migrated.migrations).toHaveLength(EXPECTED_NATIVE_SCHEMA_VERSION);
-  expect(migrated.migrations[8]).toEqual({
-    version: 9,
-    name: 'add identity lifetimes and reusable retired names',
-  });
-  expect(migrated.migrations[9]).toEqual({
-    version: 10,
-    name: 'add durable identity retirement hooks',
-  });
-  expect(migrated.migrations[10]).toEqual({
-    version: 11,
-    name: 'add installation-owned local Office blocks',
-  });
-  expect(migrated.migrations[11]).toEqual({
-    version: 12,
-    name: 'add durable inbox routes and recipient attention',
-  });
-  expect(migrated.migrations[12]).toEqual({
-    version: 13,
-    name: 'add searchable identity metadata',
-  });
-  expect(migrated.migrations[13]).toEqual({
-    version: 14,
-    name: 'add local Office discussion board',
-  });
-  expect(migrated.migrations[14]).toEqual({
-    version: 15,
-    name: 'add identity-owned local Office presentation profiles',
-  });
-  expect(migrated.migrations[15]).toEqual({
-    version: 16,
-    name: 'add installation-owned local Office prop catalog',
-  });
-  expect(migrated.migrations[16]).toEqual({
-    version: 17,
-    name: 'add installation-owned local Office avatar catalog',
-  });
+  const additions = [
+    { version: 9, name: 'add identity lifetimes and reusable retired names' },
+    { version: 10, name: 'add durable identity retirement hooks' },
+    { version: 11, name: 'add installation-owned local Office blocks' },
+    { version: 12, name: 'add durable inbox routes and recipient attention' },
+    { version: 13, name: 'add searchable identity metadata' },
+    { version: 14, name: 'add local Office discussion board' },
+    { version: 15, name: 'add identity-owned local Office presentation profiles' },
+    { version: 16, name: 'add installation-owned local Office prop catalog' },
+    { version: 17, name: 'add installation-owned local Office avatar catalog' },
+    { version: 18, name: 'admit bounded directional Office prop packs' },
+    { version: 19, name: 'add installation lobby target to local Office layouts' },
+    { version: 20, name: 'allow bounded local Office placement customization' },
+    { version: 21, name: 'add local whiteboard documents and operation receipts' },
+    { version: 22, name: 'capture immutable whiteboard revisions and annotations' },
+    { version: 23, name: 'retain Office request dispatch operation receipts' },
+    { version: 24, name: 'add explicit local Office meeting membership' },
+    { version: 25, name: 'distinguish inbox announcements from replyable requests' },
+    { version: 26, name: 'retain original room context on durable requests' },
+    { version: 27, name: 'index retained request conversations' },
+    { version: 28, name: 'add atomic user-built Office world layouts' },
+    { version: 29, name: 'add identity-owned expiring self-reported status' },
+    { version: 30, name: 'extend shared Office discussions with room scopes' },
+    { version: 31, name: 'retain retired meeting rooms without accepting new work' },
+  ];
+  expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
     [
       ...reference.tables.map(({ name }) => name),
       'identity_hooks',
       'identity_metadata',
+      'identity_status',
       'office_local_blocks',
       'office_local_worlds',
       'office_local_profiles',
@@ -107,6 +98,13 @@ function expectNativeSchema(
       'office_board_entries',
       'office_board_operations',
       'office_board_state',
+      'office_dispatch_operations',
+      'office_meeting_rooms',
+      'office_meeting_members',
+      'office_whiteboards',
+      'office_whiteboard_operations',
+      'office_whiteboard_snapshots',
+      'office_whiteboard_snapshot_images',
       'request_recipient_attention_identities',
     ].sort()
   );
@@ -129,6 +127,93 @@ function expectNativeSchema(
     'installed_revision',
     'installed_at_ms',
   ]);
+  for (const [name, columns] of [
+    ['identity_status', ['identity_id', 'activity', 'mood', 'updated_at_ms', 'expires_at_ms']],
+    [
+      'office_local_worlds',
+      [
+        'singleton',
+        'id',
+        'created_at_ms',
+        'layout_revision',
+        'layout_json',
+        'layout_updated_at_ms',
+      ],
+    ],
+    ['office_dispatch_operations', ['operation_id', 'intent_digest', 'receipt']],
+    ['office_meeting_rooms', ['room_id', 'name', 'revision', 'retired']],
+    ['office_meeting_members', ['room_id', 'identity_id']],
+    ['office_whiteboard_snapshot_images', ['snapshot_id', 'pixel_digest', 'png']],
+    ['office_whiteboards', ['document_id', 'world_id', 'revision', 'scene', 'updated_at_ms']],
+    [
+      'office_whiteboard_operations',
+      [
+        'world_id',
+        'operation_id',
+        'intent_digest',
+        'document_id',
+        'revision',
+        'changed',
+        'updated_at_ms',
+      ],
+    ],
+    [
+      'office_whiteboard_snapshots',
+      [
+        'snapshot_id',
+        'world_id',
+        'intent_digest',
+        'document_id',
+        'document_revision',
+        'scene',
+        'selected_element_ids',
+        'annotation',
+        'created_at_ms',
+      ],
+    ],
+  ] as const) {
+    const resource = table(migrated, name);
+    expect(resource.rows).toEqual([]);
+    expect(resource.columns.map((column) => column.name)).toEqual(columns);
+  }
+  const snapshots = table(migrated, 'office_whiteboard_snapshots');
+  const images = table(migrated, 'office_whiteboard_snapshot_images');
+  expect(images.columns[0]).toMatchObject({ name: 'snapshot_id', type: 'TEXT', notnull: 1, pk: 1 });
+  expect(images.foreignKeys).toEqual([
+    {
+      id: 0,
+      seq: 0,
+      table: 'office_whiteboard_snapshots',
+      from: 'snapshot_id',
+      to: 'snapshot_id',
+      on_update: 'NO ACTION',
+      on_delete: 'NO ACTION',
+      match: 'NONE',
+    },
+  ]);
+  expect(snapshots.columns[0]).toMatchObject({
+    name: 'snapshot_id',
+    type: 'TEXT',
+    notnull: 1,
+    pk: 1,
+  });
+  expect(snapshots.foreignKeys).toEqual([
+    {
+      id: 0,
+      seq: 0,
+      table: 'office_local_worlds',
+      from: 'world_id',
+      to: 'id',
+      on_update: 'NO ACTION',
+      on_delete: 'NO ACTION',
+      match: 'NONE',
+    },
+  ]);
+  expect(snapshots.indexes).toHaveLength(1);
+  expect(snapshots.indexes[0]).toMatchObject({ unique: 1, origin: 'pk', partial: 0 });
+  expect(
+    snapshots.indexes[0]!.columns.filter((column) => column.key === 1).map((column) => column.name)
+  ).toEqual(['snapshot_id']);
   const hooks = table(migrated, 'identity_hooks');
   expect(hooks.rows).toEqual([]);
   expect(hooks.columns).toEqual([
@@ -218,30 +303,31 @@ function expectNativeSchema(
   expect(newHistory.columns).toEqual(oldHistory.columns);
   expect(newHistory.indexes).toEqual(oldHistory.indexes);
   expect(newHistory.foreignKeys).toEqual(oldHistory.foreignKeys);
-  expect(newHistory.rows).toEqual([
-    ...oldHistory.rows,
-    { version: 9, name: migrated.migrations[8]!.name },
-    { version: 10, name: migrated.migrations[9]!.name },
-    { version: 11, name: migrated.migrations[10]!.name },
-    { version: 12, name: migrated.migrations[11]!.name },
-    { version: 13, name: migrated.migrations[12]!.name },
-    { version: 14, name: migrated.migrations[13]!.name },
-    { version: 15, name: migrated.migrations[14]!.name },
-    { version: 16, name: migrated.migrations[15]!.name },
-    { version: 17, name: migrated.migrations[16]!.name },
-  ]);
-
+  expect(newHistory.rows).toEqual([...oldHistory.rows, ...additions]);
   const oldAttempts = table(reference, 'request_attempts');
   const newAttempts = table(migrated, 'request_attempts');
   expect(newAttempts.rows).toEqual(
     oldAttempts.rows.map((row) => ({
       ...row,
+      request_kind: 'request',
+      room_id: null,
       route_kind: 'pane',
       recipient_attention_revision: 0,
       recipient_attention_acknowledged_revision: 0,
     }))
   );
   expect(newAttempts.columns.map(({ name }) => name)).toContain('route_kind');
+  expect(newAttempts.columns.map(({ name }) => name)).toContain('request_kind');
+  expect(newAttempts.columns.map(({ name }) => name)).toContain('room_id');
+  for (const name of [
+    'request_attempts_room_recipient_attention',
+    'request_attempts_room_response_attention',
+    'request_history_recipient',
+    'request_history_recipient_room',
+    'request_history_room',
+  ]) {
+    expect(newAttempts.indexes.some((index) => index.name === name)).toBe(true);
+  }
   expect(newAttempts.columns.map(({ name }) => name)).toContain('recipient_attention_revision');
   expect(
     newAttempts.indexes.some(({ name }) => name === 'request_attempts_recipient_attention')

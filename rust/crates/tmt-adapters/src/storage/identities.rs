@@ -96,28 +96,42 @@ impl Storage {
     /// Request history keeps participant UUIDs after retirement, so compact
     /// projections can continue to name the exact historical participant.
     pub fn find_identity_by_id(&self, id: &str) -> Result<Option<Identity>, StorageError> {
-        self.connection()?
-            .query_row(
-                &format!("SELECT {COLUMNS} FROM identities WHERE id = ?"),
-                [id],
-                identity_row,
-            )
-            .optional()
-            .map_err(|error| classify(error, "Find identity by ID"))
+        identity_by_id(self.connection()?, id)
     }
 
     /// Office revalidates the originally selected UUID across separate calls;
     /// a same-name replacement must never inherit a pending proof or credential.
     pub fn find_active_identity_by_id(&self, id: &str) -> Result<Option<Identity>, StorageError> {
-        self.connection()?
-            .query_row(
-                &format!("SELECT {COLUMNS} FROM identities WHERE id = ? AND retired_at_ms IS NULL"),
-                [id],
-                identity_row,
-            )
-            .optional()
-            .map_err(|error| classify(error, "Find active identity by ID"))
+        active_identity_by_id(self.connection()?, id)
     }
+}
+
+pub(super) fn identity_by_id(
+    connection: &Connection,
+    id: &str,
+) -> Result<Option<Identity>, StorageError> {
+    connection
+        .query_row(
+            &format!("SELECT {COLUMNS} FROM identities WHERE id = ?"),
+            [id],
+            identity_row,
+        )
+        .optional()
+        .map_err(|error| classify(error, "Find identity by ID"))
+}
+
+pub(super) fn active_identity_by_id(
+    connection: &Connection,
+    id: &str,
+) -> Result<Option<Identity>, StorageError> {
+    connection
+        .query_row(
+            &format!("SELECT {COLUMNS} FROM identities WHERE id = ? AND retired_at_ms IS NULL"),
+            [id],
+            identity_row,
+        )
+        .optional()
+        .map_err(|error| classify(error, "Find active identity by ID"))
 }
 
 impl IdentityRepository for Storage {

@@ -1,4 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import type { ReactNode } from 'react';
+import { FurnitureToolbar } from './furniture-toolbar.js';
+import type { FurnitureActions } from '../blocks/block-scene.js';
+import { sameSelectionTarget } from '../rendering/selection-anchor.js';
+import type { SelectionAnchor, SelectionTarget } from '../rendering/selection-anchor.js';
+import type { OfficeSelection } from '../rendering/office-selection.js';
+import type { MeetingSlot } from '../world-map/module-contract.js';
 import type {
   OfficeSceneModel,
   OfficeSceneEditor,
@@ -9,25 +17,65 @@ type Scene = NonNullable<Awaited<ReturnType<typeof createOfficeScene>>>;
 
 export function OfficeCanvas({
   model,
-  selectedId,
+  selection,
   select,
   editor,
+  activate,
+  focusedComponentId,
+  furnitureActions,
+  agentTarget,
+  agentOverlay,
+  officeOverlay,
+  meetingOverlay,
+  createMeeting,
+  cameraHost,
 }: {
   model: OfficeSceneModel;
-  selectedId?: string;
-  select: (identityId: string) => void;
+  selection?: OfficeSelection;
+  select: (selection: OfficeSelection) => void;
   editor?: OfficeSceneEditor;
+  activate?: (id: string) => void;
+  focusedComponentId?: string;
+  furnitureActions?: FurnitureActions;
+  agentTarget?: Extract<OfficeSelection, { kind: 'agent' }>;
+  agentOverlay?(anchor?: SelectionAnchor): ReactNode;
+  officeOverlay?(anchor?: SelectionTarget): ReactNode;
+  meetingOverlay?(anchor?: SelectionTarget): ReactNode;
+  createMeeting?(slot: MeetingSlot): void;
+  cameraHost?: HTMLElement | null;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const scene = useRef<Scene | undefined>(undefined);
-  const latest = useRef({ model, selectedId, select, editor });
+  const latest = useRef({
+    model,
+    selection,
+    select,
+    editor,
+    activate,
+    focusedComponentId,
+    agentTarget,
+    createMeeting,
+  });
   const synchronize = useRef(() => {});
   const [ready, setReady] = useState(false);
   const [error, setError] = useState(false);
+  const [anchor, setAnchor] = useState<SelectionAnchor>();
+  const [agentAnchor, setAgentAnchor] = useState<SelectionAnchor>();
+  const [officeAnchor, setOfficeAnchor] = useState<SelectionTarget>();
+  const [meetingAnchor, setMeetingAnchor] = useState<SelectionTarget>();
   useEffect(() => {
-    latest.current = { model, selectedId, select, editor };
+    latest.current = {
+      model,
+      selection,
+      select,
+      editor,
+      activate,
+      focusedComponentId,
+      agentTarget,
+      createMeeting,
+    };
     synchronize.current();
-  }, [model, selectedId, select, editor]);
+  }, [model, selection, select, editor, activate, focusedComponentId, agentTarget, createMeeting]);
   useEffect(() => {
     const element = host.current;
     if (!element) return;
@@ -39,6 +87,8 @@ export function OfficeCanvas({
       controller.abort();
       setReady(false);
       setError(true);
+      setAnchor(undefined);
+      setAgentAnchor(undefined);
     }
     function flush() {
       const current = scene.current;
@@ -46,8 +96,12 @@ export function OfficeCanvas({
       const next = latest.current;
       try {
         if (applied?.model !== next.model) current.update(next.model);
-        if (!applied || applied.selectedId !== next.selectedId) current.selection(next.selectedId);
+        if (!applied || applied.selection !== next.selection) current.selection(next.selection);
         if (!applied || applied.editor !== next.editor) current.editing(next.editor);
+        if (!applied || applied.focusedComponentId !== next.focusedComponentId)
+          current.interaction(next.focusedComponentId);
+        if (!applied || applied.agentTarget !== next.agentTarget)
+          current.anchorActor(next.agentTarget);
         applied = next;
         setReady(true);
       } catch {
@@ -58,7 +112,41 @@ export function OfficeCanvas({
     document.addEventListener('visibilitychange', flush);
     void import('../rendering/office-scene.js')
       .then(({ createOfficeScene }) =>
-        createOfficeScene(element, controller.signal, (id) => latest.current.select(id))
+        createOfficeScene(element, controller.signal, {
+          select: (id) => {
+            if (!controller.signal.aborted) latest.current.select(id);
+          },
+          activate: (id) => {
+            if (!controller.signal.aborted) latest.current.activate?.(id);
+          },
+          createMeeting: (slot) => {
+            if (!controller.signal.aborted) latest.current.createMeeting?.(slot);
+          },
+          selectedAnchor: (next) => {
+            if (!controller.signal.aborted)
+              setAnchor((previous) =>
+                previous?.x === next?.x && previous?.y === next?.y ? previous : next
+              );
+          },
+          actorAnchor: (next) => {
+            if (!controller.signal.aborted)
+              setAgentAnchor((previous) =>
+                previous?.x === next?.x && previous?.y === next?.y ? previous : next
+              );
+          },
+          officeAnchor: (next) => {
+            if (!controller.signal.aborted)
+              setOfficeAnchor((previous) =>
+                sameSelectionTarget(previous, next) ? previous : next
+              );
+          },
+          meetingAnchor: (next) => {
+            if (!controller.signal.aborted)
+              setMeetingAnchor((previous) =>
+                sameSelectionTarget(previous, next) ? previous : next
+              );
+          },
+        })
       )
       .then((created) => {
         if (!created) return;
@@ -77,13 +165,31 @@ export function OfficeCanvas({
       scene.current = undefined;
     };
   }, []);
+  const cameraControls = ready && (
+    <div className="scene-camera" role="group" aria-label="Map view">
+      <button aria-label="Zoom out" title="Zoom out" onClick={() => scene.current?.zoom(1 / 1.2)}>
+        −
+      </button>
+      <button
+        className="scene-fit"
+        aria-label="Fit office"
+        title="Show the whole office"
+        onClick={() => scene.current?.fit()}
+      >
+        Fit
+      </button>
+      <button aria-label="Zoom in" title="Zoom in" onClick={() => scene.current?.zoom(1.2)}>
+        +
+      </button>
+    </div>
+  );
   return (
     <div className="office-map" data-scene-ready={ready}>
       <div
         ref={host}
         className="office-canvas"
         role="img"
-        aria-label="Office map. Drag to pan; scroll to zoom. Use the agent directory for keyboard selection."
+        aria-label="Office map. Drag or scroll to pan; pinch to zoom. Use the space directory and object controls for keyboard access."
       />
       {!ready && (
         <p className="scene-status" role={error ? 'alert' : 'status'}>
@@ -92,11 +198,13 @@ export function OfficeCanvas({
             : 'Opening the workshop…'}
         </p>
       )}
-      {ready && (
-        <button className="scene-fit" onClick={() => scene.current?.fit()}>
-          Fit office
-        </button>
+      {cameraHost ? createPortal(cameraControls, cameraHost) : cameraControls}
+      {ready && editor && anchor && furnitureActions && (
+        <FurnitureToolbar actions={furnitureActions} anchor={anchor} />
       )}
+      {agentOverlay?.(agentAnchor)}
+      {ready && officeOverlay?.(officeAnchor)}
+      {ready && meetingOverlay?.(meetingAnchor)}
     </div>
   );
 }

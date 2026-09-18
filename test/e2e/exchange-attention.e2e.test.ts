@@ -220,7 +220,7 @@ describe.sequential('Exchange attention through the real Docker/tmux fixture', (
         );
         expect(created.created).toBe(true);
         await calibrateOfflineTmuxGuard(fixture);
-        const token = 'exchange-virtualized-final-🙂-日本語';
+        const token = 'exchange-virtualized-final-🙂-\u65e5\u672c\u8a9e';
         const expectedBody = [
           `VIRTUALIZED-BEGIN:${token}`,
           ...Array.from(
@@ -524,6 +524,113 @@ describe.sequential('Exchange attention through the real Docker/tmux fixture', (
         2_000,
         'completed listener process cleanup'
       );
+    });
+  }, 15_000);
+
+  it('keeps a published inbox request replyable after its sender interrupts the wait', async () => {
+    await withE2EFixture(async (fixture) => {
+      await calibrateOfflineTmuxGuard(fixture);
+      const sender = expectJsonResult<{ identity: PublicIdentity }>(
+        await fixture.runJsonCli(['identity', 'create', 'Waiting Sender'], { withoutTmux: true })
+      ).identity;
+      const receiver = expectJsonResult<{ identity: PublicIdentity }>(
+        await fixture.runJsonCli(['identity', 'create', 'Offline Receiver'], { withoutTmux: true })
+      ).identity;
+      const message = 'Review the frozen whiteboard snapshot.\nDo not cancel when I stop waiting.';
+      const waiting = fixture.runCliProcess(
+        [
+          '--json',
+          'talk',
+          receiver.canonicalName,
+          message,
+          '--inbox',
+          '--identity',
+          sender.canonicalName,
+          '--timeout',
+          '120',
+        ],
+        { withoutTmux: true }
+      );
+      await fixture.waitFor(
+        () =>
+          requestAttempts(fixture).some(
+            (row) => row.status === 'queued' && row.wait_active === 1
+          ) && processWaitsInInterruptPoll(waiting.pid),
+        2_000,
+        'queued request and interruptible sender observation'
+      );
+      const before = requestAttempts(fixture);
+      expect(before).toHaveLength(1);
+      const requestId = before[0]!.request_id;
+      expect(before[0]).toMatchObject({
+        status: 'queued',
+        wait_active: 1,
+        message_text: message,
+        originator_identity_id: sender.id,
+        recipient_identity_id: receiver.id,
+      });
+      waiting.kill('SIGINT');
+      const interrupted = await waiting.result;
+      expect(interrupted.code).toBe(1);
+      expect(interrupted.stderr).toBe('');
+      expect(interrupted.json).toMatchObject({ requestId, error: { code: 'INTERRUPTED' } });
+      await fixture.waitFor(
+        () => !processGroupIsRunning(waiting.pid),
+        2_000,
+        'sender process cleanup'
+      );
+      const after = requestAttempts(fixture);
+      expect(after).toHaveLength(1);
+      expect(after[0]).toEqual({
+        ...before[0],
+        wait_active: 0,
+        wait_released_at_ms: expect.any(Number),
+      });
+
+      const incoming = expectJsonResult<{
+        items: Array<{ requestId: string; acknowledged: boolean }>;
+      }>(
+        await fixture.runJsonCli(
+          [
+            'x',
+            'listen',
+            '--identity',
+            receiver.canonicalName,
+            '--timeout',
+            '1s',
+            '--debounce',
+            '1ms',
+          ],
+          { withoutTmux: true }
+        )
+      );
+      expect(incoming.items).toEqual([expect.objectContaining({ requestId, acknowledged: false })]);
+      const detail = expectJsonResult<{
+        exchange: { prompt: { message: string }; reply: { receipt: string } };
+      }>(
+        await fixture.runJsonCli(
+          ['x', 'show', requestId, '--incoming', '--identity', receiver.canonicalName],
+          { withoutTmux: true }
+        )
+      );
+      expect(detail.exchange.prompt.message).toBe(message);
+      expectJsonResult(
+        await fixture.runJsonCli(
+          [
+            'reply',
+            requestId,
+            '--receipt',
+            detail.exchange.reply.receipt,
+            '--message',
+            'Reviewed after you left.',
+          ],
+          { withoutTmux: true }
+        )
+      );
+      expect(
+        expectJsonResult(await fixture.runJsonCli(['result', requestId], { withoutTmux: true }))
+      ).toMatchObject({ status: 'completed', response: 'Reviewed after you left.' });
+      expect(fs.existsSync(fixture.forbiddenTmuxLogPath)).toBe(false);
     });
   }, 15_000);
 

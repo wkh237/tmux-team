@@ -1,5 +1,5 @@
-import { decodeAvatarPack } from './avatar-contract.js';
-import type { AvatarArt } from '../profiles/avatar.js';
+import { avatarRaster, decodeAvatarPack } from './avatar-contract.js';
+import type { AvatarArt } from '../profiles/avatar-art.js';
 import {
   validImmutableArtDigest,
   validImmutableArtReference,
@@ -38,7 +38,7 @@ export function decodeAvatarCatalog(value: unknown): AvatarCatalog {
     !Number.isSafeInteger(record.catalogRevision) ||
     (record.catalogRevision as number) < 0 ||
     !Array.isArray(record.packs) ||
-    record.packs.length > 64
+    record.packs.length > 65
   )
     throw new Error('Invalid avatar catalog.');
   const seen = new Set<string>();
@@ -57,7 +57,7 @@ export function decodeAvatarCatalog(value: unknown): AvatarCatalog {
     seen.add(packRecord.digest);
     const pack = decodeAvatarPack(packRecord.pack);
     avatarCount += pack.avatars.length;
-    if (avatarCount > 256) throw new Error('Avatar catalog exceeds its bound.');
+    if (avatarCount > 260) throw new Error('Avatar catalog exceeds its bound.');
     return { digest: packRecord.digest, pack };
   });
   return { catalogRevision: record.catalogRevision as number, packs };
@@ -87,7 +87,7 @@ export function resolveAvatar(
         status: 'available',
         ref: avatarRef,
         label: `${pack.label} · ${avatar.label}`,
-        art: { palette: pack.palette, pixels: avatar.pixels },
+        art: avatarRaster(pack, avatar),
       };
   }
   return { status: 'unavailable', ref: avatarRef };

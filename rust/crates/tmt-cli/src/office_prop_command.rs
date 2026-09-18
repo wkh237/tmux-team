@@ -8,7 +8,7 @@ use std::{
 };
 use tmt_adapters::{
     office_companion::invoke_local_office_prop,
-    office_prop::{PropPackError, command_pack_input, read_pack_file},
+    office_prop::{PropPackError, command_pack_input, quality_warnings, read_pack_file},
 };
 use tmt_core::office_protocol::{OfficeError, OfficeInvocation};
 
@@ -28,9 +28,11 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
     if matches!(operation, OfficePropOperation::Preview { .. }) {
         return preview(executable, operation, mode);
     }
+    let mut warnings = None;
     let (invocation, input, mutating) = match operation {
         OfficePropOperation::Validate { file } => {
             let pack = read_pack_file(Path::new(&file)).map_err(prop_file_error)?;
+            warnings = Some(quality_warnings(&pack));
             (
                 OfficeInvocation::LocalPropValidate,
                 command_pack_input(&pack),
@@ -63,7 +65,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
         ),
         OfficePropOperation::Preview { .. } => unreachable!(),
     };
-    let result = invoke_local_office_prop(
+    let mut result = invoke_local_office_prop(
         executable,
         invocation,
         &input,
@@ -71,6 +73,9 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
     )
     .map_err(|error| unavailable(error, mutating))?
     .map_err(prop_error)?;
+    if let Some(warnings) = warnings {
+        result["warnings"] = json!(warnings);
+    }
     publish(result, mode)
 }
 
@@ -90,7 +95,7 @@ fn preview(
     let paths = tmt_adapters::config::ConfigPaths::discover().map_err(|error| {
         Failure::new("OFFICE_LOCATION_INVALID", error.to_string(), 1).caused_by(error)
     })?;
-    let value = tmt_adapters::office_service::preview(&paths, &version.to_string(), pack.bytes())
+    let value = tmt_adapters::office_service::preview(&paths, &version.to_string(), &pack)
         .map_err(preview_error)?;
     publish(value, mode)
 }

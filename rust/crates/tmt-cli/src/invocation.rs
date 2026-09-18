@@ -9,6 +9,7 @@ pub enum Invocation {
     Init,
     List {
         target: Option<String>,
+        room: Option<String>,
     },
     Bind {
         pane: Option<String>,
@@ -33,6 +34,7 @@ pub enum Invocation {
     },
     Config(ConfigRequest),
     Identity(IdentityRequest),
+    Room(RoomOperation),
     NotesPath {
         identity: Option<String>,
     },
@@ -79,6 +81,26 @@ pub enum Invocation {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum RoomOperation {
+    Create(String),
+    List,
+    Show(String),
+    Retire(String),
+    Membership {
+        room: String,
+        identity: Option<String>,
+        change: tmt_core::room::MembershipChange,
+    },
+    Dispatch {
+        room: String,
+        message: String,
+        identity: Option<String>,
+        operation_id: Option<String>,
+        kind: tmt_core::request::RequestKind,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum OfficeOperation {
     Open,
     Start {
@@ -87,6 +109,7 @@ pub enum OfficeOperation {
     Stop,
     Status,
     Sync,
+    Layout(OfficeLayoutOperation),
     Block {
         target: OfficeBlockTarget,
         identity: Option<String>,
@@ -98,7 +121,15 @@ pub enum OfficeOperation {
     },
     Prop(OfficePropOperation),
     Avatar(OfficeAvatarOperation),
+    ExtensionValidate {
+        file: String,
+        instance: String,
+    },
     Board(OfficeBoardOperation),
+    WhiteboardSnapshot {
+        reference: String,
+        output: Option<String>,
+    },
     Unpair {
         world: String,
         identity: Option<String>,
@@ -147,6 +178,7 @@ pub enum BoardActorSelection {
 pub enum BoardCategorySelection {
     General,
     Repository(String),
+    Room(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -196,9 +228,19 @@ pub enum OfficeBoardOperation {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum OfficeBlockTarget {
-    Remote { world: String, emulator: bool },
-    Local,
+pub struct OfficeBlockTarget {
+    pub world: String,
+    pub emulator: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum OfficeLayoutOperation {
+    Show,
+    Apply {
+        file: String,
+        if_revision: u64,
+        legacy_basis: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -241,6 +283,7 @@ pub enum OfficeAvatarOperation {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TalkOptions {
+    pub room: Option<String>,
     pub inbox: bool,
     pub force: bool,
     pub detach: bool,
@@ -278,6 +321,21 @@ pub enum IdentityRequest {
         identity: Option<String>,
         operation: IdentityMetadataRequest,
     },
+    Status {
+        identity: Option<String>,
+        operation: IdentityStatusRequest,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum IdentityStatusRequest {
+    Show,
+    Set {
+        activity: String,
+        mood: Option<String>,
+        ttl_ms: u64,
+    },
+    Clear,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -327,6 +385,7 @@ pub enum ExchangeOperation {
         incoming: bool,
     },
     Listen {
+        room: Option<String>,
         timeout_seconds: f64,
         debounce_seconds: f64,
     },

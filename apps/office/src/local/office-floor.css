@@ -1,4 +1,14 @@
 .office-shell:has(.office-overview) {
+  --hud-panel: #091e2cf5;
+  --hud-control: #0c2636;
+  --hud-border: #4c737d;
+  --hud-text: #f3ead7;
+  --hud-muted: #a7bbc0;
+  --hud-focus: #5ce7ee;
+  --hud-selected: #9af4d4;
+  --hud-danger: #ec8b80;
+  --hud-warning: #efb35a;
+  --hud-shadow: 0 6px 24px #0008, inset 0 1px #b3f5fa12;
   max-width: none;
   padding: 0;
   height: 100dvh;
@@ -25,62 +35,125 @@
 }
 .office-canvas canvas {
   display: block;
+  cursor: grab;
 }
-.office-shell:has(.office-overview, .personal-space) > header {
+.office-canvas canvas:active {
+  cursor: grabbing;
+}
+.office-shell:has(.world-hud) > header,
+.office-shell:has(.world-hud) > footer {
+  display: none;
+}
+.world-hud {
   position: fixed;
-  z-index: 4;
+  z-index: 6;
   top: 16px;
   left: 20px;
-  padding: 10px 18px;
-  gap: 24px;
-  background: #fffbedf2;
-  border: 1px solid #c8c4ab;
-  border-radius: 8px;
-  box-shadow: 0 4px 16px #243e2920;
-}
-.office-shell:has(.office-overview) > footer {
-  position: fixed;
-  bottom: 12px;
-  left: 20px;
-  z-index: 3;
-  margin: 0;
-  padding: 8px 12px;
-  border: 0;
-  border-radius: 4px;
-  background: #fffbedee;
-  font-size: 10px;
+  max-width: calc(100vw - 210px);
+  padding: 8px 14px;
   gap: 16px;
+  flex-wrap: nowrap;
+  color: var(--hud-text);
+  background: var(--hud-panel);
+  border: 1px solid var(--hud-border);
+  border-radius: 12px;
+  box-shadow: var(--hud-shadow);
 }
-.office-heading {
+.world-hud .brand {
+  color: var(--hud-text);
+  white-space: nowrap;
+  font-size: 22px;
+}
+.world-hud-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
-  position: fixed;
-  z-index: 3;
-  top: 88px;
-  left: 20px;
 }
-.office-heading > div {
+.world-heading {
   position: absolute;
   width: 1px;
   height: 1px;
   overflow: hidden;
   clip-path: inset(50%);
 }
-.office-heading button,
-.scene-fit {
-  border: 1px solid #b9c1b3;
-  background: #fffdf4;
-  color: #263e36;
-  border-radius: 4px;
+.world-hud button,
+.world-back,
+.scene-camera button {
+  border: 1px solid var(--hud-border);
+  background: var(--hud-control);
+  color: var(--hud-text);
+  border-radius: 8px;
+  min-height: 44px;
+  min-width: 44px;
   padding: 10px 16px;
-  font-size: 12px;
-  box-shadow: 0 3px 0 #243e2920;
+  font-size: 14px;
+  box-shadow: none;
 }
-.scene-fit {
+.world-hud button,
+.world-back {
+  padding: 6px 10px;
+  white-space: nowrap;
+  box-shadow: none;
+  text-decoration: none;
+}
+.world-population {
+  font-size: 11px;
+  color: var(--hud-muted);
+  white-space: nowrap;
+}
+.world-hud .world-refresh {
+  border-color: transparent;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  padding: 6px;
+}
+.world-connection {
+  position: relative;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--hud-muted);
+}
+.world-connection summary {
+  cursor: pointer;
+  white-space: nowrap;
+}
+.world-connection p {
+  position: absolute;
+  top: calc(100% + 16px);
+  right: -14px;
+  width: min(300px, calc(100vw - 40px));
+  margin: 0;
+  padding: 18px;
+  line-height: 1.6;
+  background: var(--hud-panel);
+  border: 1px solid var(--hud-border);
+  border-radius: 12px;
+  box-shadow: var(--hud-shadow);
+}
+.scene-camera {
   position: absolute;
   z-index: 3;
   right: 20px;
   top: 24px;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--hud-border);
+  border-radius: 12px;
+  background: var(--hud-panel);
+  box-shadow: var(--hud-shadow);
+}
+.scene-camera button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 6px 10px;
+  border: 0;
+  box-shadow: none;
+  font-size: 18px;
+}
+.scene-camera .scene-fit {
+  font-size: 14px;
 }
 .scene-status {
   position: absolute;
@@ -88,16 +161,19 @@
   left: 50%;
   transform: translateX(-50%);
   padding: 16px;
-  background: #fffbed;
+  color: var(--hud-text);
+  background: var(--hud-panel);
+  border: 1px solid var(--hud-border);
+  border-radius: 12px;
   max-width: 450px;
 }
 .office-floor {
   position: fixed;
   z-index: 3;
-  top: 144px;
+  top: 78px;
   left: 20px;
   width: 230px;
-  max-height: calc(100dvh - 250px);
+  max-height: calc(100dvh - 110px);
   overflow: auto;
   border: 1px solid #b2b59d;
   border-radius: 8px;
@@ -238,99 +314,147 @@
   right: 20px;
   width: 310px;
   max-height: calc(100dvh - 150px);
-  overflow: auto;
-  padding: 24px 20px;
-  background: #f7efdbf5;
-  border: 1px solid #d8ceb2;
-  border-radius: 10px;
-  box-shadow: 0 8px 24px #263e3325;
+  overflow: hidden;
+  padding: 0;
+  color: var(--hud-text);
+  background: var(--hud-panel);
+  border: 1px solid var(--hud-border);
+  border-radius: 12px;
+  box-shadow: var(--hud-shadow);
   overflow-wrap: anywhere;
 }
+.office-inspector:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+}
+.inspector-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--hud-border);
+  flex-shrink: 0;
+}
+.inspector-header h2 {
+  min-width: 0;
+}
+.inspector-body {
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 12px 16px 20px;
+}
+.area-roster ul {
+  list-style: none;
+  padding: 0;
+}
+.area-roster li {
+  margin: 6px 0;
+}
+.area-roster button {
+  width: 100%;
+  text-align: left;
+}
+.area-roster small {
+  display: block;
+}
+.area-roster input,
+.world-directory input {
+  box-sizing: border-box;
+  width: 100%;
+}
+.inspector-body .profile-editor {
+  margin: 16px 0;
+  padding: 12px;
+  grid-template-columns: minmax(0, 1fr);
+}
 .inspector-close {
-  float: right;
-  width: 36px;
-  height: 36px;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
   border: 0;
   background: transparent;
-  color: #3e5949;
+  color: var(--hud-text);
   font-size: 24px;
-}
-.office-inspector .eyebrow {
-  font-size: 9px;
-  color: #91623d;
 }
 .office-inspector h2 {
   font:
-    500 29px/1.1 Georgia,
-    serif;
-  margin: 14px 0;
+    700 22px/1.2 ui-sans-serif,
+    system-ui,
+    sans-serif;
+  margin: 0;
+}
+.office-inspector h3 {
+  font-size: 13px;
+  margin: 0;
 }
 .office-inspector p {
   font-size: 12px;
-  color: #65705d;
-}
-.office-inspector .inspector-presence {
-  font-size: 11px;
+  color: var(--hud-muted);
 }
 .office-inspector a {
   display: inline-block;
   font-size: 12px;
-  color: #335c44;
+  color: var(--hud-selected);
 }
-.office-inspector-note {
-  margin-top: 24px;
-  padding-top: 16px;
-  border-top: 1px dashed #c7bea6;
+.inspector-object-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin-top: 16px;
 }
-.office-inspector-note > span {
-  font-size: 26px;
-  color: #7c8868;
-}
-.office-inspector-note p {
-  font-size: 10px;
+.inspector-object-actions .world-extension-entry {
+  justify-content: flex-start;
+  text-align: left;
 }
 .personal-space > h1 {
   margin-top: 18px;
 }
-@media (max-width: 600px) {
-  .office-shell:has(.office-overview, .personal-space) > header {
+@media (max-width: 760px) {
+  .world-hud {
     top: 10px;
     left: 10px;
     right: 10px;
-    gap: 8px 16px;
-    padding: 8px 12px;
+    gap: 6px 16px;
+    padding: 6px 12px;
+    max-width: none;
+    flex-wrap: wrap;
   }
-  .office-shell:has(.office-overview, .personal-space) .brand {
+  .world-hud .brand {
     font-size: 18px;
   }
-  .office-shell:has(.office-overview, .personal-space) nav {
-    gap: 14px;
-    font-size: 12px;
+  .world-hud-actions {
+    order: 3;
+    flex-basis: 100%;
+    gap: 6px;
+    flex-wrap: wrap;
   }
-  .office-shell:has(.office-overview, .personal-space) .preview-badge {
-    font-size: 9px;
-    padding: 2px 6px;
+  .world-hud .world-refresh {
+    margin-left: auto;
   }
   .office-floor {
-    top: 136px;
+    top: 108px;
     left: 12px;
     width: 180px;
     max-height: 35dvh;
   }
-  .scene-fit {
-    top: 88px;
+  .scene-camera {
+    top: 108px;
     right: 12px;
+    width: 88px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .scene-camera .scene-fit {
+    grid-column: 1 / -1;
+    grid-row: 2;
   }
   .office-inspector {
     top: auto;
-    bottom: 58px;
+    bottom: 12px;
     left: 12px;
     right: 12px;
     width: auto;
-    max-height: 55dvh;
-  }
-  .office-shell:has(.office-overview) > footer {
-    left: 12px;
-    right: 12px;
+    max-height: min(60dvh, calc(100dvh - 180px));
   }
 }

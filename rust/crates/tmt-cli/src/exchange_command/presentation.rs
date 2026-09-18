@@ -9,6 +9,7 @@ use tmt_core::request::{
 
 fn final_document<T>(state: &FinalState<T>, content: impl FnOnce(&T) -> Option<Value>) -> Value {
     match state {
+        FinalState::NotRequired => json!({"status": "not_required"}),
         FinalState::NotSubmitted => json!({"status": "not_submitted"}),
         FinalState::Expired {
             submitted_at_ms,
@@ -49,7 +50,7 @@ fn exchange_document<T>(
     exchange: &Exchange<T>,
     content: impl FnOnce(&T) -> Option<Value>,
 ) -> Value {
-    json!({
+    let mut document = json!({
         "requestId": exchange.request_id,
         "recipientIdentityId": exchange.recipient_identity_id,
         "preparedAtMs": exchange.prepared_at_ms,
@@ -59,7 +60,11 @@ fn exchange_document<T>(
         "acknowledged": exchange.acknowledged,
         "settled": exchange.settled,
         "retentionExpiresAtMs": exchange.retention_expires_at_ms,
-    })
+    });
+    if let Some(room_id) = &exchange.room_id {
+        document["roomId"] = room_id.clone().into();
+    }
+    document
 }
 
 fn prompt_document(prompt: &RequestPrompt) -> Value {

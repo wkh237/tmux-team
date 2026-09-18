@@ -1,5 +1,5 @@
-import { useContext, useEffect, useRef, useState } from 'react';
-import { LocalHttpError, LocalRuntimeContext } from './local-runtime.js';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { LocalRuntimeContext } from './local-runtime.js';
 import type { LocalRuntime } from './local-runtime.js';
 import type {
   BoardCategory,
@@ -8,13 +8,20 @@ import type {
   BoardThreadSummary,
 } from './board-contract.js';
 import './board.css';
+import { BoardReferenceActions, BoardShare } from './board-share.js';
+import { boardCategoryKey as categoryKey } from './board-contract.js';
+import { BoardNavigation, useBoardNavigation } from './board-navigation.js';
+import { boardErrorMessage as message, useBoardMutation } from './use-board-mutation.js';
 
-function categoryKey(category: BoardCategory): string {
-  return category.kind === 'general' ? 'general' : `repository:${category.repositoryId}`;
-}
-
-function categoryLabel(category: BoardCategory): string {
-  return category.kind === 'general' ? 'General' : category.repositoryId;
+function categoryLabel(category: BoardCategory, rooms: Map<string, string> = new Map()): string {
+  switch (category.kind) {
+    case 'general':
+      return 'General';
+    case 'repository':
+      return category.repositoryId;
+    case 'room':
+      return `Room · ${rooms.get(category.roomId) ?? category.roomId}`;
+  }
 }
 
 function authorLabel(entry: Pick<BoardEntry, 'author'>): string {
@@ -28,36 +35,27 @@ function timeLabel(milliseconds: number): string {
   }).format(new Date(milliseconds));
 }
 
-interface PendingIntent<T> {
-  operationId: string;
-  input: T;
+export function LocalBoardPage({ entryCategory }: { entryCategory?: BoardCategory } = {}) {
+  return (
+    <BoardNavigation>
+      <BoardWorkspace entryCategory={entryCategory} />
+    </BoardNavigation>
+  );
 }
 
-function pendingIntent<T>(value: { current: PendingIntent<T> | undefined }, input: T) {
-  value.current ??= { operationId: crypto.randomUUID(), input };
-  return value.current;
-}
-
-function message(error: unknown): string {
-  if (error instanceof LocalHttpError) {
-    if (error.code === 'BOARD_CURSOR_STALE') return 'The board changed. Refresh to continue.';
-    if (error.code === 'BOARD_REVISION_CONFLICT')
-      return 'This entry changed. Refresh it before editing again.';
-    if (error.code === 'BOARD_FORBIDDEN') return 'This entry can only be changed by its author.';
-  }
-  return 'The board request could not be completed. Your draft is still here.';
-}
-
-function isDefinitiveNoWrite(error: unknown): boolean {
-  return error instanceof LocalHttpError && error.status >= 400 && error.status < 500;
-}
-
-export function LocalBoardPage() {
+function BoardWorkspace({ entryCategory }: { entryCategory?: BoardCategory }) {
+  const { request: requestNavigation, epoch } = useBoardNavigation();
   const runtime = useContext(LocalRuntimeContext);
   const [categories, setCategories] = useState<BoardCategory[]>([]);
   const [categoryCursor, setCategoryCursor] = useState<string | null>(null);
-  const [category, setCategory] = useState<BoardCategory>({ kind: 'general' });
-  const [view, setView] = useState<'recent' | 'updated'>('recent');
+  const [category, setCategory] = useState<BoardCategory>(entryCategory ?? { kind: 'general' });
+  const [roomNames, setRoomNames] = useState(new Map<string, string>());
+  const [view, setView] = useState<'recent' | 'updated'>('updated');
+  const [pane, setPane] = useState<'threads' | 'discussion'>('threads');
+  const [composing, setComposing] = useState(false);
+  const [sharedThread, setSharedThread] = useState<BoardEntry>();
+  const shareTrigger = useRef<HTMLButtonElement | null>(null);
+  const threadTrigger = useRef<HTMLButtonElement | null>(null);
   const [threads, setThreads] = useState<BoardThreadSummary[]>([]);
   const [threadCursor, setThreadCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState<string>();
@@ -69,6 +67,36 @@ export function LocalBoardPage() {
   const categoryContinuation = useRef<string | undefined>(undefined);
   const threadContinuation = useRef<string | undefined>(undefined);
   const selectedCategoryKey = categoryKey(category);
+  const selectCategory = useCallback(
+    (next: BoardCategory) => {
+      if (categoryKey(next) === selectedCategoryKey) return;
+      requestNavigation(() => {
+        ++refreshGeneration.current;
+        threadTrigger.current = null;
+        setCategory(next);
+        setSelected(undefined);
+        setDetail(undefined);
+        setThreads([]);
+        setSharedThread(undefined);
+        setComposing(false);
+        setPane('threads');
+      });
+    },
+    [requestNavigation, selectedCategoryKey]
+  );
+  const lastEntry = useRef(entryCategory);
+  useEffect(() => {
+    if (lastEntry.current === entryCategory) return;
+    lastEntry.current = entryCategory;
+    if (entryCategory) selectCategory(entryCategory);
+  }, [entryCategory, selectCategory]);
+
+  useEffect(() => {
+    if (pane === 'threads') threadTrigger.current?.focus();
+  }, [pane]);
+  useEffect(() => {
+    if (!sharedThread) shareTrigger.current?.focus();
+  }, [sharedThread]);
 
   async function loadMoreCategories(activeRuntime: LocalRuntime, cursor: string) {
     if (categoryContinuation.current === cursor) return;
@@ -114,7 +142,7 @@ export function LocalBoardPage() {
     }
   }
 
-  async function refresh(activeRuntime = runtime, resetSelection = false) {
+  async function refresh(activeRuntime = runtime) {
     if (!activeRuntime) return;
     const generation = ++refreshGeneration.current;
     const requestedCategory = category;
@@ -122,11 +150,13 @@ export function LocalBoardPage() {
     setError(undefined);
     setLoading(true);
     try {
-      const [categoryPage, threadPage] = await Promise.all([
+      const [categoryPage, threadPage, rooms] = await Promise.all([
         activeRuntime.board.categories({ limit: 20 }),
         activeRuntime.board.list({ category: requestedCategory, view: requestedView, limit: 20 }),
+        activeRuntime.rooms.list().catch(() => []),
       ]);
       if (generation !== refreshGeneration.current) return;
+      setRoomNames(new Map(rooms.map((room) => [room.id, room.name])));
       setCategories((_current) => {
         const merged = [...categoryPage.categories];
         if (!merged.some((item) => categoryKey(item) === categoryKey(requestedCategory))) {
@@ -137,9 +167,9 @@ export function LocalBoardPage() {
       setCategoryCursor(categoryPage.nextCursor);
       setThreads(threadPage.threads);
       setThreadCursor(threadPage.nextCursor);
-      setSelected((current) =>
-        resetSelection ? threadPage.threads[0]?.id : (current ?? threadPage.threads[0]?.id)
-      );
+      // Refresh/order/post completion must not dispose another thread's form.
+      // Explicit category navigation clears selection before loading its first page.
+      setSelected((current) => current ?? threadPage.threads[0]?.id);
       setDetailVersion((version) => version + 1);
     } catch (caught) {
       if (generation === refreshGeneration.current) setError(message(caught));
@@ -149,7 +179,7 @@ export function LocalBoardPage() {
   }
 
   useEffect(() => {
-    void refresh(runtime, true);
+    void refresh(runtime);
     // The runtime is installation-scoped and the serialized category is an explicit reload key.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runtime, selectedCategoryKey, view]);
@@ -174,126 +204,168 @@ export function LocalBoardPage() {
 
   if (!runtime) return <p role="alert">This build does not provide the local Office runtime.</p>;
   return (
-    <section className="board-page">
-      <div className="board-heading">
-        <div>
-          <p className="eyebrow">Installation-local discussion</p>
-          <h1>Office board</h1>
-          <p className="intro">
-            Share current work and questions here. Posts are plain text and never dispatch tasks.
-          </p>
-        </div>
-        <button type="button" className="board-secondary" onClick={() => void refresh()}>
-          Refresh board
-        </button>
-      </div>
-
-      <div className="board-filters" aria-label="Board filters">
-        <label>
-          Category
-          <select
-            value={categoryKey(category)}
-            onChange={(event) => {
-              const next = categories.find((item) => categoryKey(item) === event.target.value);
-              if (next) setCategory(next);
-            }}
-          >
-            {categories.map((item) => (
-              <option key={categoryKey(item)} value={categoryKey(item)}>
-                {categoryLabel(item)}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          Order
-          <select
-            value={view}
-            onChange={(event) => setView(event.target.value as 'recent' | 'updated')}
-          >
-            <option value="recent">Newest threads</option>
-            <option value="updated">Recently active</option>
-          </select>
-        </label>
-        {categoryCursor && (
-          <button
-            type="button"
-            className="board-secondary"
-            onClick={() => void loadMoreCategories(runtime, categoryCursor)}
-          >
-            More categories
-          </button>
-        )}
-      </div>
-
-      {error && (
-        <p role="alert" className="board-alert">
-          {error}
-        </p>
+    <section className="board-page" data-pane={pane}>
+      {sharedThread && (
+        <BoardShare
+          key={`${sharedThread.id}:${epoch}`}
+          thread={sharedThread}
+          runtime={runtime}
+          close={() => setSharedThread(undefined)}
+        />
       )}
-      {loading && <p role="status">Loading the board…</p>}
-      <div className="board-layout" aria-busy={loading}>
-        <aside className="board-index" aria-label="Discussion threads">
-          <NewThreadForm
-            runtime={runtime}
-            category={category}
-            completed={(id) => void refresh(runtime).then(() => setSelected(id))}
-          />
-          <h2>Threads</h2>
-          {threads.length === 0 ? (
-            <p className="board-empty">No posts in this category yet.</p>
-          ) : (
-            <ol className="board-thread-list">
-              {threads.map((thread) => (
-                <li key={thread.id}>
-                  <button
-                    type="button"
-                    aria-current={selected === thread.id ? 'true' : undefined}
-                    onClick={() => setSelected(thread.id)}
-                  >
-                    <strong>{thread.deleted ? 'Deleted post' : thread.title}</strong>
-                    <span>
-                      {authorLabel(thread)} · {thread.replyCount} replies
-                    </span>
-                    <span>{timeLabel(thread.updatedAtMs)}</span>
-                  </button>
-                </li>
-              ))}
-            </ol>
-          )}
-          {threadCursor && (
+      <div className="board-content" hidden={Boolean(sharedThread)}>
+        <div className="board-heading">
+          <div>
+            <p className="eyebrow">Installation-local discussion</p>
+            <h1>Discussion board</h1>
+            <p className="intro">Ideas, discoveries, and work in progress.</p>
+          </div>
+          <div className="board-heading-actions">
+            <button type="button" className="board-secondary" onClick={() => void refresh()}>
+              Refresh board
+            </button>
             <button
               type="button"
-              className="board-secondary board-more"
-              onClick={() => void loadMoreThreads(runtime, threadCursor)}
+              className="board-primary"
+              aria-expanded={composing}
+              onClick={() => setComposing(true)}
             >
-              More threads
+              New post
+            </button>
+          </div>
+        </div>
+
+        <div className="board-filters" aria-label="Board filters">
+          <div className="board-categories" role="group" aria-label="Category">
+            {categories.map((item) => (
+              <button
+                type="button"
+                key={categoryKey(item)}
+                aria-pressed={categoryKey(item) === selectedCategoryKey}
+                title={categoryLabel(item, roomNames)}
+                onClick={() => selectCategory(item)}
+              >
+                {categoryLabel(item, roomNames)}
+              </button>
+            ))}
+          </div>
+          <label>
+            Order
+            <select
+              value={view}
+              onChange={(event) => setView(event.target.value as 'recent' | 'updated')}
+            >
+              <option value="recent">Newest threads</option>
+              <option value="updated">Recently active</option>
+            </select>
+          </label>
+          {categoryCursor && (
+            <button
+              type="button"
+              className="board-secondary"
+              onClick={() => void loadMoreCategories(runtime, categoryCursor)}
+            >
+              More categories
             </button>
           )}
-        </aside>
-        <section
-          className="board-conversation"
-          id="board-conversation"
-          aria-label="Selected discussion"
-        >
-          {selected && !visibleDetail ? (
-            <p role="status">Loading this discussion…</p>
-          ) : visibleDetail ? (
-            <ThreadView
-              runtime={runtime}
-              page={visibleDetail}
-              changed={() => {
-                void refresh(runtime);
-              }}
-              setError={setError}
-            />
-          ) : (
-            <div className="board-empty board-empty-detail">
-              <h2>Start the conversation</h2>
-              <p>Create the first post for {categoryLabel(category)}.</p>
-            </div>
-          )}
-        </section>
+        </div>
+
+        {error && (
+          <p role="alert" className="board-alert">
+            {error}
+          </p>
+        )}
+        {loading && <p role="status">Loading the board…</p>}
+        <NewThreadForm
+          key={`${selectedCategoryKey}:${epoch}`}
+          runtime={runtime}
+          category={category}
+          categoryName={categoryLabel(category, roomNames)}
+          open={composing}
+          setOpen={setComposing}
+          completed={() => {
+            void refresh(runtime);
+            setPane('discussion');
+          }}
+        />
+        <div className="board-layout" aria-busy={loading}>
+          <aside className="board-index" aria-label="Discussion threads">
+            {threads.length === 0 ? (
+              <p className="board-empty">No posts in this category yet.</p>
+            ) : (
+              <ol className="board-thread-list">
+                {threads.map((thread) => (
+                  <li key={thread.id}>
+                    <button
+                      type="button"
+                      aria-current={selected === thread.id ? 'true' : undefined}
+                      onClick={(event) => {
+                        const trigger = event.currentTarget;
+                        const select = () => {
+                          threadTrigger.current = trigger;
+                          setSelected(thread.id);
+                          setPane('discussion');
+                        };
+                        if (selected === thread.id) select();
+                        else requestNavigation(select);
+                      }}
+                    >
+                      <strong>{thread.deleted ? 'Deleted post' : thread.title}</strong>
+                      <span>
+                        {authorLabel(thread)} · {thread.replyCount} replies
+                      </span>
+                      <span>{timeLabel(thread.updatedAtMs)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            )}
+            {threadCursor && (
+              <button
+                type="button"
+                className="board-secondary board-more"
+                onClick={() => void loadMoreThreads(runtime, threadCursor)}
+              >
+                More threads
+              </button>
+            )}
+          </aside>
+          <section
+            className="board-conversation"
+            id="board-conversation"
+            aria-label="Selected discussion"
+          >
+            <button
+              type="button"
+              className="board-secondary board-back"
+              onClick={() => setPane('threads')}
+            >
+              ← Back to threads
+            </button>
+            {selected && !visibleDetail ? (
+              <p role="status">Loading this discussion…</p>
+            ) : visibleDetail ? (
+              <ThreadView
+                key={`${visibleDetail.thread.id}:${epoch}`}
+                runtime={runtime}
+                page={visibleDetail}
+                ask={(trigger) => {
+                  shareTrigger.current = trigger;
+                  setSharedThread({ ...visibleDetail.thread });
+                }}
+                changed={() => {
+                  void refresh(runtime);
+                }}
+                setError={setError}
+              />
+            ) : (
+              <div className="board-empty board-empty-detail">
+                <h2>Start the conversation</h2>
+                <p>Create the first post for {categoryLabel(category, roomNames)}.</p>
+              </div>
+            )}
+          </section>
+        </div>
       </div>
     </section>
   );
@@ -302,59 +374,53 @@ export function LocalBoardPage() {
 function NewThreadForm({
   runtime,
   category,
+  categoryName,
+  open,
+  setOpen,
   completed,
 }: {
   runtime: LocalRuntime;
   category: BoardCategory;
+  categoryName: string;
+  open: boolean;
+  setOpen(open: boolean): void;
   completed(id: string): void;
 }) {
-  const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
-  const operation = useRef<
-    PendingIntent<{ category: BoardCategory; title: string; body: string }> | undefined
-  >(undefined);
-  if (!open)
-    return (
-      <button type="button" className="board-primary board-new" onClick={() => setOpen(true)}>
-        New post
-      </button>
-    );
+  const mutation = useBoardMutation<{ category: BoardCategory; title: string; body: string }>(
+    Boolean(title || body)
+  );
+  if (!open) return null;
   return (
     <form
       className="board-compose"
       onSubmit={(event) => {
         event.preventDefault();
-        setBusy(true);
-        setError(undefined);
-        const pending = pendingIntent(operation, { category, title, body });
-        void runtime.board
-          .post({ ...pending.input, operationId: pending.operationId })
-          .then((receipt) => {
-            operation.current = undefined;
+        void mutation.run(
+          { category, title, body },
+          (input) => runtime.board.post(input),
+          (receipt) => {
             setTitle('');
             setBody('');
             setOpen(false);
             completed(receipt.threadId);
-          })
-          .catch((caught) => {
-            if (isDefinitiveNoWrite(caught)) operation.current = undefined;
-            setError(message(caught));
-          })
-          .finally(() => setBusy(false));
+          }
+        );
       }}
     >
       <h2>New post</h2>
+      <p className="board-empty">
+        Posting to {categoryName}. Sharing here does not dispatch a task.
+      </p>
       <label>
         Title
         <input
           required
+          disabled={mutation.locked}
           value={title}
           maxLength={160}
           onChange={(event) => {
-            operation.current = undefined;
             setTitle(event.target.value);
           }}
         />
@@ -363,23 +429,29 @@ function NewThreadForm({
         Message
         <textarea
           required
+          disabled={mutation.locked}
           value={body}
           rows={6}
           onChange={(event) => {
-            operation.current = undefined;
             setBody(event.target.value);
           }}
         />
       </label>
-      {error && <p role="alert">{error}</p>}
+      {mutation.error && <p role="alert">{mutation.error}</p>}
+      {mutation.uncertain && (
+        <p>
+          An attempt may already be saved. Retry uses the same operation; discarding only forgets
+          this retry.
+        </p>
+      )}
       <div className="board-actions">
-        <button type="submit" className="board-primary" disabled={busy}>
-          {busy ? 'Posting…' : 'Post as owner'}
+        <button type="submit" className="board-primary" disabled={mutation.busy}>
+          {mutation.busy ? 'Posting…' : 'Post as owner'}
         </button>
         <button
           type="button"
           className="board-secondary"
-          disabled={busy}
+          disabled={mutation.busy}
           onClick={() => setOpen(false)}
         >
           Close draft
@@ -387,9 +459,9 @@ function NewThreadForm({
         <button
           type="button"
           className="board-danger"
-          disabled={busy}
+          disabled={mutation.busy}
           onClick={() => {
-            operation.current = undefined;
+            mutation.discard();
             setTitle('');
             setBody('');
             setOpen(false);
@@ -405,11 +477,13 @@ function NewThreadForm({
 function ThreadView({
   runtime,
   page,
+  ask,
   changed,
   setError,
 }: {
   runtime: LocalRuntime;
   page: BoardShowPage;
+  ask(trigger: HTMLButtonElement): void;
   changed(): void;
   setError(value?: string): void;
 }) {
@@ -428,6 +502,7 @@ function ThreadView({
   return (
     <article className="board-thread">
       <EntryCard runtime={runtime} entry={page.thread} changed={changed} />
+      <BoardReferenceActions key={page.thread.id} thread={page.thread} ask={ask} />
       <section className="board-replies" aria-labelledby="replies-title">
         <h2 id="replies-title">Replies</h2>
         {replies.length === 0 ? (
@@ -467,9 +542,12 @@ function ThreadView({
           </button>
         )}
       </section>
-      {!page.thread.deleted && (
-        <ReplyForm runtime={runtime} threadId={page.thread.id} completed={changed} />
-      )}
+      <ReplyForm
+        runtime={runtime}
+        threadId={page.thread.id}
+        closed={page.thread.deleted}
+        completed={changed}
+      />
     </article>
   );
 }
@@ -486,25 +564,17 @@ function EntryCard({
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(entry.title ?? '');
   const [body, setBody] = useState(entry.body ?? '');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
-  const editOperation = useRef<
-    | PendingIntent<{
-        entryId: string;
-        title?: string;
-        body: string;
-        ifRevision: number;
-      }>
-    | undefined
-  >(undefined);
-  const deleteOperation = useRef<
-    | PendingIntent<{
-        entryId: string;
-        ifRevision: number;
-        moderate: boolean;
-      }>
-    | undefined
-  >(undefined);
+  const edit = useBoardMutation<{
+    entryId: string;
+    title?: string;
+    body: string;
+    ifRevision: number;
+  }>(editing);
+  const removal = useBoardMutation<{
+    entryId: string;
+    ifRevision: number;
+    moderate: boolean;
+  }>(false);
   const owner = entry.author.kind === 'owner';
   const root = entry.id === entry.threadId;
   useEffect(() => {
@@ -513,39 +583,25 @@ function EntryCard({
       setBody(entry.body ?? '');
     }
   }, [editing, entry.body, entry.revision, entry.title]);
-  if (entry.deleted)
-    return (
-      <article className="board-entry board-tombstone">
-        <p>Deleted entry</p>
-        <EntryMeta entry={entry} />
-      </article>
-    );
   return (
-    <article className="board-entry">
+    <article className={`board-entry${entry.deleted ? ' board-tombstone' : ''}`}>
       {editing ? (
         <form
           onSubmit={(event) => {
             event.preventDefault();
-            setBusy(true);
-            setError(undefined);
-            const pending = pendingIntent(editOperation, {
-              entryId: entry.id,
-              ...(root ? { title } : {}),
-              body,
-              ifRevision: entry.revision,
-            });
-            void runtime.board
-              .edit({ ...pending.input, operationId: pending.operationId })
-              .then(() => {
-                editOperation.current = undefined;
+            void edit.run(
+              {
+                entryId: entry.id,
+                ...(root ? { title } : {}),
+                body,
+                ifRevision: entry.revision,
+              },
+              (input) => runtime.board.edit(input),
+              () => {
                 setEditing(false);
                 changed();
-              })
-              .catch((caught) => {
-                if (isDefinitiveNoWrite(caught)) editOperation.current = undefined;
-                setError(message(caught));
-              })
-              .finally(() => setBusy(false));
+              }
+            );
           }}
         >
           {root && (
@@ -553,10 +609,10 @@ function EntryCard({
               Title
               <input
                 required
+                disabled={edit.locked}
                 value={title}
                 maxLength={160}
                 onChange={(event) => {
-                  editOperation.current = undefined;
                   setTitle(event.target.value);
                 }}
               />
@@ -566,24 +622,33 @@ function EntryCard({
             Message
             <textarea
               required
+              disabled={edit.locked}
               rows={6}
               value={body}
               onChange={(event) => {
-                editOperation.current = undefined;
                 setBody(event.target.value);
               }}
             />
           </label>
-          {error && <p role="alert">{error}</p>}
+          {edit.error && <p role="alert">{edit.error}</p>}
+          {edit.uncertain && (
+            <p>
+              An edit may already be saved. Retry keeps the original revision and operation;
+              discarding does not undo it.
+            </p>
+          )}
           <div className="board-actions">
-            <button className="board-primary" disabled={busy} type="submit">
+            <button className="board-primary" disabled={edit.busy} type="submit">
               Save edit
             </button>
             <button
               className="board-secondary"
-              disabled={busy}
+              disabled={edit.busy}
               type="button"
-              onClick={() => setEditing(false)}
+              onClick={() => {
+                edit.discard();
+                setEditing(false);
+              }}
             >
               Discard edit
             </button>
@@ -591,52 +656,56 @@ function EntryCard({
         </form>
       ) : (
         <>
-          {root && <h2>{entry.title}</h2>}
-          <p className="board-body">{entry.body}</p>
+          {root && <h2>{entry.deleted ? 'Deleted post' : entry.title}</h2>}
+          <p className="board-body">{entry.deleted ? 'Deleted entry' : entry.body}</p>
           <EntryMeta entry={entry} />
           <div className="board-actions">
-            {owner && (
-              <button type="button" className="board-secondary" onClick={() => setEditing(true)}>
+            {owner && !entry.deleted && (
+              <button
+                type="button"
+                className="board-secondary"
+                disabled={removal.locked}
+                onClick={() => setEditing(true)}
+              >
                 Edit
               </button>
             )}
-            <button
-              type="button"
-              className="board-danger"
-              disabled={busy}
-              onClick={() => {
-                const moderate = !owner;
-                if (
-                  moderate &&
-                  !window.confirm(
-                    'Delete this entry as the Office owner? Its content will be cleared; attribution remains.'
+            {(!entry.deleted || removal.locked) && (
+              <button
+                type="button"
+                className="board-danger"
+                disabled={removal.busy}
+                onClick={() => {
+                  const moderate = !owner;
+                  if (
+                    moderate &&
+                    !window.confirm(
+                      'Delete this entry as the Office owner? Its content will be cleared; attribution remains.'
+                    )
                   )
-                )
-                  return;
-                setBusy(true);
-                setError(undefined);
-                const pending = pendingIntent(deleteOperation, {
-                  entryId: entry.id,
-                  ifRevision: entry.revision,
-                  moderate,
-                });
-                void runtime.board
-                  .delete({ ...pending.input, operationId: pending.operationId })
-                  .then(() => {
-                    deleteOperation.current = undefined;
-                    changed();
-                  })
-                  .catch((caught) => {
-                    if (isDefinitiveNoWrite(caught)) deleteOperation.current = undefined;
-                    setError(message(caught));
-                  })
-                  .finally(() => setBusy(false));
-              }}
-            >
-              {owner ? 'Delete' : 'Moderate delete'}
-            </button>
+                    return;
+                  void removal.run(
+                    {
+                      entryId: entry.id,
+                      ifRevision: entry.revision,
+                      moderate,
+                    },
+                    (input) => runtime.board.delete(input),
+                    changed
+                  );
+                }}
+              >
+                {owner ? 'Delete' : 'Moderate delete'}
+              </button>
+            )}
           </div>
-          {error && <p role="alert">{error}</p>}
+          {removal.error && <p role="alert">{removal.error}</p>}
+          {removal.uncertain && (
+            <>
+              <p>Deletion may already have happened. Retry uses the same operation.</p>
+              <button onClick={() => removal.discard()}>Stop retrying deletion</button>
+            </>
+          )}
         </>
       )}
     </article>
@@ -654,56 +723,75 @@ function EntryMeta({ entry }: { entry: BoardEntry }) {
 function ReplyForm({
   runtime,
   threadId,
+  closed,
   completed,
 }: {
   runtime: LocalRuntime;
   threadId: string;
+  closed: boolean;
   completed(): void;
 }) {
   const [body, setBody] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string>();
-  const operation = useRef<PendingIntent<{ threadId: string; body: string }> | undefined>(
-    undefined
-  );
+  const mutation = useBoardMutation<{ threadId: string; body: string }>(Boolean(body));
+  if (closed && !body && !mutation.locked) return null;
   return (
     <form
       className="board-compose board-reply-form"
       onSubmit={(event) => {
         event.preventDefault();
-        setBusy(true);
-        setError(undefined);
-        const pending = pendingIntent(operation, { threadId, body });
-        void runtime.board
-          .reply({ ...pending.input, operationId: pending.operationId })
-          .then(() => {
-            operation.current = undefined;
+        if (closed && !mutation.locked) return;
+        void mutation.run(
+          { threadId, body },
+          (input) => runtime.board.reply(input),
+          () => {
             setBody('');
             completed();
-          })
-          .catch((caught) => {
-            if (isDefinitiveNoWrite(caught)) operation.current = undefined;
-            setError(message(caught));
-          })
-          .finally(() => setBusy(false));
+          }
+        );
       }}
     >
       <h2>Reply</h2>
+      {closed && (
+        <p>
+          This thread was deleted. Your draft is retained; only an existing operation can be
+          retried.
+        </p>
+      )}
       <label>
         Message
         <textarea
           required
+          disabled={mutation.locked}
           rows={5}
           value={body}
           onChange={(event) => {
-            operation.current = undefined;
             setBody(event.target.value);
           }}
         />
       </label>
-      {error && <p role="alert">{error}</p>}
-      <button type="submit" className="board-primary" disabled={busy}>
-        {busy ? 'Replying…' : 'Reply as owner'}
+      {mutation.error && <p role="alert">{mutation.error}</p>}
+      {mutation.uncertain && (
+        <p>
+          A reply may already be saved. Retry keeps the original thread and operation; discard only
+          forgets the retry.
+        </p>
+      )}
+      <button
+        type="submit"
+        className="board-primary"
+        disabled={mutation.busy || (closed && !mutation.locked)}
+      >
+        {mutation.busy ? 'Replying…' : 'Reply as owner'}
+      </button>
+      <button
+        type="button"
+        disabled={mutation.busy}
+        onClick={() => {
+          mutation.discard();
+          setBody('');
+        }}
+      >
+        Discard reply
       </button>
     </form>
   );

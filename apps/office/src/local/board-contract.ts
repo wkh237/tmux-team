@@ -1,4 +1,9 @@
-export type BoardCategory = { kind: 'general' } | { kind: 'repository'; repositoryId: string };
+import { uuidIdentifier as identifier, canonicalUuid } from '../contracts/record.js';
+
+export type BoardCategory =
+  | { kind: 'general' }
+  | { kind: 'repository'; repositoryId: string }
+  | { kind: 'room'; roomId: string };
 
 export type BoardActor = { kind: 'owner' } | { kind: 'identity'; identityId: string; name: string };
 
@@ -63,8 +68,6 @@ export interface BoardDeleteReceipt {
   operationId: string;
 }
 
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-
 function record(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw new Error(`Invalid ${label}.`);
@@ -80,11 +83,6 @@ function safeInteger(value: unknown, minimum = 0): number {
   if (!Number.isSafeInteger(value) || (value as number) < minimum)
     throw new Error('Invalid number.');
   return value as number;
-}
-
-function identifier(value: unknown): string {
-  if (typeof value !== 'string' || !uuid.test(value)) throw new Error('Invalid identifier.');
-  return value;
 }
 
 function text(value: unknown, allowEmpty = false): string {
@@ -107,12 +105,19 @@ function boundedText(value: unknown, maximumBytes: number, body = false): string
   return result;
 }
 
+export function boardCategoryKey(category: BoardCategory): string {
+  switch (category.kind) {
+    case 'general':
+      return 'general';
+    case 'repository':
+      return `repository:${category.repositoryId}`;
+    case 'room':
+      return `room:${category.roomId}`;
+  }
+}
+
 function sameCategory(left: BoardCategory, right: BoardCategory): boolean {
-  return (
-    left.kind === right.kind &&
-    (left.kind === 'general' ||
-      (right.kind === 'repository' && left.repositoryId === right.repositoryId))
-  );
+  return boardCategoryKey(left) === boardCategoryKey(right);
 }
 
 function cursor(value: unknown): string | null {
@@ -127,6 +132,10 @@ export function decodeBoardCategory(value: unknown): BoardCategory {
   if (item.kind === 'general') {
     exactKeys(item, ['kind'], 'category');
     return { kind: 'general' };
+  }
+  if (item.kind === 'room') {
+    exactKeys(item, ['kind', 'roomId'], 'category');
+    return { kind: 'room', roomId: canonicalUuid(item.roomId) };
   }
   exactKeys(item, ['kind', 'repositoryId'], 'category');
   if (item.kind !== 'repository') throw new Error('Invalid category.');

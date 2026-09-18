@@ -19,7 +19,7 @@ use tmt_core::{
     identity::Identity,
     request::{
         RequestError, RequestService,
-        attention::{Acknowledged, ExchangeDetail, ExchangePage},
+        attention::{Acknowledged, ExchangeDetail, ExchangePage, FinalState},
     },
 };
 
@@ -85,21 +85,21 @@ fn run(identity: Option<String>, operation: ExchangeOperation) -> Result<Report,
                     service.show_exchange(&identity.id, &request_id)
                 };
                 detail.and_then(|detail| {
-                    let receipt = if incoming {
-                        let context =
-                            service
-                                .get_context(&request_id)?
-                                .ok_or(RequestError::Attention(
+                    let receipt =
+                        if incoming && detail.exchange.final_state != FinalState::NotRequired {
+                            let context = service.get_context(&request_id)?.ok_or(
+                                RequestError::Attention(
                                     tmt_core::request::attention::AttentionRejection::NotFound,
-                                ))?;
-                        Some(encode_route_receipt(
-                            &request_id,
-                            &context.attempt.attempt_id,
-                            &context.attempt.route,
-                        ))
-                    } else {
-                        None
-                    };
+                                ),
+                            )?;
+                            Some(encode_route_receipt(
+                                &request_id,
+                                &context.attempt.attempt_id,
+                                &context.attempt.route,
+                            ))
+                        } else {
+                            None
+                        };
                     Ok(ResultKind::Show { detail, receipt })
                 })
             }
@@ -133,11 +133,18 @@ pub fn execute(
     mode: OutputMode,
 ) -> io::Result<u8> {
     if let ExchangeOperation::Listen {
+        room,
         timeout_seconds,
         debounce_seconds,
     } = &operation
     {
-        return listen::execute(identity, *timeout_seconds, *debounce_seconds, mode);
+        return listen::execute(
+            identity,
+            room.clone(),
+            *timeout_seconds,
+            *debounce_seconds,
+            mode,
+        );
     }
     match run(identity, operation) {
         Ok(report) => presentation::publish(report, mode),

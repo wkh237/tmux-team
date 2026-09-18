@@ -10,6 +10,8 @@ coverage/
 rust/target/
 target/distrib/
 target/office-spa/
+target/workshop-art/
+target/workshop-concepts/
 
 # Owner-local Firebase settings and secrets; commit templates, never credentials.
 .firebaserc

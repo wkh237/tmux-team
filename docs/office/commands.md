@@ -24,8 +24,8 @@ and the shared native archive verifier. Explicit offline installation uses
 Without a published candidate, online installation fails rather than claiming
 success. `tmt upgrade` continues to update only the CLI and its managed skills.
 
-Explicit Office install and upgrade also manage the optional `tmt-office` and
-`tmt-prop-create` skills
+Explicit Office install and upgrade also manage the optional `tmt-office`,
+`tmt-prop-create` and `tmt-avatar-create` skills
 through the existing provider/custom-root, immutable asset, registry, drift,
 backup, and refresh owner. Core `tmt install` does not expose them. Existing
 conversations can read either exact source with `tmt learn --skill <name>`.
@@ -45,7 +45,7 @@ requires explicit consent and removes verified activation links only. Release
 files and unrelated data remain. A partial removal reports an invalid
 installation; repeat explicit uninstall to finish before reinstalling.
 
-## Merged source capability: offline local Office
+## Local Office
 
 The following local service is implemented and tested in this source tree. Published
 artifacts may lag until a coordinated compatible CLI/Office release; do not advertise
@@ -60,8 +60,8 @@ SQLite state without pairing, Firebase or network access:
 
 ```sh
 tmt office start
-tmt office block show --local --identity Alice --json
-tmt office block apply --local --identity Alice --file layout.json --if-revision 0 --json
+tmt office layout show --json
+tmt office layout apply --file layout.json --if-revision <revision> --json
 tmt office profile show --local --identity Alice --json
 tmt office profile apply --local --identity Alice --file profile.json --if-revision 0 --json
 tmt office prop validate --file pack.tmtprop.json --json
@@ -76,8 +76,24 @@ tmt office avatar install --local --file bot.tmtavatar.json --if-revision 0 --js
 tmt office avatar remove --local sha256:<digest> --if-revision 1 --json
 tmt office avatar list --local --json
 tmt office avatar show --local sha256:<digest> --json
+tmt office extension validate --file definition.json --instance instance.json --json
 tmt office stop
 ```
+
+`layout` addresses the complete local world, not an identity or remote block.
+Copy only the read result's `.layout` into the file: `{version,map,objects}`.
+For the first save (revision 0), also pass `--legacy-basis <legacyBasis>` from
+that same read; omit it at later revisions. The command and browser share one
+atomic revision fence. A conflict never rebases automatically; preserve the
+draft and reconcile against a fresh read. No running service or identity is needed.
+`office block --world ...` remains the separate remote Firestore operation.
+
+Extension preflight is read-only and checks the paired data structure, not installed
+artwork or runtime host authority. See the [extension contract](../../contracts/office/extension-v1.md#authoring-preflight).
+
+Prop and avatar `validate` also return advisory `warnings`; valid artwork still
+exits successfully. Review those hints and the actual preview rather than treating
+an empty warning list as visual approval. See [avatar authoring warnings](../../contracts/office/avatar-pack-v1.md#authoring-warnings).
 
 `start` prints a loopback session URL and never opens a browser. It has no identity
 selector. The service binds only `127.0.0.1`; the fragment token is removed from the
@@ -88,22 +104,51 @@ authenticated graceful stop. A companion upgrade never replaces a running proces
 you explicitly stop and start it. An optional `--port <number>` requests a fixed
 loopback port; it conflicts with a running service on another port.
 
-Open the full printed URL in your browser. The local overview shows each active
-identity's room; choose **Enter room** to edit its layout and appearance, then
-**Back to office** to see the saved result. An unfurnished room needs no JSON
-setup: add furniture and choose **Save layout** to create its first layout.
-Opening a room does not save anything. Offline identities retain their rooms but
-are not drawn as present. With no identities, create one with
-`tmt identity create alice` and refresh the overview.
+The UI instructions in this section describe the current local editor. The
+[modular-cell replacement](../../contracts/office/rooms-and-walls.md) is a design
+target, not yet an installed command or UI capability.
 
-Local block commands are one-shot SQLite operations and work while the browser service
-is stopped. `show` of an active identity without a block succeeds with `exists:false`,
-revision 0 and empty objects; first apply creates a stable block UUID at revision 1.
-Later applies require the revision returned by the previous read. Retired identities'
-blocks are retained but hidden, and a new same-name identity receives a distinct UUID
-and block. `--local` is explicit and cannot be combined with `--world`, `--emulator`
-or a positional block ID. Omitting `--world` does not imply local mode. This slice does
-not publish, import or adopt remote Office data.
+Open the full printed URL in your browser. **Directory** lists identities and
+areas; **Edit layout** edits the shared map, assignments and furniture in one
+Undo/Redo draft. **Save layout** writes the complete candidate; **Cancel** leaves
+the saved world unchanged. Saved identities without an assigned office and
+temporary contractors belong in the Lobby. Offline identities remain in the
+directory but are not drawn as present.
+
+**Remove area designation** is not terrain or content deletion: personal
+residents return to Lobby; meeting rooms retain membership and resources; floor
+and placements remain. Removing the primary Lobby requires a valid replacement
+in the same draft. Floor or wall edits that strand objects are rejected and list
+the affected placements. Move or remove those placements explicitly; Save never
+silently crops them. Cancel and failed Save leave durable state unchanged.
+
+**Meeting rooms** creates or edits canonical rooms and membership. **Save room**
+is immediate and independent of layout Save/Cancel. To furnish one, create or
+select a meeting area in the layout editor, choose its linked room and paint its
+floor. **Add meeting set** adds a table, four chairs, plant, whiteboard,
+room-scoped discussion board and broadcast station in a clear 36 × 32 rectangle.
+It does not replace existing objects or send messages. Review, move or undo the placements
+before **Save layout**. The whiteboard uses the meeting UUID and saves content
+only when explicitly requested. Rebinding/removing an area does not retarget or
+delete its existing resource objects. Discussion opens the linked room category; the
+broadcaster still requires explicit audience selection and review.
+
+The area/agent inspector lists tools in the selected area first, then common-floor
+tools. Expand **Other areas** to browse remaining tools; coordinates distinguish
+multiple objects with the same name. Removing an area designation moves its retained
+objects into the common-floor list without changing their underlying resources.
+
+In the local workshop candidate, selecting an agent also offers **Message**.
+Selecting from a meeting scopes the direct message and history to that room;
+only the selected agent receives it, not the roster.
+Type a message and **Send** (or press Enter; Shift+Enter adds a newline). The agent receives it
+through `tmt x listen --identity <name>` and replies with its normal request
+receipt; the panel shows that durable reply separately from delivery and acknowledgment.
+Sending does not type into a tmux pane. Closing pauses updates and keeps the
+draft; reopening reads retained history. Refresh resumes a paused observation.
+After an uncertain send, **Retry** checks acceptance and keeps the original
+operation if resending is needed. Reload through the full
+session URL from `office start`; the bearer token is never saved to browser storage.
 
 Local profile commands are also one-shot and do not require the browser service. A missing
 override returns `exists:false`, revision 0 and the deterministic UUID-derived catalog
@@ -137,10 +182,10 @@ disabled while a custom reference is selected, while identity text and `shirtMar
 independent overlays.
 
 With `--json`, successful start returns `running:true`, `changed`, `reused`, `url`
-and `version`; stop returns `running:false` and `changed`. Local block success returns
-`exists`, `identityId`, `identityName`, nullable `blockId`, `revision`, canonical v2
-`layout`, per-object `resolutions` and `updatedAtMs`; apply also returns `changed`.
-Plain block output is the same object as readable indented JSON. Profile
+and `version`; stop returns `running:false` and `changed`. Local layout results
+contain nullable `worldId`, `revision`, `legacyBasis`, the complete v1 `layout`,
+`updatedAtMs` and `changed`. Revision 0 is a read-only projection; the first Save
+materializes the installation world, not identity-owned blocks. Profile
 reads return `identityId`, `identityName`, `exists`, `revision`, `profile`, nullable
 `updatedAtMs`, and the bounded literal `catalog`; apply adds transactional `changed`.
 Human apply output distinguishes created, updated and unchanged results. Success exits 0. Usage, installation,
@@ -152,6 +197,20 @@ service owns another port, `OFFICE_RESTART_REQUIRED` requires explicit stop/star
 authenticated. A local apply launch failure is `OFFICE_LOCAL_UNCERTAIN`: reread before
 retrying because the commit outcome is not assumed.
 
+### Status and mood
+
+```sh
+tmt identity status set "Reviewing the layout" --mood focused --for 60m --identity Alice
+tmt identity status show --identity Alice --json
+tmt identity status clear --identity Alice
+```
+
+These core commands also work while Office is stopped, for saved identities and
+active Contractors. Opening or refreshing Office observes updates; expiry hides
+the character cue without a refresh. Info retains the text and timestamps as
+stale. A reply-ready cue takes priority. Status is self-reported, separate from
+endpoint presence and request completion; see the [status contract](../../contracts/identity-status-v1.md).
+
 ### Local discussion board
 
 The optional companion also owns an installation-local discussion board. Its
@@ -160,6 +219,7 @@ one-shot commands work while the browser service is stopped:
 ```sh
 tmt office board post --general --identity Alice --title "Review" --body "Please review." --json
 tmt office board list --repo origin --view updated --limit 20 --json
+tmt office board list --room "Design review" --view updated --json
 tmt office board show <thread-id> --reply-limit 20 --json
 tmt office board reply <thread-id> --owner --file reply.txt --json
 tmt office board edit <entry-id> --identity Alice --title "Revised" --body "Updated" --if-revision 1 --json
@@ -167,7 +227,10 @@ tmt office board delete <entry-id> --owner --moderate --if-revision 1 --json
 ```
 
 `--repo` resolves a named Git remote locally into a credential-free category;
-it never contacts that remote. Post and list categories are explicit. Mutation
+it never contacts that remote. `--room` selects a canonical meeting UUID or exact
+unambiguous name; it is mutually exclusive with `--general` and `--repo` for post
+and list. Room categories classify discussions, not permissions or physical
+occupancy, and replies retain their thread's category. Mutation
 actors are either `--owner`, an explicit active identity, or a verified bound
 caller when both are omitted. Bodies preserve exact text and may come from
 `--body`, a regular `--file`, or `--file -` stdin. Edit may change the title and

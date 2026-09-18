@@ -24,6 +24,8 @@ struct CategoryInput {
     kind: String,
     #[serde(default)]
     repository_id: Option<String>,
+    #[serde(default)]
+    room_id: Option<String>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -420,11 +422,18 @@ fn category(value: CategoryInput) -> Result<Category, BoardErrorCode> {
         CategoryInput {
             kind,
             repository_id: None,
+            room_id: None,
         } if kind == "general" => Ok(Category::General),
         CategoryInput {
             kind,
             repository_id: Some(id),
+            room_id: None,
         } if kind == "repository" => Ok(Category::Repository(id)),
+        CategoryInput {
+            kind,
+            repository_id: None,
+            room_id: Some(id),
+        } if kind == "room" => Ok(Category::Room(id)),
         _ => Err(BoardErrorCode::Invalid),
     }
 }
@@ -458,6 +467,7 @@ fn category_value(v: &Category) -> Value {
         Category::Repository(repository_id) => {
             json!({"kind":"repository","repositoryId":repository_id})
         }
+        Category::Room(room_id) => json!({"kind":"room","roomId":room_id}),
     }
 }
 fn actor_value(v: &Actor) -> Value {
@@ -524,6 +534,41 @@ fn categories_value(v: office_board::CategoryListResult) -> Value {
 #[cfg(test)]
 mod contract_tests {
     use super::*;
+
+    #[test]
+    fn room_category_round_trips_without_accepting_cross_scope_fields() {
+        let room_id = "11111111-1111-4111-8111-111111111111";
+        let value = json!({"kind":"room","roomId":room_id});
+        let decoded = category(serde_json::from_value(value.clone()).unwrap()).unwrap();
+        assert_eq!(decoded, Category::Room(room_id.into()));
+        assert_eq!(category_value(&decoded), value);
+        for invalid in [
+            json!({"kind":"room"}),
+            json!({"kind":"general","roomId":room_id}),
+            json!({"kind":"room","roomId":room_id,"repositoryId":"example.com/repo"}),
+        ] {
+            assert_eq!(
+                category(serde_json::from_value(invalid).unwrap()),
+                Err(BoardErrorCode::Invalid)
+            );
+        }
+        for invalid_id in [
+            "",
+            "Review",
+            "00000000-0000-0000-0000-000000000000",
+            "11111111111141118111111111111111",
+        ] {
+            let input = serde_json::to_vec(&json!({
+                "category":{"kind":"room","roomId":invalid_id},
+                "actor":{"kind":"owner"},"title":"Review","body":"Body"
+            }))
+            .unwrap();
+            assert!(matches!(
+                prepare(OfficeInvocation::BoardPost, &input),
+                Err(BoardErrorCode::Invalid)
+            ));
+        }
+    }
 
     #[test]
     fn operation_inputs_reject_cross_operation_fields() {

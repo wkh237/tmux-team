@@ -190,6 +190,8 @@ fn preparation_child() {
     RequestService::new(&mut repository, || NOW_MS)
         .prepare(
             PrepareRequest {
+                room_id: None,
+                kind: tmt_core::request::RequestKind::Request,
                 request_id: "uncommitted-request".into(),
                 message: "uncommitted prompt".into(),
                 route: RequestRoute::Pane(endpoint("%12", 112)),

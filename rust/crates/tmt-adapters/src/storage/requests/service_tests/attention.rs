@@ -20,6 +20,8 @@ fn prepare_sent(
     let prepared = service(fixture)
         .prepare(
             PrepareRequest {
+                room_id: None,
+                kind: tmt_core::request::RequestKind::Request,
                 request_id: request_id.into(),
                 message: message.into(),
                 route: RequestRoute::Pane(target.clone()),
@@ -383,7 +385,7 @@ fn acknowledged_pending_request_reappears_when_a_late_final_advances_revision() 
 fn show_preserves_exact_prompt_and_final_body_detail() {
     let mut fixture = Fixture::new();
     let owner = fixture.identity_id.clone();
-    let prompt = "\u{feff} prompt\r\n\u{0000} 日本語  ";
+    let prompt = "\u{feff} prompt\r\n\u{0000} \u{65e5}\u{672c}\u{8a9e}  ";
     let body = "\u{feff} final\r\n\u{0000}🙂  ";
     let (attempt_id, target) = prepare_sent(
         &mut fixture,
@@ -784,6 +786,8 @@ fn inbox_route_keeps_recipient_request_attention_independent_from_originator_res
     let prepared = service(&mut fixture)
         .prepare(
             PrepareRequest {
+                room_id: None,
+                kind: tmt_core::request::RequestKind::Request,
                 request_id: "inbox-roundtrip".into(),
                 message: "inspect this".into(),
                 route: route.clone(),
@@ -799,13 +803,13 @@ fn inbox_route_keeps_recipient_request_attention_independent_from_originator_res
         .expect("prepare inbox request");
     assert_eq!(
         service(&mut fixture)
-            .incoming_watermark(&receiver.id)
+            .incoming_watermark(&receiver.id, None)
             .unwrap(),
         0
     );
     assert!(
         service(&mut fixture)
-            .list_incoming(&receiver.id, None, None)
+            .list_incoming(&receiver.id, None, None, None)
             .unwrap()
             .items
             .is_empty()
@@ -815,7 +819,7 @@ fn inbox_route_keeps_recipient_request_attention_independent_from_originator_res
         .expect("queue inbox request");
 
     let incoming = service(&mut fixture)
-        .list_incoming(&receiver.id, None, None)
+        .list_incoming(&receiver.id, None, None, None)
         .expect("list recipient inbox");
     assert_eq!(incoming.items.len(), 1);
     assert_eq!(
@@ -832,7 +836,7 @@ fn inbox_route_keeps_recipient_request_attention_independent_from_originator_res
         .expect("ack recipient role");
     assert!(
         service(&mut fixture)
-            .list_incoming(&receiver.id, None, None)
+            .list_incoming(&receiver.id, None, None, None)
             .unwrap()
             .items
             .is_empty()
@@ -860,7 +864,7 @@ fn inbox_route_keeps_recipient_request_attention_independent_from_originator_res
         .expect("submit inbox response");
     assert_eq!(response.body, "done");
     let sender_incoming = service(&mut fixture)
-        .list_incoming(&sender, None, None)
+        .list_incoming(&sender, None, None, None)
         .expect("list originator results");
     assert_eq!(sender_incoming.items.len(), 1);
     assert_eq!(
@@ -870,7 +874,7 @@ fn inbox_route_keeps_recipient_request_attention_independent_from_originator_res
     assert_eq!(sender_incoming.items[0].exchange.revision, 2);
     assert!(
         service(&mut fixture)
-            .list_incoming(&receiver.id, None, None)
+            .list_incoming(&receiver.id, None, None, None)
             .unwrap()
             .items
             .is_empty()
@@ -889,6 +893,8 @@ fn queue_inbox(
     let prepared = service(fixture)
         .prepare(
             PrepareRequest {
+                room_id: None,
+                kind: tmt_core::request::RequestKind::Request,
                 request_id: request_id.into(),
                 message: format!("prompt for {request_id}"),
                 route: route.clone(),
@@ -938,7 +944,7 @@ fn incoming_response_pagination_skips_earlier_non_response_attention_rows() {
     }
 
     let first = service(&mut fixture)
-        .list_incoming(&owner, Some(2), None)
+        .list_incoming(&owner, None, Some(2), None)
         .expect("list first incoming response page");
     assert_eq!(first.items.len(), 2);
     assert!(
@@ -955,7 +961,7 @@ fn incoming_response_pagination_skips_earlier_non_response_attention_rows() {
     assert_eq!(cursor, first.items[1].exchange.revision);
 
     let second = service(&mut fixture)
-        .list_incoming(&owner, Some(2), Some(cursor))
+        .list_incoming(&owner, None, Some(2), Some(cursor))
         .expect("list second incoming response page");
     assert_eq!(second.items.len(), 1);
     assert_eq!(second.items[0].exchange.request_id, "incoming-response-3");
@@ -975,6 +981,8 @@ fn queue_rejects_a_recipient_retired_after_resolution_without_retargeting_reused
     let prepared = service(&mut fixture)
         .prepare(
             PrepareRequest {
+                room_id: None,
+                kind: tmt_core::request::RequestKind::Request,
                 request_id: "retired-before-queue".into(),
                 message: "must not move to replacement".into(),
                 route,
@@ -1055,7 +1063,7 @@ fn recipient_ackall_is_snapshot_bounded_and_exact_ack_rejects_a_stale_revision()
 
     queue_inbox(&mut fixture, "inbox-after-ackall", &sender, &receiver.id);
     let page = service(&mut fixture)
-        .list_incoming(&receiver.id, None, None)
+        .list_incoming(&receiver.id, None, None, None)
         .unwrap();
     assert_eq!(page.items.len(), 1);
     assert_eq!(page.items[0].exchange.request_id, "inbox-after-ackall");
@@ -1089,7 +1097,7 @@ fn same_identity_self_delivery_keeps_request_and_response_roles_separate() {
         .unwrap();
 
     let page = service(&mut fixture)
-        .list_incoming(&identity, None, None)
+        .list_incoming(&identity, None, None, None)
         .unwrap();
     assert_eq!(page.items.len(), 2);
     assert_eq!(
@@ -1107,7 +1115,7 @@ fn same_identity_self_delivery_keeps_request_and_response_roles_separate() {
         .acknowledge_incoming_request(&identity, "inbox-self", 2)
         .unwrap();
     let remaining = service(&mut fixture)
-        .list_incoming(&identity, None, None)
+        .list_incoming(&identity, None, None, None)
         .unwrap();
     assert_eq!(remaining.items.len(), 1);
     assert_eq!(
@@ -1119,7 +1127,7 @@ fn same_identity_self_delivery_keeps_request_and_response_roles_separate() {
         .unwrap();
     assert!(
         service(&mut fixture)
-            .list_incoming(&identity, None, None)
+            .list_incoming(&identity, None, None, None)
             .unwrap()
             .items
             .is_empty()
@@ -1147,14 +1155,14 @@ fn retired_recipient_attention_never_moves_to_a_same_name_replacement() {
     assert_ne!(replacement.id, original.id);
     assert!(
         service(&mut fixture)
-            .list_incoming(&replacement.id, None, None)
+            .list_incoming(&replacement.id, None, None, None)
             .unwrap()
             .items
             .is_empty()
     );
     assert_eq!(
         service(&mut fixture)
-            .list_incoming(&original.id, None, None)
+            .list_incoming(&original.id, None, None, None)
             .unwrap()
             .items[0]
             .exchange

@@ -113,16 +113,18 @@ fn deliver(
     let deadline = Instant::now() + Duration::from_secs_f64(timeout);
     let pending = (|| {
         if interrupt.is_some_and(Interrupt::is_interrupted) {
-            service
-                .settle(&prepared.attempt_id, Settlement::DefinitelyFailed)
-                .map_err(|error| correlation.state_error(error, false))?;
+            // Inbox publication already committed during preparation. Stopping
+            // the sender's wait must not retract a recipient's queued request.
+            if !input.options.inbox {
+                service
+                    .settle(&prepared.attempt_id, Settlement::DefinitelyFailed)
+                    .map_err(|error| correlation.state_error(error, false))?;
+            }
             return Err(correlation.interrupted());
         }
-        if input.options.inbox {
-            service
-                .queue(&prepared.attempt_id)
-                .map_err(|error| correlation.state_error(error, false))?;
-        } else if let Err(primary) = service.begin_send(&prepared.attempt_id) {
+        if !input.options.inbox
+            && let Err(primary) = service.begin_send(&prepared.attempt_id)
+        {
             // Settlement is idempotent; the primary failure remains diagnostic.
             let primary = correlation.state_error(primary, false);
             return Err(
@@ -180,6 +182,15 @@ fn deliver(
             || {
                 service
                     .get_response(&correlation.request_id)
+                    .and_then(|lookup| match lookup {
+                        tmt_core::request::ResponseLookup::Available(response) => {
+                            Ok(Some(*response))
+                        }
+                        tmt_core::request::ResponseLookup::Unavailable => Ok(None),
+                        tmt_core::request::ResponseLookup::NotRequired => {
+                            Err(tmt_core::request::RequestError::StateInvalid)
+                        }
+                    })
                     .map_err(|error| correlation.state_error(error, true))
             },
             correlation,

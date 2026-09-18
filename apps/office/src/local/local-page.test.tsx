@@ -1,37 +1,74 @@
+import { mapGeometry } from '../world-map/map-source.js';
 import { createMemoryHistory } from '@tanstack/react-router';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
-import avatarVectors from '../../../../contracts/office/avatar-pack-vectors.json';
-import { BlockConflict, defaultCatalog } from '../blocks/block-contract.js';
-import { decodeAvatarCatalog } from '../avatars/avatar-catalog.js';
+import { officeWorldFixture, WORLD_LOBBY_ID } from '../../../../test/support/office-world.js';
+import { defaultCatalog } from '../blocks/block-contract.js';
 import { OfficeApp } from '../office-app.js';
 import { createOfficeRouter } from '../router.js';
-import type { LocalBlockProjection, LocalRuntime } from './local-runtime.js';
+import type { LocalRuntime } from './local-runtime.js';
+import { LocalRuntimeContext } from './local-runtime.js';
+import { useLocalOffice } from './use-local-office.js';
 import { PROFILE_CATALOG } from '../profiles/profile-contract.js';
 import type { ProfileProjection } from '../profiles/profile-contract.js';
-import type { OfficeSceneModel } from '../rendering/office-scene.js';
+import type { OfficeSceneModel, OfficeSceneEditor } from '../rendering/office-scene.js';
+import { WorldConflict, WorldValidationError } from '../world-map/world-port.js';
+import type { WorldSnapshot } from '../world-map/world-port.js';
+import type { OfficeSelection } from '../rendering/office-selection.js';
+import type { ReactNode } from 'react';
 
-const canvas = vi.hoisted(() => ({ model: undefined as OfficeSceneModel | undefined }));
-// DOM tests inspect the controlled projection; actual GPU output is browser-tested.
+const canvas = vi.hoisted(() => ({
+  model: undefined as OfficeSceneModel | undefined,
+  editor: undefined as OfficeSceneEditor | undefined,
+  select: undefined as ((selection: OfficeSelection) => void) | undefined,
+}));
+// Contract/controller tests inspect the projection; GPU and pointer capture are browser-tested separately.
 vi.mock('./office-canvas.js', () => ({
-  OfficeCanvas: ({ model }: { model: OfficeSceneModel }) => {
+  OfficeCanvas: ({
+    model,
+    editor,
+    select,
+    agentOverlay,
+    officeOverlay,
+  }: {
+    model: OfficeSceneModel;
+    editor?: OfficeSceneEditor;
+    select: (selection: OfficeSelection) => void;
+    agentOverlay?: () => ReactNode;
+    officeOverlay?: () => ReactNode;
+  }) => {
     canvas.model = model;
-    return null;
+    canvas.editor = editor;
+    canvas.select = select;
+    return (
+      <>
+        {agentOverlay?.()}
+        {officeOverlay?.()}
+      </>
+    );
   },
 }));
-
 const identityId = '22222222-2222-4222-8222-222222222222';
-const blockId = '11111111-1111-4111-8111-111111111111';
-const digest = `sha256:${'1'.repeat(64)}`;
 const profile: ProfileProjection = {
   identityId,
   identityName: 'Alice',
   exists: true,
   revision: 1,
+  lifetime: 'saved',
+  presence: 'active' as const,
+  selfReportedStatus: null,
   profile: {
     displayLabel: 'Signal lead',
-    description: '',
+    description: 'Reviews architecture.',
     appearance: {
       hairStyle: 'short',
       hairColor: 'ink',
@@ -39,71 +76,49 @@ const profile: ProfileProjection = {
       shirtColor: 'blue',
       shirtMark: 'AI',
     },
-    avatarRef: `${digest}/signal-bot`,
   },
   updatedAtMs: 1,
   catalog: PROFILE_CATALOG,
-  online: true,
 };
-const block: LocalBlockProjection = {
-  exists: true,
-  blockId,
-  identityId,
-  identityName: 'Alice',
-  revision: 1,
-  layout: { version: 2, objects: [] },
-  resolutions: [],
-  updatedAtMs: 1,
-};
-function runtime(profiles = [profile], initial: LocalBlockProjection[] = [block]): LocalRuntime {
-  let blocks = [...initial];
+function runtime(profiles = [profile]): LocalRuntime {
+  let world = officeWorldFixture();
   const unused = async (): Promise<never> => {
-    throw new Error('Not used by room scenarios');
+    throw new Error('Not used by this scenario');
   };
   return {
-    list: vi.fn(async () => blocks),
-    resolveProps: vi.fn(async () => defaultCatalog()),
-    profiles: {
-      list: vi.fn(async () => profiles),
-      show: async () => profile,
-      apply: vi.fn(async () => ({ ...profile, changed: false })),
-    },
-    avatars: {
-      list: vi.fn(async () =>
-        decodeAvatarCatalog({
-          catalogRevision: 1,
-          packs: [{ digest, pack: avatarVectors.packCases[0]!.value }],
-        })
-      ),
-    },
-    blocks: {
-      watch(id, changed) {
-        const stored = blocks.find((item) => item.identityId === id);
-        changed(
-          stored
-            ? {
-                revision: stored.revision,
-                objects: stored.layout.objects,
-                updatedAtMs: stored.updatedAtMs,
-              }
-            : null
-        );
-        return () => undefined;
-      },
-      apply: vi.fn(async (id, revision, objects) => {
-        const stored = blocks.find((item) => item.identityId === id);
-        if ((stored?.revision ?? 0) !== revision) throw new BlockConflict();
-        const saved = {
-          ...block,
-          identityId: id,
-          revision: revision + 1,
-          layout: { version: 2 as const, objects },
-          updatedAtMs: revision + 2,
+    world: {
+      show: vi.fn(async () => structuredClone(world)),
+      save: vi.fn(async (input) => {
+        if (input.expectedRevision !== world.revision) throw new Error('Conflict');
+        world = {
+          ...world,
+          revision: world.revision + 1,
+          layout: structuredClone(input.layout),
+          updatedAtMs: world.updatedAtMs + 1,
+          changed: true,
         };
-        blocks = [...blocks.filter((item) => item.identityId !== id), saved];
-        return { revision: saved.revision, objects, updatedAtMs: saved.updatedAtMs };
+        return world;
       }),
     },
+    profiles: {
+      list: vi.fn(async () => profiles),
+      show: vi.fn(async () => profile),
+      apply: vi.fn(async () => ({ ...profile, changed: false })),
+    },
+    avatars: { list: vi.fn(async () => ({ catalogRevision: 0, packs: [] })) },
+    rooms: { list: vi.fn(async () => []), save: vi.fn(unused), retire: vi.fn() },
+    resolveProps: vi.fn(async () => defaultCatalog()),
+    whiteboards: { show: vi.fn(unused), save: vi.fn(unused) },
+    notebooks: { read: vi.fn(unused) },
+    propCatalog: { list: vi.fn(unused), load: vi.fn(unused), install: vi.fn(unused) },
+    whiteboardSnapshots: {
+      capture: vi.fn(unused),
+      show: vi.fn(unused),
+      attachImage: vi.fn(unused),
+      image: vi.fn(unused),
+    },
+    dispatch: { send: vi.fn(unused) },
+    requests: { list: vi.fn(unused), show: vi.fn(unused), receipt: vi.fn(unused) },
     board: {
       categories: unused,
       list: unused,
@@ -115,210 +130,820 @@ function runtime(profiles = [profile], initial: LocalBlockProjection[] = [block]
     },
     preview: unused,
     avatarPreview: unused,
-    dispose: () => undefined,
+    dispose: vi.fn(),
   };
 }
-function show(local: LocalRuntime, path = '/local') {
+async function show(local: LocalRuntime, path = '/local') {
   const router = createOfficeRouter(createMemoryHistory({ initialEntries: [path] }));
   return { ...render(<OfficeApp router={router} local={local} />), router };
 }
-const pixels = (element: Element) =>
-  Array.from(element.querySelectorAll('rect'), (rect) => [
-    rect.getAttribute('x'),
-    rect.getAttribute('y'),
-    rect.getAttribute('fill'),
-  ]);
+async function directory() {
+  const toggle = await screen.findByRole('button', { name: /^Directory · / });
+  if (toggle.getAttribute('aria-expanded') !== 'true') await userEvent.click(toggle);
+  return toggle;
+}
 
-it('projects the same admitted custom pixels to canvas, room and profile without extra catalog reads', async () => {
-  const local = runtime();
-  show(local);
-  await screen.findByRole('link', { name: "Enter Alice's room" });
-  const art = canvas.model!.rooms[0]!.avatar!.customArt!;
-  expect(art).toBeDefined();
-  const overview = art.pixels.flatMap((row, y) =>
-    Array.from(row, (index, x) =>
-      index === '0' ? [] : [[String(x), String(y), art.palette[Number.parseInt(index, 16)]]]
-    ).flat()
-  );
-  await userEvent.click(screen.getByRole('link', { name: "Enter Alice's room" }));
-  await waitFor(() => expect(document.querySelectorAll('.profile-avatar')).toHaveLength(1));
-  expect(canvas.model!.rooms[0]!.avatar!.customArt).toEqual(art);
-  for (const avatar of document.querySelectorAll('.profile-avatar'))
-    expect(pixels(avatar)).toEqual(overview);
-  expect(overview.length).toBeGreaterThan(0);
-  expect(local.avatars.list).toHaveBeenCalledTimes(2);
-});
-
-it('enters an unfurnished identity by keyboard, writes only on save, then shows its saved room', async () => {
-  const local = runtime([profile], []);
-  show(local);
-  const enter = await screen.findByRole('link', { name: "Enter Alice's room" });
-  expect(screen.getByText('Unfurnished · not saved')).toBeTruthy();
-  expect(local.blocks.apply).not.toHaveBeenCalled();
-  enter.focus();
-  await userEvent.keyboard('{Enter}');
-  await screen.findByRole('button', { name: 'Add desk' });
-  expect(local.blocks.apply).not.toHaveBeenCalled();
-  expect(local.profiles.apply).not.toHaveBeenCalled();
-  await userEvent.click(screen.getByRole('button', { name: 'Add desk' }));
-  expect(local.blocks.apply).not.toHaveBeenCalled();
-  await userEvent.click(screen.getByRole('button', { name: 'Save layout' }));
-  await waitFor(() =>
-    expect(
-      within(screen.getByRole('region', { name: 'Office block editor' })).getByRole('status')
-        .textContent
-    ).toBe('Saved · revision 1')
-  );
-  expect(local.blocks.apply).toHaveBeenCalledWith(identityId, 0, [
-    expect.objectContaining({ x: 14, y: 14 }),
-  ]);
-  await userEvent.click(screen.getByRole('link', { name: '← Back to office' }));
-  await screen.findByText('1 piece · saved');
-  expect(screen.queryByText('Unfurnished · not saved')).toBeNull();
-});
-
-it('shows multiple labeled rooms without inventing offline presence', async () => {
-  const bob = {
-    ...profile,
-    identityId: '33333333-3333-4333-8333-333333333333',
-    identityName: 'Bob',
-    online: false,
-  };
-  show(runtime([profile, bob]));
-  const room = await screen.findByRole('article', { name: "Bob's room" });
-  expect(within(room).getByText('Offline')).toBeTruthy();
-  expect(room.querySelector('.profile-avatar')).toBeNull();
-  expect(canvas.model!.rooms.find((item) => item.name === 'Bob')!.avatar).toBeUndefined();
-  expect(within(room).getByRole('link', { name: "Enter Bob's room" })).toBeTruthy();
-  expect(screen.getByText('2 spaces · 1 online')).toBeTruthy();
-});
-
-it('shows an honest empty office without writes', async () => {
-  const local = runtime([], []);
-  show(local);
-  await screen.findByText('tmt identity create alice');
-  expect(document.querySelector('.office-room')).toBeNull();
-  expect(document.querySelector('.office-floor')).not.toBeNull();
-  expect(screen.getByRole('link', { name: 'Visit the board' })).toBeTruthy();
-  expect(local.blocks.apply).not.toHaveBeenCalled();
-  expect(local.profiles.apply).not.toHaveBeenCalled();
-});
-
-it('selects an unfurnished room with the keyboard without fetching or saving another snapshot', async () => {
-  const local = runtime([profile], []);
-  const list = vi.spyOn(local, 'list');
-  const profiles = vi.spyOn(local.profiles, 'list');
-  show(local);
-  const select = await screen.findByRole('button', { name: "Select Alice's room" });
-  const reads = [list.mock.calls.length, profiles.mock.calls.length];
-  select.focus();
-  await userEvent.keyboard('{Enter}');
-  expect(select.getAttribute('aria-pressed')).toBe('true');
-  const details = screen.getByRole('complementary', { name: 'Room details' });
-  expect(within(details).getByRole('heading', { name: 'Alice' })).toBeTruthy();
-  expect(within(details).getByText(/Nothing is saved until/)).toBeTruthy();
-  expect(
-    within(details).getByRole('link', { name: 'Customize this space →' }).getAttribute('href')
-  ).toBe(`/local/agents/${identityId}`);
-  expect([list.mock.calls.length, profiles.mock.calls.length]).toEqual(reads);
-  expect(local.blocks.apply).not.toHaveBeenCalled();
-  expect(local.profiles.apply).not.toHaveBeenCalled();
-});
-
-it('drops stale selection details when the identity disappears on refresh', async () => {
-  const local = runtime();
-  show(local);
-  await userEvent.click(await screen.findByRole('button', { name: "Select Alice's room" }));
-  local.profiles.list = async () => [];
-  await userEvent.click(screen.getByRole('button', { name: 'Refresh office' }));
-  await screen.findByText('tmt identity create alice');
-  expect(screen.queryByRole('complementary', { name: 'Room details' })).toBeNull();
-});
-
-it('keeps the office unobstructed until selection and returns focus when details close', async () => {
-  const local = runtime([profile], []);
-  show(local);
-  const trigger = await screen.findByRole('button', { name: "Select Alice's room" });
-  expect(screen.queryByRole('complementary', { name: 'Room details' })).toBeNull();
-  await userEvent.click(trigger);
-  await userEvent.click(screen.getByRole('button', { name: 'Close room details' }));
-  expect(screen.queryByRole('complementary', { name: 'Room details' })).toBeNull();
-  expect(document.activeElement).toBe(trigger);
-  await userEvent.keyboard('{Enter}');
-  expect(screen.getByRole('complementary', { name: 'Room details' })).toBeTruthy();
-  await userEvent.keyboard('{Escape}');
-  expect(screen.queryByRole('complementary', { name: 'Room details' })).toBeNull();
-  expect(document.activeElement).toBe(trigger);
-  expect(local.blocks.apply).not.toHaveBeenCalled();
-  expect(local.profiles.apply).not.toHaveBeenCalled();
-});
-
-it('collapses the directory without losing rooms or returning focus to hidden controls', async () => {
-  const local = runtime();
-  show(local);
-  await userEvent.click(await screen.findByRole('button', { name: "Select Alice's room" }));
-  const model = canvas.model;
-  const toggle = screen.getByRole('button', { name: 'Agents · 1' });
-  await userEvent.click(toggle);
-  expect(toggle.getAttribute('aria-expanded')).toBe('false');
-  expect(screen.queryByRole('button', { name: "Select Alice's room" })).toBeNull();
-  expect(canvas.model).toBe(model);
-  await userEvent.click(screen.getByRole('button', { name: 'Close room details' }));
-  expect(document.activeElement).toBe(toggle);
-  await userEvent.keyboard('{Enter}');
-  expect(screen.getByRole('button', { name: "Select Alice's room" })).toBeTruthy();
-  expect(local.blocks.apply).not.toHaveBeenCalled();
-});
-
-it.each(['blocks', 'profiles', 'avatars', 'props'] as const)(
-  'recovers from initial %s failure',
-  async (failed) => {
-    const local = runtime();
-    const rejected = async (): Promise<never> => {
-      throw new Error('unavailable');
+it.each(['saved', 'temporary'] as const)(
+  'adds a %s identity from its Info panel through the canonical room editor only',
+  async (lifetime) => {
+    const local = runtime([{ ...profile, lifetime }]);
+    const room = {
+      id: '44444444-4444-4444-8444-444444444444',
+      name: 'Review',
+      revision: 3,
+      retired: false,
+      memberIds: [] as string[],
     };
-    if (failed === 'blocks') local.list = rejected;
-    if (failed === 'profiles') local.profiles.list = rejected;
-    if (failed === 'avatars') local.avatars.list = rejected;
-    if (failed === 'props') local.resolveProps = rejected;
-    show(local);
-    expect((await screen.findByRole('alert')).textContent).toContain('could not load');
-    expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy();
-    expect(screen.queryByText('Opening your office…')).toBeNull();
+    vi.mocked(local.rooms.list).mockResolvedValue([room]);
+    vi.mocked(local.rooms.save).mockImplementation(async (_id, input) => ({
+      ...room,
+      revision: 4,
+      memberIds: input.memberIds,
+    }));
+    await show(local);
+    await directory();
+    const original = structuredClone(canvas.model!.world);
+    act(() => canvas.select!({ kind: 'agent', identityId, areaId: WORLD_LOBBY_ID }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Info' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add to meeting…' }));
+    await screen.findByRole('option', { name: 'Review' });
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Meeting room' }), room.id);
+    expect(local.rooms.save).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Add Alice' }));
+    expect(screen.getByRole('checkbox', { name: /Alice/ })).toHaveProperty('checked', true);
+    await userEvent.click(screen.getByRole('button', { name: 'Save room' }));
+    expect(local.rooms.save).toHaveBeenCalledExactlyOnceWith(
+      room.id,
+      { expectedRevision: 3, name: 'Review', memberIds: [identityId] },
+      expect.any(AbortSignal)
+    );
+    expect(canvas.model!.world).toEqual(original);
+    expect(local.world.save).not.toHaveBeenCalled();
+    expect(local.profiles.apply).not.toHaveBeenCalled();
+    expect(local.dispatch.send).not.toHaveBeenCalled();
+    expect(local.rooms.retire).not.toHaveBeenCalled();
   }
 );
 
-it('fences late completion from a replaced runtime', async () => {
-  const old = runtime();
-  let resolveOld!: (value: ProfileProjection[]) => void;
-  old.profiles.list = () =>
-    new Promise((resolve) => {
-      resolveOld = resolve;
-    });
-  const view = show(old);
-  await screen.findByText('Opening your office…');
-  const current = runtime([{ ...profile, identityName: 'Bob' }], []);
-  view.rerender(<OfficeApp router={view.router} local={current} />);
-  await screen.findByRole('link', { name: "Enter Bob's room" });
-  await act(async () => {
-    resolveOld([profile]);
+it('keeps status independent of appearance saves and appearance revision ordering during refresh', async () => {
+  const previous = {
+    activity: 'Reviewing',
+    mood: null,
+    updatedAtMs: 1000,
+    expiresAtMs: 2000,
+    stale: false,
+  };
+  const renewed = { ...previous, activity: 'Testing', updatedAtMs: 1500, expiresAtMs: 2500 };
+  const local = runtime([{ ...profile, selfReportedStatus: previous }]);
+  const { result } = renderHook(() => useLocalOffice(), {
+    wrapper: ({ children }) => (
+      <LocalRuntimeContext.Provider value={local}>{children}</LocalRuntimeContext.Provider>
+    ),
   });
-  expect(screen.queryByRole('link', { name: "Enter Alice's room" })).toBeNull();
+  await waitFor(() => expect(result.current.load.status).toBe('ready'));
+  let finish!: (profiles: ProfileProjection[]) => void;
+  vi.mocked(local.profiles.list).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+  );
+  act(() => result.current.refresh());
+  const {
+    presence: _presence,
+    lifetime: _lifetime,
+    selfReportedStatus: _status,
+    ...snapshot
+  } = profile;
+  act(() =>
+    result.current.profileChanged({
+      ...snapshot,
+      revision: 2,
+      profile: { ...snapshot.profile, description: 'New appearance' },
+    })
+  );
+  expect(result.current.load).toMatchObject({
+    profiles: [{ revision: 2, selfReportedStatus: previous }],
+  });
+  await act(async () => finish([{ ...profile, selfReportedStatus: renewed }]));
+  expect(result.current.load).toMatchObject({
+    profiles: [
+      { revision: 2, profile: { description: 'New appearance' }, selfReportedStatus: renewed },
+    ],
+  });
+  act(() => result.current.profileChanged({ ...snapshot, revision: 3 }));
+  expect(result.current.load).toMatchObject({
+    profiles: [{ revision: 3, selfReportedStatus: renewed }],
+  });
+  vi.mocked(local.profiles.list).mockResolvedValue([{ ...profile, selfReportedStatus: null }]);
+  act(() => result.current.refresh());
+  await waitFor(() =>
+    expect(result.current.load).toMatchObject({
+      refreshing: false,
+      profiles: [{ revision: 3, selfReportedStatus: null }],
+    })
+  );
 });
 
-it('does not expose the previous ready runtime while its replacement loads', async () => {
-  const view = show(runtime());
-  await screen.findByRole('link', { name: "Enter Alice's room" });
+it('shows exact status and separate endpoint presence, and suppresses the ordinary cue while its HUD is open', async () => {
+  const now = Date.now();
+  const local = runtime([
+    {
+      ...profile,
+      selfReportedStatus: {
+        activity: 'Reviewing the room',
+        mood: 'focused',
+        updatedAtMs: now,
+        expiresAtMs: now + 60000,
+        stale: false,
+      },
+    },
+  ]);
+  await show(local);
+  await waitFor(() =>
+    expect(canvas.model?.actors[0]?.activity).toBe('focused · Reviewing the room')
+  );
+  act(() => canvas.select!({ kind: 'agent', identityId, areaId: WORLD_LOBBY_ID }));
+  await userEvent.click(screen.getByRole('tab', { name: 'Info' }));
+  const status = screen.getByRole('region', { name: 'Self-reported status' });
+  expect(within(status).getByText('Reviewing the room')).toBeDefined();
+  expect(within(status).getByText('Mood: focused')).toBeDefined();
+  expect(within(status).getByText('Current')).toBeDefined();
+  expect(status.querySelectorAll('time')).toHaveLength(2);
+  expect(screen.getByText('Saved identity · Online')).toBeDefined();
+  expect(canvas.model!.actors[0]!.activity).toBeUndefined();
+  await userEvent.click(screen.getByRole('button', { name: 'Close agent conversation' }));
+  expect(canvas.model!.actors[0]!.activity).toBe('focused · Reviewing the room');
+});
+
+it('loads the world without saving or dispatching work', async () => {
+  const local = runtime();
+  await show(local);
+  const toggle = await screen.findByRole('button', { name: 'Directory · 1' });
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByRole('complementary', { name: 'Agent details' })).toBeNull();
+  expect(screen.queryByRole('complementary', { name: 'Area details' })).toBeNull();
+  expect(canvas.model!.world).toEqual(officeWorldFixture().layout);
+  expect(local.world.save).not.toHaveBeenCalled();
+  expect(local.dispatch.send).not.toHaveBeenCalled();
+});
+
+it('does not grow terrain for saved or temporary identities; Contractors stay in the Lobby', async () => {
+  const local = runtime([
+    profile,
+    {
+      ...profile,
+      identityId: '33333333-3333-4333-8333-333333333333',
+      identityName: 'Pip',
+      lifetime: 'temporary',
+    },
+    {
+      ...profile,
+      identityId: '44444444-4444-4444-8444-444444444444',
+      identityName: 'Offline',
+      presence: 'offline' as const,
+    },
+  ]);
+  await show(local);
+  await directory();
+  expect(canvas.model!.world.map).toEqual(officeWorldFixture().layout.map);
+  expect(
+    canvas.model!.actors.map((actor) => [actor.avatar.name, actor.areaId, actor.contractor])
+  ).toEqual([
+    ['Alice', WORLD_LOBBY_ID, false],
+    ['Pip', WORLD_LOBBY_ID, true],
+  ]);
+  expect(screen.getByText('Contractor · Lobby')).toBeDefined();
+  expect(screen.getByRole('button', { name: /Offline · Offline/ })).toBeDefined();
+});
+
+it('switches between browse panels, moves focus into details and restores the visible trigger on close', async () => {
+  const local = runtime();
+  await show(local);
+  const toggle = await directory();
+  const trigger = screen.getByRole('button', { name: /Alice · Online/ });
+  await userEvent.click(trigger);
+  expect(screen.getByRole('complementary', { name: 'Agent details' })).toBeDefined();
+  expect(screen.queryByRole('complementary', { name: 'Office directory' })).toBeNull();
+  expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Alice' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Close agent conversation' }));
+  expect(document.activeElement).toBe(toggle);
+  await userEvent.click(toggle);
+  await userEvent.keyboard('{Escape}');
+  expect(screen.queryByRole('complementary', { name: 'Office directory' })).toBeNull();
+  expect(document.activeElement).toBe(toggle);
+  const details = screen.getByLabelText('Local office details');
+  await userEvent.click(details);
+  expect(details.closest('details')!.open).toBe(true);
+  await userEvent.keyboard('{Escape}');
+  expect(details.closest('details')!.open).toBe(false);
+  expect(local.world.show).toHaveBeenCalledTimes(1);
+  expect(local.world.save).not.toHaveBeenCalled();
+});
+
+it('accepts fresh effective membership at the same room revision without rolling back a newer definition', async () => {
+  const local = runtime();
+  const room = {
+    id: '44444444-4444-4444-8444-444444444444',
+    name: 'Review',
+    revision: 3,
+    retired: false,
+    memberIds: [identityId],
+  };
+  vi.mocked(local.rooms.list).mockResolvedValue([room]);
+  const { result } = renderHook(() => useLocalOffice(), {
+    wrapper: ({ children }) => (
+      <LocalRuntimeContext.Provider value={local}>{children}</LocalRuntimeContext.Provider>
+    ),
+  });
+  await waitFor(() => expect(result.current.load.status).toBe('ready'));
+  const empty = { ...room, memberIds: [] };
+  act(() => result.current.roomChanged(empty));
+  expect(result.current.load).toMatchObject({ rooms: [empty] });
+  act(() => result.current.roomChanged({ ...room, revision: 2 }));
+  expect(result.current.load).toMatchObject({ rooms: [empty] });
+  expect(local.world.show).toHaveBeenCalledTimes(1);
+  expect(local.world.save).not.toHaveBeenCalled();
+});
+
+it('preserves room observations made during a stale refresh, including equal revisions and newly created rooms', async () => {
+  const local = runtime();
+  const room = {
+    id: '44444444-4444-4444-8444-444444444444',
+    name: 'Review',
+    revision: 3,
+    retired: false,
+    memberIds: [identityId],
+  };
+  vi.mocked(local.rooms.list).mockResolvedValue([room]);
+  const { result } = renderHook(() => useLocalOffice(), {
+    wrapper: ({ children }) => (
+      <LocalRuntimeContext.Provider value={local}>{children}</LocalRuntimeContext.Provider>
+    ),
+  });
+  await waitFor(() => expect(result.current.load.status).toBe('ready'));
+  let finish!: (rooms: (typeof room)[]) => void;
+  vi.mocked(local.rooms.list).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+  );
+  act(() => result.current.refresh());
+  const empty = { ...room, memberIds: [] };
+  const created = {
+    ...room,
+    id: '55555555-5555-4555-8555-555555555555',
+    name: 'Planning',
+    revision: 1,
+  };
+  act(() => {
+    result.current.roomChanged(empty);
+    result.current.roomChanged(created);
+  });
+  await act(async () => finish([room]));
+  expect(result.current.load).toMatchObject({
+    status: 'ready',
+    refreshing: false,
+    rooms: [empty, created],
+  });
+  // The fence belongs only to the completed read, not a second room store.
+  vi.mocked(local.rooms.list).mockResolvedValue([room]);
+  act(() => result.current.refresh());
+  await waitFor(() =>
+    expect(result.current.load).toMatchObject({ refreshing: false, rooms: [room] })
+  );
+});
+
+it('keeps complete searchable meeting rosters and typed visual context without duplicating identities', async () => {
+  const offline = {
+    ...profile,
+    identityId: '33333333-3333-4333-8333-333333333333',
+    identityName: 'Bob',
+    presence: 'offline' as const,
+    lifetime: 'temporary' as const,
+  };
+  const local = runtime([profile, offline]);
+  const world = officeWorldFixture();
+  const roomId = '44444444-4444-4444-8444-444444444444';
+  const areaId = '55555555-5555-4555-8555-555555555555';
+  const missing = '66666666-6666-4666-8666-666666666666';
+  const populated: WorldSnapshot = {
+    ...world,
+    layout: {
+      ...world.layout,
+      map: {
+        ...world.layout.map,
+        areas: [
+          ...mapGeometry(world.layout.map).areas,
+          {
+            id: areaId,
+            name: 'West meeting',
+            binding: { type: 'meeting', roomId },
+          },
+        ],
+      },
+    },
+  };
+  vi.mocked(local.world.show).mockResolvedValue(populated);
+  vi.mocked(local.rooms.list).mockResolvedValue([
+    {
+      id: roomId,
+      name: 'Architecture review',
+      revision: 3,
+      retired: false,
+      memberIds: [identityId, offline.identityId, missing],
+    },
+  ]);
+  await show(local);
+  await directory();
+  await userEvent.type(screen.getByRole('searchbox', { name: 'Search directory' }), 'architecture');
+  await userEvent.click(screen.getByRole('button', { name: /West meeting · meeting/ }));
+  const roster = screen.getByRole('region', { name: 'Area roster' });
+  expect(within(roster).getByRole('heading', { name: 'Members · 3' })).toBeDefined();
+  expect(within(roster).getByText(missing)).toBeDefined();
+  expect(within(roster).getByRole('button', { name: /Bob · Offline Contractor/ })).toBeDefined();
+  await userEvent.type(within(roster).getByRole('searchbox', { name: 'Search members' }), 'bob');
+  expect(within(roster).queryByRole('button', { name: /Alice/ })).toBeNull();
+  await userEvent.click(within(roster).getByRole('button', { name: /Bob/ }));
+  expect(screen.getByRole('heading', { name: 'Bob', level: 2 })).toBeDefined();
+  expect(
+    screen.getByText('Viewing in Architecture review. Membership is independent of the home area.')
+  ).toBeDefined();
+  expect(screen.getByRole('button', { name: 'Message Bob' })).toBeDefined();
+  act(() => canvas.select!({ kind: 'agent', identityId, areaId }));
+  expect(screen.getByRole('heading', { name: 'Alice', level: 2 })).toBeDefined();
+  await userEvent.click(screen.getByRole('tab', { name: 'Info' }));
+  await userEvent.click(screen.getByRole('button', { name: 'View West meeting roster' }));
+  expect(screen.getByRole('heading', { name: 'Members · 3' })).toBeDefined();
+  expect(local.world.save).not.toHaveBeenCalled();
+  expect(local.rooms.save).not.toHaveBeenCalled();
+  expect(local.dispatch.send).not.toHaveBeenCalled();
+});
+
+it('retains an unsaved appearance draft while browsing suspends the non-modal HUD', async () => {
+  const local = runtime();
+  await show(local);
+  const toggle = await directory();
+  await userEvent.click(screen.getByRole('button', { name: /Alice · Online/ }));
+  await userEvent.click(screen.getByRole('button', { name: 'Appearance' }));
+  const mark = screen.getByLabelText('Shirt mark');
+  await userEvent.clear(mark);
+  await userEvent.type(mark, 'UX');
+  await userEvent.click(toggle);
+  expect(screen.queryByRole('complementary', { name: 'Agent details' })).toBeNull();
+  expect(screen.getByRole('complementary', { name: 'Office directory' })).toBeDefined();
+  await userEvent.keyboard('{Escape}');
+  expect(document.activeElement).toBe(toggle);
+  await userEvent.click(toggle);
+  await userEvent.click(screen.getByRole('button', { name: /Alice · Online/ }));
+  expect(screen.getByLabelText('Shirt mark')).toBe(mark);
+  expect(mark).toHaveProperty('value', 'UX');
+  expect(local.profiles.apply).not.toHaveBeenCalled();
+  expect(local.world.save).not.toHaveBeenCalled();
+});
+
+it('refreshes the world without unmounting a conversation draft, including failed refreshes', async () => {
+  const local = runtime();
+  vi.mocked(local.requests.list).mockResolvedValue({ items: [], nextBefore: null });
+  vi.mocked(local.requests.receipt).mockResolvedValue(null);
+  await show(local);
+  await directory();
+  await userEvent.click(screen.getByRole('button', { name: /Alice · Online/ }));
+  await userEvent.click(screen.getByRole('tab', { name: 'Chat' }));
+  const message = await screen.findByRole('textbox', { name: 'Message' });
+  fireEvent.change(message, { target: { value: 'Keep this through refresh' } });
+  let finish!: (value: WorldSnapshot) => void;
+  vi.mocked(local.world.show).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh office' }));
+  expect(screen.getByRole('textbox', { name: 'Message' })).toBe(message);
+  expect(screen.getByRole('button', { name: 'Edit layout' })).toHaveProperty('disabled', true);
+  const base = officeWorldFixture();
+  const latest = {
+    ...base,
+    revision: 4,
+    layout: {
+      ...base.layout,
+      map: {
+        ...base.layout.map,
+        areas: mapGeometry(base.layout.map).areas.map((area) => ({
+          ...area,
+          name: 'Refreshed Lobby',
+        })),
+      },
+    },
+  };
+  await act(async () => finish(latest));
+  expect(mapGeometry(canvas.model!.world.map).areas[0]!.name).toBe('Refreshed Lobby');
+  expect(screen.getByRole('textbox', { name: 'Message' })).toBe(message);
+  expect(message).toHaveProperty('value', 'Keep this through refresh');
+  vi.mocked(local.world.show).mockRejectedValueOnce(new Error('offline'));
+  await userEvent.click(screen.getByRole('button', { name: 'Refresh office' }));
+  expect(await screen.findByRole('alert')).toHaveProperty(
+    'textContent',
+    expect.stringContaining('Your open work is kept')
+  );
+  expect(message).toHaveProperty('value', 'Keep this through refresh');
+  expect(local.dispatch.send).not.toHaveBeenCalled();
+  expect(local.world.save).not.toHaveBeenCalled();
+});
+
+it('unifies modular conversion and object changes into one draft with Undo, Redo and Cancel', async () => {
+  const local = runtime();
+  await show(local);
+  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Preview modular layout' }));
+  const painted = canvas.model!.world;
+  expect(painted.map.version).toBe(4);
+  await userEvent.selectOptions(screen.getByLabelText('Object'), painted.objects[0]!.id);
+  await userEvent.click(screen.getByRole('button', { name: 'Rotate object' }));
+  expect(canvas.model!.world.objects[0]!.placement.rotation).toBe(1);
+  await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(canvas.model!.world).toEqual(painted);
+  await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(canvas.model!.world).toEqual(officeWorldFixture().layout);
+  await userEvent.click(screen.getByRole('button', { name: 'Redo' }));
+  expect(canvas.model!.world).toEqual(painted);
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(canvas.model!.world).toEqual(officeWorldFixture().layout);
+  expect(local.world.save).not.toHaveBeenCalled();
+});
+
+it.each([false, true])(
+  'keeps a placement selectable by stable ID when its art is unavailable: %s',
+  async (missing) => {
+    const local = runtime();
+    const snapshot = officeWorldFixture();
+    const object = snapshot.layout.objects[0]!;
+    if (missing) object.placement.prop = `sha256:${'f'.repeat(64)}/missing-desk`;
+    vi.mocked(local.world.show).mockResolvedValue(snapshot);
+    await show(local);
+    await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
+    const select = screen.getByRole('combobox', { name: 'Object' });
+    expect(
+      within(select).getByRole('option', { name: missing ? '1 · Unavailable prop' : '1 · Desk' })
+    ).toHaveProperty('value', object.id);
+    await userEvent.selectOptions(select, object.id);
+    expect(canvas.editor!.selected).toBe(object.id);
+    expect(screen.getByRole('heading', { name: /^Selected object: / }).textContent).toBe(
+      missing ? 'Unavailable prop' : 'Desk'
+    );
+    expect(screen.getByRole('button', { name: 'Remove placement' })).toBeTruthy();
+    const move = screen.getByRole('button', { name: 'Move object' });
+    expect(move.closest('.world-object-actions')).not.toBeNull();
+    expect(move.getAttribute('aria-pressed')).toBe('false');
+    const beforeMove = structuredClone(canvas.model!.world);
+    await userEvent.click(move);
+    expect(move.getAttribute('aria-pressed')).toBe('true');
+    expect(canvas.editor!.tool).toBe('move');
+    expect(canvas.model!.world).toEqual(beforeMove);
+    expect(local.world.save).not.toHaveBeenCalled();
+  }
+);
+
+it('opens wall and furniture tools from one catalog without mutating the layout until an object is added', async () => {
+  const local = runtime();
+  await show(local);
+  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
+  const before = structuredClone(canvas.model!.world);
+  const tools = within(screen.getByRole('toolbar', { name: 'Build tools' }));
+  await userEvent.click(tools.getByRole('button', { name: 'Move object' }));
+  await userEvent.click(tools.getByRole('button', { name: 'Walls' }));
+  expect(canvas.editor!.tool).toBe('select');
+  expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Wall objects' }));
+  expect(screen.getByRole('button', { name: 'Observatory window' })).toBeTruthy();
+  expect(tools.getByRole('button', { name: 'Walls' }).getAttribute('aria-expanded')).toBe('true');
+  await userEvent.click(tools.getByRole('button', { name: 'Furniture' }));
+  expect(screen.queryByRole('button', { name: 'Observatory window' })).toBeNull();
+  expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Furniture and art' }));
+  expect(canvas.model!.world).toEqual(before);
+  await userEvent.click(tools.getByRole('button', { name: 'Walls' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Orbit poster' }));
+  expect(canvas.editor!.tool).toBe('move');
+  expect(canvas.model!.world.objects).toHaveLength(before.objects.length + 1);
+  expect(canvas.model!.world.objects.at(-1)!.surface.type).toBe('wall');
+  await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(canvas.model!.world).toEqual(before);
+  await userEvent.click(tools.getByRole('button', { name: 'Inspect' }));
+  expect(screen.queryByRole('region', { name: 'Object library' })).toBeNull();
+  expect(tools.getByRole('button', { name: 'Walls' }).getAttribute('aria-expanded')).toBe('false');
+  await userEvent.click(tools.getByRole('button', { name: 'Furniture' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
+  expect(screen.getByRole('button', { name: 'Inspect' }).getAttribute('aria-pressed')).toBe('true');
+  expect(screen.getByRole('button', { name: 'Furniture' }).getAttribute('aria-expanded')).toBe(
+    'false'
+  );
+  expect(local.world.save).not.toHaveBeenCalled();
+});
+
+it('saves the complete world with its existing revision fence and no legacy write', async () => {
+  const local = runtime();
+  await show(local);
+  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Preview modular layout' }));
+  const draft = structuredClone(canvas.model!.world);
+  await userEvent.click(screen.getByRole('button', { name: 'Save layout' }));
+  await screen.findByRole('button', { name: 'Edit layout' });
+  expect(local.world.save).toHaveBeenCalledWith(
+    { expectedRevision: 1, legacyBasis: null, layout: draft },
+    expect.any(AbortSignal)
+  );
+  expect(canvas.model!.world).toEqual(draft);
+});
+
+it('edits wall mounts within the same undo history, preserving the placement and resource identity', async () => {
+  const local = runtime();
+  const snapshot = officeWorldFixture();
+  const original = {
+    ...snapshot.layout.objects[0]!,
+    extension: {
+      definition: 'tmt-whiteboard',
+      binding: { kind: 'whiteboard' as const, documentId: 'lobby' },
+    },
+  };
+  vi.mocked(local.world.show).mockResolvedValue({
+    ...snapshot,
+    layout: { ...snapshot.layout, objects: [original] },
+  });
+  await show(local);
+  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
+  await userEvent.selectOptions(screen.getByLabelText('Object'), original.id);
+  await userEvent.selectOptions(screen.getByLabelText('Placement surface'), 'wall');
+  expect(canvas.model!.world.objects[0]!.surface).toEqual({
+    type: 'wall',
+    axis: 'horizontal',
+    face: 'positive',
+    elevation: 0,
+  });
+  await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(canvas.model!.world.objects[0]).toEqual(original);
+  await userEvent.click(screen.getByRole('button', { name: 'Redo' }));
+  await userEvent.selectOptions(screen.getByLabelText('Wall direction'), 'vertical');
+  await userEvent.selectOptions(screen.getByLabelText('Indoor face'), 'negative');
+  fireEvent.change(screen.getByLabelText('Elevation'), { target: { value: '3' } });
+  fireEvent.change(screen.getByLabelText('X', { exact: true }), { target: { value: '36' } });
+  expect(canvas.model!.world.objects[0]!.placement.x).toBe(original.placement.x);
+  await userEvent.click(screen.getByRole('button', { name: 'Apply coordinates' }));
+  const expected = {
+    ...original,
+    placement: { ...original.placement, x: 36 },
+    surface: {
+      type: 'wall',
+      axis: 'vertical',
+      face: 'negative',
+      elevation: 3,
+    },
+  };
+  expect(canvas.model!.world.objects[0]).toEqual(expected);
+  await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(canvas.model!.world.objects[0]!.placement.x).toBe(original.placement.x);
+  expect(canvas.model!.world.objects[0]!.surface).toMatchObject({ elevation: 0 });
+  await userEvent.click(screen.getByRole('button', { name: 'Redo' }));
+  expect(canvas.model!.world.objects[0]).toEqual(expected);
+  await userEvent.click(screen.getByRole('button', { name: 'Save layout' }));
+  await screen.findByRole('button', { name: 'Edit layout' });
+  expect(vi.mocked(local.world.save).mock.calls[0]![0].layout.objects).toEqual([expected]);
+  expect(local.whiteboards.show).not.toHaveBeenCalled();
+  expect(local.whiteboards.save).not.toHaveBeenCalled();
+  expect(local.dispatch.send).not.toHaveBeenCalled();
+});
+
+it('preserves an invalid object draft and its resource binding when native admission rejects Save', async () => {
+  const local = runtime();
+  const id = officeWorldFixture().layout.objects[0]!.id;
+  vi.mocked(local.world.save).mockRejectedValue(
+    new WorldValidationError('Move affected objects before saving.', [
+      { objectId: id, reason: 'outsideFloor' },
+    ])
+  );
+  await show(local);
+  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
+  act(() => canvas.editor!.moveObject(id, { x: -100, y: -100 }));
+  const invalid = canvas.model!.world;
+  await userEvent.click(screen.getByRole('button', { name: 'Save layout' }));
+  expect(await screen.findByRole('alert')).toHaveProperty(
+    'textContent',
+    expect.stringContaining('Move affected objects')
+  );
+  expect(canvas.model!.world).toEqual(invalid);
+  expect(canvas.model!.world.objects[0]).toEqual({
+    ...officeWorldFixture().layout.objects[0],
+    placement: { ...officeWorldFixture().layout.objects[0]!.placement, x: -100, y: -100 },
+  });
+  await userEvent.click(screen.getByRole('button', { name: 'Select affected object' }));
+  expect(canvas.editor!.selected).toBe(id);
+  expect(local.world.save).toHaveBeenCalledTimes(1);
+  expect(local.world.show).toHaveBeenCalledTimes(1);
+});
+
+it('retains conflicts until explicit reload, with no automatic read, rebase or retry', async () => {
+  const local = runtime();
+  vi.mocked(local.world.save).mockRejectedValue(new WorldConflict());
+  await show(local);
+  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Preview modular layout' }));
+  const draft = canvas.model!.world;
+  await userEvent.click(screen.getByRole('button', { name: 'Save layout' }));
+  await screen.findByText(/Saved layout changed. Nothing was written./);
+  expect(canvas.model!.world).toEqual(draft);
+  expect(local.world.show).toHaveBeenCalledTimes(1);
+  expect(local.world.save).toHaveBeenCalledTimes(1);
+  await userEvent.click(
+    screen.getByRole('button', { name: 'Reload saved layout (discard draft)' })
+  );
+  await screen.findByRole('button', { name: 'Edit layout' });
+  expect(canvas.model!.world).toEqual(officeWorldFixture().layout);
+});
+
+it('creates an unassigned office module explicitly and excludes Contractors from its resident options', async ({
+  onTestFinished,
+}) => {
+  // DOM tests exercise the real form, not browser layout. Native E2E owns sizing.
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    }
+  );
+  onTestFinished(() => {
+    vi.unstubAllGlobals();
+  });
+  const local = runtime([
+    profile,
+    {
+      ...profile,
+      identityId: '33333333-3333-4333-8333-333333333333',
+      identityName: 'Pip',
+      lifetime: 'temporary',
+    },
+  ]);
+  await show(local);
+  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Preview modular layout' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Add office' }));
+  act(() => canvas.editor!.chooseOffice!(canvas.editor!.officeSlots![0]!));
+  const form = within(screen.getByRole('form', { name: 'New office' }));
+  await userEvent.type(form.getByLabelText('Name'), 'Studio');
+  await userEvent.click(form.getByRole('button', { name: 'Add office' }));
+  expect(mapGeometry(canvas.model!.world.map).areas).toHaveLength(2);
+  expect(canvas.model!.world.map.version).toBe(4);
+  const select = screen.getByLabelText('Resident');
+  expect(within(select).getByRole('option', { name: /Pip/ })).toHaveProperty('disabled', true);
+  await userEvent.selectOptions(select, identityId);
+  expect(
+    mapGeometry(canvas.model!.world.map).areas.find((area) => area.name === 'Studio')!.binding
+  ).toEqual({
+    type: 'personal',
+    identityId,
+  });
+  expect(local.world.save).not.toHaveBeenCalled();
+});
+
+it('requires a replacement Lobby and detaches other areas without deleting placements', async () => {
+  const local = runtime();
+  const retained = officeWorldFixture();
+  const extraId = '33333333-3333-4333-8333-333333333333';
+  vi.mocked(local.world.show).mockResolvedValue({
+    ...retained,
+    layout: {
+      ...retained.layout,
+      map: {
+        ...retained.layout.map,
+        areas: [
+          ...retained.layout.map.areas,
+          {
+            id: extraId,
+            name: 'Empty studio',
+            binding: { type: 'personal', identityId: null },
+          },
+        ],
+      },
+    },
+  });
+  await show(local);
+  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
+  expect(screen.getByRole('button', { name: 'Remove area designation' })).toHaveProperty(
+    'disabled',
+    true
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Preview modular layout' }));
+  expect(await screen.findByRole('alert')).toHaveProperty(
+    'textContent',
+    expect.stringContaining('Remove the empty area')
+  );
+  await userEvent.selectOptions(screen.getByLabelText('Area', { exact: true }), extraId);
+  await userEvent.click(screen.getByRole('button', { name: 'Remove area designation' }));
+  expect(mapGeometry(canvas.model!.world.map).areas).toHaveLength(1);
+  expect(mapGeometry(canvas.model!.world.map).floor).toEqual(retained.layout.map.floor);
+  expect(canvas.model!.world.objects).toEqual(officeWorldFixture().layout.objects);
+  await userEvent.click(screen.getByRole('button', { name: 'Preview modular layout' }));
+  expect(canvas.model!.world.map.version).toBe(4);
+  expect(local.world.save).not.toHaveBeenCalled();
+});
+
+it('disables refresh and concurrent mutation while Save is pending and aborts on unmount', async () => {
+  const local = runtime();
+  let resolve!: (value: WorldSnapshot) => void;
+  vi.mocked(local.world.save).mockImplementation(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      })
+  );
+  const view = await show(local);
+  await userEvent.click(await screen.findByRole('button', { name: 'Edit layout' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Save layout' }));
+  expect(screen.getByRole('button', { name: 'Cancel' })).toHaveProperty('disabled', true);
+  expect(screen.getByRole('button', { name: 'Refresh office' })).toHaveProperty('disabled', true);
+  const signal = vi.mocked(local.world.save).mock.calls[0]![1]!;
+  view.unmount();
+  expect(signal.aborted).toBe(true);
+  await act(async () =>
+    resolve({ ...officeWorldFixture(), changed: true, revision: 2, updatedAtMs: 2 })
+  );
+});
+
+it('fences retired room observations against an older in-flight directory read without changing the world', async () => {
+  const local = runtime();
+  const room = {
+    id: '44444444-4444-4444-8444-444444444444',
+    name: 'Review',
+    revision: 1,
+    retired: false,
+    memberIds: [identityId],
+  };
+  vi.mocked(local.rooms.list).mockResolvedValue([room]);
+  const { result } = renderHook(() => useLocalOffice(), {
+    wrapper: ({ children }) => (
+      <LocalRuntimeContext.Provider value={local}>{children}</LocalRuntimeContext.Provider>
+    ),
+  });
+  await waitFor(() => expect(result.current.load.status).toBe('ready'));
+  let finish!: (rooms: (typeof room)[]) => void;
+  vi.mocked(local.rooms.list).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+  );
+  act(() => result.current.refresh());
+  act(() => result.current.roomChanged({ ...room, retired: true, revision: 2 }));
+  expect(result.current.load).toMatchObject({ rooms: [] });
+  await act(async () => finish([room]));
+  expect(result.current.load).toMatchObject({ rooms: [], refreshing: false });
+  expect(local.world.save).not.toHaveBeenCalled();
+});
+
+it('opens an identity deep link in the same world, without manufacturing a private room', async () => {
+  const local = runtime([{ ...profile, presence: 'offline' as const }]);
+  await show(local, `/local/agents/${identityId}`);
+  const panel = await screen.findByRole('complementary', { name: 'Agent details' });
+  expect(within(panel).getByRole('heading', { name: 'Alice' })).toBeDefined();
+  expect(canvas.model!.actors).toEqual([]);
+  expect(mapGeometry(canvas.model!.world.map).areas).toHaveLength(1);
+  await userEvent.click(within(panel).getByRole('button', { name: 'Appearance' }));
+  expect(local.avatars.list).toHaveBeenCalledTimes(1);
+  expect(local.world.save).not.toHaveBeenCalled();
+});
+
+it('fences late completion from a replaced runtime', async () => {
+  const old = runtime();
+  let resolve!: (value: ProfileProjection[]) => void;
+  old.profiles.list = () =>
+    new Promise((done) => {
+      resolve = done;
+    });
+  const view = await show(old);
+  await screen.findByText('Opening your office…');
+  view.rerender(
+    <OfficeApp router={view.router} local={runtime([{ ...profile, identityName: 'Bob' }])} />
+  );
+  await directory();
+  await screen.findByRole('button', { name: /Bob · Online/ });
+  await act(async () => resolve([profile]));
+  expect(screen.queryByRole('button', { name: /Alice · Online/ })).toBeNull();
+});
+
+it('does not expose a previous ready runtime while the replacement loads', async () => {
+  const view = await show(runtime());
+  await directory();
+  await screen.findByRole('button', { name: /Alice · Online/ });
   const next = runtime();
-  let resolveNext!: (value: ProfileProjection[]) => void;
+  let resolve!: (value: ProfileProjection[]) => void;
   next.profiles.list = () =>
-    new Promise((resolve) => {
-      resolveNext = resolve;
+    new Promise((done) => {
+      resolve = done;
     });
   view.rerender(<OfficeApp router={view.router} local={next} />);
-  expect(screen.queryByRole('link', { name: "Enter Alice's room" })).toBeNull();
-  await act(async () => {
-    resolveNext([{ ...profile, identityName: 'Bob' }]);
-  });
-  await screen.findByRole('link', { name: "Enter Bob's room" });
+  expect(screen.queryByRole('button', { name: /Alice · Online/ })).toBeNull();
+  await act(async () => resolve([{ ...profile, identityName: 'Bob' }]));
+  await directory();
+  await waitFor(() => expect(screen.getByRole('button', { name: /Bob · Online/ })).toBeDefined());
 });
