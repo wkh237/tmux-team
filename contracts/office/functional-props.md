@@ -11,12 +11,12 @@ current code ownership.
 
 ## Responsibilities
 
-| Boundary | Owns | Must not own |
-| --- | --- | --- |
-| TMT services | Identity, request/reply, inbox, notes, existing discussion operations | World rendering or extension UI |
-| World foundation | Spaces, placed instances, selection/camera, resource references, host capability dispatch | Discussion, drawing or broadcast business rules |
-| Extensions | Concrete views and typed interactions for boards, notebooks and broadcasters | Another identity registry, request engine or content copy |
-| Artwork packs | Serializable pixel appearance, directions, declared customization | Executable code, authority or resource contents |
+| Boundary         | Owns                                                                                      | Must not own                                              |
+| ---------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| TMT services     | Identity, request/reply, inbox, notes, existing discussion operations                     | World rendering or extension UI                           |
+| World foundation | Spaces, placed instances, selection/camera, resource references, host capability dispatch | Discussion, drawing or broadcast business rules           |
+| Extensions       | Concrete views and typed interactions for boards, notebooks and broadcasters              | Another identity registry, request engine or content copy |
+| Artwork packs    | Serializable pixel appearance, directions, declared customization                         | Executable code, authority or resource contents           |
 
 Bundled does not mean core: default extensions use the same composition boundary
 as later extensions. These responsibilities do not require immediate crate moves,

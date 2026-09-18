@@ -1637,8 +1637,13 @@ mod tests {
         assert!(catalog.starts_with("HTTP/1.1 200"));
         let catalog_body = response_value(&catalog);
         assert_eq!(catalog_body["catalogRevision"], 1);
-        assert_eq!(catalog_body["packs"].as_array().unwrap().len(), 1);
-        assert_eq!(catalog_body["packs"][0]["digest"], avatar.digest());
+        let packs = catalog_body["packs"].as_array().unwrap();
+        // The bundled robot pack is projected alongside the installed fixture;
+        // it does not consume an installation catalog revision.
+        assert_eq!(packs.len(), 2);
+        assert_eq!(packs[0]["pack"]["formatVersion"], 2);
+        assert_eq!(packs[0]["pack"]["avatars"].as_array().unwrap().len(), 4);
+        assert_eq!(packs[1]["digest"], avatar.digest());
         let profile = json!({"displayLabel":"","description":"Architecture review","appearance":{"hairStyle":"short","hairColor":"ink","skinTone":"medium","shirtColor":"blue","shirtMark":"AI"},"avatarRef":avatar_ref});
         let rejected = Request {
             method: "PUT".into(),

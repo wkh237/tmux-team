@@ -19,17 +19,17 @@ appearance/surface and `{definition,binding}` attachment in one revision. Its
 bootstrap reuses these records; subsequent reads do not recreate removed entries.
 The UI reads persisted placements; no static instance list is rendered beside them.
 
-| Record | Required fields |
-| --- | --- |
-| Definition | `formatVersion: 1`, `worldApiVersion: 1`, `id`, `label`, `appearance`, `action` |
-| Appearance | Immutable `prop` digest/key and unrotated `footprint: {width,height}` |
-| Action | `id: "open"`, `label`, and one capability/resource pair below |
-| Instance | `formatVersion: 1`, `id`, `definition`, `space: "commons"`, `x`, `y`, `rotation`, `binding` |
-| Discussion binding | `kind: "office-board"`, optional `roomId` — General or a canonical non-nil room UUID in the existing board |
-| Whiteboard binding | `kind: "whiteboard", documentId` — `lobby` or a canonical supported UUID |
-| Broadcaster binding | `kind: "office-broadcast"` — the current installation's announcement composer |
-| Web-link binding | `kind: "external-link", url` — an inert HTTP(S) destination, reviewed before navigation |
-| Notebook binding | `kind: "notebook", identityId` — an active saved identity's existing owner-local Markdown |
+| Record              | Required fields                                                                                            |
+| ------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Definition          | `formatVersion: 1`, `worldApiVersion: 1`, `id`, `label`, `appearance`, `action`                            |
+| Appearance          | Immutable `prop` digest/key and unrotated `footprint: {width,height}`                                      |
+| Action              | `id: "open"`, `label`, and one capability/resource pair below                                              |
+| Instance            | `formatVersion: 1`, `id`, `definition`, `space: "commons"`, `x`, `y`, `rotation`, `binding`                |
+| Discussion binding  | `kind: "office-board"`, optional `roomId` — General or a canonical non-nil room UUID in the existing board |
+| Whiteboard binding  | `kind: "whiteboard", documentId` — `lobby` or a canonical supported UUID                                   |
+| Broadcaster binding | `kind: "office-broadcast"` — the current installation's announcement composer                              |
+| Web-link binding    | `kind: "external-link", url` — an inert HTTP(S) destination, reviewed before navigation                    |
+| Notebook binding    | `kind: "notebook", identityId` — an active saved identity's existing owner-local Markdown                  |
 
 The admitted action pairs are `discussion.open` / `office-board`,
 `whiteboard.open` / `whiteboard`, `broadcast.open` / `office-broadcast`, and

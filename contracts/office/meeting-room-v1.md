@@ -58,7 +58,7 @@ therefore fences **both** that revision and the exact effective member UUID list
 The [dispatch input](dispatch-v1.md) still carries `recipientIds` and optionally:
 
 ```json
-{"room": {"kind": "roster", "roomId": "11111111-1111-4111-8111-111111111111", "revision": 3}}
+{ "room": { "kind": "roster", "roomId": "11111111-1111-4111-8111-111111111111", "revision": 3 } }
 ```
 
 For a new operation, the host rereads the roster inside the same immediate
@@ -142,7 +142,6 @@ UUID and inherits no members or content. Existing request reply/ack operations a
 committed exact dispatch and discussion-post replays remain valid. New discussion
 threads require an active room; existing threads remain readable and editable.
 There is no restore or cascade delete.
-
 
 These source commands need neither Office installation nor a running web service:
 

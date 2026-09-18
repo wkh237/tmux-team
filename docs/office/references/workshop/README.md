@@ -6,11 +6,11 @@ owns current building geometry, materials and HUD styling. The
 [functional-extension contract](../../../../contracts/office/functional-props.md)
 owns behavior; this reference set owns visual intent.
 
-| Reference | Required visual relationship |
-| --- | --- |
-| [Furniture customization](02-furniture-customization.png) | Contextual tools, art thumbnails, positioning/direction, rug tint/text, explicit Save |
-| [Whiteboard review](03-whiteboard-review.png) | Floating drawing surface, selection/annotation, explicit agent-or-room request, versioned reference |
-| [Discussion board](04-discussion-board.png) | Physical lobby entry, floating list/detail, General/repository categories, posting distinct from dispatch |
+| Reference                                                 | Required visual relationship                                                                              |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| [Furniture customization](02-furniture-customization.png) | Contextual tools, art thumbnails, positioning/direction, rug tint/text, explicit Save                     |
+| [Whiteboard review](03-whiteboard-review.png)             | Floating drawing surface, selection/annotation, explicit agent-or-room request, versioned reference       |
+| [Discussion board](04-discussion-board.png)               | Physical lobby entry, floating list/detail, General/repository categories, posting distinct from dispatch |
 
 Preserve honey-oak floors, deep teal structure, cream panels, moss textiles,
 terracotta seating and rich readable pixel-art furniture. Uniform room shells

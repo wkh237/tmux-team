@@ -1,6 +1,10 @@
 [
   { "name": "https origin", "url": "https://example.com", "valid": true },
-  { "name": "http with path query fragment", "url": "http://example.com/docs?q=office#wall", "valid": true },
+  {
+    "name": "http with path query fragment",
+    "url": "http://example.com/docs?q=office#wall",
+    "valid": true
+  },
   { "name": "uppercase scheme and host", "url": "HTTPS://EXAMPLE.COM/docs", "valid": true },
   { "name": "encoded space", "url": "https://example.com/my%20office", "valid": true },
   { "name": "unicode path", "url": "https://example.com/caf\u00e9", "valid": true },

@@ -44,11 +44,11 @@ personal assignment per saved identity, one spatial area per canonical room,
 and explicit `identityId: null` for an unassigned personal office. Identity
 eligibility and room state are checked by the existing commit owner.
 
-| Slot | Binding | Fields |
-| --- | --- | --- |
-| `lobby` | `lobby` | No coordinates; exactly one primary Lobby. |
-| `office` | `personal` | Signed integer `column` and `row`. |
-| `meeting` | `meeting` | Nonnegative integer `index` in the independent wing. |
+| Slot      | Binding    | Fields                                               |
+| --------- | ---------- | ---------------------------------------------------- |
+| `lobby`   | `lobby`    | No coordinates; exactly one primary Lobby.           |
+| `office`  | `personal` | Signed integer `column` and `row`.                   |
+| `meeting` | `meeting`  | Nonnegative integer `index` in the independent wing. |
 
 Materials are `workshop`, `moonlight` and `copper`. Changing material does not
 change geometry, UUIDs, assignments or resource bindings. The renderer's material

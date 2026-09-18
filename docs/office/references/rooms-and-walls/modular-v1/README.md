@@ -66,12 +66,12 @@ corrections, not additional product requirements.
 
 ## Main views
 
-| View | Purpose |
-| --- | --- |
-| [Overview](01-office-overview.png) | Lobby, four equal personal modules and an independently extensible meeting wing. |
-| [Material skins](06-material-skins.png) | Workshop, Moonlight and Copper over the same geometry. |
+| View                                          | Purpose                                                                             |
+| --------------------------------------------- | ----------------------------------------------------------------------------------- |
+| [Overview](01-office-overview.png)            | Lobby, four equal personal modules and an independently extensible meeting wing.    |
+| [Material skins](06-material-skins.png)       | Workshop, Moonlight and Copper over the same geometry.                              |
 | [Office operations](07-office-build-flow.png) | Add a whole office, inspect removal blockers, switch material, place a wall object. |
-| [Meeting operations](08-meeting-flow.png) | Empty-state ghost, required name, participants and safe spatial removal. |
+| [Meeting operations](08-meeting-flow.png)     | Empty-state ghost, required name, participants and safe spatial removal.            |
 
 The [approved style input](00-approved-style.jpg) is preserved for material and
 mood comparison only. Its Zone/6×4 workflow is obsolete. Named actors and two
@@ -87,12 +87,12 @@ each source is 1254×1254, not the requested 2048×2048. Do not divide them into
 guessed runtime atlas or silently resize them to fit the current 32×48 avatar
 contract. Admit reviewed derivatives through the owning art pipeline.
 
-| Source | Contents |
-| --- | --- |
-| [Architecture](02-architecture-source.png) | Tall wall, low sill, side faces, corners/junctions, open portals, floor, corridors and bridges. |
-| [Furniture](03-furniture-source.png) | Desk, monitor, bookcase, lamp, four chair orientations, sofa, armchair, two tables, plant and three rugs. |
+| Source                                              | Contents                                                                                                               |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| [Architecture](02-architecture-source.png)          | Tall wall, low sill, side faces, corners/junctions, open portals, floor, corridors and bridges.                        |
+| [Furniture](03-furniture-source.png)                | Desk, monitor, bookcase, lamp, four chair orientations, sofa, armchair, two tables, plant and three rugs.              |
 | [Mounted objects](04-mounted-functional-source.png) | Three window views, sconce, poster, signs, shelf, whiteboard, discussion board, radio, notebooks, mug, plant and glow. |
-| [Robots](05-robots-source.png) | Four accent colors × four static orientations. No movement or seating animation is implied. |
+| [Robots](05-robots-source.png)                      | Four accent colors × four static orientations. No movement or seating animation is implied.                            |
 
 Plain wall sources have no baked windows or sconces. Bridge-edge lights are
 structural styling, not selectable lamp instances. Windows, lamps and functional
@@ -130,15 +130,15 @@ decorative pixels. Whiteboard art is not a document; radio art is not live state
 Use existing UI primitives and geometry anchors, not cropped screenshot text.
 State stays with the existing draft, membership and resource owners.
 
-| Component | Target |
-| --- | --- |
-| Build dock | Select / Add office / Remove / Style / Walls / Furniture. No freeform floor/Zone tools. |
-| Draft actions | Undo / Redo / Cancel / Save; disabled, saving, saved and retained-error states. |
-| Anchored card | Dark navy, thin teal border, cream text; viewport-clamped without resizing the world. |
-| Inputs and roster | Real inputs, keyboard focus, IME, required-name errors, searchable members and explicit Save members. |
-| Placement feedback | Cyan ghost for allowed placement; amber outline plus explanatory text for protected removal. |
-| Functional cue | One consistent keyboard-accessible activation cue; decoration has none. |
-| Name and status | Real identity and room names, honest presence, bounded display with accessible full text. |
+| Component          | Target                                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
+| Build dock         | Select / Add office / Remove / Style / Walls / Furniture. No freeform floor/Zone tools.               |
+| Draft actions      | Undo / Redo / Cancel / Save; disabled, saving, saved and retained-error states.                       |
+| Anchored card      | Dark navy, thin teal border, cream text; viewport-clamped without resizing the world.                 |
+| Inputs and roster  | Real inputs, keyboard focus, IME, required-name errors, searchable members and explicit Save members. |
+| Placement feedback | Cyan ghost for allowed placement; amber outline plus explanatory text for protected removal.          |
+| Functional cue     | One consistent keyboard-accessible activation cue; decoration has none.                               |
+| Name and status    | Real identity and room names, honest presence, bounded display with accessible full text.             |
 
 CSS targets: controls at least 44×44 px, body text 14–16 px, card radius 12 px,
 internal padding 16 px, gaps 8 px. Colors: background `#071523`, panel `#091e2c`,

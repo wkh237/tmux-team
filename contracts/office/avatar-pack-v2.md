@@ -8,14 +8,14 @@ strict file/JSON acquisition, text rules and immutable reference syntax are
 unchanged. Unknown fields remain invalid. There is no animation, behavior, URL,
 script, customization command or new authority in a pack.
 
-| Property | V1 | V2 |
-| --- | --- | --- |
-| `formatVersion` | `1` | `2` |
-| Raster | 16 × 24 | 32 × 48 |
-| Rows / encoded characters per row | 24 / 16 | 48 / 64 |
-| Lowercase hex digits per pixel | 1 | 2, including leading zero |
-| Palette entries | 1–16 | 1–256 |
-| Avatars within the 6,144-cell pack budget | 1–16 | 1–4 |
+| Property                                  | V1      | V2                        |
+| ----------------------------------------- | ------- | ------------------------- |
+| `formatVersion`                           | `1`     | `2`                       |
+| Raster                                    | 16 × 24 | 32 × 48                   |
+| Rows / encoded characters per row         | 24 / 16 | 48 / 64                   |
+| Lowercase hex digits per pixel            | 1       | 2, including leading zero |
+| Palette entries                           | 1–16    | 1–256                     |
+| Avatars within the 6,144-cell pack budget | 1–16    | 1–4                       |
 
 Both versions retain the 32 KiB exact-file limit, 6,144 total raster-cell limit,
 64-pack/256-avatar retained catalog limits and fully transparent index zero. Every other

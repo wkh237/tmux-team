@@ -13,27 +13,47 @@
     "primaryLobbyId": "10000000-0000-4000-8000-000000000001",
     "modules": [
       {
-        "area": { "id": "10000000-0000-4000-8000-000000000001", "name": "Lobby", "binding": { "type": "lobby" } },
+        "area": {
+          "id": "10000000-0000-4000-8000-000000000001",
+          "name": "Lobby",
+          "binding": { "type": "lobby" }
+        },
         "slot": { "type": "lobby" },
         "material": "workshop"
       },
       {
-        "area": { "id": "10000000-0000-4000-8000-000000000002", "name": "Office 01", "binding": { "type": "personal", "identityId": null } },
+        "area": {
+          "id": "10000000-0000-4000-8000-000000000002",
+          "name": "Office 01",
+          "binding": { "type": "personal", "identityId": null }
+        },
         "slot": { "type": "office", "column": 0, "row": -1 },
         "material": "workshop"
       },
       {
-        "area": { "id": "10000000-0000-4000-8000-000000000003", "name": "Office 02", "binding": { "type": "personal", "identityId": null } },
+        "area": {
+          "id": "10000000-0000-4000-8000-000000000003",
+          "name": "Office 02",
+          "binding": { "type": "personal", "identityId": null }
+        },
         "slot": { "type": "office", "column": 1, "row": -1 },
         "material": "workshop"
       },
       {
-        "area": { "id": "10000000-0000-4000-8000-000000000004", "name": "Office 03", "binding": { "type": "personal", "identityId": null } },
+        "area": {
+          "id": "10000000-0000-4000-8000-000000000004",
+          "name": "Office 03",
+          "binding": { "type": "personal", "identityId": null }
+        },
         "slot": { "type": "office", "column": 0, "row": 1 },
         "material": "workshop"
       },
       {
-        "area": { "id": "10000000-0000-4000-8000-000000000005", "name": "Office 04", "binding": { "type": "personal", "identityId": null } },
+        "area": {
+          "id": "10000000-0000-4000-8000-000000000005",
+          "name": "Office 04",
+          "binding": { "type": "personal", "identityId": null }
+        },
         "slot": { "type": "office", "column": 1, "row": 1 },
         "material": "workshop"
       }

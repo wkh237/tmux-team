@@ -458,6 +458,7 @@ executor is exposed. Remote HTTP/MCP deployment is not part of this local stage.
    architecture, canonical installed skills and help to actual behavior.
 
 Acceptance must include:
+
 - Default Lobby plus four unassigned offices versus saved layouts; module-slot
   cardinal expansion/connectivity; empty and
   overlapping areas; no automatic growth; save/reload/restart and old-data migration.

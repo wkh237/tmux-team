@@ -83,9 +83,10 @@ fn concurrent_world_candidates_have_one_winner_and_no_partial_merge() {
     let fixture = HttpFixture::new();
     let preview = response_value(&fixture.call(request("GET", Value::Null)));
     let first = response_value(&fixture.call(request("PUT", save(&preview))));
+    assert_eq!(first["layout"]["map"]["version"], 5);
     let candidates = ["Design studio", "Operations studio"].map(|name| {
         let mut candidate = save(&first);
-        candidate["layout"]["map"]["areas"][0]["name"] = json!(name);
+        candidate["layout"]["map"]["modules"][0]["area"]["name"] = json!(name);
         candidate
     });
     let barrier = std::sync::Barrier::new(2);

@@ -13,12 +13,12 @@ Each prop contains `key`, `label`, `footprint` and `frames`, plus optional
 `customization`. No other fields are accepted.
 `frames` contains exactly four indexed rasters, in clockwise placement order:
 
-| Rotation | View | Display footprint |
-| --- | --- | --- |
-| 0 | South | width × height |
-| 1 | West | height × width |
-| 2 | North | width × height |
-| 3 | East | height × width |
+| Rotation | View  | Display footprint |
+| -------- | ----- | ----------------- |
+| 0        | South | width × height    |
+| 1        | West  | height × width    |
+| 2        | North | width × height    |
+| 3        | East  | height × width    |
 
 The renderer selects the authored view and keeps it upright. It does not rotate
 the selected raster again. Each complete raster fits the corresponding rotated
@@ -31,15 +31,15 @@ At least one visible pixel is required in every frame. See the small asymmetric
 [shared fixture](prop-pack-v2-sample.tmtprop.json) for an executable contract
 example, not production artwork.
 
-| Bound | Version 2 |
-| --- | ---: |
-| Exact source file | 512 KiB |
-| Props per pack | 1–16 |
-| Palette entries, including transparency | 1–256 |
-| Raster side | 1–128 pixels |
-| Cells per frame | 16,384 |
-| Cells across the complete pack | 131,072 |
-| Unrotated footprint side | 1–16 tiles |
+| Bound                                   |    Version 2 |
+| --------------------------------------- | -----------: |
+| Exact source file                       |      512 KiB |
+| Props per pack                          |         1–16 |
+| Palette entries, including transparency |        1–256 |
+| Raster side                             | 1–128 pixels |
+| Cells per frame                         |       16,384 |
+| Cells across the complete pack          |      131,072 |
+| Unrotated footprint side                |   1–16 tiles |
 
 V1 labels, credits, keys, license spelling, UTF-8 rules and unknown/duplicate-field
 rejection remain in force. `pixels` is not a v2 field, including when null or

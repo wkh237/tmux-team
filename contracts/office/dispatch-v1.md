@@ -58,11 +58,13 @@ returns its original receipt before checking potentially changed membership.
 {
   "operationId": "11111111-1111-4111-8111-111111111111",
   "createdAtMs": 1700000000000,
-  "items": [{
-    "recipientId": "22222222-2222-4222-8222-222222222222",
-    "requestId": "req_33333333-3333-4333-8333-333333333333",
-    "acceptance": "queued"
-  }]
+  "items": [
+    {
+      "recipientId": "22222222-2222-4222-8222-222222222222",
+      "requestId": "req_33333333-3333-4333-8333-333333333333",
+      "acceptance": "queued"
+    }
+  ]
 }
 ```
 

@@ -564,7 +564,7 @@ mod tests {
         let pack = validate_pack(DIRECTIONAL_SAMPLE).unwrap();
         assert_eq!(
             pack.digest(),
-            "sha256:9a8dfa388f0c13ce32feeb9ee959e25e3eec624ecde16f04697fa7d4264c4078"
+            "sha256:429603feb9648005f3d16191a281433455b550fbdc67494b8f3bb7f4cd118af3"
         );
         assert_eq!(pack.pixel_count(), 32);
         let summary = pack_projection(&pack);
