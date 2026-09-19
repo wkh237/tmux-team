@@ -732,6 +732,53 @@ mod tests {
         .unwrap()
     }
 
+    fn custom_with_props(label: &str, count: usize) -> ValidatedPropPack {
+        let props = (0..count)
+            .map(|index| {
+                serde_json::json!({
+                    "key": format!("prop-{index}"),
+                    "label": format!("Prop {index}"),
+                    "footprint": { "width": 1, "height": 1 },
+                    "pixels": ["1"]
+                })
+            })
+            .collect::<Vec<_>>();
+        validate_pack(
+            &serde_json::to_vec(&serde_json::json!({
+                "formatVersion": 1,
+                "label": label,
+                "credit": "Test",
+                "license": "MIT",
+                "palette": ["#00000000", "#ffffffff"],
+                "props": props
+            }))
+            .unwrap(),
+        )
+        .unwrap()
+    }
+
+    fn stored_rows(storage: &Storage) -> Vec<(String, Vec<u8>, i64, i64, i64)> {
+        storage
+            .connection()
+            .unwrap()
+            .prepare(
+                "SELECT digest, bytes, prop_count, installed_revision, installed_at_ms FROM office_prop_packs ORDER BY digest",
+            )
+            .unwrap()
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    }
+
     #[test]
     fn install_list_show_remove_and_exact_retries_share_one_revision() {
         let directory = TestDirectory::new();
@@ -770,6 +817,54 @@ mod tests {
             storage.show_local_prop_pack(pack.digest()),
             Err(LocalPropCatalogError::NotFound)
         ));
+        storage.close().unwrap();
+    }
+
+    #[test]
+    fn prop_quota_accepts_256_and_rejects_overflow_without_mutation() {
+        let directory = TestDirectory::new();
+        let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+        for revision in 0..16 {
+            let candidate = custom_with_props(&format!("Pack {revision}"), 16);
+            let installed = storage
+                .install_local_prop_pack(revision, &candidate)
+                .unwrap();
+            assert!(installed.changed);
+            assert_eq!(installed.catalog_revision, revision + 1);
+        }
+
+        let before_catalog = storage.list_local_prop_packs(20, None).unwrap();
+        assert_eq!(before_catalog.catalog_revision, 16);
+        assert_eq!(before_catalog.packs.len(), 16);
+        assert_eq!(
+            before_catalog
+                .packs
+                .iter()
+                .map(|entry| entry.pack.pack().props.len())
+                .sum::<usize>(),
+            256
+        );
+        assert!(before_catalog.next_cursor.is_none());
+        let before_rows = stored_rows(&storage);
+        assert_eq!(before_rows.len(), 16);
+        assert_eq!(
+            before_rows
+                .iter()
+                .map(|(_, _, prop_count, _, _)| prop_count)
+                .sum::<i64>(),
+            256
+        );
+
+        let overflow = custom_with_props("Overflow", 16);
+        assert!(matches!(
+            storage.install_local_prop_pack(16, &overflow),
+            Err(LocalPropCatalogError::Limit)
+        ));
+        assert_eq!(
+            storage.list_local_prop_packs(20, None).unwrap(),
+            before_catalog
+        );
+        assert_eq!(stored_rows(&storage), before_rows);
         storage.close().unwrap();
     }
 

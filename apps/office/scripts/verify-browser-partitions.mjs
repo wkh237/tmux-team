@@ -30,17 +30,35 @@ function listedTests(args) {
 const complete = listedTests([]);
 const partitions = new Map([
   ['emulator', listedTests(['--config', 'playwright.emulator.config.ts'])],
-  ['local', listedTests(['--config', 'playwright.local.config.ts'])],
-  ['native 1/4', listedTests(['--config', 'playwright.native.config.ts', '--shard', '1/4'])],
-  ['native 2/4', listedTests(['--config', 'playwright.native.config.ts', '--shard', '2/4'])],
-  ['native 3/4', listedTests(['--config', 'playwright.native.config.ts', '--shard', '3/4'])],
-  ['native 4/4', listedTests(['--config', 'playwright.native.config.ts', '--shard', '4/4'])],
+  ['local 1/3', listedTests(['--config', 'playwright.local.config.ts', '--shard', '1/3'])],
+  ['local 2/3', listedTests(['--config', 'playwright.local.config.ts', '--shard', '2/3'])],
+  ['local 3/3', listedTests(['--config', 'playwright.local.config.ts', '--shard', '3/3'])],
+  ...Array.from({ length: 8 }, (_, index) => {
+    const shard = `${index + 1}/8`;
+    return [
+      `native ${shard}`,
+      listedTests(['--config', 'playwright.native.config.ts', '--shard', shard]),
+    ];
+  }),
 ]);
+const capacity = listedTests(['--config', 'playwright.capacity.config.ts']);
 
-assert.equal(complete.length, 125, 'Update the reviewed browser partition inventory.');
+assert.equal(complete.length, 121, 'Update the reviewed required browser inventory.');
 const partitioned = [...partitions.values()].flat();
 assert.equal(new Set(partitioned).size, partitioned.length, 'Browser partitions overlap.');
 assert.deepEqual(partitioned.sort(), complete, 'Browser partitions omit or add listed tests.');
+assert.equal(capacity.length, 4, 'Update the reviewed opt-in capacity inventory.');
+assert.equal(new Set(capacity).size, capacity.length, 'Capacity identities overlap.');
+assert.equal(
+  capacity.filter((identity) => complete.includes(identity)).length,
+  0,
+  'Required and opt-in browser identities overlap.'
+);
+assert.deepEqual(
+  [...complete, ...capacity].sort(),
+  listedTests(['--config', 'playwright.all.config.ts']),
+  'Required and opt-in inventories must retain full browser coverage.'
+);
 
 const decoration = [...partitions.entries()]
   .filter(([, tests]) =>
@@ -51,3 +69,4 @@ assert.deepEqual(decoration, ['emulator'], 'Native decoration must stay emulator
 
 for (const [name, tests] of partitions) process.stdout.write(`${name}: ${tests.length}\n`);
 process.stdout.write(`complete: ${complete.length}\n`);
+process.stdout.write(`capacity opt-in: ${capacity.length}\n`);

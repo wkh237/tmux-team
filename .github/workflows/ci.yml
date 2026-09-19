@@ -34,13 +34,28 @@ jobs:
         run: node scripts/ci-scope.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
   office-browser:
-    name: Office browser (${{ matrix.suite }})
+    name: Office browser (${{ matrix.label }})
     needs: changes
     if: needs.changes.outputs.office == 'true'
     strategy:
       fail-fast: false
       matrix:
-        suite: [emulator, local]
+        include:
+          - suite: emulator
+            label: emulator
+            image: emulator
+          - suite: local
+            label: local 1/3
+            image: local-1
+            shard: 1/3
+          - suite: local
+            label: local 2/3
+            image: local-2
+            shard: 2/3
+          - suite: local
+            label: local 3/3
+            image: local-3
+            shard: 3/3
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -48,7 +63,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Build isolated browser and emulator verification
-        run: docker build --target browser-tests -f services/office/Dockerfile -t tmt-office-browser:ci-${{ matrix.suite }} .
+        run: docker build --target browser-tests -f services/office/Dockerfile -t tmt-office-browser:ci-${{ matrix.image }} .
       - name: Prepare browser failure artifacts
         run: mkdir -p "$RUNNER_TEMP/office-browser-results" && chmod 777 "$RUNNER_TEMP/office-browser-results"
       - name: Verify emulator sessions with restricted browser destinations
@@ -72,22 +87,22 @@ jobs:
         run: |
           docker run --rm --init --shm-size=256m --network none \
             --volume "$RUNNER_TEMP/office-browser-results:/workspace/apps/office/test-results" \
-            tmt-office-browser:ci-local \
+            tmt-office-browser:ci-${{ matrix.image }} \
             pnpm --filter @tmt/office exec playwright test \
-            --config playwright.local.config.ts --max-failures=0
+            --config playwright.local.config.ts --shard=${{ matrix.shard }} --max-failures=0
       - name: Make browser failure artifacts readable
         if: always() && (steps.emulator-tests.outcome == 'failure' || steps.emulator-tests.outcome == 'cancelled' || steps.local-tests.outcome == 'failure' || steps.local-tests.outcome == 'cancelled')
         run: |
           docker run --rm --network none \
             --volume "$RUNNER_TEMP/office-browser-results:/results" \
             --entrypoint sh \
-            tmt-office-browser:ci-${{ matrix.suite }} \
+            tmt-office-browser:ci-${{ matrix.image }} \
             -c 'find /results -mindepth 1 -exec chmod a+rX {} +'
       - name: Upload browser failure artifacts
         if: always() && (steps.emulator-tests.outcome == 'failure' || steps.emulator-tests.outcome == 'cancelled' || steps.local-tests.outcome == 'failure' || steps.local-tests.outcome == 'cancelled')
         uses: actions/upload-artifact@v4
         with:
-          name: office-browser-${{ matrix.suite }}-results
+          name: office-browser-${{ matrix.image }}-results
           path: ${{ runner.temp }}/office-browser-results
           if-no-files-found: warn
           retention-days: 7
@@ -103,13 +118,13 @@ jobs:
         run: node scripts/ci-scope.mjs gate true "$TEST_RESULT"
 
   native-office-browser:
-    name: Native Office browser (${{ matrix.shard }}/4)
+    name: Native Office browser (${{ matrix.shard }}/8)
     needs: changes
     if: needs.changes.outputs.native == 'true' || needs.changes.outputs.office == 'true'
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -130,7 +145,7 @@ jobs:
             tmt-office-browser:ci-native-${{ matrix.shard }} \
             sh /workspace/services/office/with-test-keyring.sh \
             pnpm --filter @tmt/office exec playwright test \
-            --config playwright.native.config.ts --shard=${{ matrix.shard }}/4 \
+            --config playwright.native.config.ts --shard=${{ matrix.shard }}/8 \
             --max-failures=0
       - name: Make native browser failure artifacts readable
         if: always() && (steps.native-tests.outcome == 'failure' || steps.native-tests.outcome == 'cancelled')
@@ -144,7 +159,7 @@ jobs:
         if: always() && (steps.native-tests.outcome == 'failure' || steps.native-tests.outcome == 'cancelled')
         uses: actions/upload-artifact@v4
         with:
-          name: native-office-browser-${{ matrix.shard }}-of-4-results
+          name: native-office-browser-${{ matrix.shard }}-of-8-results
           path: ${{ runner.temp }}/office-browser-results
           if-no-files-found: warn
           retention-days: 7

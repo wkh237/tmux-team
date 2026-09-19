@@ -168,27 +168,41 @@ Playwright. The cloud build must fail closed without operator configuration;
 it never contacts a real project during automated tests.
 It uses one worker, no retries, bounded waits and independent browser contexts.
 The complete local command above remains the acceptance entry point. CI schedules
-the same listed browser identities in six isolated partitions to reduce the chance
+the same required browser identities in twelve isolated partitions to reduce the chance
 that cold image builds and serial scenarios exhaust a per-job deadline:
-emulator-backed contracts, local Vite composition, and four native-local shards. The local partition
-does not start Firebase, while native-local shards use the container Secret Service
-and embedded companion without Vite or Firebase. `test:browser:partitions` compares
-the exact Playwright identities from all six partitions with the complete suite,
-rejects overlaps or omissions, and keeps `native-decoration.spec.ts` in the emulator
-partition. Every partition keeps one worker, zero retries and the existing scenario
-limits. Native Rust CI still owns formatting, linting, locked builds, embedded SPA
+emulator-backed contracts, three local Vite shards, and eight native-local shards.
+Local partitions do not start Firebase, while native-local shards use the container
+Secret Service and embedded companion without Vite or Firebase.
+`test:browser:partitions` compares the exact Playwright identities from all twelve
+partitions with the required suite, rejects overlaps or omissions, keeps
+`native-decoration.spec.ts` in the emulator partition, and separately proves that
+the four opt-in capacity scenarios retain the full original inventory without
+overlapping required CI. Every partition keeps one worker, zero retries and the
+existing scenario limits. Native Rust CI still owns formatting, linting, locked builds, embedded SPA
 service tests and process/parser contracts; the container-native shards own its
 installed browser acceptance instead of rerunning those scenarios after compilation.
 Browser matrices and Playwright commands continue after individual failures while the
 runner remains active. A failed command uploads available Playwright error contexts
 before a final fail-closed step records the job failure. Native browser jobs have a
-25-minute deadline so their cold image build leaves more time for each 11–13-test
-partition. That remains a best-effort diagnostic budget: thirteen tests can consume
-26 minutes if each reaches its 120-second scenario limit, even before the build. A
+25-minute deadline so their cold image build leaves more time for each retained
+4–9-test partition. That remains a best-effort diagnostic budget: several tests can
+still consume their 120-second scenario limits after the build. A
 deadline or runner termination can truncate a partition and prevent later artifact
 steps despite their failure/cancellation predicate. Report completed and expected
 counts together, including missing artifacts; do not claim a complete inventory from
 the partition count alone.
+
+Capacity diagnostics are preserved as explicit opt-in runs and are not required CI:
+
+```bash
+docker build --target browser-tests -f services/office/Dockerfile -t tmt-office-browser:capacity .
+docker run --rm --init --shm-size=256m --network none \
+  --env TMT_TEST_BROWSER_CHANNEL=chromium \
+  tmt-office-browser:capacity \
+  sh /workspace/services/office/with-test-keyring.sh \
+  pnpm --filter @tmt/office test:browser:capacity
+```
+
 Only failed-transaction assertions use the Firestore fixture's 20-second budget:
 the pinned SDK's five attempts can spend 12.1875 seconds in jittered backoff
 alone. Keep the ordinary 10-second UI expectation and 30-second scenario limits.
@@ -581,6 +595,13 @@ cargo build --locked --manifest-path rust/Cargo.toml
 cargo build --locked --manifest-path rust/Cargo.toml --example storage-probe
 TMT_TEST_STORAGE_PROBE='{"executable":"/absolute/checkout/rust/target/debug/examples/storage-probe","args":[]}' \
   pnpm test:native
+```
+
+The maximum-body, 50-reply installed-companion page is an explicit load diagnostic,
+not required process acceptance:
+
+```bash
+pnpm test:stress:native
 ```
 
 For a deliberate explicit selection or a task-owned moved binary:
