@@ -75,6 +75,14 @@ jobs:
             tmt-office-browser:ci-local \
             pnpm --filter @tmt/office exec playwright test \
             --config playwright.local.config.ts --max-failures=0
+      - name: Make browser failure artifacts readable
+        if: always() && (steps.emulator-tests.outcome == 'failure' || steps.emulator-tests.outcome == 'cancelled' || steps.local-tests.outcome == 'failure' || steps.local-tests.outcome == 'cancelled')
+        run: |
+          docker run --rm --network none \
+            --volume "$RUNNER_TEMP/office-browser-results:/results" \
+            --entrypoint sh \
+            tmt-office-browser:ci-${{ matrix.suite }} \
+            -c 'find /results -mindepth 1 -exec chmod a+rX {} +'
       - name: Upload browser failure artifacts
         if: always() && (steps.emulator-tests.outcome == 'failure' || steps.emulator-tests.outcome == 'cancelled' || steps.local-tests.outcome == 'failure' || steps.local-tests.outcome == 'cancelled')
         uses: actions/upload-artifact@v4
@@ -124,6 +132,14 @@ jobs:
             pnpm --filter @tmt/office exec playwright test \
             --config playwright.native.config.ts --shard=${{ matrix.shard }}/4 \
             --max-failures=0
+      - name: Make native browser failure artifacts readable
+        if: always() && (steps.native-tests.outcome == 'failure' || steps.native-tests.outcome == 'cancelled')
+        run: |
+          docker run --rm --network none \
+            --volume "$RUNNER_TEMP/office-browser-results:/results" \
+            --entrypoint sh \
+            tmt-office-browser:ci-native-${{ matrix.shard }} \
+            -c 'find /results -mindepth 1 -exec chmod a+rX {} +'
       - name: Upload browser failure artifacts
         if: always() && (steps.native-tests.outcome == 'failure' || steps.native-tests.outcome == 'cancelled')
         uses: actions/upload-artifact@v4

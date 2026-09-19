@@ -1,6 +1,7 @@
 import { mapGeometry } from '../src/world-map/map-source.js';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { expect, test } from '@playwright/test';
 import { runCli, withSandbox } from '../../../test/support/cli-process.js';
 import { officeWorldFixture } from '../../../test/support/office-world.js';
@@ -60,11 +61,18 @@ test('native wall authoring rejects interior windows and missing support, preser
         writes.push(request.postDataJSON());
     });
     const begin = () => openKeyboardSelection(page);
-    const nextWrite = () =>
+    const nextWorldResponse = () =>
       page.waitForResponse(
         (response) =>
           new URL(response.url()).pathname === '/api/v1/local/world' &&
           response.request().method() === 'PUT'
+      );
+    const nextWrite = (expected: WorldWrite) =>
+      page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === '/api/v1/local/world' &&
+          response.request().method() === 'PUT' &&
+          isDeepStrictEqual(response.request().postDataJSON(), expected)
       );
     const coordinates = async (x: number, y: number) => {
       await precision();
@@ -128,13 +136,47 @@ test('native wall authoring rejects interior windows and missing support, preser
       // The partition is valid and has a door outside the window's span. Only exterior eligibility changes.
       await object.selectOption(window.id);
       await precision();
-      const interiorWrite = nextWrite();
+      const exteriorLayout: WorldDocument = {
+        ...authored.layout,
+        objects: authored.layout.objects.map((entry) =>
+          entry.id === window.id
+            ? {
+                ...entry,
+                surface: { type: 'wall', axis: 'vertical', face: 'positive', elevation: 3 },
+              }
+            : entry
+        ),
+      };
+      const exteriorWrite = nextWorldResponse();
       await page
         .getByRole('combobox', { name: 'Wall direction', exact: true })
         .selectOption('vertical');
-      await page
-        .getByRole('combobox', { name: 'Indoor face', exact: true })
-        .selectOption('negative');
+      const exteriorResponse = await exteriorWrite;
+      expect(exteriorResponse.status()).toBe(200);
+      const exteriorRequest: WorldWrite = exteriorResponse.request().postDataJSON();
+      expect(exteriorRequest).toEqual({
+        expectedRevision: authored.revision,
+        legacyBasis: authored.legacyBasis,
+        layout: exteriorLayout,
+      });
+      const exterior: WorldSnapshot = await exteriorResponse.json();
+      expect(exterior.layout).toEqual(exteriorLayout);
+      const exteriorBaseline = savedWorld(sandbox.database);
+      expect(exteriorBaseline.revision).toBe(exterior.revision);
+      expect(JSON.parse(exteriorBaseline.layout)).toEqual(exteriorLayout);
+      const invalidInterior: WorldWrite = {
+        expectedRevision: exterior.revision,
+        legacyBasis: exterior.legacyBasis,
+        layout: {
+          ...exteriorLayout,
+          objects: exteriorLayout.objects.map((entry) =>
+            entry.id === window.id
+              ? { ...entry, placement: { ...entry.placement, x: 36, y: 2 } }
+              : entry
+          ),
+        },
+      };
+      const interiorWrite = nextWrite(invalidInterior);
       await coordinates(36, 2);
       const interiorResponse = await interiorWrite;
       expect(interiorResponse.status()).toBe(400);
@@ -142,28 +184,46 @@ test('native wall authoring rejects interior windows and missing support, preser
         error: 'WORLD_INVALID',
         issues: [{ objectId: window.id, reason: 'windowRequiresExterior' }],
       });
-      expect(savedWorld(sandbox.database)).toEqual(original);
-      expect(writes.at(-1)!.layout).toEqual({
-        ...authored.layout,
-        objects: authored.layout.objects.map((entry) =>
-          entry.id === window.id
-            ? {
-                ...entry,
-                placement: { ...entry.placement, x: 36, y: 2 },
-                surface: { type: 'wall', axis: 'vertical', face: 'negative', elevation: 3 },
-              }
-            : entry
-        ),
-      });
+      expect(savedWorld(sandbox.database)).toEqual(exteriorBaseline);
+      expect(writes.at(-1)).toEqual(invalidInterior);
       await expect(page.getByRole('spinbutton', { name: 'X', exact: true })).toHaveValue('36');
       await page
         .getByRole('button', { name: 'Reload saved layout (discard local changes)' })
         .click();
 
+      const restoredSurfaceWrite = nextWorldResponse();
+      await page
+        .getByRole('combobox', { name: 'Wall direction', exact: true })
+        .selectOption('horizontal');
+      const restoredSurfaceResponse = await restoredSurfaceWrite;
+      expect(restoredSurfaceResponse.status()).toBe(200);
+      expect(restoredSurfaceResponse.request().postDataJSON()).toEqual({
+        expectedRevision: exterior.revision,
+        legacyBasis: exterior.legacyBasis,
+        layout: authored.layout,
+      });
+      const supportBaselineResponse: WorldSnapshot = await restoredSurfaceResponse.json();
+      expect(supportBaselineResponse.layout).toEqual(authored.layout);
+      const supportBaseline = savedWorld(sandbox.database);
+      expect(supportBaseline.revision).toBe(supportBaselineResponse.revision);
+      expect(JSON.parse(supportBaseline.layout)).toEqual(authored.layout);
+
       // Move the same window off its supporting wall; native admission must
       // reject it while retaining the complete draft for explicit repair.
       await object.selectOption(window.id);
-      const unsupportedWrite = nextWrite();
+      const invalidUnsupported: WorldWrite = {
+        expectedRevision: supportBaselineResponse.revision,
+        legacyBasis: supportBaselineResponse.legacyBasis,
+        layout: {
+          ...authored.layout,
+          objects: authored.layout.objects.map((entry) =>
+            entry.id === window.id
+              ? { ...entry, placement: { ...entry.placement, x: 0, y: 1 } }
+              : entry
+          ),
+        },
+      };
+      const unsupportedWrite = nextWrite(invalidUnsupported);
       await coordinates(0, 1);
       const unsupportedResponse = await unsupportedWrite;
       expect(unsupportedResponse.status()).toBe(400);
@@ -172,15 +232,8 @@ test('native wall authoring rejects interior windows and missing support, preser
         issues: [{ objectId: window.id, reason: 'missingWall' }],
       });
       const invalid = writes.at(-1)!;
-      expect(invalid.layout.map).toEqual(authored.layout.map);
-      expect(invalid.layout.objects).toEqual(
-        authored.layout.objects.map((entry) =>
-          entry.id === window.id
-            ? { ...entry, placement: { ...entry.placement, x: 0, y: 1 } }
-            : entry
-        )
-      );
-      expect(savedWorld(sandbox.database)).toEqual(original);
+      expect(invalid).toEqual(invalidUnsupported);
+      expect(savedWorld(sandbox.database)).toEqual(supportBaseline);
       await page.getByRole('button', { name: 'Select affected object', exact: true }).click();
       await expect(page.getByRole('heading', { name: /^Selected object: / })).toBeFocused();
       await expect(page.getByRole('heading', { name: /^Selected object: / })).toBeInViewport();
@@ -197,7 +250,7 @@ test('native wall authoring rejects interior windows and missing support, preser
       expect(repaired.layout.map).toEqual(invalid.layout.map);
       expect(repaired.layout.objects).toEqual(authored.layout.objects);
       // Repair restores the exact saved state; no-op Save cannot advance revision.
-      expect(savedWorld(sandbox.database).revision).toBe(original.revision);
+      expect(savedWorld(sandbox.database).revision).toBe(supportBaseline.revision);
       expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(repaired.layout);
       const durable = savedWorld(sandbox.database);
       await page.goto('about:blank');

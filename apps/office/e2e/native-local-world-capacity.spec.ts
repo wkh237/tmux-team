@@ -164,7 +164,11 @@ test('a full tile-budget native world culls submissions, releases offscreen art,
         '--if-revision',
         String(original.revision + 1),
       ]);
-      const restored = await refresh();
+      await refresh();
+      await expect
+        .poll(async () => (await sceneActivity(page)).texturesLive)
+        .toBe(revisits[2]!.texturesLive);
+      const restored = await sceneActivity(page);
       expect(restored.texturesLive).toBe(revisits[2]!.texturesLive);
       expect(await canvas!.evaluate((element) => element.isConnected)).toBe(true);
       const durable = savedWorld(sandbox.database);

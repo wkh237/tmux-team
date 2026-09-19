@@ -42,6 +42,12 @@ test('module form keyboard actions and object repair share history and native pe
       await page.keyboard.press('Enter');
     };
     const button = (name: string) => page.getByRole('button', { name, exact: true });
+    const nextWorldWrite = () =>
+      page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === '/api/v1/local/world' &&
+          response.request().method() === 'PUT'
+      );
     const type = async (input: Locator, value: string) => {
       await expect(input).toBeVisible();
       await input.focus();
@@ -64,18 +70,36 @@ test('module form keyboard actions and object repair share history and native pe
       await expect(form.getByText('Column -1, row 0', { exact: true })).toBeVisible();
       await type(form.getByRole('textbox', { name: 'Name', exact: true }), 'Keyboard studio');
       expect(savedWorld(sandbox.database)).toEqual(before);
+      const addedWrite = nextWorldWrite();
       await activate(form.getByRole('button', { name: 'Add office' }));
+      expect((await addedWrite).status()).toBe(200);
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
+      const added = savedWorld(sandbox.database);
+      expect(added.revision).toBe(before.revision + 1);
       await expect(button('Undo')).toBeEnabled();
+      const undoneWrite = nextWorldWrite();
       await activate(button('Undo'));
+      expect((await undoneWrite).status()).toBe(200);
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
+      const undone = savedWorld(sandbox.database);
+      expect(undone.revision).toBe(added.revision + 1);
+      expect(undone.layout).toBe(before.layout);
       await expect(button('Undo')).toBeDisabled();
+      const redoneWrite = nextWorldWrite();
       await activate(button('Redo'));
+      expect((await redoneWrite).status()).toBe(200);
       await page.screenshot({ path: info.outputPath('module-keyboard-desktop.png') });
       await expect(
         page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
       ).toHaveText('All changes applied');
       const saved = savedWorld(sandbox.database);
       const layout: WorldSnapshot['layout'] = JSON.parse(saved.layout);
-      expect(saved.revision).toBe(before.revision + 1);
+      expect(saved.revision).toBe(undone.revision + 1);
+      expect(saved.layout).toBe(added.layout);
       expect(layout.map.version).toBe(6);
       if (layout.map.version === 1 || initial.layout.map.version === 1)
         throw new Error('Expected modules');
