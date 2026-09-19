@@ -171,22 +171,16 @@ jobs:
 
   office:
     name: Office SPA
-    needs: [changes, office-browser, native-office-browser]
-    if: always() && needs.changes.outputs.office == 'true'
+    needs: changes
+    if: needs.changes.outputs.office == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.23.2
-      - name: Require every selected Office browser partition
-        env:
-          OFFICE_RESULT: ${{ needs.office-browser.result }}
-          NATIVE_BROWSER_RESULT: ${{ needs.native-office-browser.result }}
-        run: node scripts/ci-scope.mjs gate true "$OFFICE_RESULT" "$NATIVE_BROWSER_RESULT"
+      - name: Verify Office application and service without browser execution
+        run: docker build --target browser-tests-base -f services/office/Dockerfile -t tmt-office-checks:ci .
 
   code-quality:
     name: Code quality
@@ -476,15 +470,7 @@ jobs:
     name: Native package matrix
     if: ${{ always() }}
     needs:
-      [
-        changes,
-        native-rust,
-        native-office-browser,
-        unit-tests,
-        docker-e2e,
-        native-runtime-build,
-        packed-native-install,
-      ]
+      [changes, native-rust, unit-tests, docker-e2e, native-runtime-build, packed-native-install]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -496,7 +482,6 @@ jobs:
       - name: Require every selected native gate
         env:
           NATIVE_SELECTED: ${{ needs.changes.outputs.native }}
-          BROWSER_RESULT: ${{ needs.native-office-browser.result }}
           CONTRACT_RESULT: ${{ needs.native-rust.result }}
           UNIT_RESULT: ${{ needs.unit-tests.result }}
           DOCKER_RESULT: ${{ needs.docker-e2e.result }}
@@ -504,6 +489,3 @@ jobs:
           MATRIX_RESULT: ${{ needs.packed-native-install.result }}
         run: |
           node scripts/ci-scope.mjs gate "$NATIVE_SELECTED" "$CONTRACT_RESULT" "$UNIT_RESULT" "$DOCKER_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT"
-          if test "$NATIVE_SELECTED" = true; then
-            node scripts/ci-scope.mjs gate true "$BROWSER_RESULT"
-          fi

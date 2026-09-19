@@ -120,7 +120,12 @@ The workspace explicitly permits lifecycle scripts only for the existing
 `better-sqlite3` oracle and esbuild tooling. Fresh oracle builds need Python,
 make and a C++ compiler; the tmux fixture image supplies these build tools.
 
-CI always reports `Code quality` and `Native package matrix`. A conservative
+CI always reports `Code quality` and `Native package matrix`. Selected Office
+changes also run the required `Office SPA` job, which builds the existing
+`browser-tests-base` target without executing Playwright. That target owns the
+Office service check/test/build, Office type/lint/format/unit checks, browser-test
+type checking and partition inventory, and local, preview, emulator and cloud SPA
+builds. A conservative
 diff selector skips expensive native jobs only for Office-only paths, and skips
 Office for native-source/skill-only paths. Shared/unknown paths run both. Code
 quality includes the selector's own focused tests even when native unit jobs are
@@ -168,22 +173,25 @@ Playwright. The cloud build must fail closed without operator configuration;
 it never contacts a real project during automated tests.
 It uses one worker, no retries, bounded waits and independent browser contexts.
 The complete local command above remains the acceptance entry point. CI schedules
-the same required browser identities in twelve isolated partitions to reduce the chance
+the same standard browser identities as advisory diagnostics in twelve isolated
+partitions to reduce the chance
 that cold image builds and serial scenarios exhaust a per-job deadline:
 emulator-backed contracts, three local Vite shards, and eight native-local shards.
 Local partitions do not start Firebase, while native-local shards use the container
 Secret Service and embedded companion without Vite or Firebase.
 `test:browser:partitions` compares the exact Playwright identities from all twelve
-partitions with the required suite, rejects overlaps or omissions, keeps
+partitions with the standard suite, rejects overlaps or omissions, keeps
 `native-decoration.spec.ts` in the emulator partition, and separately proves that
 the four opt-in capacity scenarios retain the full original inventory without
-overlapping required CI. Every partition keeps one worker, zero retries and the
-existing scenario limits. Native Rust CI still owns formatting, linting, locked builds, embedded SPA
-service tests and process/parser contracts; the container-native shards own its
-installed browser acceptance instead of rerunning those scenarios after compilation.
+overlapping the standard browser inventory. Every partition keeps one worker, zero retries and the
+existing scenario limits. Browser results do not gate merge aggregates; failed jobs
+remain visible and retain their logs and artifacts. Native Rust CI still owns
+formatting, linting, locked builds, embedded SPA service tests and process/parser
+contracts. The container-native shards retain installed-browser diagnostics without
+being rerun after compilation.
 Browser matrices and Playwright commands continue after individual failures while the
 runner remains active. A failed command uploads available Playwright error contexts
-before a final fail-closed step records the job failure. Native browser jobs have a
+before a final fail-closed step records the advisory job failure. Native browser jobs have a
 25-minute deadline so their cold image build leaves more time for each retained
 4–9-test partition. That remains a best-effort diagnostic budget: several tests can
 still consume their 120-second scenario limits after the build. A

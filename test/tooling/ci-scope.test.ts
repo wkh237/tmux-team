@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, renameSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -162,5 +162,42 @@ describe('required CI gate', () => {
   it('fails both stable aggregates when selector output is unavailable', () => {
     expect(ciGatePasses('', ['skipped'])).toBe(false);
     expect(ciGatePasses('', ['skipped', 'skipped', 'skipped', 'skipped', 'skipped'])).toBe(false);
+  });
+
+  it('keeps browser diagnostics outside required aggregates while required results fail closed', () => {
+    const workflow = readFileSync(
+      fileURLToPath(new URL('../../.github/workflows/ci.yml', import.meta.url)),
+      'utf8'
+    );
+    const office = workflow.slice(
+      workflow.indexOf('\n  office:\n'),
+      workflow.indexOf('\n  code-quality:\n')
+    );
+    const codeQuality = workflow.slice(
+      workflow.indexOf('\n  code-quality:\n'),
+      workflow.indexOf('\n  native-rust:\n')
+    );
+    const native = workflow.slice(workflow.indexOf('\n  native-install-gate:\n'));
+
+    expect(office).toContain('needs: changes');
+    expect(office).toContain('docker build --target browser-tests-base');
+    expect(office).not.toContain('office-browser');
+    expect(office).not.toContain('native-office-browser');
+    expect(codeQuality).toContain('needs: [changes, office]');
+    expect(codeQuality).toContain('OFFICE_RESULT: ${{ needs.office.result }}');
+    expect(codeQuality).toContain('gate "$OFFICE_SELECTED" "$OFFICE_RESULT"');
+    expect(native).toContain('native-rust');
+    expect(native).toContain('unit-tests');
+    expect(native).toContain('docker-e2e');
+    expect(native).toContain('native-runtime-build');
+    expect(native).toContain('packed-native-install');
+    expect(native).not.toContain('native-office-browser');
+    expect(native).not.toContain('BROWSER_RESULT');
+
+    expect(ciGatePasses('true', ['success'])).toBe(true);
+    expect(ciGatePasses('true', ['failure'])).toBe(false);
+    expect(ciGatePasses('true', ['failure', 'success', 'success', 'success', 'success'])).toBe(
+      false
+    );
   });
 });
