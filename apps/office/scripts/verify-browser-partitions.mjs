@@ -31,8 +31,10 @@ const complete = listedTests([]);
 const partitions = new Map([
   ['emulator', listedTests(['--config', 'playwright.emulator.config.ts'])],
   ['local', listedTests(['--config', 'playwright.local.config.ts'])],
-  ['native 1/2', listedTests(['--config', 'playwright.native.config.ts', '--shard', '1/2'])],
-  ['native 2/2', listedTests(['--config', 'playwright.native.config.ts', '--shard', '2/2'])],
+  ['native 1/4', listedTests(['--config', 'playwright.native.config.ts', '--shard', '1/4'])],
+  ['native 2/4', listedTests(['--config', 'playwright.native.config.ts', '--shard', '2/4'])],
+  ['native 3/4', listedTests(['--config', 'playwright.native.config.ts', '--shard', '3/4'])],
+  ['native 4/4', listedTests(['--config', 'playwright.native.config.ts', '--shard', '4/4'])],
 ]);
 
 assert.equal(complete.length, 125, 'Update the reviewed browser partition inventory.');
