@@ -181,9 +181,14 @@ service tests and process/parser contracts; the container-native shards own its
 installed browser acceptance instead of rerunning those scenarios after compilation.
 Browser matrices and Playwright commands continue after individual failures while the
 runner remains active. A failed command uploads available Playwright error contexts
-before a final fail-closed step records the job failure. A job deadline can still
-truncate its partition and prevent later artifact steps; four native shards reduce
-that risk but do not guarantee a complete inventory.
+before a final fail-closed step records the job failure. Native browser jobs have a
+25-minute deadline so their cold image build leaves more time for each 11–13-test
+partition. That remains a best-effort diagnostic budget: thirteen tests can consume
+26 minutes if each reaches its 120-second scenario limit, even before the build. A
+deadline or runner termination can truncate a partition and prevent later artifact
+steps despite their failure/cancellation predicate. Report completed and expected
+counts together, including missing artifacts; do not claim a complete inventory from
+the partition count alone.
 Only failed-transaction assertions use the Firestore fixture's 20-second budget:
 the pinned SDK's five attempts can spend 12.1875 seconds in jittered backoff
 alone. Keep the ordinary 10-second UI expectation and 30-second scenario limits.

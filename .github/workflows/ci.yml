@@ -76,7 +76,7 @@ jobs:
             pnpm --filter @tmt/office exec playwright test \
             --config playwright.local.config.ts --max-failures=0
       - name: Upload browser failure artifacts
-        if: always() && (steps.emulator-tests.outcome == 'failure' || steps.local-tests.outcome == 'failure')
+        if: always() && (steps.emulator-tests.outcome == 'failure' || steps.emulator-tests.outcome == 'cancelled' || steps.local-tests.outcome == 'failure' || steps.local-tests.outcome == 'cancelled')
         uses: actions/upload-artifact@v4
         with:
           name: office-browser-${{ matrix.suite }}-results
@@ -103,7 +103,7 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -125,7 +125,7 @@ jobs:
             --config playwright.native.config.ts --shard=${{ matrix.shard }}/4 \
             --max-failures=0
       - name: Upload browser failure artifacts
-        if: always() && steps.native-tests.outcome == 'failure'
+        if: always() && (steps.native-tests.outcome == 'failure' || steps.native-tests.outcome == 'cancelled')
         uses: actions/upload-artifact@v4
         with:
           name: native-office-browser-${{ matrix.shard }}-of-4-results
