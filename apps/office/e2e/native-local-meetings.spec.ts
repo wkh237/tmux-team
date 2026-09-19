@@ -218,13 +218,14 @@ test('real private-tmux identities project into multiple meetings without moving
             await page.getByRole('button', { name: 'Fit office' }).click();
             await page.getByRole('button', { name: 'Close agent conversation' }).click();
           }
-          // Legacy fixture floor is 36 * 5/8 = 22.5 scene units deep.
-          // Click above the actor previews, not beyond the room's front wall.
-          const emptyFloor = point(54, 5);
+          // The actor bodies centered at x=44 and x=54 leave clear floor between
+          // x=46.8 and x=51.2. Keep the click above the front-wall silhouette.
+          const emptyFloor = point(49, 5);
           await page.mouse.click(emptyFloor.x, emptyFloor.y);
-          await expect(page.getByRole('complementary', { name: 'Area details' })).toBeVisible();
-          await expect(page.getByRole('heading', { name: 'Members · 10' })).toBeVisible();
-          await page.getByRole('button', { name: 'Close details' }).click();
+          const floorRoster = page.getByRole('region', { name: 'Area roster' });
+          await expect(floorRoster).toBeVisible();
+          await expect(floorRoster.getByRole('heading', { name: 'Members · 10' })).toBeVisible();
+          await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
           await page.screenshot({ path: info.outputPath('meeting-projections-native.png') });
           roster = await openArea('East meeting');
           await expect(roster.getByRole('heading', { name: 'Members · 1' })).toBeVisible();
@@ -232,10 +233,55 @@ test('real private-tmux identities project into multiple meetings without moving
           expect(
             await roster.evaluate((element) => element.scrollWidth <= element.clientWidth)
           ).toBe(true);
-          await expect(
-            roster.getByRole('button', { name: new RegExp(`^${shared.name} · Online`) })
-          ).toBeInViewport();
+          const sharedMember = roster.getByRole('button', {
+            name: new RegExp(`^${shared.name} · Online`),
+          });
+          const inspector = page.locator('.world-build-inspector');
+          const inspectorBounds = (await inspector.boundingBox())!;
+          await page.mouse.move(
+            inspectorBounds.x + inspectorBounds.width / 2,
+            inspectorBounds.y + inspectorBounds.height / 2
+          );
+          for (let attempt = 0; attempt < 8; attempt++) {
+            const memberBounds = (await sharedMember.boundingBox())!;
+            if (
+              memberBounds.y >= inspectorBounds.y &&
+              memberBounds.y + memberBounds.height <= inspectorBounds.y + inspectorBounds.height
+            )
+              break;
+            await page.mouse.wheel(0, 300);
+          }
+          await expect(sharedMember).toBeInViewport();
+          await roster.getByRole('searchbox', { name: 'Search members' }).click();
+          await page.keyboard.press('Tab');
+          await expect(sharedMember).toBeFocused();
+          await expect(sharedMember).toBeInViewport();
+          expect(
+            await sharedMember.evaluate((element) => getComputedStyle(element).outlineStyle)
+          ).toBe('solid');
           await page.screenshot({ path: info.outputPath('meeting-roster-narrow.png') });
+          await page.keyboard.press('Enter');
+          const contractorConversation = page.getByRole('dialog', {
+            name: 'Agent conversation',
+          });
+          await expect(
+            contractorConversation.getByRole('heading', { name: shared.name, level: 2 })
+          ).toBeVisible();
+          const contractorInfo = contractorConversation.getByRole('tabpanel', { name: 'Info' });
+          await expect(contractorInfo).toBeVisible();
+          await expect(
+            contractorInfo.getByText(
+              'Viewing in Planning. Membership is independent of the home area.'
+            )
+          ).toBeVisible();
+          await expect(
+            contractorInfo.getByRole('button', {
+              name: `Message ${shared.name}`,
+              exact: true,
+            })
+          ).toBeVisible();
+          await page.keyboard.press('Escape');
+          await expect(contractorConversation).toHaveCount(0);
           expect(stored()).toEqual(before);
 
           // Promotion changes eligibility, not UUID, meeting membership or terrain.

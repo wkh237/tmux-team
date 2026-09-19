@@ -86,6 +86,20 @@ test('module finishes change real pixels while preserving topology, objects and 
       ).toHaveText('All changes applied');
       const original = await office<WorldSnapshot>(['layout', 'show']);
       const before = savedWorld(sandbox.database);
+      const nextWorldWrite = () =>
+        page.waitForResponse(
+          (response) =>
+            new URL(response.url()).pathname === '/api/v1/local/world' &&
+            response.request().method() === 'PUT'
+        );
+      const persist = async (action: () => Promise<void>) => {
+        const write = nextWorldWrite();
+        await action();
+        expect((await write).status()).toBe(200);
+        await expect(
+          page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+        ).toHaveText('All changes applied');
+      };
       await area.selectOption(map.modules[1]!.area.id);
       const style = (name: string) => page.getByRole('radio', { name, exact: true });
       await expect(style('Workshop')).toBeChecked();
@@ -124,38 +138,36 @@ test('module finishes change real pixels while preserving topology, objects and 
       const worldPixels = (name: string) => captureWorldScene(page, info, `style-${name}.png`);
       await page.mouse.move(10, 10);
       const baseline = await worldPixels('workshop');
-      await style('Moonlight').check();
+      await persist(() => style('Moonlight').check());
       const moonlight = await worldPixels('moonlight');
       expect(moonlight.equals(baseline)).toBe(false);
-      await page.getByRole('button', { name: 'Undo', exact: true }).click();
+      await persist(() => page.getByRole('button', { name: 'Undo', exact: true }).click());
       await expect(style('Workshop')).toBeChecked();
       const undone = await worldPixels('undo');
       expect(undone.equals(baseline)).toBe(true);
-      await page.getByRole('button', { name: 'Redo', exact: true }).click();
+      await persist(() => page.getByRole('button', { name: 'Redo', exact: true }).click());
       expect((await worldPixels('redo')).equals(moonlight)).toBe(true);
-      await style('Copper').check();
+      await persist(() => style('Copper').check());
       const copper = await worldPixels('copper');
       expect(copper.equals(moonlight)).toBe(false);
       expect(copper.equals(baseline)).toBe(false);
       const warm = await sceneActivity(page);
       for (const material of ['Workshop', 'Moonlight', 'Copper', 'Moonlight', 'Workshop'])
-        await style(material).check();
+        await persist(() => style(material).check());
       const repeated = await sceneActivity(page);
       expect(repeated.texturesCreated).toBe(warm.texturesCreated);
       expect(repeated.texturesLive).toBe(warm.texturesLive);
-      await expect(
-        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
-      ).toHaveText('All changes applied');
-      expect(savedWorld(sandbox.database)).toEqual(before);
+      const restored = savedWorld(sandbox.database);
+      expect(restored.worldId).toBe(before.worldId);
+      expect(restored.revision).toBeGreaterThan(before.revision);
+      expect(restored.updatedAtMs).toBeGreaterThanOrEqual(before.updatedAtMs);
+      expect(JSON.parse(restored.layout)).toEqual(JSON.parse(before.layout));
 
       await area.selectOption(map.modules[1]!.area.id);
-      await style('Moonlight').check();
+      await persist(() => style('Moonlight').check());
       await area.selectOption(map.modules[2]!.area.id);
-      await style('Copper').check();
+      await persist(() => style('Copper').check());
       await page.screenshot({ path: info.outputPath('room-materials-editor.png') });
-      await expect(
-        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
-      ).toHaveText('All changes applied');
       const saved = await office<WorldSnapshot>(['layout', 'show']);
       expect(saved.layout.objects).toEqual(original.layout.objects);
       expect(saved.layout.map).toEqual({

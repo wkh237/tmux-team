@@ -167,6 +167,18 @@ disposable Auth/Firestore/Functions emulators and three strict-port preview serv
 Playwright. The cloud build must fail closed without operator configuration;
 it never contacts a real project during automated tests.
 It uses one worker, no retries, bounded waits and independent browser contexts.
+The complete local command above remains the acceptance entry point. CI schedules
+the same listed browser identities in four isolated partitions so its cold image
+builds and serial scenarios stay within the per-job deadline: emulator-backed
+contracts, local Vite composition, and two native-local shards. The local partition
+does not start Firebase, while native-local shards use the container Secret Service
+and embedded companion without Vite or Firebase. `test:browser:partitions` compares
+the exact Playwright identities from all four partitions with the complete suite,
+rejects overlaps or omissions, and keeps `native-decoration.spec.ts` in the emulator
+partition. Every partition keeps one worker, zero retries and the existing scenario
+limits. Native Rust CI still owns formatting, linting, locked builds, embedded SPA
+service tests and process/parser contracts; the container-native shards own its
+installed browser acceptance instead of rerunning those scenarios after compilation.
 Only failed-transaction assertions use the Firestore fixture's 20-second budget:
 the pinned SDK's five attempts can spend 12.1875 seconds in jittered backoff
 alone. Keep the ordinary 10-second UI expectation and 30-second scenario limits.

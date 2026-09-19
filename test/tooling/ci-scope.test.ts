@@ -132,4 +132,35 @@ describe('required CI gate', () => {
     expect(ciGatePasses('false', ['success'])).toBe(false);
     expect(ciGatePasses('false', ['failure'])).toBe(false);
   });
+
+  it.each([
+    {
+      selection: 'Office only',
+      office: ['true', ['success', 'success']] as const,
+      native: ['false', ['skipped', 'skipped', 'skipped', 'skipped', 'skipped']] as const,
+    },
+    {
+      selection: 'native only',
+      office: ['false', ['skipped']] as const,
+      native: ['true', ['success', 'success', 'success', 'success', 'success', 'success']] as const,
+    },
+    {
+      selection: 'Office and native',
+      office: ['true', ['success', 'success']] as const,
+      native: ['true', ['success', 'success', 'success', 'success', 'success', 'success']] as const,
+    },
+    {
+      selection: 'neither',
+      office: ['false', ['skipped']] as const,
+      native: ['false', ['skipped', 'skipped', 'skipped', 'skipped', 'skipped']] as const,
+    },
+  ])('accepts the complete $selection partition result', ({ office, native }) => {
+    expect(ciGatePasses(office[0], [...office[1]])).toBe(true);
+    expect(ciGatePasses(native[0], [...native[1]])).toBe(true);
+  });
+
+  it('fails both stable aggregates when selector output is unavailable', () => {
+    expect(ciGatePasses('', ['skipped'])).toBe(false);
+    expect(ciGatePasses('', ['skipped', 'skipped', 'skipped', 'skipped', 'skipped'])).toBe(false);
+  });
 });

@@ -199,6 +199,21 @@ test('a furnished native office keeps personal, Contractor and meeting experienc
           await page.setViewportSize({ width: 1440, height: 1000 });
           await page.goto(started.url);
           await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
+          const furnishedWrite = page.waitForResponse((response) => {
+            if (
+              new URL(response.url()).pathname !== '/api/v1/local/world' ||
+              response.request().method() !== 'PUT'
+            )
+              return false;
+            const input = response.request().postDataJSON() as { layout?: WorldDocument };
+            const added = input.layout?.objects.slice(objects.length) ?? [];
+            return (
+              added.length === 18 &&
+              areas.every((target) =>
+                added.some((object) => object.placement.customization?.text === target.name)
+              )
+            );
+          });
           const canvas = page.locator('.office-canvas canvas');
           const canvasNode = await canvas.elementHandle();
           const fullViewport = await canvas.boundingBox();
@@ -216,17 +231,45 @@ test('a furnished native office keeps personal, Contractor and meeting experienc
             await page.getByLabel('Display text', { exact: true }).fill(target.name);
             await page.getByRole('button', { name: 'Apply appearance', exact: true }).click();
           }
-          expect(savedWorld(sandbox.database)).toEqual(before);
-          await page.screenshot({ path: info.outputPath('furnished-draft-desktop.png') });
+          const acknowledged = await furnishedWrite;
+          expect(acknowledged.status()).toBe(200);
+          await page.screenshot({ path: info.outputPath('furnished-autosaved-desktop.png') });
           await expect(
             page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
           ).toHaveText('All changes applied');
           const stored = savedWorld(sandbox.database);
           const completed: WorldDocument = JSON.parse(stored.layout);
-          expect(stored.revision).toBe(before.revision + 1);
+          const receipt = (await acknowledged.json()) as WorldSnapshot;
+          expect(stored.worldId).toBe(before.worldId);
+          expect(stored.revision).toBeGreaterThan(before.revision);
+          expect(stored.revision).toBe(receipt.revision);
+          expect(completed).toEqual(receipt.layout);
           expect(completed.map).toEqual(layout.map);
           expect(completed.objects.slice(0, objects.length)).toEqual(objects);
-          expect(completed.objects.length - objects.length).toBe(18);
+          const added = completed.objects.slice(objects.length);
+          expect(added).toHaveLength(18);
+          expect(added.slice(0, 3).map((object) => object.extension?.binding)).toEqual([
+            { kind: 'whiteboard', documentId: room.id },
+            { kind: 'office-board', roomId: room.id },
+            { kind: 'office-broadcast' },
+          ]);
+          expect(added.slice(9).map((object) => object.kind)).toEqual([
+            'window',
+            'wallLight',
+            'decoration',
+            'window',
+            'wallLight',
+            'decoration',
+            'window',
+            'wallLight',
+            'decoration',
+          ]);
+          expect(
+            added
+              .slice(9)
+              .map((object) => object.placement.customization?.text)
+              .filter(Boolean)
+          ).toEqual(areas.map((target) => target.name));
           expect(completed.objects.filter((object) => object.kind === 'window')).toHaveLength(3);
           expect(completed.objects.filter((object) => object.kind === 'wallLight')).toHaveLength(3);
           await page.getByRole('button', { name: 'Fit office', exact: true }).click();

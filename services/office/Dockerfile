@@ -19,7 +19,7 @@ CMD ["firebase", "emulators:start", "--only", "auth,firestore", "--project", "de
 # Opt-in browser proof reuses the emulator owner; no host credentials or volumes.
 FROM emulator-tools AS browser-tests-base
 USER root
-RUN apt-get update && apt-get install -y --no-install-recommends dbus gnome-keyring libglib2.0-bin libsecret-tools sqlite3 tmux && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends dbus git gnome-keyring libglib2.0-bin libsecret-tools sqlite3 tmux && rm -rf /var/lib/apt/lists/*
 RUN npm install --global pnpm@10.33.0 && mkdir -p /workspace/apps/office && chown -R node:node /workspace
 WORKDIR /workspace
 COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -47,6 +47,7 @@ RUN --network=none pnpm --filter @tmt/office-service check \
   && pnpm --filter @tmt/office-service test && pnpm --filter @tmt/office-service build
 RUN --network=none pnpm office:check && pnpm office:test \
   && pnpm --filter @tmt/office type:check:e2e \
+  && pnpm --filter @tmt/office test:browser:partitions \
   && pnpm office:build:local \
   && pnpm --filter @tmt/office exec vite build --outDir dist-preview \
   && pnpm --filter @tmt/office exec vite build --mode emulator \

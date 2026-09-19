@@ -33,10 +33,14 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node scripts/ci-scope.mjs "$BASE_SHA" "$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
-  office:
-    name: Office SPA
+  office-browser:
+    name: Office browser (${{ matrix.suite }})
     needs: changes
     if: needs.changes.outputs.office == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [emulator, local]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -44,9 +48,68 @@ jobs:
         with:
           persist-credentials: false
       - name: Build isolated browser and emulator verification
-        run: docker build --target browser-tests -f services/office/Dockerfile -t tmt-office-browser:ci .
+        run: docker build --target browser-tests -f services/office/Dockerfile -t tmt-office-browser:ci-${{ matrix.suite }} .
       - name: Verify emulator sessions with restricted browser destinations
-        run: docker run --rm --init --shm-size=256m tmt-office-browser:ci
+        if: matrix.suite == 'emulator'
+        run: |
+          docker run --rm --init --shm-size=256m \
+            tmt-office-browser:ci-emulator \
+            sh /workspace/services/office/with-test-keyring.sh \
+            firebase emulators:exec --only auth,firestore,functions \
+            --project demo-tmt-office \
+            --config /workspace/services/office/firebase.json \
+            --non-interactive \
+            'pnpm --filter @tmt/office exec playwright test --config playwright.emulator.config.ts'
+      - name: Verify local browser composition without emulator contention
+        if: matrix.suite == 'local'
+        run: |
+          docker run --rm --init --shm-size=256m --network none \
+            tmt-office-browser:ci-local \
+            pnpm --filter @tmt/office exec playwright test --config playwright.local.config.ts
+
+  native-office-browser:
+    name: Native Office browser (${{ matrix.shard }}/2)
+    needs: changes
+    if: needs.changes.outputs.native == 'true' || needs.changes.outputs.office == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build isolated native Office verification
+        run: docker build --target browser-tests -f services/office/Dockerfile -t tmt-office-browser:ci-native-${{ matrix.shard }} .
+      - name: Verify installed native companion shard
+        run: |
+          docker run --rm --init --shm-size=256m --network none \
+            --env TMT_TEST_BROWSER_CHANNEL=chromium \
+            tmt-office-browser:ci-native-${{ matrix.shard }} \
+            sh /workspace/services/office/with-test-keyring.sh \
+            pnpm --filter @tmt/office exec playwright test \
+            --config playwright.native.config.ts --shard=${{ matrix.shard }}/2
+
+  office:
+    name: Office SPA
+    needs: [changes, office-browser, native-office-browser]
+    if: always() && needs.changes.outputs.office == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.2
+      - name: Require every selected Office browser partition
+        env:
+          OFFICE_RESULT: ${{ needs.office-browser.result }}
+          NATIVE_BROWSER_RESULT: ${{ needs.native-office-browser.result }}
+        run: node scripts/ci-scope.mjs gate true "$OFFICE_RESULT" "$NATIVE_BROWSER_RESULT"
 
   code-quality:
     name: Code quality
@@ -131,8 +194,6 @@ jobs:
           TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo clippy --locked -p tmt-office --features local-service -- -D warnings
           TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo build --locked -p tmt-office --features local-service
           TMT_OFFICE_SPA_DIR="${{ github.workspace }}/target/office-spa" cargo test --locked -p tmt-office --features local-service
-          cd ..
-          pnpm office:local:e2e
       - name: Verify native process and shared parser contracts
         env:
           TMT_TEST_CLI: '{"executable":"${{ github.workspace }}/rust/target/debug/tmt","args":[]}'
@@ -338,7 +399,15 @@ jobs:
     name: Native package matrix
     if: ${{ always() }}
     needs:
-      [changes, native-rust, unit-tests, docker-e2e, native-runtime-build, packed-native-install]
+      [
+        changes,
+        native-rust,
+        native-office-browser,
+        unit-tests,
+        docker-e2e,
+        native-runtime-build,
+        packed-native-install,
+      ]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -350,9 +419,14 @@ jobs:
       - name: Require every selected native gate
         env:
           NATIVE_SELECTED: ${{ needs.changes.outputs.native }}
+          BROWSER_RESULT: ${{ needs.native-office-browser.result }}
           CONTRACT_RESULT: ${{ needs.native-rust.result }}
           UNIT_RESULT: ${{ needs.unit-tests.result }}
           DOCKER_RESULT: ${{ needs.docker-e2e.result }}
           BUILD_RESULT: ${{ needs.native-runtime-build.result }}
           MATRIX_RESULT: ${{ needs.packed-native-install.result }}
-        run: node scripts/ci-scope.mjs gate "$NATIVE_SELECTED" "$CONTRACT_RESULT" "$UNIT_RESULT" "$DOCKER_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT"
+        run: |
+          node scripts/ci-scope.mjs gate "$NATIVE_SELECTED" "$CONTRACT_RESULT" "$UNIT_RESULT" "$DOCKER_RESULT" "$BUILD_RESULT" "$MATRIX_RESULT"
+          if test "$NATIVE_SELECTED" = true; then
+            node scripts/ci-scope.mjs gate true "$BROWSER_RESULT"
+          fi
