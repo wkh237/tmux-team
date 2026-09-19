@@ -6,6 +6,7 @@ import { officeWorldFixture } from '../../../test/support/office-world.js';
 import { installNativeOffice, unusedLoopbackPort } from './native-office-fixture.js';
 import { openOfficeObjects } from './office-navigation.js';
 import type { WorldSnapshot } from '../src/world-map/world-port.js';
+import { openKeyboardSelection } from './office-navigation.js';
 
 test.use({ actionTimeout: 10_000 });
 
@@ -58,7 +59,7 @@ test('owner binds CLI notes, reads exact inert content, refreshes and restarts w
       await page.setViewportSize({ width: 1440, height: 1000 });
       await page.goto(started.url);
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+      await openKeyboardSelection(page);
       await page
         .getByRole('combobox', { name: 'Object', exact: true })
         .selectOption(layout.objects[0]!.id);
@@ -72,9 +73,9 @@ test('owner binds CLI notes, reads exact inert content, refreshes and restarts w
       );
       await expect(page.getByRole('button', { name: 'Attach notebook to object' })).toBeEnabled();
       await page.getByRole('button', { name: 'Attach notebook to object' }).click();
-      expect((await office<WorldSnapshot>(['layout', 'show'])).layout).toEqual(layout);
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const persisted = await office<WorldSnapshot>(['layout', 'show']);
       expect(persisted.layout.objects[0]).toEqual({
         ...layout.objects[0],
@@ -138,13 +139,14 @@ test('owner binds CLI notes, reads exact inert content, refreshes and restarts w
       expect(readFileSync(notes.path, 'utf8')).toBe(updated);
       expect(existsSync(path.join(sandbox.globalDir, 'notes', replacement.id))).toBe(false);
       await close();
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+      await openKeyboardSelection(page);
       await page
         .getByRole('combobox', { name: 'Object', exact: true })
         .selectOption(layout.objects[0]!.id);
       await page.getByRole('button', { name: 'Remove placement', exact: true }).click();
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       expect((await office<WorldSnapshot>(['layout', 'show'])).layout.objects).toEqual(
         layout.objects.slice(1)
       );

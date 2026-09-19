@@ -1,4 +1,4 @@
-import { beginMeetingCreation } from './office-navigation.js';
+import { beginMeetingCreation, openKeyboardSelection } from './office-navigation.js';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
@@ -60,6 +60,12 @@ test('world meeting entry saves canonical rooms separately from undoable spaces 
     ]);
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
+    const nextWorldWrite = () =>
+      page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === '/api/v1/local/world' &&
+          response.request().method() === 'PUT'
+      );
     try {
       await page.setViewportSize({ width: 1536, height: 1024 });
       await page.goto(started.url);
@@ -79,30 +85,35 @@ test('world meeting entry saves canonical rooms separately from undoable spaces 
       await page.setViewportSize({ width: 390, height: 844 });
       await page.getByRole('button', { name: 'Fit office', exact: true }).click();
       const card = await creation.boundingBox();
-      const tools = await page.getByRole('toolbar', { name: 'Build tools' }).boundingBox();
-      const draft = await page.getByRole('region', { name: 'Layout draft' }).boundingBox();
       expect(card!.x).toBeGreaterThanOrEqual(0);
       expect(card!.x + card!.width).toBeLessThanOrEqual(390);
-      expect(card!.y).toBeGreaterThanOrEqual(tools!.y + tools!.height);
-      expect(draft!.y + draft!.height).toBeLessThanOrEqual(tools!.y);
+      expect(card!.y).toBeGreaterThanOrEqual(0);
       expect(card!.y + card!.height).toBeLessThanOrEqual(844);
       await page.screenshot({ path: info.outputPath('meeting-name-narrow.png') });
+      const initialPlacement = nextWorldWrite();
       await creation.getByRole('button', { name: 'Save room', exact: true }).click();
+      expect((await initialPlacement).status()).toBe(200);
       await expect(creation).toHaveCount(0);
       const rooms = await cli<{ rooms: MeetingRoom[] }>(['room', 'list']);
       expect(rooms.rooms).toHaveLength(1);
       const room = rooms.rooms[0]!;
       expect(room.name).toBe('Design review');
       expect(storedRooms()).toEqual([{ id: room.id, name: room.name, revision: 1 }]);
-      expect(savedWorld(sandbox.database)).toEqual(baseline);
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
+      await openKeyboardSelection(page);
       const areas = page.getByRole('combobox', { name: 'Area', exact: true }).locator('option');
       await expect(areas).toHaveCount(7); // Common floor plus five original modules and the new room.
       await page.getByRole('button', { name: 'Undo', exact: true }).click();
       await expect(areas).toHaveCount(6);
       await page.getByRole('button', { name: 'Redo', exact: true }).click();
       await expect(areas).toHaveCount(7);
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-      expect(savedWorld(sandbox.database)).toEqual(baseline);
+      await page.getByRole('button', { name: 'Undo', exact: true }).click();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
+      expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(JSON.parse(baseline.layout));
       expect(storedRooms()).toHaveLength(1);
       await page.setViewportSize({ width: 1536, height: 1024 });
       await beginMeetingCreation(page);
@@ -110,10 +121,13 @@ test('world meeting entry saves canonical rooms separately from undoable spaces 
       await creation
         .getByRole('combobox', { name: 'Existing room', exact: true })
         .selectOption(room.id);
+      const restoredPlacement = nextWorldWrite();
       await creation.getByRole('button', { name: 'Place selected room', exact: true }).click();
+      expect((await restoredPlacement).status()).toBe(200);
       await expect(creation).toHaveCount(0);
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const saved = await office<WorldSnapshot>(['layout', 'show']);
       expect(saved.layout.map.version).toBe(4);
       if (saved.layout.map.version === 1) throw new Error('Expected modular source');
@@ -143,7 +157,7 @@ test('world meeting entry saves canonical rooms separately from undoable spaces 
       expect(updated.room.memberIds).toEqual([alice.identity.id]);
       expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(saved.layout);
       await manager.getByRole('button', { name: 'Close meeting rooms', exact: true }).click();
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+      await openKeyboardSelection(page);
       await page.getByRole('combobox', { name: 'Area', exact: true }).selectOption(module.area.id);
       await page.getByRole('button', { name: 'Review module removal', exact: true }).click();
       const removal = page.getByRole('dialog', {
@@ -154,30 +168,28 @@ test('world meeting entry saves canonical rooms separately from undoable spaces 
         removal.getByRole('button', { name: 'Remove module', exact: true })
       ).toBeDisabled();
       await removal.getByRole('button', { name: 'Cancel removal', exact: true }).click();
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
       await page.goto('about:blank');
       await page.goto(started.url);
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
       expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(saved.layout);
       expect(storedRooms()).toHaveLength(1);
       expect(errors).toEqual([]);
-      // Compact conversion uses the same draft fence as ordinary edits. It must
-      // not mutate canonical discussions, or write anything before Save.
+      // Compact conversion uses the same serialized auto-apply fence as ordinary edits.
+      // It must not mutate canonical discussions, and Undo must restore the saved layout.
       const roomBaseline = storedRooms();
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
       const compact = page.getByRole('button', { name: 'Preview compact layout', exact: true });
       await compact.click();
       await expect(compact).toHaveCount(0);
-      expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(saved.layout);
       await page.getByRole('button', { name: 'Undo', exact: true }).click();
       await expect(compact).toBeVisible();
-      await compact.click();
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(saved.layout);
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
       await compact.click();
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const converted = await office<WorldSnapshot>(['layout', 'show']);
       expect(converted.layout.map).toEqual({ ...saved.layout.map, version: 5 });
       expect(converted.layout.objects).toEqual(saved.layout.objects);
@@ -190,9 +202,12 @@ test('world meeting entry saves canonical rooms separately from undoable spaces 
       expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(converted.layout);
       await beginMeetingCreation(page);
       await creation.getByRole('textbox', { name: 'Room name', exact: true }).fill('Planning');
+      const adjacentPlacement = nextWorldWrite();
       await creation.getByRole('button', { name: 'Save room', exact: true }).click();
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      expect((await adjacentPlacement).status()).toBe(200);
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const adjacent = await office<WorldSnapshot>(['layout', 'show']);
       if (adjacent.layout.map.version === 1) throw new Error('Expected modular source');
       expect(

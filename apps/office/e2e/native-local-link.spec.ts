@@ -5,7 +5,7 @@ import { runCli, withSandbox } from '../../../test/support/cli-process.js';
 import { officeWorldFixture } from '../../../test/support/office-world.js';
 import type { ExtensionDefinition } from '../src/extensions/extension-contract.js';
 import { installNativeOffice, unusedLoopbackPort } from './native-office-fixture.js';
-import { openOfficeObjects } from './office-navigation.js';
+import { openKeyboardSelection, openOfficeObjects } from './office-navigation.js';
 import type { WorldDocument } from '../src/world-map/world-contract.js';
 
 const definition = JSON.parse(
@@ -79,7 +79,7 @@ test('a persisted web object stays inert through restart and review until an exp
     };
     try {
       await enter();
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+      await openKeyboardSelection(page);
       await page
         .getByRole('combobox', { name: 'Object', exact: true })
         .selectOption(layout.objects[0]!.id);
@@ -92,7 +92,7 @@ test('a persisted web object stays inert through restart and review until an exp
       await page.getByText('Object action', { exact: true }).click();
       await page.screenshot({ path: info.outputPath('linked-object-compact-inspector.png') });
       expect(requests).toBe(0);
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
       expect(await office(['layout', 'show'])).toEqual(persisted);
       await page.goto('about:blank');
       await office(['stop']);
@@ -119,9 +119,12 @@ test('a persisted web object stays inert through restart and review until an exp
       await target.close();
       expect(await office(['layout', 'show'])).toEqual(persisted);
     } finally {
-      await page.goto('about:blank');
-      await office(['stop']);
-      expect((await office(['status'])).service.running).toBe(false);
+      try {
+        if (!page.isClosed()) await page.goto('about:blank');
+      } finally {
+        await office(['stop']);
+        expect((await office(['status'])).service.running).toBe(false);
+      }
     }
   });
 });

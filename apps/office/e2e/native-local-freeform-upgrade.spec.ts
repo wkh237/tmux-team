@@ -10,7 +10,7 @@ import { decodeModuleMap } from '../src/world-map/module-contract.js';
 import { mapGeometry } from '../src/world-map/map-source.js';
 import type { WorldSnapshot } from '../src/world-map/world-port.js';
 
-test('free-form conversion preserves objects and resource attachments through Cancel, Save and restart', async ({
+test('free-form conversion preserves objects and resource attachments through auto-apply, history and restart', async ({
   page,
 }, info) => {
   await withSandbox(async (sandbox) => {
@@ -50,6 +50,12 @@ test('free-form conversion preserves objects and resource attachments through Ca
       initial.legacyBasis!,
     ]);
     const before = savedWorld(sandbox.database);
+    const nextWorldWrite = () =>
+      page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === '/api/v1/local/world' &&
+          response.request().method() === 'PUT'
+      );
     const open = async () => {
       const started = await office<{ url: string }>([
         'start',
@@ -62,25 +68,48 @@ test('free-form conversion preserves objects and resource attachments through Ca
     try {
       await page.setViewportSize({ width: 1536, height: 1024 });
       await open();
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+      const firstPreviewWrite = nextWorldWrite();
       await page.getByRole('button', { name: 'Preview modular layout', exact: true }).click();
       await expect(page.getByRole('button', { name: 'Add floor', exact: true })).toHaveCount(0);
-      expect(savedWorld(sandbox.database)).toEqual(before);
-      await page
-        .getByRole('region', { name: 'Layout draft' })
-        .getByRole('button', { name: 'Cancel', exact: true })
-        .click();
-      expect(savedWorld(sandbox.database)).toEqual(before);
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
-      await page.getByRole('button', { name: 'Preview modular layout', exact: true }).click();
+      expect((await firstPreviewWrite).status()).toBe(200);
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
+      const previewed = savedWorld(sandbox.database);
+      expect(previewed.worldId).toBe(before.worldId);
+      expect(previewed.revision).toBeGreaterThan(before.revision);
+      const firstUndoWrite = nextWorldWrite();
       await page.getByRole('button', { name: 'Undo', exact: true }).click();
+      expect((await firstUndoWrite).status()).toBe(200);
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
+      const restored = savedWorld(sandbox.database);
+      expect(restored.worldId).toBe(before.worldId);
+      expect(restored.revision).toBeGreaterThan(previewed.revision);
+      expect(JSON.parse(restored.layout)).toEqual(JSON.parse(before.layout));
+      const secondPreviewWrite = nextWorldWrite();
+      await page.getByRole('button', { name: 'Preview modular layout', exact: true }).click();
+      expect((await secondPreviewWrite).status()).toBe(200);
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
+      const secondUndoWrite = nextWorldWrite();
+      await page.getByRole('button', { name: 'Undo', exact: true }).click();
+      expect((await secondUndoWrite).status()).toBe(200);
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       await expect(
         page.getByRole('button', { name: 'Preview modular layout', exact: true })
       ).toBeVisible();
       await expect(page.getByRole('button', { name: 'Add floor', exact: true })).toHaveCount(0);
+      const redoWrite = nextWorldWrite();
       await page.getByRole('button', { name: 'Redo', exact: true }).click();
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      expect((await redoWrite).status()).toBe(200);
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const saved = await office<WorldSnapshot>(['layout', 'show']);
       expect(saved.layout.map.version).toBe(4);
       if (saved.layout.map.version !== 4) throw new Error('Expected central modules');

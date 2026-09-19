@@ -5,8 +5,9 @@ import { runCli, withSandbox } from '../../../test/support/cli-process.js';
 import { officeWorldFixture } from '../../../test/support/office-world.js';
 import { installNativeOffice, unusedLoopbackPort } from './native-office-fixture.js';
 import { fitWorldCoordinates } from './world-editor-gesture.js';
+import { openKeyboardSelection } from './office-navigation.js';
 
-test('selects and drags furniture behind a full front wall without saving on cancel', async ({
+test('selects and drags furniture behind a full front wall and Undo restores it', async ({
   page,
 }, info) => {
   await withSandbox(async (sandbox) => {
@@ -39,17 +40,15 @@ test('selects and drags furniture behind a full front wall without saving on can
       await page.setViewportSize({ width: 1536, height: 1024 });
       await page.goto(started.url);
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
-      await page.getByRole('button', { name: 'Inspect', exact: true }).click();
       // Independent fixture projection: 36x36 floor at 5/8 depth; 16-high walls.
       // Desk's center (12,20.25) lies behind the front face spanning y=6.5..22.5.
       const point = await fitWorldCoordinates(page, { x: -4, y: -20, width: 44, height: 50.5 });
       const start = point(12, 20.25);
       await page.mouse.click(start.x, start.y);
+      await openKeyboardSelection(page);
       await expect(page.getByRole('combobox', { name: 'Object', exact: true })).toHaveValue(
         desk.id
       );
-      await page.getByRole('button', { name: 'Move object', exact: true }).click();
       const end = point(18, 20.25);
       await page.mouse.move(start.x, start.y);
       await page.mouse.down();
@@ -59,11 +58,18 @@ test('selects and drags furniture behind a full front wall without saving on can
       await expect(page.getByRole('spinbutton', { name: 'X', exact: true })).toHaveValue('16');
       await expect(page.getByRole('spinbutton', { name: 'Y', exact: true })).toHaveValue('32');
       await page.screenshot({ path: info.outputPath('drag-behind-wall.png') });
-      expect(await office(['layout', 'show'])).toEqual(before);
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
-      expect(await office(['layout', 'show'])).toEqual(before);
-      await page.screenshot({ path: info.outputPath('cancel-restores-solid-wall.png') });
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
+      expect(await office(['layout', 'show'])).not.toEqual(before);
+      await page.getByRole('button', { name: 'Undo', exact: true }).click();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
+      const restored = await office(['layout', 'show']);
+      expect(restored).toMatchObject({ worldId: before.worldId, layout: before.layout });
+      expect(restored.revision).toBeGreaterThan(before.revision);
+      await page.screenshot({ path: info.outputPath('undo-restores-solid-wall.png') });
     } finally {
       await page.goto('about:blank');
       await office(['stop']);

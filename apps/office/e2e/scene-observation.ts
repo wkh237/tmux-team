@@ -13,6 +13,9 @@ export interface SceneActivity {
 
 /** Test-only observation of actual WebGL submissions/resources, not a product debug API. */
 export async function installDrawObserver(page: Page) {
+  // Install the stable media mode before the scene is created so the first frame
+  // and every later comparison exclude the intentional 20 Hz bridge glow.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.addInitScript(() => {
     const activity = {
       draws: 0,

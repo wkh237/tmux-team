@@ -13,6 +13,7 @@ import { moduleBounds } from '../src/world-map/module-geometry.js';
 import { addMeetingPreset } from '../src/world-map/meeting-preset.js';
 import type { WorldDocument, WorldObject } from '../src/world-map/world-contract.js';
 import type { WorldSnapshot } from '../src/world-map/world-port.js';
+import { openKeyboardSelection } from './office-navigation.js';
 
 /** A real stored layout with empty grid cells, not a screenshot-only mock world. */
 test('central Lobby and roomless corridors retain independent meeting slots through browser Save', async ({
@@ -78,7 +79,7 @@ test('central Lobby and roomless corridors retain independent meeting slots thro
       expect(await page.evaluate(() => devicePixelRatio)).toBe(1);
       await page.getByRole('button', { name: 'Fit office', exact: true }).click();
       await page.screenshot({ path: info.outputPath('central-grid-overview.png') });
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+      await openKeyboardSelection(page);
       await page
         .getByRole('combobox', { name: 'Area', exact: true })
         .selectOption(source.primaryLobbyId);
@@ -88,11 +89,12 @@ test('central Lobby and roomless corridors retain independent meeting slots thro
         .getByRole('combobox', { name: 'Area', exact: true })
         .selectOption(northWest.area.id);
       for (const name of ['Observatory window', 'Brass wall lamp']) {
-        await page.getByRole('button', { name: 'Walls', exact: true }).click();
+        await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
         await page.getByRole('button', { name, exact: true }).click();
       }
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const saved = await office<WorldSnapshot>(['layout', 'show']);
       expect(saved.layout.map).toEqual({
         ...source,
@@ -122,10 +124,11 @@ test('central Lobby and roomless corridors retain independent meeting slots thro
       await page.goto('about:blank');
       await page.goto(started.url);
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
-      await page.getByRole('button', { name: 'Add office', exact: true }).click();
+      await page.getByRole('button', { name: 'Office menu', exact: true }).click();
+      await page.getByRole('button', { name: /^Directory · / }).click();
+      await page.getByText('Available spaces', { exact: true }).click();
+      await page.getByRole('button', { name: 'Office · column 0, row 3', exact: true }).click();
       await page.getByRole('button', { name: 'Fit office', exact: true }).click();
-      await page.getByRole('combobox', { name: 'Office slot', exact: true }).selectOption('0,3');
       await page.getByRole('textbox', { name: 'Name', exact: true }).fill('South studio');
       const form = page.getByRole('form', { name: 'New office' });
       await expect(form.getByRole('textbox', { name: 'Name', exact: true })).toBeFocused();
@@ -139,16 +142,11 @@ test('central Lobby and roomless corridors retain independent meeting slots thro
       const narrow = await form.boundingBox();
       expect(narrow!.x).toBeGreaterThanOrEqual(0);
       expect(narrow!.x + narrow!.width).toBeLessThanOrEqual(390);
-      const tools = await page.getByRole('toolbar', { name: 'Build tools' }).boundingBox();
-      expect(narrow!.y).toBeGreaterThanOrEqual(tools!.y + tools!.height);
-      const draft = await page.getByRole('region', { name: 'Layout draft' }).boundingBox();
-      expect(draft!.y + draft!.height).toBeLessThanOrEqual(tools!.y);
       expect(narrow!.y + narrow!.height).toBeLessThanOrEqual(844);
       await page.screenshot({ path: info.outputPath('central-grid-expansion-narrow.png') });
       await form.getByRole('textbox', { name: 'Name', exact: true }).focus();
       await page.keyboard.press('Escape');
       await expect(form).toHaveCount(0);
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
       expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(saved.layout);
       const highDpi = await page
         .context()

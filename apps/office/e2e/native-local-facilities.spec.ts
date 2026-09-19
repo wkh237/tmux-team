@@ -47,13 +47,16 @@ test('new Lobby facility artwork retains the three real resource entry points wi
       await enter();
       await page.getByRole('button', { name: 'Fit office', exact: true }).click();
       await page.screenshot({ path: info.outputPath('new-lobby-facilities.png') });
-      // Independent v5 whiteboard lower-right badge, not the production picker.
+      // Independent v6 whiteboard body and expanded action label, not the production picker.
       const bounds = (await page.locator('.office-canvas canvas').boundingBox())!;
-      const badge = installationWorldPoint(bounds, 97, 16 + (26 * 61) / 88 - 1);
-      await page.mouse.move(badge.x, badge.y);
+      const body = installationWorldPoint(bounds, 90, 21.75);
+      await page.mouse.move(body.x, body.y);
+      await expect(page.locator('.office-canvas canvas')).toHaveCSS('cursor', 'grab');
+      const action = installationWorldPoint(bounds, 90, 12.75);
+      await page.mouse.move(action.x, action.y);
       await expect(page.locator('.office-canvas canvas')).toHaveCSS('cursor', 'pointer');
       await page.screenshot({ path: info.outputPath('whiteboard-hover-control.png') });
-      await page.mouse.click(badge.x, badge.y);
+      await page.mouse.click(action.x, action.y);
       await expect(page.getByRole('dialog', { name: 'Whiteboard', exact: true })).toBeVisible();
       for (const [action, panel] of [
         ['Open discussion board', 'Discussion board'],

@@ -11,6 +11,7 @@ import { decodeModuleMap } from '../src/world-map/module-contract.js';
 import { moduleBounds } from '../src/world-map/module-geometry.js';
 import type { WorldDocument, WorldObject } from '../src/world-map/world-contract.js';
 import type { WorldSnapshot } from '../src/world-map/world-port.js';
+import { openKeyboardSelection, openOfficeDirectory } from './office-navigation.js';
 
 /** Native module-source round trip and real architecture; not final art sign-off. */
 test('four module offices and Lobby render derived seams and save source-only edits with mounted objects', async ({
@@ -72,7 +73,7 @@ test('four module offices and Lobby render derived seams and save source-only ed
       await page.setViewportSize({ width: 1536, height: 1024 });
       await page.goto(started.url);
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+      await openKeyboardSelection(page);
       await expect(page.getByRole('button', { name: 'Add floor', exact: true })).toHaveCount(0);
       await expect(page.getByRole('button', { name: 'Paint area', exact: true })).toHaveCount(0);
       await page
@@ -85,12 +86,13 @@ test('four module offices and Lobby render derived seams and save source-only ed
       await page.getByRole('button', { name: 'Redo', exact: true }).click();
       await expect(areaName).toHaveValue('Design studio');
       for (const name of ['Observatory window', 'Brass wall lamp', 'Orbit poster']) {
-        await page.getByRole('button', { name: 'Walls', exact: true }).click();
+        await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
         await page.getByRole('button', { name, exact: true }).click();
       }
       await page.screenshot({ path: info.outputPath('modular-architecture-build.png') });
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const authored = await office<WorldSnapshot>(['layout', 'show']);
       expect(authored.layout.map).toEqual({
         ...map,
@@ -108,23 +110,25 @@ test('four module offices and Lobby render derived seams and save source-only ed
       expect(JSON.parse(durable.layout)).toEqual(authored.layout);
       await page.getByRole('button', { name: 'Fit office', exact: true }).click();
       expect(await page.evaluate(() => devicePixelRatio)).toBe(1);
-      for (const name of ['Edit layout', 'Zoom in', 'Zoom out', 'Fit office']) {
+      for (const name of ['Zoom in', 'Zoom out', 'Fit office']) {
         const button = page.getByRole('button', { name, exact: true });
         const bounds = (await button.boundingBox())!;
         expect(bounds.width).toBeGreaterThanOrEqual(44);
         expect(bounds.height).toBeGreaterThanOrEqual(44);
       }
-      const edit = page.getByRole('button', { name: 'Edit layout', exact: true });
-      await edit.focus();
+      const areaControl = page.getByRole('combobox', { name: 'Area', exact: true });
+      await areaControl.focus();
       // Programmatic focus after a mouse click does not enter keyboard modality.
       await page.keyboard.press('Tab');
       await page.keyboard.press('Shift+Tab');
-      await expect(edit).toBeFocused();
-      expect(await edit.evaluate((node) => getComputedStyle(node).outlineStyle)).toBe('solid');
-      expect(await edit.evaluate((node) => getComputedStyle(node).outlineColor)).toBe(
+      await expect(areaControl).toBeFocused();
+      expect(await areaControl.evaluate((node) => getComputedStyle(node).outlineStyle)).toBe(
+        'solid'
+      );
+      expect(await areaControl.evaluate((node) => getComputedStyle(node).outlineColor)).toBe(
         'rgb(92, 231, 238)'
       );
-      expect(await edit.evaluate((node) => getComputedStyle(node).color)).toBe(
+      expect(await areaControl.evaluate((node) => getComputedStyle(node).color)).toBe(
         'rgb(243, 234, 215)'
       );
       await page.screenshot({ path: info.outputPath('modular-architecture-1536.png') });
@@ -134,16 +138,19 @@ test('four module offices and Lobby render derived seams and save source-only ed
       await page.goto('about:blank');
       await page.goto(started.url);
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
+      await openKeyboardSelection(page);
       expect(savedWorld(sandbox.database)).toEqual(durable);
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
-      const tools = page.getByRole('toolbar', { name: 'Build tools' });
-      await tools.getByRole('button', { name: 'Add office', exact: true }).click();
-      // Independent literal framing for the eight eligible starter neighbors:
-      // scene bounds [-60,-80]..[164,89], 96px HUD band, left Lobby neighbor center[-32,12.5].
-      const scale = Math.min((1536 * 0.84) / 224, (1024 - 192) / 169);
-      await page.mouse.click(768 + (-32 - 52) * scale, 512 + (12.5 - 4.5) * scale);
+      // Keyboard/form coverage chooses the exact eligible slot through the directory;
+      // direct canvas slot hit-testing is covered by native-local-skybridges.
+      await openOfficeDirectory(page);
+      const spaces = page.getByText('Available spaces', { exact: true });
+      const spaceDetails = spaces.locator('..');
+      if ((await spaceDetails.getAttribute('open')) === null) await spaces.click();
+      await spaceDetails
+        .getByRole('button', { name: 'Office · column -1, row 0', exact: true })
+        .click();
       const form = page.getByRole('form', { name: 'New office' });
-      await expect(form.locator('summary')).toContainText('Column -1, row 0 · Change');
+      await expect(form.getByText('Column -1, row 0', { exact: true })).toBeVisible();
       await expect(form.getByRole('textbox', { name: 'Name', exact: true })).toBeFocused();
       await form.getByRole('textbox', { name: 'Name', exact: true }).fill('Expansion studio');
       await page.screenshot({ path: info.outputPath('modular-office-wireframe.png') });
@@ -151,10 +158,8 @@ test('four module offices and Lobby render derived seams and save source-only ed
       await page.getByRole('button', { name: 'Fit office', exact: true }).click();
       await form.getByRole('textbox', { name: 'Name', exact: true }).focus();
       const cardBounds = (await form.boundingBox())!;
-      const draftBounds = (await page.getByRole('region', { name: 'Layout draft' }).boundingBox())!;
       expect(cardBounds.x).toBeGreaterThanOrEqual(0);
       expect(cardBounds.x + cardBounds.width).toBeLessThanOrEqual(390);
-      expect(cardBounds.y).toBeGreaterThanOrEqual(draftBounds.y + draftBounds.height);
       expect(cardBounds.y + cardBounds.height).toBeLessThanOrEqual(844);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
       await page.screenshot({ path: info.outputPath('modular-office-wireframe-narrow.png') });
@@ -163,9 +168,11 @@ test('four module offices and Lobby render derived seams and save source-only ed
       // Choosing and naming a preview cannot create durable rooms or mutate the draft.
       expect(savedWorld(sandbox.database)).toEqual(durable);
       await form.getByRole('button', { name: 'Cancel placement' }).click();
-      await expect(page.getByRole('region', { name: 'Layout draft' })).toContainText('No changes');
-      await tools.getByRole('button', { name: 'Add office', exact: true }).click();
-      await form.getByRole('combobox', { name: 'Office slot' }).selectOption('-1,0');
+      await openOfficeDirectory(page);
+      if ((await spaceDetails.getAttribute('open')) === null) await spaces.click();
+      await spaceDetails
+        .getByRole('button', { name: 'Office · column -1, row 0', exact: true })
+        .click();
       await form.getByRole('textbox', { name: 'Name', exact: true }).fill('Expansion studio');
       await form.getByRole('button', { name: 'Add office', exact: true }).click();
       await expect(page.getByRole('combobox', { name: 'Area', exact: true })).toContainText(
@@ -176,8 +183,9 @@ test('four module offices and Lobby render derived seams and save source-only ed
         'Expansion studio'
       );
       await page.getByRole('button', { name: 'Redo', exact: true }).click();
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const expanded = await office<WorldSnapshot>(['layout', 'show']);
       expect(expanded.layout.map.version).toBe(2);
       if (expanded.layout.map.version !== 2) throw new Error('Expected module source');
@@ -195,17 +203,17 @@ test('four module offices and Lobby render derived seams and save source-only ed
       await page.goto('about:blank');
       await page.goto(started.url);
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
+      await openKeyboardSelection(page);
       expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(expanded.layout);
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
       await page.getByRole('button', { name: 'Preview modular layout', exact: true }).click();
-      expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(expanded.layout);
       await page.getByRole('button', { name: 'Undo', exact: true }).click();
       await expect(
         page.getByRole('button', { name: 'Preview modular layout', exact: true })
       ).toBeVisible();
       await page.getByRole('button', { name: 'Redo', exact: true }).click();
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const grid = await office<WorldSnapshot>(['layout', 'show']);
       expect(grid.layout).toEqual({
         ...expanded.layout,
@@ -233,24 +241,22 @@ test('four module offices and Lobby render derived seams and save source-only ed
       await page.goto('about:blank');
       await page.goto(started.url);
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
+      await openKeyboardSelection(page);
       expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(grid.layout);
       await page.getByRole('button', { name: 'Fit office', exact: true }).click();
       await page.screenshot({ path: info.outputPath('modular-grid-corridors.png') });
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
-      await tools.getByRole('button', { name: 'Add office', exact: true }).click();
-      await form.getByRole('combobox', { name: 'Office slot' }).selectOption('0,-2');
-      await expect(form.locator('summary')).toContainText('Column 0, row -2 · Change');
+      await openOfficeDirectory(page);
+      if ((await spaceDetails.getAttribute('open')) === null) await spaces.click();
+      await spaceDetails
+        .getByRole('button', { name: 'Office · column 0, row -2', exact: true })
+        .click();
+      await expect(form.getByText('Column 0, row -2', { exact: true })).toBeVisible();
       await expect(form.getByRole('textbox', { name: 'Name', exact: true })).toBeFocused();
       await form.getByRole('textbox', { name: 'Name', exact: true }).fill('North workshop');
       await page.screenshot({ path: info.outputPath('modular-grid-wireframe.png') });
       expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(grid.layout);
       await form.getByRole('button', { name: 'Cancel placement' }).click();
-      await page
-        .getByRole('region', { name: 'Layout draft' })
-        .getByRole('button', { name: 'Cancel', exact: true })
-        .click();
       expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(grid.layout);
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
       const areaPicker = page.getByRole('combobox', { name: 'Area', exact: true });
       await areaPicker.selectOption(offices[0]!.area.id);
       await page.getByRole('button', { name: 'Review module removal', exact: true }).click();
@@ -288,12 +294,12 @@ test('four module offices and Lobby render derived seams and save source-only ed
       await page.screenshot({ path: info.outputPath('modular-module-removal.png') });
       await page.getByRole('button', { name: 'Remove module', exact: true }).click();
       await expect(areaPicker).not.toContainText('Expansion studio');
-      expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(grid.layout);
       await page.getByRole('button', { name: 'Undo', exact: true }).click();
       await expect(areaPicker).toContainText('Expansion studio');
       await page.getByRole('button', { name: 'Redo', exact: true }).click();
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const removed = await office<WorldSnapshot>(['layout', 'show']);
       expect(removed.layout).toEqual({
         ...grid.layout,
@@ -311,8 +317,11 @@ test('four module offices and Lobby render derived seams and save source-only ed
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
       expect(errors).toEqual([]);
     } finally {
-      await page.goto('about:blank');
-      await office(['stop']);
+      try {
+        if (!page.isClosed()) await page.goto('about:blank');
+      } finally {
+        await office(['stop']);
+      }
     }
   });
 });

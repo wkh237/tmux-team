@@ -7,6 +7,7 @@ import { officeWorldFixture } from '../../../test/support/office-world.js';
 import { installNativeOffice, unusedLoopbackPort } from './native-office-fixture.js';
 import { savedWorld } from './native-world-state.js';
 import { fitWorldCoordinates } from './world-editor-gesture.js';
+import { openKeyboardSelection } from './office-navigation.js';
 import type { WorldDocument } from '../src/world-map/world-contract.js';
 import type { WorldSnapshot, WorldWrite } from '../src/world-map/world-port.js';
 
@@ -58,18 +59,13 @@ test('native wall authoring rejects interior windows and missing support, preser
       if (new URL(request.url()).pathname === '/api/v1/local/world' && request.method() === 'PUT')
         writes.push(request.postDataJSON());
     });
-    const begin = () => page.getByRole('button', { name: 'Edit layout', exact: true }).click();
-    const save = async (status: number) => {
-      const response = page.waitForResponse(
+    const begin = () => openKeyboardSelection(page);
+    const nextWrite = () =>
+      page.waitForResponse(
         (response) =>
           new URL(response.url()).pathname === '/api/v1/local/world' &&
           response.request().method() === 'PUT'
       );
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      const result = await response;
-      expect(result.status()).toBe(status);
-      return result.json();
-    };
     const coordinates = async (x: number, y: number) => {
       await precision();
       await page.getByRole('spinbutton', { name: 'X', exact: true }).fill(String(x));
@@ -94,15 +90,16 @@ test('native wall authoring rejects interior windows and missing support, preser
         'Crew sign',
         'Link plaque',
       ]) {
-        await page.getByRole('button', { name: 'Walls', exact: true }).click();
+        await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
         await page.getByRole('button', { name, exact: true }).click();
         if (name === 'Crew sign') {
           await page.getByLabel('Display text', { exact: true }).fill('CREW');
           await page.getByRole('button', { name: 'Apply appearance', exact: true }).click();
         }
       }
-      await save(200);
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const authored: WorldSnapshot = await command(['layout', 'show']);
       const original = savedWorld(sandbox.database);
       expect(JSON.parse(original.layout)).toEqual(authored.layout);
@@ -129,9 +126,9 @@ test('native wall authoring rejects interior windows and missing support, preser
       await page.screenshot({ path: info.outputPath('native-wall-collection.png') });
 
       // The partition is valid and has a door outside the window's span. Only exterior eligibility changes.
-      await begin();
       await object.selectOption(window.id);
       await precision();
+      const interiorWrite = nextWrite();
       await page
         .getByRole('combobox', { name: 'Wall direction', exact: true })
         .selectOption('vertical');
@@ -139,7 +136,9 @@ test('native wall authoring rejects interior windows and missing support, preser
         .getByRole('combobox', { name: 'Indoor face', exact: true })
         .selectOption('negative');
       await coordinates(36, 2);
-      expect(await save(400)).toMatchObject({
+      const interiorResponse = await interiorWrite;
+      expect(interiorResponse.status()).toBe(400);
+      expect(await interiorResponse.json()).toMatchObject({
         error: 'WORLD_INVALID',
         issues: [{ objectId: window.id, reason: 'windowRequiresExterior' }],
       });
@@ -157,15 +156,18 @@ test('native wall authoring rejects interior windows and missing support, preser
         ),
       });
       await expect(page.getByRole('spinbutton', { name: 'X', exact: true })).toHaveValue('36');
-      await page.getByRole('button', { name: 'Reload saved layout (discard draft)' }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await page
+        .getByRole('button', { name: 'Reload saved layout (discard local changes)' })
+        .click();
 
       // Move the same window off its supporting wall; native admission must
       // reject it while retaining the complete draft for explicit repair.
-      await begin();
       await object.selectOption(window.id);
+      const unsupportedWrite = nextWrite();
       await coordinates(0, 1);
-      expect(await save(400)).toMatchObject({
+      const unsupportedResponse = await unsupportedWrite;
+      expect(unsupportedResponse.status()).toBe(400);
+      expect(await unsupportedResponse.json()).toMatchObject({
         error: 'WORLD_INVALID',
         issues: [{ objectId: window.id, reason: 'missingWall' }],
       });
@@ -187,8 +189,10 @@ test('native wall authoring rejects interior windows and missing support, preser
       await page.screenshot({ path: info.outputPath('native-missing-wall-draft.png') });
       // Explicit relocation repairs the same window, with its ID/artwork unchanged.
       await coordinates(0, 0);
-      await save(200);
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Retry changes', exact: true }).click();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const repaired: WorldSnapshot = await command(['layout', 'show']);
       expect(repaired.layout.map).toEqual(invalid.layout.map);
       expect(repaired.layout.objects).toEqual(authored.layout.objects);
@@ -201,11 +205,10 @@ test('native wall authoring rejects interior windows and missing support, preser
       started = await command(['start', '--port', String(await unusedLoopbackPort())]);
       await page.goto(started.url);
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
+      await openKeyboardSelection(page);
       expect(savedWorld(sandbox.database)).toEqual(durable);
       expect((await command(['layout', 'show'])).layout).toEqual(repaired.layout);
       await page.screenshot({ path: info.outputPath('native-repaired-wall-restart.png') });
-      await begin();
-      await page.getByRole('button', { name: 'Inspect', exact: true }).click();
       const point = await fitWorldCoordinates(page, { x: -4, y: -20, width: 80, height: 50.5 });
       // Repaired north window starts at y=0, elevation3. Hit its artwork center.
       const center = point(

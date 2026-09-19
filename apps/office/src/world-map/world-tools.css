@@ -8,6 +8,7 @@
   pointer-events: none;
 }
 .world-hud-topline {
+  grid-row: 1;
   display: flex;
   flex-wrap: wrap;
   align-items: start;
@@ -26,6 +27,9 @@
   pointer-events: auto;
 }
 .world-editor-hud {
+  grid-column: 1;
+  grid-row: 2;
+  justify-self: end;
   min-height: 0;
   min-width: 0;
   display: flex;
@@ -401,14 +405,15 @@
   color: var(--hud-danger);
 }
 .world-directory {
-  position: absolute;
-  top: 76px;
-  left: 0;
+  position: static;
+  grid-column: 1;
+  grid-row: 2;
+  justify-self: start;
   z-index: 6;
   align-self: start;
   box-sizing: border-box;
   min-height: 0;
-  max-height: calc(100% - 76px);
+  max-height: 100%;
   width: min(295px, 100%);
   padding: 14px;
   overflow: auto;
@@ -547,7 +552,7 @@
 }
 @media (max-width: 760px) {
   .world-directory {
-    align-self: end;
+    align-self: start;
     width: 100%;
     overscroll-behavior: contain;
   }

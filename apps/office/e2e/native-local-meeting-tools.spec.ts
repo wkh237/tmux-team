@@ -1,4 +1,4 @@
-import { openMeetingRooms } from './office-navigation.js';
+import { openKeyboardSelection, openMeetingRooms } from './office-navigation.js';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 import Database from 'better-sqlite3';
@@ -72,7 +72,7 @@ test('meeting management and additive furniture share canonical resources withou
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
     };
     const begin = async () => {
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+      await openKeyboardSelection(page);
       await page.getByRole('combobox', { name: 'Area', exact: true }).selectOption(areaId);
     };
     const objects = page.getByRole('combobox', { name: 'Object', exact: true }).locator('option');
@@ -134,8 +134,14 @@ test('meeting management and additive furniture share canonical resources withou
       await expect(
         page.getByRole('combobox', { name: 'Linked meeting room', exact: true })
       ).toHaveValue(design.id);
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-      expect(await office(['layout', 'show'])).toEqual(before);
+      // The previous history entry is the meeting-set addition. Undo it explicitly;
+      // the retired global Cancel action no longer owns an unsaved layout draft.
+      await page.getByRole('button', { name: 'Undo', exact: true }).click();
+      await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
+      expect((await office(['layout', 'show'])).layout).toEqual(before.layout);
       expect((await cli(['room', 'show', design.id])).room).toMatchObject({
         revision: 2,
         memberIds: [alice.id],
@@ -148,10 +154,11 @@ test('meeting management and additive furniture share canonical resources withou
 
       await begin();
       await page.getByRole('button', { name: 'Add meeting set', exact: true }).click();
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const saved = await office(['layout', 'show']);
-      expect(saved.revision).toBe(before.revision + 1);
+      expect(saved.revision).toBeGreaterThan(before.revision);
       expect(saved.layout.objects).toHaveLength(9);
       expect(
         saved.layout.objects
@@ -255,8 +262,9 @@ test('meeting management and additive furniture share canonical resources withou
       await page
         .getByRole('combobox', { name: 'Linked meeting room', exact: true })
         .selectOption(planning);
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const rebound = await office(['layout', 'show']);
       expect(rebound.layout.objects).toEqual(saved.layout.objects);
       expect(
@@ -283,8 +291,9 @@ test('meeting management and additive furniture share canonical resources withou
       await discussion.getByRole('button', { name: 'Close discussion board', exact: true }).click();
       await begin();
       await page.getByRole('button', { name: 'Remove area designation', exact: true }).click();
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const detached = await office(['layout', 'show']);
       expect(detached.layout.objects).toEqual(saved.layout.objects);
       expect(detached.layout.map.areas).toHaveLength(1);
@@ -320,7 +329,6 @@ test('meeting management and additive furniture share canonical resources withou
       expect(counts()).toEqual({ boards: 1, requests: 0 });
       expect(errors).toEqual([]);
       await discussion.getByRole('button', { name: 'Close discussion board', exact: true }).click();
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
       await openMeetingRooms(page);
       await manager
         .getByRole('combobox', { name: 'Meeting room', exact: true })
@@ -349,7 +357,7 @@ test('meeting management and additive furniture share canonical resources withou
       });
       await page.screenshot({ path: info.outputPath('meeting-retired-retained.png') });
       await manager.getByRole('button', { name: 'Close meeting rooms', exact: true }).click();
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
       expect(await office(['layout', 'show'])).toEqual(detached);
       expect(counts()).toEqual({ boards: 1, requests: 0 });
       expect((await office(['board', 'list', '--room', design.id])).threads).toHaveLength(1);
@@ -372,9 +380,12 @@ test('meeting management and additive furniture share canonical resources withou
       await discussion.getByRole('button', { name: 'Close discussion board', exact: true }).click();
       expect(errors).toEqual([]);
     } finally {
-      await page.goto('about:blank');
-      await office(['stop']);
-      expect((await office(['status'])).service.running).toBe(false);
+      try {
+        if (!page.isClosed()) await page.goto('about:blank');
+      } finally {
+        await office(['stop']);
+        expect((await office(['status'])).service.running).toBe(false);
+      }
     }
   });
 });

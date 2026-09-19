@@ -40,6 +40,9 @@ export function ModuleRemovalDialog({
       ref={dialog}
       className="world-removal-dialog"
       aria-label={`Remove ${population.area.name} module`}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') event.stopPropagation();
+      }}
       onCancel={(event) => {
         event.preventDefault();
         dismiss();

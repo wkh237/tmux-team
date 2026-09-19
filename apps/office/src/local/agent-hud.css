@@ -1,7 +1,8 @@
 .agent-hud-host {
+  --agent-hud-top: clamp(84px, var(--agent-y, 116px), calc(100dvh - 568px));
   position: absolute;
   left: clamp(12px, calc(var(--agent-x, 100vw) + 20px), calc(100vw - 388px));
-  top: clamp(84px, var(--agent-y, 116px), calc(100dvh - 568px));
+  top: var(--agent-hud-top);
   z-index: 45;
   width: min(368px, calc(100vw - 24px));
   color: var(--hud-text);
@@ -17,7 +18,7 @@
 .agent-hud {
   display: flex;
   flex-direction: column;
-  max-height: calc(100dvh - 104px);
+  max-height: calc(100dvh - var(--agent-hud-top) - 12px);
   overflow: hidden;
   border: 1px solid var(--hud-border);
   border-radius: 12px;

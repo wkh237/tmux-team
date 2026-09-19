@@ -3,7 +3,7 @@ import { StrictMode } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { officeWorldFixture } from '../../../../test/support/office-world.js';
 import { useWorldEditor } from './use-world-editor.js';
-import { WorldConflict } from './world-port.js';
+import { WorldConflict, WorldValidationError } from './world-port.js';
 import type { WorldSnapshot, WorldWrite } from './world-port.js';
 
 afterEach(() => vi.useRealTimers());
@@ -113,6 +113,47 @@ it('retains failed changes without automatic retry or observation rebase; reload
   expect(result.current.world).toEqual(initial.layout);
   expect(result.current.blocked).toBe(false);
   expect(result.current.canUndo).toBe(false);
+  unmount();
+});
+
+it('clears a rejected validation state when Undo restores the acknowledged layout', async () => {
+  vi.useFakeTimers();
+  const { initial, port } = fixture();
+  const issue = { objectId: initial.layout.objects[0]!.id, reason: 'outsideFloor' as const };
+  port.save.mockRejectedValueOnce(
+    new WorldValidationError('Move affected objects before saving.', [issue])
+  );
+  const { result, unmount } = renderHook(() => useWorldEditor(initial, port));
+  act(() => result.current.change((world) => ({ ...world, objects: [] })));
+  await advance();
+  expect(result.current).toMatchObject({
+    blocked: true,
+    error: 'Move affected objects before saving.',
+    issues: [issue],
+  });
+  act(() => result.current.undo());
+  expect(result.current.world).toEqual(initial.layout);
+  expect(result.current).toMatchObject({ blocked: false, dirty: false, issues: [] });
+  expect(result.current.error).toBeUndefined();
+  expect(result.current.canRedo).toBe(true);
+  expect(port.save).toHaveBeenCalledTimes(1);
+  act(() => result.current.redo());
+  expect(result.current.world.objects).toEqual([]);
+  unmount();
+});
+
+it('does not clear a conflict block when Undo returns to the acknowledged layout', async () => {
+  vi.useFakeTimers();
+  const { initial, port } = fixture();
+  port.save.mockRejectedValueOnce(new WorldConflict());
+  const { result, unmount } = renderHook(() => useWorldEditor(initial, port));
+  act(() => result.current.change((world) => ({ ...world, objects: [] })));
+  await advance();
+  act(() => result.current.undo());
+  expect(result.current.world).toEqual(initial.layout);
+  expect(result.current.blocked).toBe(true);
+  expect(result.current.error).toBeDefined();
+  expect(port.save).toHaveBeenCalledTimes(1);
   unmount();
 });
 

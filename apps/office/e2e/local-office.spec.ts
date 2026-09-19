@@ -1,7 +1,7 @@
 import { openOfficeDirectory } from './office-navigation.js';
 import { expect, test } from '@playwright/test';
 import type { Request } from '@playwright/test';
-import { installDrawObserver, observeIdleScene } from './scene-observation.js';
+import { captureWorldScene, installDrawObserver, observeIdleScene } from './scene-observation.js';
 import { furnishedOfficeFixture } from './furnished-office-fixture.js';
 
 test('world HUD preserves the canvas and profile edits persist independently of layout', async ({
@@ -94,10 +94,10 @@ test('viewport changes preserve the world framing and a manually panned view wit
   const node = await canvas.elementHandle();
   await page.setViewportSize({ width: 390, height: 844 });
   await observeIdleScene(page, info, 'resized-portrait');
-  const portrait = await canvas.screenshot();
+  const portrait = await captureWorldScene(page, info, 'resized-portrait.png');
   await page.getByRole('button', { name: 'Fit office' }).click();
   await observeIdleScene(page, info, 'fitted-portrait');
-  expect(await canvas.screenshot()).toEqual(portrait);
+  expect(await captureWorldScene(page, info, 'fitted-portrait.png')).toEqual(portrait);
   await page.screenshot({ path: info.outputPath('world-resized-portrait.png') });
 
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -107,12 +107,12 @@ test('viewport changes preserve the world framing and a manually panned view wit
   await page.mouse.move(820, 570);
   await page.mouse.up({ button: 'middle' });
   await observeIdleScene(page, info, 'panned-desktop');
-  const panned = await canvas.screenshot();
+  const panned = await captureWorldScene(page, info, 'panned-desktop.png');
   await page.setViewportSize({ width: 390, height: 844 });
   await observeIdleScene(page, info, 'panned-portrait');
   await page.setViewportSize({ width: 1440, height: 1000 });
   await observeIdleScene(page, info, 'restored-desktop');
-  expect(await canvas.screenshot()).toEqual(panned);
+  expect(await captureWorldScene(page, info, 'restored-desktop.png')).toEqual(panned);
   expect(await node!.evaluate((element) => element.isConnected)).toBe(true);
   expect(fixture.writes).toEqual([]);
   expect(fixture.unexpected).toEqual([]);

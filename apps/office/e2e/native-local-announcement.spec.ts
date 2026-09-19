@@ -35,15 +35,21 @@ test('Office announcements reuse the real inbox without offering a reply or chan
       await expect(
         page.getByRole('button', { name: 'Compose announcement', exact: true })
       ).toHaveCount(0);
-      await expect(page.getByRole('complementary', { name: 'Layout tools' })).toHaveCount(0);
+      await expect(page.getByRole('complementary', { name: 'Layout tools' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Save layout', exact: true })).toHaveCount(0);
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
       const canvas = page.locator('.office-canvas canvas');
       const bounds = (await canvas.boundingBox())!;
-      const station = installationWorldPoint(bounds, 80, 16 + (55 * 61) / 88 - 4);
+      // Radio footprint [76,51,8,8] projects upright to [76,43.625,8,8].
+      const station = installationWorldPoint(bounds, 80, 47.625);
       await page.mouse.move(station.x, station.y);
+      await expect(canvas).toHaveCSS('cursor', 'grab');
+      const action = installationWorldPoint(bounds, 80, 42.5);
+      await page.mouse.move(action.x, action.y);
       await expect(canvas).toHaveCSS('cursor', 'pointer');
       await page.screenshot({ path: testInfo.outputPath('broadcaster-lobby-desktop.png') });
-      await page.mouse.click(station.x, station.y);
+      await page.mouse.click(action.x, action.y);
       const panel = page.getByRole('dialog', { name: 'Broadcast station', exact: true });
       const review = panel.getByRole('button', { name: 'Review announcement', exact: true });
       await expect(review).toBeDisabled();

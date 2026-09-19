@@ -10,10 +10,18 @@ export async function openMeetingRooms(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Meeting rooms', exact: true }).click();
 }
 
+export async function openKeyboardSelection(page: Page): Promise<void> {
+  const summary = page.getByText('Keyboard selection', { exact: true });
+  const details = summary.locator('..');
+  if ((await details.getAttribute('open')) === null) await summary.click();
+}
+
 export async function beginMeetingCreation(page: Page): Promise<void> {
-  const edit = page.getByRole('button', { name: 'Edit layout', exact: true });
-  if (await edit.isVisible()) await edit.click();
-  await page.getByRole('button', { name: 'Add meeting room', exact: true }).click();
+  await openOfficeDirectory(page);
+  const spaces = page.getByText('Available spaces', { exact: true });
+  const details = spaces.locator('..');
+  if ((await details.getAttribute('open')) === null) await spaces.click();
+  await details.getByRole('button', { name: 'New meeting room', exact: true }).click();
 }
 
 /** Open the accessible directory without toggling an already-open panel closed. */

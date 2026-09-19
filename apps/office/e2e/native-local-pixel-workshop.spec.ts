@@ -7,6 +7,7 @@ import { officeWorldFixture } from '../../../test/support/office-world.js';
 import { installNativeOffice, unusedLoopbackPort } from './native-office-fixture.js';
 import type { WorldSnapshot } from '../src/world-map/world-port.js';
 import type { PropInstallInput } from '../src/props/prop-catalog-contract.js';
+import { openKeyboardSelection } from './office-navigation.js';
 
 test.use({ actionTimeout: 10_000, hasTouch: true });
 
@@ -61,8 +62,6 @@ test('draw, retry a lost native receipt, cancel placement, discover after restar
       String(await unusedLoopbackPort()),
     ]);
     const open = async () => {
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
-      await page.getByRole('button', { name: 'Furniture', exact: true }).click();
       await page
         .getByRole('button', { name: 'Pixel workshop and art library', exact: true })
         .click();
@@ -149,12 +148,21 @@ test('draw, retry a lost native receipt, cancel placement, discover after restar
         .getByRole('button', { name: 'Add saved artwork to layout draft', exact: true })
         .click();
       await close();
+      await openKeyboardSelection(page);
       await expect(
         page.getByRole('combobox', { name: 'Object', exact: true }).locator('option')
       ).toHaveCount(3);
-      expect(await show()).toEqual(baseline);
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-      expect(await show()).toEqual(baseline);
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
+      expect((await show()).layout.objects).toHaveLength(baseline.layout.objects.length + 1);
+      await page.getByRole('button', { name: 'Undo', exact: true }).click();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
+      const restored = await show();
+      expect(restored.layout).toEqual(baseline.layout);
+      expect(restored.revision).toBeGreaterThan(baseline.revision);
       expect(artState()).toEqual(stored);
 
       await page.goto('about:blank');
@@ -208,10 +216,11 @@ test('draw, retry a lost native receipt, cancel placement, discover after restar
       await page
         .getByRole('button', { name: 'Place on a suitable wall in this area', exact: true })
         .click();
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const furnished = await show();
-      expect(furnished.revision).toBe(baseline.revision + 1);
+      expect(furnished.revision).toBeGreaterThan(baseline.revision);
       const artwork = furnished.layout.objects.find(
         (object) => object.placement.prop === `${stored.packs[0]!.digest}/artwork`
       )!;
@@ -219,11 +228,12 @@ test('draw, retry a lost native receipt, cancel placement, discover after restar
       expect(artState()).toEqual(stored);
       await page.setViewportSize({ width: 1440, height: 1000 });
       await page.screenshot({ path: info.outputPath('pixel-artwork-mounted.png') });
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+      await openKeyboardSelection(page);
       await page.getByRole('combobox', { name: 'Object', exact: true }).selectOption(artwork.id);
       await page.getByRole('button', { name: 'Remove placement', exact: true }).click();
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       expect((await show()).layout).toEqual(baseline.layout);
       expect(artState()).toEqual(stored);
     } finally {

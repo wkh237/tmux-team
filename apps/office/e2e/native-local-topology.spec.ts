@@ -6,7 +6,7 @@ import { expect, test } from '@playwright/test';
 import { runCli, withSandbox } from '../../../test/support/cli-process.js';
 import { officeWorldFixture } from '../../../test/support/office-world.js';
 import { installNativeOffice, unusedLoopbackPort } from './native-office-fixture.js';
-import { openOfficeDirectory } from './office-navigation.js';
+import { openKeyboardSelection, openOfficeDirectory } from './office-navigation.js';
 import { savedWorld } from './native-world-state.js';
 import type { WorldDocument } from '../src/world-map/world-contract.js';
 import type { WorldSnapshot, WorldWrite } from '../src/world-map/world-port.js';
@@ -128,10 +128,11 @@ test('repairs retained personal and Lobby designations without deleting identity
       await page.goto(started.url);
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
     };
-    const begin = () => page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+    const begin = () => openKeyboardSelection(page);
     const save = async () => {
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       return (await office(['layout', 'show'])) as WorldSnapshot;
     };
     const area = page.getByRole('combobox', { name: 'Area', exact: true });
@@ -169,17 +170,20 @@ test('repairs retained personal and Lobby designations without deleting identity
       ).toBeVisible();
       await page.screenshot({ path: info.outputPath('personal-area-removal-preview.png') });
       await remove.click();
-      expect((await office(['layout', 'show'])).layout).toEqual(assigned.layout);
-      expectStoredWorld(sandbox.database, assigned);
+      const autoDetached = await save();
+      expect(mapGeometry(autoDetached.layout.map).areas).not.toContainEqual(
+        expect.objectContaining({ id: studioId })
+      );
+      expect(autoDetached.layout.objects).toEqual(assigned.layout.objects);
       await page.getByRole('button', { name: 'Undo', exact: true }).click();
       await expect(page.getByRole('combobox', { name: 'Resident', exact: true })).toHaveValue(
         alice.id
       );
       await page.getByRole('button', { name: 'Redo', exact: true }).click();
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.getByRole('button', { name: 'Undo', exact: true }).click();
+      const restoredAssigned = await save();
       expect((await office(['layout', 'show'])).layout).toEqual(assigned.layout);
-      expectStoredWorld(sandbox.database, assigned);
-      await begin();
+      expectStoredWorld(sandbox.database, restoredAssigned);
       await area.selectOption(studioId);
       await remove.click();
       const detached = await save();
@@ -273,7 +277,7 @@ test('repairs retained personal and Lobby designations without deleting identity
   });
 });
 
-test('a real external world write rejects stale browser Save without rebasing the draft or partially committing it', async ({
+test('a real external world write rejects stale browser auto-apply without rebasing local changes or partially committing them', async ({
   page,
 }, info) => {
   await withSandbox(async (sandbox) => {
@@ -313,11 +317,11 @@ test('a real external world write rejects stale browser Save without rebasing th
     try {
       await page.setViewportSize({ width: 1440, height: 1000 });
       await page.goto(started.url);
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
-      await page.getByRole('textbox', { name: 'Area name', exact: true }).fill('My unsaved Lobby');
-      if (initial.layout.map.version !== 5) throw new Error('Expected compact modules');
+      await openKeyboardSelection(page);
+      if (initial.layout.map.version !== 6) throw new Error('Expected platform modules');
       const modules = initial.layout.map.modules;
       const lobbyId = initial.layout.map.primaryLobbyId;
+      await page.getByRole('combobox', { name: 'Area', exact: true }).selectOption(lobbyId);
       const outside: WorldDocument = {
         ...initial.layout,
         map: {
@@ -332,12 +336,12 @@ test('a real external world write rejects stale browser Save without rebasing th
       writeFileSync(file, JSON.stringify(outside));
       await office(['layout', 'apply', '--file', file, '--if-revision', '1']);
       const winner: WorldSnapshot = await office(['layout', 'show']);
-      await expect(page.getByRole('button', { name: 'Refresh office' })).toBeDisabled();
+      await expect(page.getByRole('button', { name: 'Refresh office' })).toBeEnabled();
+      const failed = saveResponse();
+      await page.getByRole('textbox', { name: 'Area name', exact: true }).fill('My unsaved Lobby');
       await expect(page.getByRole('textbox', { name: 'Area name', exact: true })).toHaveValue(
         'My unsaved Lobby'
       );
-      const failed = saveResponse();
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
       const response = await failed;
       expect(response.status()).toBe(409);
       expect(await response.json()).toMatchObject({ error: 'WORLD_REVISION_CONFLICT' });
@@ -350,10 +354,10 @@ test('a real external world write rejects stale browser Save without rebasing th
       expect(writes).toHaveLength(1);
       expect(writes[0]).toMatchObject({
         expectedRevision: 1,
-        layout: { objects: initial.layout.objects, map: { version: 5, primaryLobbyId: lobbyId } },
+        layout: { objects: initial.layout.objects, map: { version: 6, primaryLobbyId: lobbyId } },
       });
       const draftMap = writes[0]!.layout.map;
-      if (draftMap.version !== 5) throw new Error('Browser lost modular source');
+      if (draftMap.version !== 6) throw new Error('Browser lost platform source');
       expect(draftMap.modules).toEqual(
         modules
           .map((module) =>
@@ -374,12 +378,10 @@ test('a real external world write rejects stale browser Save without rebasing th
       ]) {
         await page.setViewportSize(viewport);
         const controls = page.getByRole('region', { name: 'Office controls' });
-        const tools = page.getByRole('toolbar', { name: 'Build tools' });
         const camera = page.getByRole('group', { name: 'Map view' });
         const inspector = page.getByRole('complementary', { name: 'Layout tools' });
-        const saveBar = page.getByRole('region', { name: 'Layout draft' });
+        const saveBar = page.getByRole('region', { name: 'Layout changes' });
         const headerBox = (await controls.boundingBox())!;
-        const toolsBox = (await tools.boundingBox())!;
         const cameraBox = (await camera.boundingBox())!;
         const inspectorBox = (await inspector.boundingBox())!;
         const saveBox = (await saveBar.boundingBox())!;
@@ -387,9 +389,6 @@ test('a real external world write rejects stale browser Save without rebasing th
           cameraBox.x >= headerBox.x + headerBox.width ||
             cameraBox.y >= headerBox.y + headerBox.height
         ).toBe(true);
-        expect(toolsBox.y).toBeGreaterThanOrEqual(
-          Math.max(headerBox.y + headerBox.height, cameraBox.y + cameraBox.height)
-        );
         expect(saveBox.y).toBeGreaterThanOrEqual(
           Math.max(headerBox.y + headerBox.height, cameraBox.y + cameraBox.height)
         );
@@ -403,6 +402,7 @@ test('a real external world write rejects stale browser Save without rebasing th
         await page.getByRole('button', { name: 'Fit office', exact: true }).click();
         await page.getByRole('combobox', { name: 'Object', exact: true }).click();
         await page.keyboard.press('Escape');
+        await page.getByRole('combobox', { name: 'Area', exact: true }).selectOption(lobbyId);
         await page.getByRole('textbox', { name: 'Area name', exact: true }).click();
         await expect(page.getByRole('textbox', { name: 'Area name', exact: true })).toHaveValue(
           'My unsaved Lobby'
@@ -420,23 +420,21 @@ test('a real external world write rejects stale browser Save without rebasing th
         await page.screenshot({ path: info.outputPath(`world-conflict-${viewport.width}.png`) });
       }
       const repeated = saveResponse();
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
+      await page.getByRole('button', { name: 'Retry changes', exact: true }).click();
       expect((await repeated).status()).toBe(409);
       expect(writes).toHaveLength(2);
       expect(writes[1]).toEqual(writes[0]);
       expect(await office(['layout', 'show'])).toEqual(winner);
       expectStoredWorld(sandbox.database, winner);
-      await page.getByRole('button', { name: 'Reload saved layout (discard draft)' }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+      await page
+        .getByRole('button', { name: 'Reload saved layout (discard local changes)' })
+        .click();
       await expect(page.getByRole('textbox', { name: 'Area name', exact: true })).toHaveValue(
         'External Lobby'
       );
-      await page.getByRole('textbox', { name: 'Area name', exact: true }).fill('Reconciled Lobby');
       const successful = saveResponse();
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
+      await page.getByRole('textbox', { name: 'Area name', exact: true }).fill('Reconciled Lobby');
       expect((await successful).status()).toBe(200);
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
       expect(writes[2]!.expectedRevision).toBe(winner.revision);
       const saved: WorldSnapshot = await office(['layout', 'show']);
       expect(saved.revision).toBe(winner.revision + 1);

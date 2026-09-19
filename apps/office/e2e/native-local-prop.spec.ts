@@ -26,6 +26,7 @@ import {
 import { PROP_DIRECTIONS } from '../src/props/prop-contract.js';
 import { installNativeOffice, unusedLoopbackPort } from './native-office-fixture.js';
 import { savedWorld } from './native-world-state.js';
+import { openKeyboardSelection } from './office-navigation.js';
 
 /** Stable placement IDs in a fixed world, without generated default furniture. */
 function worldLayout(placements: Furniture[]): WorldDocument {
@@ -42,15 +43,16 @@ function worldLayout(placements: Furniture[]): WorldDocument {
 }
 
 async function editPlacement(page: Page, index = 0) {
-  await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+  await openKeyboardSelection(page);
   await page
     .getByRole('combobox', { name: 'Object', exact: true })
     .selectOption(`30000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`);
 }
 
 async function saveLayout(page: Page) {
-  await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Layout changes' }).getByRole('status')).toHaveText(
+    'All changes applied'
+  );
 }
 
 async function refreshWorld(page: Page) {
@@ -427,7 +429,7 @@ test('directional workshop art previews exact pixels and saves upright views acr
       await expect(page.getByRole('combobox', { name: 'Object', exact: true })).toHaveValue(
         worldLayout([object]).objects[0]!.id
       );
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
       expect(savedWorld(sandbox.database)).toEqual(saved);
       expect(propState(sandbox.database, validated.digest)).toEqual({
         catalogRevision: 0,
@@ -493,7 +495,7 @@ test('directional workshop art previews exact pixels and saves upright views acr
       await expect(page.getByLabel('Tint color', { exact: true })).toHaveValue('#ff0080');
       await expect(page.getByLabel('Display text', { exact: true })).toHaveValue('STUDIO');
       expect(savedWorld(sandbox.database)).toEqual(customized);
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
       expect(await rugChannelSamples(page, 3)).toEqual({
         customized: [71, 0, 36, 255],
         original: [48, 71, 48, 255],
@@ -723,7 +725,7 @@ test('data-only prop reaches catalog, preview, world renderer and placeholder li
       await expect(
         page.getByRole('combobox', { name: 'Object', exact: true }).locator('option')
       ).toHaveCount(17);
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
       await expect.poll(async () => (await signalColorMask(page)).count).toBeGreaterThan(0);
       const renderedSignal = await signalColorMask(page);
@@ -753,7 +755,7 @@ test('data-only prop reaches catalog, preview, world renderer and placeholder li
         path: testInfo.outputPath('builtin-custom-props-narrow.png'),
         fullPage: true,
       });
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
 
       const removed = await office(['prop', 'remove', '--local', digest, '--if-revision', '1']);
       expect(removed.status, removed.stdout).toBe(0);

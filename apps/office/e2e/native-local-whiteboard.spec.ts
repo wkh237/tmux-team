@@ -59,13 +59,14 @@ test('the spatial and keyboard whiteboard entries share a lazy draft without dis
       });
       const world = page.locator('.office-canvas canvas');
       const bounds = (await world.boundingBox())!;
-      const point = installationWorldPoint(bounds, 90, 16 + (26 * 61) / 88 - 8);
+      // Whiteboard footprint [82,18,16,16] projects upright to [82,13.75,16,16].
+      const point = installationWorldPoint(bounds, 90, 21.75);
       await page.mouse.move(point.x, point.y);
-      await expect(world).toHaveCSS('cursor', 'pointer');
+      await expect(world).toHaveCSS('cursor', 'grab');
       await page.screenshot({ path: testInfo.outputPath('lobby-both-functional-boards.png') });
       // The expanded action label is above the artwork. Clicking it must keep
       // the same target through pointerdown/up rather than collapsing on press.
-      const actionY = installationWorldPoint(bounds, 90, 16 + (26 * 61) / 88 - 17).y;
+      const actionY = installationWorldPoint(bounds, 90, 12.75).y;
       await page.mouse.move(point.x, actionY);
       await expect(world).toHaveCSS('cursor', 'pointer');
       await page.mouse.click(point.x, actionY);
@@ -94,8 +95,11 @@ test('the spatial and keyboard whiteboard entries share a lazy draft without dis
       await page.keyboard.press('Escape');
       await expect(panel).not.toBeVisible();
       await expect(entry).toBeFocused();
-      await page.getByRole('button', { name: 'Close details' }).click();
-      await page.mouse.click(point.x, point.y);
+      await page.mouse.move(point.x, point.y);
+      await expect(world).toHaveCSS('cursor', 'grab');
+      await page.mouse.move(point.x, actionY);
+      await expect(world).toHaveCSS('cursor', 'pointer');
+      await page.mouse.click(point.x, actionY);
       await expect(panel.getByText('1 elements · click to select')).toBeVisible();
       await panel.getByRole('button', { name: 'Erase', exact: true }).click();
       await surface.click({ position: { x: 90, y: 90 } });

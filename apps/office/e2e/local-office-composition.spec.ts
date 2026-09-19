@@ -1,9 +1,9 @@
-import { openOfficeDirectory } from './office-navigation.js';
+import { openKeyboardSelection, openOfficeDirectory } from './office-navigation.js';
 import { expect, test } from '@playwright/test';
 import { furnishedOfficeFixture } from './furnished-office-fixture.js';
 import { fitWorldCoordinates } from './world-editor-gesture.js';
 
-test('authors wall objects with pixel artwork, atomic coordinate input and one whole-layout save', async ({
+test('authors wall objects with pixel artwork, atomic coordinate input and auto-apply', async ({
   page,
 }, info) => {
   const fixture = await furnishedOfficeFixture(page);
@@ -12,10 +12,10 @@ test('authors wall objects with pixel artwork, atomic coordinate input and one w
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(fixture.url);
   await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
-  await page.getByRole('button', { name: 'Edit layout' }).click();
+  await openKeyboardSelection(page);
   await page.getByRole('combobox', { name: 'Area', exact: true }).selectOption(area.id);
   await expect(page.locator('.world-art-option')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Walls', exact: true }).click();
+  await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
   const search = page.getByRole('searchbox', { name: 'Search objects' });
   await search.fill('no matching wall');
   await expect(page.getByText('No matching objects.', { exact: true })).toBeVisible();
@@ -24,6 +24,7 @@ test('authors wall objects with pixel artwork, atomic coordinate input and one w
   await search.fill('observatory');
   await expect(page.getByRole('button', { name: 'Brass wall lamp', exact: true })).toHaveCount(0);
   const windowCard = page.getByRole('button', { name: 'Observatory window', exact: true });
+  await windowCard.scrollIntoViewIfNeeded();
   await expect(windowCard.locator('svg').first()).toBeVisible();
   expect(await windowCard.locator('path').count()).toBeGreaterThan(0);
   const pictureBounds = (await windowCard.boundingBox())!;
@@ -43,7 +44,7 @@ test('authors wall objects with pixel artwork, atomic coordinate input and one w
     'Link plaque',
   ]) {
     if (name !== 'Observatory window')
-      await page.getByRole('button', { name: 'Walls', exact: true }).click();
+      await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
     if (name !== 'Observatory window') await expect(search).toHaveValue('');
     await page.getByRole('button', { name, exact: true }).click();
     await expect(
@@ -60,7 +61,6 @@ test('authors wall objects with pixel artwork, atomic coordinate input and one w
         .inputValue();
       await page.getByRole('button', { name: 'Remove placement', exact: true }).click();
       await expect(page.getByLabel('Area name', { exact: true })).toHaveValue('Studio');
-      expect(fixture.writes).toEqual([]);
       await page.getByRole('button', { name: 'Undo', exact: true }).click();
       await page.getByRole('combobox', { name: 'Object', exact: true }).selectOption(selected);
       await page.getByRole('button', { name: 'Edit room settings', exact: true }).click();
@@ -77,13 +77,13 @@ test('authors wall objects with pixel artwork, atomic coordinate input and one w
   await x.pressSequentially('-12');
   // No NaN or partial negative coordinate has entered the document/history.
   await expect(x).toHaveValue('-12');
-  expect(fixture.writes).toEqual([]);
   await page.getByRole('button', { name: 'Apply coordinates' }).click();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(x).toHaveValue('29');
-  await page.getByRole('button', { name: 'Save layout' }).click();
-  await expect(page.getByRole('button', { name: 'Edit layout' })).toBeVisible();
-  expect(fixture.writes).toHaveLength(1);
+  await expect(page.getByRole('region', { name: 'Layout changes' }).getByRole('status')).toHaveText(
+    'All changes applied'
+  );
+  expect(fixture.writes.length).toBeGreaterThan(0);
   const saved = fixture.read().layout;
   expect(saved.map).toEqual(original.map);
   expect(saved.objects.slice(0, original.objects.length)).toEqual(original.objects);
@@ -163,7 +163,6 @@ test('renders saved terrain and real furniture beneath floating HUD on desktop a
   await readableActions();
   await page.screenshot({ path: info.outputPath('world-agent-hud-narrow.png') });
   await page.getByRole('button', { name: 'Close agent conversation' }).click();
-  await openOfficeDirectory(page);
   await page.getByRole('button', { name: 'Fit office' }).click();
   await page.screenshot({ path: info.outputPath('world-narrow.png') });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
@@ -171,37 +170,30 @@ test('renders saved terrain and real furniture beneath floating HUD on desktop a
   expect(fixture.unexpected).toEqual([]);
 });
 
-test('object drag commits once, Undo restores placement, Save persists the complete layout', async ({
+test('keyboard selection and precise placement share auto-apply history and persistence', async ({
   page,
 }, info) => {
   const fixture = await furnishedOfficeFixture(page);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(fixture.url);
   await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
+  await openKeyboardSelection(page);
   const original = structuredClone(fixture.read().layout);
-  await page.getByRole('button', { name: 'Edit layout' }).click();
   await page
     .getByRole('combobox', { name: 'Object', exact: true })
     .selectOption(original.objects[0]!.id);
-  await page.getByRole('button', { name: 'Move object' }).click();
-  const canvas = page.locator('.office-canvas canvas');
-  // Left of the rendered building, clear of the right-hand layout inspector. A real captured
-  // pointer gesture exercises screen-to-world mapping, not a direct state call.
-  await page.mouse.move(100, 700);
-  await page.mouse.down();
-  await expect.poll(() => canvas.evaluate((element) => element.hasPointerCapture(1))).toBe(true);
-  await page.mouse.move(200, 760, { steps: 8 });
-  await page.mouse.up();
-  await expect(page.getByRole('status')).toHaveText('Unsaved changes');
+  await page.getByText('Precise placement', { exact: true }).click();
+  const x = page.getByLabel('X', { exact: true });
+  await x.fill(String(original.objects[0]!.placement.x + 4));
+  await page.getByRole('button', { name: 'Apply coordinates' }).click();
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
   await page.screenshot({ path: info.outputPath('world-object-draft.png') });
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
-  await expect(page.getByRole('status')).toHaveText('No changes');
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: 'Redo', exact: true }).click();
-  await page.getByRole('button', { name: 'Save layout' }).click();
-  await expect(page.getByRole('button', { name: 'Edit layout' })).toBeVisible();
-  expect(fixture.writes).toHaveLength(1);
+  await expect(page.getByRole('region', { name: 'Layout changes' }).getByRole('status')).toHaveText(
+    'All changes applied'
+  );
   expect(fixture.read().layout.map).toEqual(original.map);
   expect(fixture.read().layout.objects[0]!.placement).not.toEqual(original.objects[0]!.placement);
   expect(fixture.read().layout.objects.slice(1)).toEqual(original.objects.slice(1));
@@ -210,41 +202,46 @@ test('object drag commits once, Undo restores placement, Save persists the compl
   await page.goto('about:blank');
   await page.goto(fixture.url);
   await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
-  await expect(canvas).toHaveCount(1);
+  await expect(page.locator('.office-canvas canvas')).toHaveCount(1);
   expect(fixture.unexpected).toEqual([]);
 });
 
-test('Cancel and pointer cancellation cannot persist draft mutations', async ({ page }) => {
+test('pointer cancellation does not move objects and property changes auto-apply', async ({
+  page,
+}) => {
   const fixture = await furnishedOfficeFixture(page);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(fixture.url);
   await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
-  await page.getByRole('button', { name: 'Edit layout' }).click();
-  await page
-    .getByRole('combobox', { name: 'Object', exact: true })
-    .selectOption(fixture.read().layout.objects[0]!.id);
-  await page.getByRole('button', { name: 'Move object' }).click();
-  await page.mouse.move(100, 700);
+  await openKeyboardSelection(page);
+  const original = structuredClone(fixture.read().layout);
+  const board = original.objects.find((object) => object.extension?.binding.kind === 'whiteboard')!;
+  await page.getByRole('combobox', { name: 'Object', exact: true }).selectOption(board.id);
+  const point = await fitWorldCoordinates(page, { x: -4, y: -20, width: 80, height: 75.5 });
+  const start = point(23, 29.125);
+  await page.mouse.move(start.x, start.y);
   await page.mouse.down();
   const canvas = page.locator('.office-canvas canvas');
   await expect.poll(() => canvas.evaluate((element) => element.hasPointerCapture(1))).toBe(true);
-  await page.mouse.move(200, 760, { steps: 4 });
+  await page.mouse.move(start.x + 40, start.y, { steps: 4 });
   await page
     .locator('.office-canvas canvas')
-    .dispatchEvent('pointercancel', { pointerId: 1, button: 0, clientX: 200, clientY: 760 });
+    .dispatchEvent('pointercancel', { pointerId: 1, button: 0 });
   await page.mouse.up();
-  await expect(page.getByRole('status')).toHaveText('No changes');
+  expect(fixture.read().layout).toEqual(original);
   await page.getByRole('button', { name: 'Edit room settings', exact: true }).click();
-  await page.getByLabel('Area name', { exact: true }).fill('Draft Lobby');
-  await expect(page.getByRole('status')).toHaveText('Unsaved changes');
-  await page.getByRole('button', { name: 'Cancel' }).click();
+  await page.getByLabel('Area name', { exact: true }).fill('Shared lobby');
+  await expect(page.getByRole('region', { name: 'Layout changes' }).getByRole('status')).toHaveText(
+    'All changes applied'
+  );
   await page.reload();
   await expect(page.getByRole('alert')).toContainText('reopen its URL');
   await page.goto('about:blank');
   await page.goto(fixture.url);
   await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
-  expect(fixture.read().layout.map.areas[0]!.name).toBe('Lobby');
-  expect(fixture.writes).toEqual([]);
+  await openKeyboardSelection(page);
+  expect(fixture.read().layout.map.areas[0]!.name).toBe('Shared lobby');
+  expect(fixture.writes.length).toBeGreaterThan(0);
   expect(fixture.unexpected).toEqual([]);
 });
 
@@ -258,7 +255,7 @@ test('mounting a whiteboard on a wall retains its resource and opens it through 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(fixture.url);
   await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
-  await page.getByRole('button', { name: 'Edit layout' }).click();
+  await openKeyboardSelection(page);
   await page.getByRole('combobox', { name: 'Object', exact: true }).selectOption(board.id);
   await page.getByText('Precise placement', { exact: true }).click();
   await page.getByRole('combobox', { name: 'Placement surface', exact: true }).selectOption('wall');
@@ -266,8 +263,9 @@ test('mounting a whiteboard on a wall retains its resource and opens it through 
   await page.getByLabel('Elevation', { exact: true }).fill('2');
   await page.getByRole('button', { name: 'Apply coordinates' }).click();
   expect(fixture.reads.filter((path) => path.includes('/whiteboards/'))).toEqual([]);
-  await page.getByRole('button', { name: 'Save layout' }).click();
-  await expect(page.getByRole('button', { name: 'Edit layout' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Layout changes' }).getByRole('status')).toHaveText(
+    'All changes applied'
+  );
   const mounted = fixture.read().layout.objects.find((object) => object.id === board.id)!;
   expect(mounted.extension).toEqual(board.extension);
   expect(mounted.placement).toEqual({ ...board.placement, y: 0 });
@@ -282,8 +280,6 @@ test('mounting a whiteboard on a wall retains its resource and opens it through 
   // The whiteboard occupies [17,-10,12,8] after mounting; its old floor center is
   // [23,26.625]. Click the raised body, not an accessible-button or callback shortcut.
   const point = await fitWorldCoordinates(page, { x: -4, y: -20, width: 80, height: 75.5 });
-  await page.getByRole('button', { name: 'Edit layout' }).click();
-  await page.getByRole('button', { name: 'Move object', exact: true }).click();
   // Pan below the floating toolbar, then drag from inside the mounted body.
   // The grab offset must not become another elevation/edge offset.
   await page.mouse.move(850, 550);
@@ -301,10 +297,11 @@ test('mounting a whiteboard on a wall retains its resource and opens it through 
   await expect(page.getByLabel('Elevation', { exact: true })).toHaveValue('2');
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.getByLabel('X', { exact: true })).toHaveValue('17');
-  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: 'Redo', exact: true }).click();
-  await page.getByRole('button', { name: 'Save layout' }).click();
-  await expect(page.getByRole('button', { name: 'Edit layout' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Layout changes' }).getByRole('status')).toHaveText(
+    'All changes applied'
+  );
   await page.getByRole('button', { name: 'Fit office' }).click();
   expect(fixture.read().layout.objects.find((object) => object.id === board.id)).toEqual({
     ...mounted,
@@ -314,7 +311,12 @@ test('mounting a whiteboard on a wall retains its resource and opens it through 
   const oldFloor = point(23, 26.625);
   await page.mouse.click(oldFloor.x, oldFloor.y);
   await expect(page.getByRole('dialog', { name: 'Whiteboard', exact: true })).not.toBeVisible();
-  await page.mouse.click(end.x, end.y);
+  await page.mouse.move(end.x, end.y);
+  await expect(page.locator('.office-canvas canvas')).toHaveCSS('cursor', 'grab');
+  const action = point(27, -12);
+  await page.mouse.move(action.x, action.y);
+  await expect(page.locator('.office-canvas canvas')).toHaveCSS('cursor', 'pointer');
+  await page.mouse.click(action.x, action.y);
   const panel = page.getByRole('dialog', { name: 'Whiteboard', exact: true });
   await expect(panel).toBeVisible();
   await expect(panel.getByLabel('Whiteboard drawing surface')).toBeVisible();
@@ -331,7 +333,7 @@ test('mounting a whiteboard on a wall retains its resource and opens it through 
   expect(cancelled).toHaveLength(resourceReads.length - 1);
   for (const request of cancelled) expect(request.error).toBe('net::ERR_ABORTED');
   await panel.getByRole('button', { name: 'Close whiteboard' }).click();
-  expect(fixture.writes).toHaveLength(2);
+  expect(fixture.writes.length).toBeGreaterThanOrEqual(2);
   expect(fixture.unexpected).toEqual([]);
 });
 
@@ -349,7 +351,7 @@ test('web links stay inert through authoring, save and review until an explicit 
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(fixture.url);
   await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
-  await page.getByRole('button', { name: 'Edit layout' }).click();
+  await openKeyboardSelection(page);
   await page.getByRole('combobox', { name: 'Object', exact: true }).selectOption(object.id);
   await expect(page.getByRole('form', { name: 'Web link' })).toBeHidden();
   await page.getByText('Object action', { exact: true }).click();
@@ -360,8 +362,9 @@ test('web links stay inert through authoring, save and review until an explicit 
   expect(fixture.writes).toEqual([]);
   await form.getByLabel('Web destination').fill('https://example.com/tmt-guide');
   await form.getByRole('button', { name: 'Attach link to object' }).click();
-  await page.getByRole('button', { name: 'Save layout' }).click();
-  await expect(page.getByRole('button', { name: 'Edit layout' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Layout changes' }).getByRole('status')).toHaveText(
+    'All changes applied'
+  );
   expect(destinations).toEqual([]);
   expect(context.pages()).toHaveLength(1);
   expect(fixture.read().layout.objects.find((item) => item.id === object.id)).toEqual({

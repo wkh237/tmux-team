@@ -5,7 +5,11 @@ import { withSandbox } from '../../../test/support/cli-process.js';
 import { legacyLobbyObjects } from '../../../test/support/office-world.js';
 import { withE2EFixture } from '../../../test/e2e/harness.js';
 import { installNativeOffice, unusedLoopbackPort } from './native-office-fixture.js';
-import { openAgentDetails, openOfficeDirectory } from './office-navigation.js';
+import {
+  openAgentDetails,
+  openKeyboardSelection,
+  openOfficeDirectory,
+} from './office-navigation.js';
 import { savedWorld } from './native-world-state.js';
 import { workshopStarter } from '../src/blocks/workshop-starter.js';
 import type { WorldDocument, WorldObject } from '../src/world-map/world-contract.js';
@@ -199,14 +203,14 @@ test('a furnished native office keeps personal, Contractor and meeting experienc
           const canvasNode = await canvas.elementHandle();
           const fullViewport = await canvas.boundingBox();
           expect(fullViewport).toMatchObject({ x: 0, y: 0, width: 1440, height: 1000 });
-          await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+          await openKeyboardSelection(page);
           const area = page.getByRole('combobox', { name: 'Area', exact: true });
           await area.selectOption(meeting.id);
           await page.getByRole('button', { name: 'Add meeting set', exact: true }).click();
           for (const target of areas) {
             await area.selectOption(target.id);
             for (const name of ['Observatory window', 'Brass wall lamp', 'Crew sign']) {
-              await page.getByRole('button', { name: 'Walls', exact: true }).click();
+              await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
               await page.getByRole('button', { name, exact: true }).click();
             }
             await page.getByLabel('Display text', { exact: true }).fill(target.name);
@@ -214,16 +218,9 @@ test('a furnished native office keeps personal, Contractor and meeting experienc
           }
           expect(savedWorld(sandbox.database)).toEqual(before);
           await page.screenshot({ path: info.outputPath('furnished-draft-desktop.png') });
-          const write = page.waitForResponse(
-            (response) =>
-              new URL(response.url()).pathname === '/api/v1/local/world' &&
-              response.request().method() === 'PUT'
-          );
-          await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-          expect((await write).status()).toBe(200);
           await expect(
-            page.getByRole('button', { name: 'Edit layout', exact: true })
-          ).toBeVisible();
+            page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+          ).toHaveText('All changes applied');
           const stored = savedWorld(sandbox.database);
           const completed: WorldDocument = JSON.parse(stored.layout);
           expect(stored.revision).toBe(before.revision + 1);
@@ -241,7 +238,10 @@ test('a furnished native office keeps personal, Contractor and meeting experienc
           );
           await expect(page.getByText('Saved identity · Online', { exact: true })).toBeVisible();
           await page.screenshot({ path: info.outputPath('furnished-agent-info.png') });
-          await page.getByRole('button', { name: 'Message Alice', exact: true }).click();
+          const messageAlice = page.getByRole('button', { name: 'Message Alice', exact: true });
+          await messageAlice.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+          await expect(messageAlice).toBeInViewport();
+          await messageAlice.click();
           const chat = page.getByRole('dialog', { name: 'Agent conversation', exact: true });
           await expect(
             chat.getByText('Start a conversation with Alice.', { exact: true })
@@ -285,7 +285,7 @@ test('a furnished native office keeps personal, Contractor and meeting experienc
           ]);
           await page.screenshot({ path: info.outputPath('furnished-room-message.png') });
           await message.getByRole('button', { name: 'Close message room', exact: true }).click();
-          await page.getByRole('button', { name: 'Close details', exact: true }).click();
+          await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
           expect(await canvas.boundingBox()).toEqual(fullViewport);
           expect(await canvasNode!.evaluate((element) => element.isConnected)).toBe(true);
 
@@ -308,7 +308,8 @@ test('a furnished native office keeps personal, Contractor and meeting experienc
             await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
             await openOfficeDirectory(page);
             const directory = page.getByRole('complementary', { name: 'Office directory' });
-            await directory.getByRole('searchbox', { name: 'Search directory' }).fill('');
+            const directorySearch = directory.getByRole('searchbox', { name: 'Search directory' });
+            await directorySearch.fill('');
             const bounds = (await directory.boundingBox())!;
             await page.screenshot({
               path: info.outputPath(`furnished-directory-${viewport.width}.png`),
@@ -319,8 +320,11 @@ test('a furnished native office keeps personal, Contractor and meeting experienc
             expect(bounds.x).toBeGreaterThanOrEqual(0);
             expect(bounds.x + bounds.width).toBeLessThanOrEqual(viewport.width);
             expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height);
-            await directory.getByRole('searchbox', { name: 'Search directory' }).fill('Pip');
-            await expect(directory.getByRole('button', { name: /^Pip · Online/ })).toBeVisible();
+            for (const control of await page.locator('.world-hud-topline button:visible').all())
+              await expect(control).toBeInViewport();
+            await expect(directorySearch).toBeInViewport();
+            await directorySearch.fill('Pip');
+            await expect(directory.getByRole('button', { name: /^Pip · Online/ })).toBeInViewport();
             await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
             await page.getByRole('button', { name: 'Zoom out', exact: true }).click();
             await page.keyboard.press('Escape');
@@ -364,15 +368,18 @@ test('a furnished native office keeps personal, Contractor and meeting experienc
                 .map((p) => p.id)
                 .sort()
             );
-            await page.getByRole('button', { name: 'Close details', exact: true }).click();
+            await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
           }
           expect(errors).toEqual([]);
         } finally {
-          await page.goto('about:blank');
-          await office(['stop']);
-          expect(
-            (await office<{ service: { running: boolean } }>(['status'])).service.running
-          ).toBe(false);
+          try {
+            if (!page.isClosed()) await page.goto('about:blank');
+          } finally {
+            await office(['stop']);
+            expect(
+              (await office<{ service: { running: boolean } }>(['status'])).service.running
+            ).toBe(false);
+          }
         }
       },
       { globalDir: sandbox.globalDir }

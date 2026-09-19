@@ -10,6 +10,7 @@ import { installNativeOffice, unusedLoopbackPort } from './native-office-fixture
 import { officeWorldFixture } from '../../../test/support/office-world.js';
 import type { WorldDocument } from '../src/world-map/world-contract.js';
 import { installDrawObserver, observeIdleScene } from './scene-observation.js';
+import { openKeyboardSelection } from './office-navigation.js';
 import {
   capacityPropSource,
   CAPACITY_PACK_BYTES,
@@ -257,14 +258,14 @@ test('sixteen full v2 packs resolve in the browser and reject catalog overflow w
       expect(result.packs.map((entry: { digest: string }) => entry.digest).sort()).toEqual(
         digests.slice(0, 16).sort()
       );
-      await page.getByRole('button', { name: 'Edit layout' }).click();
+      await openKeyboardSelection(page);
       await expect(
         page.getByRole('combobox', { name: 'Object', exact: true }).locator('option')
       ).toHaveText([
         'Select an object',
         ...Array.from({ length: 16 }, (_, index) => `${index + 1} · Capacity tile 0`),
       ]);
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await page.getByText('Keyboard selection', { exact: true }).click();
       const elapsedToReadyMs = performance.now() - began;
       await observeIdleScene(page, testInfo, 'full-v2-catalog');
       // The fixture's frame-zero palette indices at (30,7) and (34,3) are 218 and 162.

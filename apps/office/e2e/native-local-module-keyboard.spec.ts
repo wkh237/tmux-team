@@ -6,6 +6,7 @@ import { runCli, withSandbox } from '../../../test/support/cli-process.js';
 import { installNativeOffice, unusedLoopbackPort } from './native-office-fixture.js';
 import { savedWorld } from './native-world-state.js';
 import type { WorldSnapshot } from '../src/world-map/world-port.js';
+import { openKeyboardSelection, openOfficeDirectory } from './office-navigation.js';
 
 test('module form keyboard actions and object repair share history and native persistence across desktop and narrow screens', async ({
   page,
@@ -54,20 +55,13 @@ test('module form keyboard actions and object repair share history and native pe
     try {
       await page.setViewportSize({ width: 1536, height: 1024 });
       await enter();
-      await activate(button('Edit layout'));
       await expect(button('Add floor')).toHaveCount(0);
-      await activate(button('Add office'));
+      await openOfficeDirectory(page);
+      await page.getByText('Available spaces', { exact: true }).click();
+      await activate(button('Office · column -1, row 0'));
       const form = page.getByRole('form', { name: 'New office' });
       await expect(form.getByRole('button', { name: 'Add office' })).toBeDisabled();
-      const slot = form.getByRole('combobox', { name: 'Office slot' });
-      await slot.focus();
-      await expect(slot).toBeFocused();
-      // Native popup navigation is not driven by synthetic keys in macOS Chrome.
-      // This covers selection/change handling, not OS-level arrow-key navigation.
-      // Extend west of the Lobby, not outside an existing office's north window.
-      // Exterior-window rejection is a different authoring scenario.
-      await slot.selectOption({ label: 'Column -1, row 0' });
-      await expect(form.getByText('Column -1, row 0 · Change', { exact: true })).toBeVisible();
+      await expect(form.getByText('Column -1, row 0', { exact: true })).toBeVisible();
       await type(form.getByRole('textbox', { name: 'Name', exact: true }), 'Keyboard studio');
       expect(savedWorld(sandbox.database)).toEqual(before);
       await activate(form.getByRole('button', { name: 'Add office' }));
@@ -76,12 +70,13 @@ test('module form keyboard actions and object repair share history and native pe
       await expect(button('Undo')).toBeDisabled();
       await activate(button('Redo'));
       await page.screenshot({ path: info.outputPath('module-keyboard-desktop.png') });
-      await activate(button('Save layout'));
-      await expect(button('Edit layout')).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const saved = savedWorld(sandbox.database);
       const layout: WorldSnapshot['layout'] = JSON.parse(saved.layout);
       expect(saved.revision).toBe(before.revision + 1);
-      expect(layout.map.version).toBe(5);
+      expect(layout.map.version).toBe(6);
       if (layout.map.version === 1 || initial.layout.map.version === 1)
         throw new Error('Expected modules');
       expect(layout.map.modules).toHaveLength(6);
@@ -100,7 +95,7 @@ test('module form keyboard actions and object repair share history and native pe
       await page.setViewportSize({ width: 390, height: 844 });
       await enter();
       expect(savedWorld(sandbox.database)).toEqual(saved);
-      await activate(button('Edit layout'));
+      await openKeyboardSelection(page);
       const objects = page.getByRole('combobox', { name: 'Object', exact: true });
       await objects.focus();
       await objects.selectOption({ index: 1 });
@@ -110,13 +105,12 @@ test('module form keyboard actions and object repair share history and native pe
       await expect(page.getByRole('spinbutton', { name: 'X', exact: true })).toBeHidden();
       await activate(page.getByText('Precise placement', { exact: true }));
       await type(page.getByRole('spinbutton', { name: 'X', exact: true }), '-4000');
-      await activate(button('Apply coordinates'));
       const rejection = page.waitForResponse(
         (response) =>
           new URL(response.url()).pathname === '/api/v1/local/world' &&
           response.request().method() === 'PUT'
       );
-      await activate(button('Save layout'));
+      await activate(button('Apply coordinates'));
       const response = await rejection;
       expect(response.status()).toBe(400);
       expect(await response.json()).toMatchObject({
@@ -133,7 +127,9 @@ test('module form keyboard actions and object repair share history and native pe
         390
       );
       await activate(button('Undo'));
-      await activate(button('Cancel'));
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       expect(savedWorld(sandbox.database)).toEqual(saved);
       expect((await office(['layout', 'show'])).layout).toEqual(layout);
     } finally {

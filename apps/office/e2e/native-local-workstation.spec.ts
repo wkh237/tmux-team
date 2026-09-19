@@ -10,6 +10,7 @@ import vectors from '../../../contracts/office/modules-central-grid-vectors.json
 import { decodeModuleMap } from '../src/world-map/module-contract.js';
 import { MODULAR_WORKSTATION_DIGEST, MODULAR_MOUNTED_DIGEST } from '../src/props/prop-contract.js';
 import type { WorldSnapshot } from '../src/world-map/world-port.js';
+import { openKeyboardSelection } from './office-navigation.js';
 
 test('reviewed workstation and wall art use real catalog placement, four chair views and native persistence', async ({
   page,
@@ -45,7 +46,6 @@ test('reviewed workstation and wall art use real catalog placement, four chair v
       '--legacy-basis',
       initial.legacyBasis!,
     ]);
-    const before = savedWorld(sandbox.database);
     const started = await office<{ url: string }>([
       'start',
       '--port',
@@ -58,7 +58,7 @@ test('reviewed workstation and wall art use real catalog placement, four chair v
       await installDrawObserver(page);
       await page.goto(started.url);
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+      await openKeyboardSelection(page);
       await page
         .getByRole('combobox', { name: 'Area', exact: true })
         .selectOption(map.modules[1]!.area.id);
@@ -69,7 +69,7 @@ test('reviewed workstation and wall art use real catalog placement, four chair v
         ['Workshop terminal', 14, -33],
         ['Workshop bookcase', 30, -44],
       ] as const) {
-        await page.getByRole('button', { name: 'Furniture', exact: true }).click();
+        await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
         await page.getByRole('button', { name, exact: true }).click();
         const precision = page.locator('.world-placement-details');
         if (!(await precision.evaluate((element) => (element as HTMLDetailsElement).open)))
@@ -88,7 +88,7 @@ test('reviewed workstation and wall art use real catalog placement, four chair v
         await page
           .getByRole('combobox', { name: 'Area', exact: true })
           .selectOption(map.modules[area]!.area.id);
-        await page.getByRole('button', { name: 'Walls', exact: true }).click();
+        await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
         await page.getByRole('button', { name, exact: true }).click();
         const precision = page.locator('.world-placement-details');
         if (!(await precision.evaluate((element) => (element as HTMLDetailsElement).open)))
@@ -101,9 +101,9 @@ test('reviewed workstation and wall art use real catalog placement, four chair v
           .fill(String(elevation));
         await coordinates.getByRole('button', { name: 'Apply coordinates' }).click();
       }
-      expect(savedWorld(sandbox.database)).toEqual(before);
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const saved = await office<WorldSnapshot>(['layout', 'show']);
       expect(saved.layout.map).toEqual(map);
       expect(saved.layout.objects.slice(0, layout.objects.length)).toEqual(layout.objects);
@@ -150,7 +150,7 @@ test('reviewed workstation and wall art use real catalog placement, four chair v
       await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
       await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
       await page.screenshot({ path: info.outputPath('workstation-module-1536.png') });
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+      await openKeyboardSelection(page);
       await page
         .getByRole('combobox', { name: 'Object', exact: true })
         .selectOption(additions[0]!.id);
@@ -160,7 +160,11 @@ test('reviewed workstation and wall art use real catalog placement, four chair v
         frames.push(await captureWorldScene(page, info, `chair-${direction}.png`));
       }
       expect(new Set(frames.map((frame) => frame.toString('base64'))).size).toBe(4);
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      for (let rotation = 0; rotation < 3; rotation++)
+        await page.getByRole('button', { name: 'Undo', exact: true }).click();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(saved.layout);
       await observeIdleScene(page, info, 'workstation');
       await page.goto('about:blank');

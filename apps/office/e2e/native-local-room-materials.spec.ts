@@ -17,6 +17,7 @@ import { moduleBounds } from '../src/world-map/module-geometry.js';
 import { workshopStarter } from '../src/blocks/workshop-starter.js';
 import type { WorldObject } from '../src/world-map/world-contract.js';
 import type { WorldSnapshot } from '../src/world-map/world-port.js';
+import { openKeyboardSelection } from './office-navigation.js';
 
 test('module finishes change real pixels while preserving topology, objects and bounded texture ownership', async ({
   page,
@@ -73,18 +74,18 @@ test('module finishes change real pixels while preserving topology, objects and 
       await installDrawObserver(page);
       await page.goto(started.url);
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+      await openKeyboardSelection(page);
       const area = page.getByRole('combobox', { name: 'Area', exact: true });
       await area.selectOption(map.modules[1]!.area.id);
       for (const name of ['Observatory window', 'Brass wall lamp']) {
-        await page.getByRole('button', { name: 'Walls', exact: true }).click();
+        await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
         await page.getByRole('button', { name, exact: true }).click();
       }
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const original = await office<WorldSnapshot>(['layout', 'show']);
       const before = savedWorld(sandbox.database);
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
       await area.selectOption(map.modules[1]!.area.id);
       const style = (name: string) => page.getByRole('radio', { name, exact: true });
       await expect(style('Workshop')).toBeChecked();
@@ -142,18 +143,19 @@ test('module finishes change real pixels while preserving topology, objects and 
       const repeated = await sceneActivity(page);
       expect(repeated.texturesCreated).toBe(warm.texturesCreated);
       expect(repeated.texturesLive).toBe(warm.texturesLive);
-      expect(savedWorld(sandbox.database)).toEqual(before);
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       expect(savedWorld(sandbox.database)).toEqual(before);
 
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
       await area.selectOption(map.modules[1]!.area.id);
       await style('Moonlight').check();
       await area.selectOption(map.modules[2]!.area.id);
       await style('Copper').check();
       await page.screenshot({ path: info.outputPath('room-materials-editor.png') });
-      await page.getByRole('button', { name: 'Save layout', exact: true }).click();
-      await expect(page.getByRole('button', { name: 'Edit layout', exact: true })).toBeVisible();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
       const saved = await office<WorldSnapshot>(['layout', 'show']);
       expect(saved.layout.objects).toEqual(original.layout.objects);
       expect(saved.layout.map).toEqual({
@@ -170,7 +172,7 @@ test('module finishes change real pixels while preserving topology, objects and 
       await page.goto('about:blank');
       await page.goto(started.url);
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
-      await page.getByRole('button', { name: 'Edit layout', exact: true }).click();
+      await openKeyboardSelection(page);
       await area.selectOption(map.modules[1]!.area.id);
       await expect(style('Moonlight')).toBeChecked();
       await area.selectOption(map.modules[2]!.area.id);
@@ -180,7 +182,6 @@ test('module finishes change real pixels while preserving topology, objects and 
       await style('Copper').focus();
       await expect(style('Copper')).toBeFocused();
       await page.screenshot({ path: info.outputPath('room-materials-narrow.png') });
-      await page.getByRole('button', { name: 'Cancel', exact: true }).click();
       expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(saved.layout);
       expect(errors).toEqual([]);
     } finally {

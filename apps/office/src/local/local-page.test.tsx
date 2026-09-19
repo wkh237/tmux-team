@@ -304,6 +304,12 @@ it('has no mode switch and selects room properties directly without writing', as
   expect(screen.getByRole('heading', { name: 'Furniture & devices' })).toBeDefined();
   act(() => canvas.select!({ kind: 'area', areaId: WORLD_LOBBY_ID }));
   expect(screen.getByLabelText('Area name')).toHaveProperty('value', 'Lobby');
+  await userEvent.click(screen.getByText('Keyboard selection', { exact: true }));
+  expect(screen.getByRole('combobox', { name: 'Area' })).toHaveProperty('value', WORLD_LOBBY_ID);
+  const object = canvas.model!.world.objects[0]!;
+  await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Object' }), object.id);
+  expect(canvas.editor!.selected).toBe(object.id);
+  expect(screen.getByRole('heading', { name: /^Selected object:/ })).toBeDefined();
   await userEvent.keyboard('{Escape}');
   expect(screen.getByRole('heading', { name: 'Furniture & devices' })).toBeDefined();
   expect(local.world.save).not.toHaveBeenCalled();

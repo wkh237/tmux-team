@@ -17,6 +17,7 @@ export function useWorldEditor(initial: WorldSnapshot, port: WorldPort) {
   const [error, setError] = useState<string>();
   const [issues, setIssues] = useState<readonly WorldPlacementIssue[]>([]);
   const request = useRef<AbortController | undefined>(undefined);
+  const blockedReason = useRef<'validation' | 'conflict' | 'uncertain' | undefined>(undefined);
   useEffect(() => {
     history.resume();
     return () => {
@@ -66,6 +67,7 @@ export function useWorldEditor(initial: WorldSnapshot, port: WorldPort) {
     const { saved } = current.current;
     const layout = history.world;
     if (sameWorld(layout, saved.layout)) {
+      blockedReason.current = undefined;
       setBlocked(false);
       setError(undefined);
       setIssues([]);
@@ -83,10 +85,17 @@ export function useWorldEditor(initial: WorldSnapshot, port: WorldPort) {
       );
       if (controller.signal.aborted) return;
       acknowledge(result);
+      blockedReason.current = undefined;
       setBlocked(false);
       // Keep newer local changes and undo history; the next write uses this acknowledgement.
     } catch (cause) {
       if (controller.signal.aborted) return;
+      blockedReason.current =
+        cause instanceof WorldValidationError
+          ? 'validation'
+          : cause instanceof WorldConflict
+            ? 'conflict'
+            : 'uncertain';
       setBlocked(true);
       setError(
         cause instanceof WorldValidationError || cause instanceof WorldConflict
@@ -124,6 +133,7 @@ export function useWorldEditor(initial: WorldSnapshot, port: WorldPort) {
         acknowledge(latest);
         history.reset(latest.layout);
         historyChanged();
+        blockedReason.current = undefined;
         setBlocked(false);
         setError(undefined);
         setIssues([]);
@@ -143,6 +153,17 @@ export function useWorldEditor(initial: WorldSnapshot, port: WorldPort) {
       setError(cause instanceof Error ? cause.message : 'This history step is unavailable.');
     }
     historyChanged();
+    if (
+      direction === 'undo' &&
+      blockedReason.current === 'validation' &&
+      !request.current &&
+      sameWorld(history.world, current.current.saved.layout)
+    ) {
+      blockedReason.current = undefined;
+      setBlocked(false);
+      setError(undefined);
+      setIssues([]);
+    }
   }
   return {
     world,

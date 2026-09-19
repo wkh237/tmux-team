@@ -22,6 +22,7 @@ import type { PanelObstacles } from './use-anchored-panel.js';
 import { upgradeModuleWorld, compactModuleWorld, platformModuleWorld } from './module-upgrade.js';
 import { PropThumbnail } from '../props/prop-thumbnail.js';
 import { WorldArtLibrary } from './world-art-library.js';
+import { WorldObjectPicker } from './world-object-picker.js';
 
 type Editor = ReturnType<typeof useWorldEditor>;
 interface Props {
@@ -180,6 +181,27 @@ export function WorldTools({
               </section>
             )}
           <fieldset disabled={editor.busy}>
+            <details>
+              <summary>Keyboard selection</summary>
+              <label>
+                Area
+                <select value={areaId ?? ''} onChange={(event) => selectArea(event.target.value)}>
+                  <option value="">Common floor</option>
+                  {map.areas.map((area) => (
+                    <option key={area.id} value={area.id}>
+                      {area.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <WorldObjectPicker
+                world={world}
+                catalog={catalog}
+                areaId={areaId}
+                value={objectId}
+                select={selectObject}
+              />
+            </details>
             <section id={libraryId} hidden={!library} aria-label="Object library">
               <div className="world-art-heading">
                 <h3 ref={libraryHeading} tabIndex={-1}>

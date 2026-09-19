@@ -93,9 +93,12 @@ test('lobby discussions preserve the world and drafts, persist explicit posts, a
     });
     try {
       await page.setViewportSize({ width: 1440, height: 1000 });
+      // Exact lifecycle screenshots exclude the intentional bridge glow.
+      await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.goto(started.url);
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
       const initial = discussionState(sandbox.database);
+      const initialWorld = await office(['layout', 'show']);
       expect(initial).toMatchObject({
         identities: 0,
         blocks: 0,
@@ -107,15 +110,25 @@ test('lobby discussions preserve the world and drafts, persist explicit posts, a
       const canvas = page.locator('.office-canvas canvas');
       const canvasBounds = await canvas.boundingBox();
       expect(canvasBounds).not.toBeNull();
-      const boardPoint = installationWorldPoint(canvasBounds!, 70, 16 + (24 * 61) / 88 - 6);
+      // Discussion footprint [64,18,12,12] projects upright to [64,14.25,12,12].
+      const boardPoint = installationWorldPoint(canvasBounds!, 70, 20.25);
       await page.screenshot({ path: testInfo.outputPath('lobby-spatial-board.png') });
       await page.mouse.move(boardPoint.x, boardPoint.y);
-      await expect(canvas).toHaveCSS('cursor', 'pointer');
+      await expect(canvas).toHaveCSS('cursor', 'grab');
       await page.mouse.down();
       await page.mouse.move(boardPoint.x + 30, boardPoint.y);
       await page.mouse.up();
       await expect(page.getByRole('dialog', { name: 'Discussion board' })).not.toBeVisible();
-      expect(discussionState(sandbox.database)).toEqual(initial);
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
+      await page.getByRole('button', { name: 'Undo', exact: true }).click();
+      await expect(
+        page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
+      ).toHaveText('All changes applied');
+      expect((await office(['layout', 'show'])).layout).toEqual(initialWorld.layout);
+      const resourceBaseline = discussionState(sandbox.database);
+      expect(resourceBaseline).toEqual({ ...initial, worlds: 1 });
       await page.getByRole('button', { name: 'Fit office', exact: true }).click();
 
       // Observe the browser's real pointer ID rather than assuming the mouse uses 1.
@@ -136,7 +149,7 @@ test('lobby discussions preserve the world and drafts, persist explicit posts, a
       await page.mouse.up();
       await canvas.evaluate((element) => element.removeAttribute('data-test-pointer'));
       await expect(page.getByRole('dialog', { name: 'Discussion board' })).not.toBeVisible();
-      expect(discussionState(sandbox.database)).toEqual(initial);
+      expect(discussionState(sandbox.database)).toEqual(resourceBaseline);
 
       // A changed camera makes replacement/refitting detectable, not just canvas presence.
       // Keep the crop below the lobby HUD: its focus-visible ring legitimately
@@ -156,20 +169,25 @@ test('lobby discussions preserve the world and drafts, persist explicit posts, a
       expect(panned.equals(unpanned)).toBe(false);
       await openOfficeObjects(page);
       const openBoard = page.getByRole('button', { name: 'Open discussion board', exact: true });
-      // Compare the same keyboard-focus state: focus now intentionally lights the object.
+      // Keyboard focus intentionally lights only the selected object. Compare a neutral
+      // canvas state across the modal lifecycle so the transient action label is excluded.
       const roomStrip = { x: 750, y: 350, width: 200, height: 200 };
       const beforeFocus = await page.screenshot({ clip: roomStrip });
       const beforeHighlight = await page.screenshot({ clip: worldStrip });
       await openBoard.focus();
-      const beforeBoard = await page.screenshot({ clip: worldStrip });
-      expect(beforeBoard.equals(beforeHighlight)).toBe(false);
+      const focusedBoard = await page.screenshot({ clip: worldStrip });
+      expect(focusedBoard.equals(beforeHighlight)).toBe(false);
       expect((await page.screenshot({ clip: roomStrip })).equals(beforeFocus)).toBe(true);
+      await page.getByRole('button', { name: 'Fit office', exact: true }).focus();
+      await page.mouse.move(10, 900);
+      const beforeBoard = await page.screenshot({ clip: worldStrip });
       writeFileSync(testInfo.outputPath('world-before-dialog.png'), beforeBoard);
+      await openBoard.focus();
       await openBoard.press('Enter');
       const board = page.getByRole('dialog', { name: 'Discussion board', exact: true });
       await expect(board.getByText('No posts in this category yet.')).toBeVisible();
       await expect(board.getByLabel('Order')).toHaveValue('updated');
-      expect(discussionState(sandbox.database)).toEqual(initial);
+      expect(discussionState(sandbox.database)).toEqual(resourceBaseline);
       await board.getByRole('button', { name: 'New post', exact: true }).click();
       const title = 'A quieter corner for code review';
       const body =
@@ -179,20 +197,26 @@ test('lobby discussions preserve the world and drafts, persist explicit posts, a
       await page.keyboard.press('Escape');
       await expect(board).not.toBeVisible();
       await expect(openBoard).toBeFocused();
+      await page.getByRole('button', { name: 'Fit office', exact: true }).focus();
+      await page.mouse.move(10, 900);
       const afterBoard = await page.screenshot({ clip: worldStrip });
       writeFileSync(testInfo.outputPath('world-after-dialog.png'), afterBoard);
       expect(afterBoard.equals(beforeBoard)).toBe(true);
-      expect(discussionState(sandbox.database)).toEqual(initial);
+      expect(discussionState(sandbox.database)).toEqual(resourceBaseline);
       // Reopen the very same draft by clicking the physical object after the known pan.
-      // Close the foreground menu before testing the world behind it.
-      await page.getByRole('button', { name: 'Close details' }).click();
-      await page.mouse.click(boardPoint.x + 40, boardPoint.y + 20);
+      const pannedBoard = { x: boardPoint.x + 40, y: boardPoint.y + 20 };
+      await page.mouse.move(pannedBoard.x, pannedBoard.y);
+      await expect(canvas).toHaveCSS('cursor', 'grab');
+      const actionY = installationWorldPoint(canvasBounds!, 70, 13.25).y + 20;
+      await page.mouse.move(pannedBoard.x, actionY);
+      await expect(canvas).toHaveCSS('cursor', 'pointer');
+      await page.mouse.click(pannedBoard.x, actionY);
       await expect(board).toBeVisible();
       await expect(board.getByLabel('Title', { exact: true })).toHaveValue(title);
       await expect(board.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue(body);
       await page.keyboard.press('Escape');
       await expect(canvas).toBeFocused();
-      expect(discussionState(sandbox.database)).toEqual(initial);
+      expect(discussionState(sandbox.database)).toEqual(resourceBaseline);
       await openOfficeObjects(page);
       await openBoard.focus();
       await openBoard.press('Enter');
