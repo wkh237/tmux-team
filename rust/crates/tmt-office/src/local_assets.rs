@@ -37,7 +37,15 @@ mod tests {
         assert!(ASSETS.iter().all(|(route, content_type, bytes)| {
             route.starts_with('/')
                 && !route.contains("..")
-                && content_type.contains("charset=utf-8")
+                && match route.rsplit('.').next() {
+                    Some("html") => *content_type == "text/html; charset=utf-8",
+                    Some("js") => *content_type == "text/javascript; charset=utf-8",
+                    Some("css") => *content_type == "text/css; charset=utf-8",
+                    Some("png") => {
+                        *content_type == "image/png" && bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+                    }
+                    _ => false,
+                }
                 && !bytes.is_empty()
         }));
     }

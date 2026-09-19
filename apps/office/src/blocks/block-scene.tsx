@@ -2,11 +2,12 @@ import { useId } from 'react';
 import type { Furniture } from './block-contract.js';
 import { BLOCK_SIZE, defaultCatalog, footprint } from './block-contract.js';
 import { Avatar } from '../profiles/avatar.js';
-import type { AvatarArt } from '../profiles/avatar.js';
+import type { AvatarArt } from '../profiles/avatar-art.js';
 import type { Appearance } from '../profiles/profile-contract.js';
 import type { CatalogPack } from '../props/prop-contract.js';
-import { resolvedProp } from '../props/prop-contract.js';
+import { resolvePlacedProp } from '../props/prop-contract.js';
 import { IndexedProp } from '../props/indexed-prop.js';
+import workshopFloor from './assets/workshop-oak-v1.png';
 
 export interface SceneAvatar {
   appearance: Appearance;
@@ -17,46 +18,71 @@ export interface SceneAvatar {
 
 function ResolvedProp({ item, catalog }: { item: Furniture; catalog: CatalogPack[] }) {
   const clip = useId();
-  const [digest, key] = item.prop.split('/');
+  const [digest] = item.prop.split('/');
   const digestPrefix = digest?.startsWith('sha256:')
     ? digest.slice('sha256:'.length, 'sha256:'.length + 12)
     : '000000000000';
-  const pack = catalog.find((candidate) => candidate.digest === digest)?.pack;
-  const prop = pack && key ? resolvedProp(pack, key, item.footprint) : undefined;
+  const resolved = resolvePlacedProp(catalog, item);
   const size = footprint(item);
+  if (resolved)
+    return (
+      <g transform={`translate(${item.x} ${item.y})`}>
+        <IndexedProp
+          pack={resolved.pack}
+          prop={resolved.definition}
+          rotation={item.rotation}
+          customization={item.customization}
+        />
+      </g>
+    );
   return (
     <g
       transform={`translate(${item.x + size.width / 2} ${item.y + size.height / 2}) rotate(${item.rotation * 90}) translate(${-item.footprint.width / 2} ${-item.footprint.height / 2})`}
     >
-      {pack && prop ? (
-        <IndexedProp pack={pack} prop={prop} />
-      ) : (
-        <>
-          <defs>
-            <clipPath id={clip}>
-              <rect width={item.footprint.width} height={item.footprint.height} />
-            </clipPath>
-          </defs>
-          <g role="img" aria-label={`Unavailable prop ${digestPrefix}`} clipPath={`url(#${clip})`}>
-            <rect
-              width={item.footprint.width}
-              height={item.footprint.height}
-              fill="var(--floor)"
-              stroke="var(--selection)"
-              strokeWidth="0.15"
-              strokeDasharray="0.3 0.2"
-            />
-            <text x="0.25" y="0.65" fontSize="0.45" fill="var(--ink)">
-              Unavailable prop
-            </text>
-            <text x="0.25" y="1.2" fontSize="0.32" fill="var(--ink)" opacity="0.65">
-              {digestPrefix}
-            </text>
-          </g>
-        </>
-      )}
+      <defs>
+        <clipPath id={clip}>
+          <rect width={item.footprint.width} height={item.footprint.height} />
+        </clipPath>
+      </defs>
+      <g role="img" aria-label={`Unavailable prop ${digestPrefix}`} clipPath={`url(#${clip})`}>
+        <rect
+          width={item.footprint.width}
+          height={item.footprint.height}
+          fill="var(--floor)"
+          stroke="var(--selection)"
+          strokeWidth="0.15"
+          strokeDasharray="0.3 0.2"
+        />
+        <text x="0.25" y="0.65" fontSize="0.45" fill="var(--ink)">
+          Unavailable prop
+        </text>
+        <text x="0.25" y="1.2" fontSize="0.32" fill="var(--ink)" opacity="0.65">
+          {digestPrefix}
+        </text>
+      </g>
     </g>
   );
+}
+
+export interface BlockSceneProps {
+  objects: Furniture[];
+  selected?: number | null;
+  select?: (index: number) => void;
+  move?: (x: number, y: number) => void;
+  avatar?: SceneAvatar;
+  catalog?: CatalogPack[];
+  actions?: FurnitureActions;
+}
+
+/** Commands supplied by the draft owner; renderers never mutate a layout. */
+export interface FurnitureActions {
+  label: string;
+  left?: () => void;
+  right?: () => void;
+  up?: () => void;
+  down?: () => void;
+  rotate?: () => void;
+  remove?: () => void;
 }
 
 export function BlockScene({
@@ -66,15 +92,9 @@ export function BlockScene({
   move,
   avatar,
   catalog = defaultCatalog(),
-}: {
-  objects: Furniture[];
-  selected?: number | null;
-  select?: (index: number) => void;
-  move?: (x: number, y: number) => void;
-  avatar?: SceneAvatar;
-  catalog?: CatalogPack[];
-}) {
+}: BlockSceneProps) {
   const pattern = useId();
+  const floor = useId();
   return (
     <svg
       className="block-scene"
@@ -94,13 +114,17 @@ export function BlockScene({
       }}
     >
       <defs>
+        <pattern id={floor} width="32" height="32" patternUnits="userSpaceOnUse">
+          <image href={workshopFloor} width="32" height="32" preserveAspectRatio="none" />
+        </pattern>
         <pattern id={pattern} width="1" height="1" patternUnits="userSpaceOnUse">
-          <rect width="1" height="1" fill="var(--floor)" />
           <path d="M1 0 H0 V1" fill="none" stroke="var(--grid)" strokeWidth="0.035" />
         </pattern>
       </defs>
       <rect x="-0.6" y="-0.6" width="33.2" height="33.2" rx="0.5" fill="var(--wall)" />
-      <rect width="32" height="32" fill={`url(#${pattern})`} />
+      <rect width="32" height="32" fill={`url(#${floor})`} />
+      <rect width="32" height="32" fill="#eadcc0" opacity="0.22" />
+      {move && <rect width="32" height="32" fill={`url(#${pattern})`} />}
       {objects.map((item, index) => {
         const { width, height } = footprint(item);
         return (

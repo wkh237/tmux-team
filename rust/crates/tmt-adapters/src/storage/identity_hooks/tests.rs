@@ -35,7 +35,7 @@ fn registration_retirement_reopen_and_delivery_preserve_terminal_state() {
     retire(&mut storage, &original);
     storage.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 17);
+    assert_eq!(storage.health().unwrap().schema_version, 31);
     assert_eq!(
         storage.pending_identity_hooks("office", 100).unwrap()[0].hook,
         hook
@@ -212,12 +212,22 @@ fn saved_detach_does_not_enqueue_and_registration_serializes_with_retirement() {
 fn schema_nine_upgrade_is_atomic_and_preserves_identity() {
     let directory = TestDirectory::new();
     let path = directory.path.join("hooks.db");
-    let mut storage = Storage::open(&path).unwrap();
-    let original = identity(&mut storage);
-    // Restore the exact predecessor table inventory; no hook existed in v9.
-    storage.connection().unwrap().execute_batch("DROP TABLE identity_hooks; DROP TABLE office_avatar_packs; DROP TABLE office_avatar_catalog; DROP TABLE office_prop_packs; DROP TABLE office_prop_catalog; DROP TABLE office_local_profiles; DROP TABLE office_local_blocks; DROP TABLE office_local_worlds; DROP TABLE request_recipient_attention_identities; DROP TABLE identity_metadata; DROP TABLE office_board_operations; DROP TABLE office_board_entries; DROP TABLE office_board_state; DELETE FROM _migrations WHERE version IN (10, 11, 12, 13, 14, 15, 16, 17);
-        CREATE TRIGGER reject_tenth BEFORE INSERT ON _migrations WHEN NEW.version = 10 BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;").unwrap();
-    storage.close().unwrap();
+    let mut predecessor = Connection::open(&path).unwrap();
+    super::super::migrations::seed_hook_predecessor(&mut predecessor);
+    let original = Identity {
+        id: "11111111-1111-4111-8111-111111111111".into(),
+        name: "agent".into(),
+        canonical_name: "agent".into(),
+        lifetime: Lifetime::Temporary,
+        created_at: "created".into(),
+        updated_at: "updated".into(),
+    };
+    predecessor.execute(
+        "INSERT INTO identities (id,name,canonical_name,lifetime,created_at,updated_at) VALUES (?,?,?,'temporary',?,?)",
+        params![original.id, original.name, original.canonical_name, original.created_at, original.updated_at],
+    ).unwrap();
+    predecessor.execute_batch("CREATE TRIGGER reject_tenth BEFORE INSERT ON _migrations WHEN NEW.version = 10 BEGIN SELECT RAISE(ABORT, 'fixture failure'); END;").unwrap();
+    predecessor.close().unwrap();
     let error = match Storage::open(&path) {
         Ok(_) => panic!("migration should fail"),
         Err(error) => error,
@@ -235,7 +245,7 @@ fn schema_nine_upgrade_is_atomic_and_preserves_identity() {
     observer.execute_batch("DROP TRIGGER reject_tenth").unwrap();
     observer.close().unwrap();
     let mut storage = Storage::open(&path).unwrap();
-    assert_eq!(storage.health().unwrap().schema_version, 17);
+    assert_eq!(storage.health().unwrap().schema_version, 31);
     assert_eq!(
         storage
             .find_active_identity_by_id(&original.id)

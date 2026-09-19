@@ -107,10 +107,10 @@ fn shell_word(value: &str) -> String {
 fn follow_up_commands(item: &IncomingItem, identity: &Identity) -> (String, String) {
     let request = shell_word(&item.exchange.request_id);
     let selector = shell_word(&identity.canonical_name);
-    let qualifier = if item.kind.as_str() == "request" {
-        " --incoming"
-    } else {
-        ""
+    let qualifier = match item.kind {
+        tmt_core::request::attention::IncomingKind::Request
+        | tmt_core::request::attention::IncomingKind::Announcement => " --incoming",
+        tmt_core::request::attention::IncomingKind::Response => "",
     };
     (
         format!("tmt x show {request}{qualifier} --identity {selector}"),
@@ -127,7 +127,7 @@ fn item_document(
     selected_identity: &Identity,
 ) -> serde_json::Value {
     let (inspect_command, ack_command) = follow_up_commands(item, selected_identity);
-    json!({
+    let mut document = json!({
         "requestId": item.exchange.request_id,
         "revision": item.exchange.revision,
         "kind": item.kind.as_str(),
@@ -142,11 +142,16 @@ fn item_document(
         "retentionExpiresAtMs": item.exchange.retention_expires_at_ms,
         "inspectCommand": inspect_command,
         "ackCommand": ack_command,
-    })
+    });
+    if let Some(room_id) = &item.exchange.room_id {
+        document["roomId"] = room_id.clone().into();
+    }
+    document
 }
 
 fn run(
     identity: Option<String>,
+    room: Option<String>,
     timeout: Duration,
     debounce: Duration,
     interrupt: &Interrupt,
@@ -157,6 +162,11 @@ fn run(
     let mut storage = Storage::open(paths.database).map_err(unavailable)?;
     let pending = (|| {
         let identity = identity_context::resolve(&mut storage, selector)?;
+        // Resolve once; delivered work remains visible after the recipient leaves.
+        let room = room
+            .map(|selector| crate::room_command::resolve_history(&mut storage, &selector))
+            .transpose()?;
+        let room_id = room.as_ref().map(|room| room.id.as_str());
         let mut timing = Timing::new(timeout, debounce);
         loop {
             if storage
@@ -171,11 +181,11 @@ fn run(
                 ));
             }
             let watermark = RequestService::new(&mut storage, wall_time_ms)
-                .incoming_watermark(&identity.id)
+                .incoming_watermark(&identity.id, room_id)
                 .map_err(request_failure)?;
             let Step::Wait(delay) = timing.step(started.elapsed(), watermark) else {
                 let page = RequestService::new(&mut storage, wall_time_ms)
-                    .list_incoming(&identity.id, None, None)
+                    .list_incoming(&identity.id, room_id, None, None)
                     .map_err(request_failure)?;
                 let reason = if page.items.is_empty() {
                     Reason::Timeout
@@ -221,6 +231,7 @@ fn run(
 
 pub(super) fn execute(
     identity: Option<String>,
+    room: Option<String>,
     timeout_seconds: f64,
     debounce_seconds: f64,
     mode: OutputMode,
@@ -240,6 +251,7 @@ pub(super) fn execute(
     };
     let result = run(
         identity,
+        room,
         Duration::from_secs_f64(timeout_seconds),
         Duration::from_secs_f64(debounce_seconds),
         &interrupt,

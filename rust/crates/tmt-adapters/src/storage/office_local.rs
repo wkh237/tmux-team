@@ -1,7 +1,9 @@
 //! Installation-owned Office data stored beside the existing identity repository.
 
 use rusqlite::{OptionalExtension, params};
-use tmt_core::office_block::{BlockLayout, LocalBlockLayout, MAX_REVISION, PropPlacement};
+use tmt_core::office_block::{
+    BlockLayout, LocalBlockLayout, LocalBlockTarget, MAX_REVISION, PropPlacement,
+};
 
 use crate::office_prop::parse_prop_reference;
 
@@ -14,8 +16,8 @@ use super::{
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LocalBlockSnapshot {
-    pub identity_id: String,
-    pub identity_name: String,
+    pub target: LocalBlockTarget,
+    pub label: String,
     pub block_id: Option<String>,
     pub revision: u64,
     pub layout: LocalBlockLayout,
@@ -81,40 +83,18 @@ impl From<StorageError> for LocalOfficeError {
 impl Storage {
     pub fn show_local_block(
         &mut self,
-        identity_id: &str,
+        target: &LocalBlockTarget,
     ) -> Result<LocalBlockSnapshot, LocalOfficeError> {
         let transaction = self
             .connection_mut()?
             .transaction_with_behavior(rusqlite::TransactionBehavior::Deferred)
             .map_err(|error| classify(error, "Observe local Office block"))?;
-        let identity_name = transaction
-            .query_row(
-                "SELECT name FROM identities WHERE id = ? AND retired_at_ms IS NULL",
-                [identity_id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(|error| classify(error, "Read local Office identity"))?
-            .ok_or(LocalOfficeError::IdentityInactive)?;
-        let stored = transaction
-            .query_row(
-                "SELECT block_id, revision, layout, updated_at_ms FROM office_local_blocks WHERE identity_id = ?",
-                [identity_id],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, i64>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, i64>(3)?,
-                    ))
-                },
-            )
-            .optional()
-            .map_err(|error| classify(error, "Read local Office block"))?;
+        let label = target_label(&transaction, target)?;
+        let stored = read_block(&transaction, target)?;
         let snapshot = snapshot(
             &mut LocalPropResolver::new(&transaction),
-            identity_id,
-            identity_name,
+            target,
+            label,
             stored,
         )?;
         transaction
@@ -123,9 +103,7 @@ impl Storage {
         Ok(snapshot)
     }
 
-    pub fn list_active_local_blocks(
-        &mut self,
-    ) -> Result<Vec<LocalBlockSnapshot>, LocalOfficeError> {
+    pub fn list_local_blocks(&mut self) -> Result<Vec<LocalBlockSnapshot>, LocalOfficeError> {
         let transaction = self
             .connection_mut()?
             .transaction_with_behavior(rusqlite::TransactionBehavior::Deferred)
@@ -153,25 +131,26 @@ impl Storage {
             .map_err(|error| classify(error, "Read active local Office block"))?;
         drop(statement);
         let mut resolver = LocalPropResolver::new(&transaction);
-        let snapshots = rows
-            .into_iter()
-            .map(
-                |(identity_id, identity_name, block_id, revision, layout, updated_at_ms)| {
-                    let layout = decode_layout(&layout)?;
-                    let resolutions = resolve_layout(&layout, &mut resolver)?;
-                    Ok(LocalBlockSnapshot {
-                        identity_id,
-                        identity_name,
-                        block_id: Some(block_id),
-                        revision: stored_u64(revision)?,
-                        layout,
-                        updated_at_ms: stored_u64(updated_at_ms)?,
-                        changed: false,
-                        resolutions,
-                    })
-                },
-            )
-            .collect::<Result<Vec<_>, LocalOfficeError>>()?;
+        let mut snapshots = vec![snapshot(
+            &mut resolver,
+            &LocalBlockTarget::Lobby,
+            "Lobby".into(),
+            read_block(&transaction, &LocalBlockTarget::Lobby)?,
+        )?];
+        snapshots.extend(
+            rows.into_iter()
+                .map(
+                    |(identity_id, identity_name, block_id, revision, layout, updated_at_ms)| {
+                        snapshot(
+                            &mut resolver,
+                            &LocalBlockTarget::Identity(identity_id),
+                            identity_name,
+                            Some((block_id, revision, layout, updated_at_ms)),
+                        )
+                    },
+                )
+                .collect::<Result<Vec<_>, LocalOfficeError>>()?,
+        );
         transaction
             .commit()
             .map_err(|error| classify(error, "Finish active local Office block observation"))?;
@@ -180,35 +159,13 @@ impl Storage {
 
     pub fn apply_local_block(
         &mut self,
-        identity_id: &str,
+        target: &LocalBlockTarget,
         expected_revision: u64,
         layout: &LocalBlockLayout,
     ) -> Result<LocalBlockSnapshot, LocalOfficeError> {
         with_immediate_transaction(self, "local Office block", |transaction| {
-            let identity_name = transaction
-                .query_row(
-                    "SELECT name FROM identities WHERE id = ? AND retired_at_ms IS NULL",
-                    [identity_id],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()
-                .map_err(|error| classify(error, "Revalidate local Office identity"))?
-                .ok_or(LocalOfficeError::IdentityInactive)?;
-            let current = transaction
-                .query_row(
-                    "SELECT block_id, revision, layout, updated_at_ms FROM office_local_blocks WHERE identity_id = ?",
-                    [identity_id],
-                    |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, i64>(1)?,
-                            row.get::<_, String>(2)?,
-                            row.get::<_, i64>(3)?,
-                        ))
-                    },
-                )
-                .optional()
-                .map_err(|error| classify(error, "Read local Office revision"))?;
+            let label = target_label(transaction, target)?;
+            let current = read_block(transaction, target)?;
             let encoded = serde_json::to_string(&crate::office_block::local_layout_value(layout))
                 .map_err(|error| {
                 StorageError::new(
@@ -218,26 +175,24 @@ impl Storage {
                 .caused_by(error)
             })?;
             let now = current_time_ms()?;
+            if encoded.len() > tmt_core::office_block::STORED_LAYOUT_LIMIT {
+                return Err(LocalOfficeError::LayoutInvalid);
+            }
             let mut resolver = LocalPropResolver::new(transaction);
             let (block_id, revision, updated_at_ms, changed) = match current {
                 None if expected_revision == 0 => {
                     validate_mutation(None, layout, &mut resolver)?;
-                    transaction
-                        .execute(
-                            "INSERT OR IGNORE INTO office_local_worlds (singleton, id, created_at_ms) VALUES (1, ?, ?)",
-                            params![
-                                uuid::Uuid::new_v4().to_string(),
-                                i64::try_from(now).expect("current timestamp fits SQLite")
-                            ],
-                        )
-                        .map_err(|error| classify(error, "Create local Office world"))?;
+                    super::office_world::ensure_world(transaction, || {
+                        Ok(i64::try_from(now).expect("current timestamp fits SQLite"))
+                    })?;
                     let block_id = uuid::Uuid::new_v4().to_string();
                     transaction
                         .execute(
-                            "INSERT INTO office_local_blocks (block_id, identity_id, revision, layout, updated_at_ms) VALUES (?, ?, 1, ?, ?)",
+                            "INSERT INTO office_local_blocks (block_id, target_kind, identity_id, revision, layout, updated_at_ms) VALUES (?, ?, ?, 1, ?, ?)",
                             params![
                                 block_id,
-                                identity_id,
+                                target.kind(),
+                                target.identity_id(),
                                 encoded,
                                 i64::try_from(now).expect("current timestamp fits SQLite")
                             ],
@@ -250,17 +205,12 @@ impl Storage {
                     if expected_revision.checked_add(1) == Some(stored_u64(revision)?)
                         && decode_layout(&stored_layout)? == *layout =>
                 {
-                    let resolutions = resolve_layout(layout, &mut resolver)?;
-                    return Ok(LocalBlockSnapshot {
-                        identity_id: identity_id.to_owned(),
-                        identity_name,
-                        block_id: Some(block_id),
-                        revision: stored_u64(revision)?,
-                        layout: layout.clone(),
-                        updated_at_ms: stored_u64(updated_at_ms)?,
-                        changed: false,
-                        resolutions,
-                    });
+                    (
+                        block_id,
+                        stored_u64(revision)?,
+                        stored_u64(updated_at_ms)?,
+                        false,
+                    )
                 }
                 Some((_, revision, _, _)) if stored_u64(revision)? != expected_revision => {
                     return Err(LocalOfficeError::RevisionConflict);
@@ -268,17 +218,12 @@ impl Storage {
                 Some((block_id, revision, stored_layout, updated_at_ms))
                     if decode_layout(&stored_layout)? == *layout =>
                 {
-                    let resolutions = resolve_layout(layout, &mut resolver)?;
-                    return Ok(LocalBlockSnapshot {
-                        identity_id: identity_id.to_owned(),
-                        identity_name,
-                        block_id: Some(block_id),
-                        revision: stored_u64(revision)?,
-                        layout: layout.clone(),
-                        updated_at_ms: stored_u64(updated_at_ms)?,
-                        changed: false,
-                        resolutions,
-                    });
+                    (
+                        block_id,
+                        stored_u64(revision)?,
+                        stored_u64(updated_at_ms)?,
+                        false,
+                    )
                 }
                 Some((_, revision, _, _)) if stored_u64(revision)? >= MAX_REVISION => {
                     return Err(LocalOfficeError::RevisionExhausted);
@@ -291,29 +236,28 @@ impl Storage {
                     let changed = transaction
                         .execute(
                             "UPDATE office_local_blocks SET revision = ?, layout = ?, updated_at_ms = ? \
-                             WHERE block_id = ? AND identity_id = ? AND revision = ? \
-                             AND EXISTS (SELECT 1 FROM identities WHERE id = ? AND retired_at_ms IS NULL)",
+                             WHERE block_id = ? AND target_kind = ? AND identity_id IS ? AND revision = ?",
                             params![
                                 i64::try_from(next).expect("safe Office revision fits SQLite"),
                                 encoded,
                                 i64::try_from(now).expect("current timestamp fits SQLite"),
                                 block_id,
-                                identity_id,
-                                stored_revision,
-                                identity_id
+                                target.kind(),
+                                target.identity_id(),
+                                stored_revision
                             ],
                         )
                         .map_err(|error| classify(error, "Update local Office block"))?;
                     if changed != 1 {
-                        return Err(LocalOfficeError::IdentityInactive);
+                        return Err(LocalOfficeError::RevisionConflict);
                     }
                     (block_id, next, now, true)
                 }
             };
             let resolutions = resolve_layout(layout, &mut resolver)?;
             Ok(LocalBlockSnapshot {
-                identity_id: identity_id.to_owned(),
-                identity_name,
+                target: target.clone(),
+                label,
                 block_id: Some(block_id),
                 revision,
                 layout: layout.clone(),
@@ -325,29 +269,63 @@ impl Storage {
     }
 }
 
+type StoredBlock = (String, i64, String, i64);
+
+/// Authorization is resolved under the same read/write transaction as the layout.
+fn target_label(
+    connection: &rusqlite::Connection,
+    target: &LocalBlockTarget,
+) -> Result<String, LocalOfficeError> {
+    match target {
+        LocalBlockTarget::Lobby => Ok("Lobby".into()),
+        LocalBlockTarget::Identity(identity_id) => connection
+            .query_row(
+                "SELECT name FROM identities WHERE id = ? AND retired_at_ms IS NULL",
+                [identity_id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| classify(error, "Read active local Office identity"))?
+            .ok_or(LocalOfficeError::IdentityInactive),
+    }
+}
+
+fn read_block(
+    connection: &rusqlite::Connection,
+    target: &LocalBlockTarget,
+) -> Result<Option<StoredBlock>, LocalOfficeError> {
+    connection.query_row(
+        "SELECT block_id, revision, layout, updated_at_ms FROM office_local_blocks WHERE target_kind = ? AND identity_id IS ?",
+        params![target.kind(), target.identity_id()],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+    ).optional().map_err(|error| classify(error, "Read local Office block").into())
+}
+
 fn snapshot(
     resolver: &mut LocalPropResolver<'_>,
-    identity_id: &str,
-    identity_name: String,
-    stored: Option<(String, i64, String, i64)>,
+    target: &LocalBlockTarget,
+    label: String,
+    stored: Option<StoredBlock>,
 ) -> Result<LocalBlockSnapshot, LocalOfficeError> {
     let Some((block_id, revision, layout, updated_at_ms)) = stored else {
+        let layout = crate::office_block::default_local_layout(target);
+        let resolutions = resolve_layout(&layout, resolver)?;
         return Ok(LocalBlockSnapshot {
-            identity_id: identity_id.to_owned(),
-            identity_name,
+            target: target.clone(),
+            label,
             block_id: None,
             revision: 0,
-            layout: LocalBlockLayout::new(Vec::new()).expect("empty block layout is valid"),
+            layout,
             updated_at_ms: 0,
             changed: false,
-            resolutions: Vec::new(),
+            resolutions,
         });
     };
     let layout = decode_layout(&layout)?;
     let resolutions = resolve_layout(&layout, resolver)?;
     Ok(LocalBlockSnapshot {
-        identity_id: identity_id.to_owned(),
-        identity_name,
+        target: target.clone(),
+        label,
         block_id: Some(block_id),
         revision: stored_u64(revision)?,
         layout,
@@ -363,7 +341,7 @@ fn stored_u64(value: i64) -> Result<u64, LocalOfficeError> {
         .map_err(|_| LocalOfficeError::StoredLayoutInvalid)
 }
 
-fn decode_layout(value: &str) -> Result<LocalBlockLayout, LocalOfficeError> {
+pub(super) fn decode_layout(value: &str) -> Result<LocalBlockLayout, LocalOfficeError> {
     if let Ok(tokens) = serde_json::from_str::<Vec<String>>(value) {
         return BlockLayout::decode(&tokens)
             .map(|layout| LocalBlockLayout::from_legacy(&layout))
@@ -384,7 +362,7 @@ fn resolve_layout(
             ItemResolution::Available(label) => Ok(LocalPropResolution::Available { label }),
             ItemResolution::Missing
             | ItemResolution::Corrupt
-            | ItemResolution::FootprintMismatch => Ok(LocalPropResolution::Unavailable {
+            | ItemResolution::DefinitionMismatch => Ok(LocalPropResolution::Unavailable {
                 digest_prefix: digest_prefix(&item.prop),
             }),
         })
@@ -415,7 +393,7 @@ fn validate_mutation(
         }
         return Err(match resolution {
             ItemResolution::Corrupt => LocalOfficeError::PropCorrupt,
-            ItemResolution::FootprintMismatch => LocalOfficeError::LayoutInvalid,
+            ItemResolution::DefinitionMismatch => LocalOfficeError::LayoutInvalid,
             ItemResolution::Missing => LocalOfficeError::PropNotFound,
             ItemResolution::Available(_) => unreachable!(),
         });
@@ -423,14 +401,14 @@ fn validate_mutation(
     Ok(())
 }
 
-enum ItemResolution {
+pub(super) enum ItemResolution {
     Available(String),
     Missing,
     Corrupt,
-    FootprintMismatch,
+    DefinitionMismatch,
 }
 
-fn resolve_item(
+pub(super) fn resolve_item(
     item: &PropPlacement,
     resolver: &mut LocalPropResolver<'_>,
 ) -> Result<ItemResolution, LocalOfficeError> {
@@ -440,11 +418,12 @@ fn resolve_item(
         Ok(resolved) => match resolved.pack.prop(key) {
             Some(prop)
                 if prop.footprint.width == item.footprint_width
-                    && prop.footprint.height == item.footprint_height =>
+                    && prop.footprint.height == item.footprint_height
+                    && prop.permits_customization(item.customization.as_ref()) =>
             {
                 Ok(ItemResolution::Available(prop.label.clone()))
             }
-            Some(_) => Ok(ItemResolution::FootprintMismatch),
+            Some(_) => Ok(ItemResolution::DefinitionMismatch),
             None => Ok(ItemResolution::Missing),
         },
         Err(LocalPropCatalogError::NotFound) => Ok(ItemResolution::Missing),
@@ -498,6 +477,234 @@ mod tests {
     }
 
     #[test]
+    fn lobby_defaults_are_read_only_and_an_empty_override_survives_restart() {
+        let directory = TestDirectory::new();
+        let path = directory.path.join("state.db");
+        let mut storage = Storage::open(&path).unwrap();
+        let target = LocalBlockTarget::Lobby;
+        let initial = storage.show_local_block(&target).unwrap();
+        assert!(!initial.exists());
+        assert_eq!((initial.revision, initial.updated_at_ms), (0, 0));
+        assert_eq!(initial.layout.objects().len(), 10);
+        assert!(
+            initial
+                .resolutions
+                .iter()
+                .all(|item| matches!(item, LocalPropResolution::Available { .. }))
+        );
+        assert_eq!(storage.list_local_blocks().unwrap(), vec![initial.clone()]);
+        for table in [
+            "identities",
+            "office_local_worlds",
+            "office_local_blocks",
+            "office_prop_packs",
+        ] {
+            let count: i64 = storage
+                .connection()
+                .unwrap()
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0, "observation must not materialize {table}");
+        }
+
+        let saved = storage
+            .apply_local_block(&target, 0, &initial.layout)
+            .unwrap();
+        assert!(saved.changed);
+        assert_eq!(saved.revision, 1);
+        assert!(saved.exists());
+        let retry = storage
+            .apply_local_block(&target, 0, &initial.layout)
+            .unwrap();
+        assert!(!retry.changed);
+        assert_eq!(retry.block_id, saved.block_id);
+        assert_eq!(retry.updated_at_ms, saved.updated_at_ms);
+        let empty = LocalBlockLayout::new(Vec::new()).unwrap();
+        assert!(matches!(
+            storage.apply_local_block(&target, 0, &empty),
+            Err(LocalOfficeError::RevisionConflict)
+        ));
+
+        let cleared = storage.apply_local_block(&target, 1, &empty).unwrap();
+        assert_eq!(cleared.revision, 2);
+        assert_eq!(cleared.block_id, saved.block_id);
+        storage.close().unwrap();
+        let mut reopened = Storage::open(&path).unwrap();
+        let restored = reopened.show_local_block(&target).unwrap();
+        assert!(restored.exists());
+        assert_eq!(restored.revision, 2);
+        assert_eq!(restored.layout, empty);
+        assert_eq!(reopened.list_local_blocks().unwrap(), vec![restored]);
+        let identities: i64 = reopened
+            .connection()
+            .unwrap()
+            .query_row("SELECT count(*) FROM identities", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(identities, 0);
+        reopened.close().unwrap();
+    }
+
+    #[test]
+    fn invalid_lobby_prop_does_not_create_a_world_or_override() {
+        let directory = TestDirectory::new();
+        let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+        let layout = LocalBlockLayout::new(vec![PropPlacement {
+            prop: format!("sha256:{}/missing", "a".repeat(64)),
+            footprint_width: 1,
+            footprint_height: 1,
+            x: 0,
+            y: 0,
+            rotation: 0,
+            customization: None,
+        }])
+        .unwrap();
+        assert!(matches!(
+            storage.apply_local_block(&LocalBlockTarget::Lobby, 0, &layout),
+            Err(LocalOfficeError::PropNotFound)
+        ));
+        for table in ["office_local_worlds", "office_local_blocks"] {
+            let count: i64 = storage
+                .connection()
+                .unwrap()
+                .query_row(&format!("SELECT count(*) FROM {table}"), [], |row| {
+                    row.get(0)
+                })
+                .unwrap();
+            assert_eq!(count, 0);
+        }
+        assert!(
+            !storage
+                .show_local_block(&LocalBlockTarget::Lobby)
+                .unwrap()
+                .exists()
+        );
+        storage.close().unwrap();
+    }
+
+    #[test]
+    fn customized_layouts_preserve_capacity_and_unavailable_occurrences_across_restart() {
+        use tmt_core::office_block::PropCustomization;
+        let directory = TestDirectory::new();
+        let path = directory.path.join("state.db");
+        let mut storage = Storage::open(&path).unwrap();
+        let vectors: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../contracts/office/prop-customization-vectors.json"
+        ))
+        .unwrap();
+        let mut input = vectors["pack"].clone();
+        let key = format!("p{}", "x".repeat(31));
+        input["props"][0]["key"] = serde_json::json!(key);
+        input["props"][0]["customization"] = serde_json::json!({
+            "tint":vectors["cases"][0]["value"]["tint"],
+            "text":vectors["cases"][1]["value"]["text"]
+        });
+        let pack = validate_pack(&serde_json::to_vec(&input).unwrap()).unwrap();
+        storage.install_local_prop_pack(0, &pack).unwrap();
+        // Multibyte text exercises the byte ceiling independently of character count.
+        let item = PropPlacement {
+            prop: format!("{}/{key}", pack.digest()),
+            footprint_width: 2,
+            footprint_height: 1,
+            x: 0,
+            y: 0,
+            rotation: 0,
+            customization: Some(PropCustomization {
+                tint: Some("#cc8855".into()),
+                text: Some("\u{754c}".repeat(21)),
+            }),
+        };
+        let layout = LocalBlockLayout::new(vec![item; 16]).unwrap();
+        let encoded =
+            serde_json::to_vec(&crate::office_block::local_layout_value(&layout)).unwrap();
+        assert!(encoded.len() > 4096);
+        assert!(encoded.len() <= tmt_core::office_block::STORED_LAYOUT_LIMIT);
+        let target = LocalBlockTarget::Lobby;
+        let saved = storage.apply_local_block(&target, 0, &layout).unwrap();
+        assert_eq!(saved.revision, 1);
+        assert!(
+            !storage
+                .apply_local_block(&target, 0, &layout)
+                .unwrap()
+                .changed
+        );
+        storage.close().unwrap();
+        let mut storage = Storage::open(&path).unwrap();
+        assert_eq!(storage.show_local_block(&target).unwrap().layout, layout);
+        storage.remove_local_prop_pack(1, pack.digest()).unwrap();
+        let missing = storage.show_local_block(&target).unwrap();
+        assert_eq!(missing.layout, layout);
+        assert!(
+            missing
+                .resolutions
+                .iter()
+                .all(|item| matches!(item, LocalPropResolution::Unavailable { .. }))
+        );
+        let mut changed = layout.objects().to_vec();
+        changed[0].customization.as_mut().unwrap().text = Some("Changed".into());
+        assert!(matches!(
+            storage.apply_local_block(&target, 1, &LocalBlockLayout::new(changed).unwrap()),
+            Err(LocalOfficeError::PropNotFound)
+        ));
+        let retained = LocalBlockLayout::new(layout.objects()[1..].to_vec()).unwrap();
+        assert_eq!(
+            storage
+                .apply_local_block(&target, 1, &retained)
+                .unwrap()
+                .revision,
+            2
+        );
+        storage.install_local_prop_pack(2, &pack).unwrap();
+        let restored = storage.show_local_block(&target).unwrap();
+        assert_eq!(restored.layout, retained);
+        assert_eq!(restored.revision, 2);
+        assert!(
+            restored
+                .resolutions
+                .iter()
+                .all(|item| matches!(item, LocalPropResolution::Available { .. }))
+        );
+        storage.close().unwrap();
+    }
+
+    #[test]
+    fn a_prop_without_declared_capabilities_cannot_receive_custom_values() {
+        let directory = TestDirectory::new();
+        let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+        let mut layout = LocalBlockLayout::from_legacy(
+            &BlockLayout::new(vec![Furniture {
+                asset: FurnitureAsset::Rug,
+                x: 0,
+                y: 0,
+                rotation: 0,
+            }])
+            .unwrap(),
+        )
+        .objects()
+        .to_vec();
+        layout[0].customization = Some(tmt_core::office_block::PropCustomization {
+            tint: Some("#123456".into()),
+            text: None,
+        });
+        assert!(matches!(
+            storage.apply_local_block(
+                &LocalBlockTarget::Lobby,
+                0,
+                &LocalBlockLayout::new(layout).unwrap()
+            ),
+            Err(LocalOfficeError::LayoutInvalid)
+        ));
+        assert!(
+            !storage
+                .show_local_block(&LocalBlockTarget::Lobby)
+                .unwrap()
+                .exists()
+        );
+        storage.close().unwrap();
+    }
+
+    #[test]
     fn one_snapshot_resolves_repeated_digest_once_across_validation_and_projection() {
         let directory = TestDirectory::new();
         let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
@@ -511,6 +718,7 @@ mod tests {
                 x: 1,
                 y: 1,
                 rotation: 0,
+                customization: None,
             },
             PropPlacement {
                 prop: format!("{}/lamp", pack.digest()),
@@ -519,6 +727,7 @@ mod tests {
                 x: 2,
                 y: 2,
                 rotation: 0,
+                customization: None,
             },
         ])
         .unwrap();
@@ -543,8 +752,9 @@ mod tests {
         let directory = TestDirectory::new();
         let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
         let first = "11111111-1111-4111-8111-111111111111";
+        let first_target = LocalBlockTarget::Identity(first.into());
         insert_identity(&storage, first, "Alice", "temporary");
-        let missing = storage.show_local_block(first).unwrap();
+        let missing = storage.show_local_block(&first_target).unwrap();
         assert!(!missing.exists());
         assert_eq!(missing.revision, 0);
 
@@ -556,15 +766,19 @@ mod tests {
         }])
         .unwrap();
         let layout = LocalBlockLayout::from_legacy(&legacy_layout);
-        let created = storage.apply_local_block(first, 0, &layout).unwrap();
+        let created = storage
+            .apply_local_block(&first_target, 0, &layout)
+            .unwrap();
         assert_eq!(created.revision, 1);
-        let retried = storage.apply_local_block(first, 0, &layout).unwrap();
+        let retried = storage
+            .apply_local_block(&first_target, 0, &layout)
+            .unwrap();
         assert_eq!(retried.revision, created.revision);
         assert_eq!(retried.layout, created.layout);
         assert!(!retried.changed);
         assert!(matches!(
             storage.apply_local_block(
-                first,
+                &first_target,
                 0,
                 &LocalBlockLayout::new(Vec::new()).expect("empty layout is valid")
             ),
@@ -580,19 +794,24 @@ mod tests {
             )
             .unwrap();
         assert!(matches!(
-            storage.show_local_block(first),
+            storage.show_local_block(&first_target),
             Err(LocalOfficeError::IdentityInactive)
         ));
-        assert!(storage.list_active_local_blocks().unwrap().is_empty());
+        let active = storage.list_local_blocks().unwrap();
+        assert_eq!(active.len(), 1);
+        assert_eq!(active[0].target, LocalBlockTarget::Lobby);
 
         let second = "22222222-2222-4222-8222-222222222222";
+        let second_target = LocalBlockTarget::Identity(second.into());
         insert_identity(&storage, second, "Alice", "saved");
-        assert!(!storage.show_local_block(second).unwrap().exists());
-        let replacement = storage.apply_local_block(second, 0, &layout).unwrap();
+        assert!(!storage.show_local_block(&second_target).unwrap().exists());
+        let replacement = storage
+            .apply_local_block(&second_target, 0, &layout)
+            .unwrap();
         assert_ne!(replacement.block_id, created.block_id);
-        let active = storage.list_active_local_blocks().unwrap();
-        assert_eq!(active.len(), 1);
-        assert_eq!(active[0].identity_id, second);
+        let active = storage.list_local_blocks().unwrap();
+        assert_eq!(active.len(), 2);
+        assert_eq!(active[1].target, second_target);
         storage.close().unwrap();
     }
 }

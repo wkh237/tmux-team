@@ -192,6 +192,8 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         | ["office", "sync"]
         | ["office", "block", "show"]
         | ["office", "block", "apply"]
+        | ["office", "layout", "show"]
+        | ["office", "layout", "apply"]
         | ["office", "profile", "show"]
         | ["office", "profile", "apply"]
         | ["office", "prop", "validate"]
@@ -201,6 +203,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         | ["office", "prop", "list"]
         | ["office", "prop", "show"]
         | ["office", "avatar", "validate"]
+        | ["office", "extension", "validate"]
         | ["office", "avatar", "preview"]
         | ["office", "avatar", "install"]
         | ["office", "avatar", "remove"]
@@ -212,11 +215,19 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         | ["office", "board", "reply"]
         | ["office", "board", "edit"]
         | ["office", "board", "delete"]
+        | ["office", "whiteboard", "snapshot", "show"]
+        | ["office", "whiteboard", "snapshot", "export"]
         | ["office", "install"]
         | ["office", "upgrade"]
         | ["office", "uninstall"] => Invocation::Office {
             prefix: text(m, "prefix"),
             operation: match path.last().copied() {
+                Some("validate") if path.get(1) == Some(&"extension") => {
+                    OfficeOperation::ExtensionValidate {
+                        file: required(m, "file"),
+                        instance: required(m, "instance"),
+                    }
+                }
                 Some("validate") if path.get(1) == Some(&"avatar") => {
                     OfficeOperation::Avatar(OfficeAvatarOperation::Validate {
                         file: required(m, "file"),
@@ -260,6 +271,20 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                     OfficeOperation::Prop(OfficePropOperation::Validate {
                         file: required(m, "file"),
                     })
+                }
+                Some("show" | "export")
+                    if path.get(1) == Some(&"whiteboard") && path.get(2) == Some(&"snapshot") =>
+                {
+                    let reference = required(m, "snapshot-reference");
+                    if tmt_core::office_whiteboard::snapshot::resolve_snapshot_reference(&reference)
+                        .is_none()
+                    {
+                        return Err("Expected a canonical snapshot UUID or tmt:whiteboard:snapshot:<uuid> reference.".into());
+                    }
+                    OfficeOperation::WhiteboardSnapshot {
+                        reference,
+                        output: text(m, "output"),
+                    }
                 }
                 Some("preview") if path.get(1) == Some(&"prop") => {
                     OfficeOperation::Prop(OfficePropOperation::Preview {
@@ -358,6 +383,18 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                     })
                 }
                 Some("sync") => OfficeOperation::Sync,
+                Some("show") if path.get(1) == Some(&"layout") => {
+                    OfficeOperation::Layout(OfficeLayoutOperation::Show)
+                }
+                Some("apply") if path.get(1) == Some(&"layout") => {
+                    OfficeOperation::Layout(OfficeLayoutOperation::Apply {
+                        file: required(m, "file"),
+                        if_revision: *m
+                            .get_one::<u64>("if-revision")
+                            .expect("grammar supplies world revision"),
+                        legacy_basis: text(m, "legacy-basis"),
+                    })
+                }
                 Some("show") if path.get(1) == Some(&"block") => OfficeOperation::Block {
                     target: office_block_target(m),
                     identity: text(m, "identity"),
@@ -458,7 +495,32 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         },
         ["list"] => Invocation::List {
             target: text(m, "target"),
+            room: text(m, "room"),
         },
+        ["room", "create"] => Invocation::Room(RoomOperation::Create(required(m, "name"))),
+        ["room", "list"] => Invocation::Room(RoomOperation::List),
+        ["room", "show"] => Invocation::Room(RoomOperation::Show(required(m, "room"))),
+        ["room", "retire"] => Invocation::Room(RoomOperation::Retire(required(m, "room"))),
+        ["room", action @ ("send" | "broadcast")] => Invocation::Room(RoomOperation::Dispatch {
+            room: required(m, "room"),
+            message: required(m, "message"),
+            identity: text(m, "identity"),
+            operation_id: text(m, "operation-id"),
+            kind: if *action == "send" {
+                tmt_core::request::RequestKind::Request
+            } else {
+                tmt_core::request::RequestKind::Announcement
+            },
+        }),
+        ["room", action @ ("join" | "leave")] => Invocation::Room(RoomOperation::Membership {
+            room: required(m, "room"),
+            identity: text(m, "identity"),
+            change: if *action == "join" {
+                tmt_core::room::MembershipChange::Join
+            } else {
+                tmt_core::room::MembershipChange::Leave
+            },
+        }),
         ["name"] | ["add"] => Invocation::Bind {
             pane: text(m, "pane-target"),
             name: required(m, "name"),
@@ -489,6 +551,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
                 message: required(m, "message"),
                 originator: text(m, "identity"),
                 options: TalkOptions {
+                    room: text(m, "room"),
                     inbox: flag(m, "inbox"),
                     force: flag(m, "force"),
                     detach: flag(m, "detach"),
@@ -537,6 +600,33 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             filters.extend(texts(m, "has").into_iter().map(IdentityFilterRequest::Has));
             Invocation::Identity(IdentityRequest::List(filters))
         }
+        ["identity", "status", operation] => Invocation::Identity(IdentityRequest::Status {
+            identity: text(m, "identity"),
+            operation: match *operation {
+                "show" => IdentityStatusRequest::Show,
+                "clear" => IdentityStatusRequest::Clear,
+                "set" => {
+                    use tmt_core::identity_status::{
+                        DEFAULT_STATUS_TTL_MS, MAX_STATUS_TTL_MS, MIN_STATUS_TTL_MS,
+                    };
+                    let millis = text(m, "for")
+                        .map(|value| duration(&value).map(|seconds| seconds * 1000.0))
+                        .transpose()?
+                        .unwrap_or(DEFAULT_STATUS_TTL_MS as f64);
+                    if !millis.is_finite()
+                        || !(MIN_STATUS_TTL_MS as f64..=MAX_STATUS_TTL_MS as f64).contains(&millis)
+                    {
+                        return Err("Status duration must be 1 second through 24 hours.".into());
+                    }
+                    IdentityStatusRequest::Set {
+                        activity: required(m, "activity"),
+                        mood: text(m, "mood"),
+                        ttl_ms: millis.round() as u64,
+                    }
+                }
+                _ => unreachable!(),
+            },
+        }),
         ["identity", "meta", operation] => Invocation::Identity(IdentityRequest::Metadata {
             identity: text(m, "identity"),
             operation: match *operation {
@@ -640,6 +730,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             Invocation::Exchange {
                 identity: text(m, "identity"),
                 operation: ExchangeOperation::Listen {
+                    room: text(m, "room"),
                     timeout_seconds,
                     debounce_seconds,
                 },
@@ -676,17 +767,16 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
 }
 
 fn office_block_target(matches: &ArgMatches) -> OfficeBlockTarget {
-    if flag(matches, "local") {
-        OfficeBlockTarget::Local
-    } else {
-        OfficeBlockTarget::Remote {
-            world: required(matches, "world"),
-            emulator: flag(matches, "emulator"),
-        }
+    OfficeBlockTarget {
+        world: required(matches, "world"),
+        emulator: flag(matches, "emulator"),
     }
 }
 
 fn board_category(matches: &ArgMatches) -> BoardCategorySelection {
+    if let Some(room) = text(matches, "room") {
+        return BoardCategorySelection::Room(room);
+    }
     match text(matches, "repo") {
         Some(name) => BoardCategorySelection::Repository(name),
         None => BoardCategorySelection::General,

@@ -7,6 +7,8 @@ import {
   decodeDeleteReceipt,
   decodePostReceipt,
   decodeReplyReceipt,
+  decodeBoardCategory,
+  boardCategoryKey,
 } from './board-contract.js';
 
 const threadId = '11111111-1111-4111-8111-111111111111';
@@ -16,6 +18,24 @@ const category = { kind: 'general' } as const;
 const author = { kind: 'owner' } as const;
 
 describe('local board contract', () => {
+  it('preserves room category authority and rejects mixed or invalid scopes', () => {
+    const roomId = '11111111-1111-7111-8111-111111111111';
+    const room = { kind: 'room', roomId } as const;
+    expect(decodeBoardCategory(room)).toEqual(room);
+    expect(boardCategoryKey(room)).toBe(`room:${roomId}`);
+    expect(boardCategoryKey(room)).not.toBe(
+      boardCategoryKey({ kind: 'repository', repositoryId: roomId })
+    );
+    for (const invalid of [
+      { kind: 'room' },
+      { kind: 'room', roomId: null },
+      { kind: 'room', roomId: 'Design' },
+      { kind: 'room', roomId: '00000000-0000-0000-0000-000000000000' },
+      { ...room, repositoryId: 'example.com/project' },
+      { kind: 'general', roomId },
+    ])
+      expect(() => decodeBoardCategory(invalid)).toThrow();
+  });
   it('decodes bounded category, summary, entry and receipt projections', () => {
     expect(
       decodeCategoryPage({

@@ -34,7 +34,6 @@ export function OfficeShell(): ReactElement {
               <Link to="/local" activeOptions={{ exact: true }}>
                 Local office
               </Link>
-              <Link to="/local/board">Board</Link>
             </>
           ) : (
             <>

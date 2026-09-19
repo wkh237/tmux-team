@@ -1,4 +1,7 @@
 import { validImmutableArtReference } from '../rendering/immutable-art-reference.js';
+import { decodeIdentityStatus } from '../identities/identity-status.js';
+import type { IdentityStatusSnapshot } from '../identities/identity-status.js';
+import { isPresence, type Presence } from '../identities/presence.js';
 
 export const PROFILE_CATALOG = {
   hairStyles: ['short', 'bob', 'curls', 'tied', 'bald'],
@@ -34,7 +37,9 @@ export interface ProfileSnapshot {
   catalog: typeof PROFILE_CATALOG;
 }
 export interface ProfileProjection extends ProfileSnapshot {
-  online: boolean;
+  presence: Presence;
+  lifetime: 'saved' | 'temporary';
+  selfReportedStatus: IdentityStatusSnapshot | null;
 }
 export interface ProfileMutation extends ProfileSnapshot {
   changed: boolean;
@@ -50,7 +55,7 @@ export class ProfileAvatarUnavailable extends Error {
   }
 }
 export interface ProfilePort {
-  list(): Promise<ProfileProjection[]>;
+  list(signal?: AbortSignal): Promise<ProfileProjection[]>;
   show(identityId: string): Promise<ProfileSnapshot>;
   apply(identityId: string, expectedRevision: number, profile: Profile): Promise<ProfileMutation>;
 }
@@ -127,9 +132,15 @@ export function decodeProfileSnapshot(value: unknown): ProfileSnapshot {
 export function decodeProfileProjection(value: unknown): ProfileProjection {
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw new Error('Invalid profile projection.');
-  const { online, ...snapshot } = value as Record<string, unknown>;
-  if (typeof online !== 'boolean') throw new Error('Invalid profile projection.');
-  return { ...decodeProfileSnapshot(snapshot), online };
+  const { presence, lifetime, selfReportedStatus, ...snapshot } = value as Record<string, unknown>;
+  if (!isPresence(presence) || (lifetime !== 'saved' && lifetime !== 'temporary'))
+    throw new Error('Invalid profile projection.');
+  return {
+    ...decodeProfileSnapshot(snapshot),
+    presence,
+    lifetime,
+    selfReportedStatus: decodeIdentityStatus(selfReportedStatus),
+  };
 }
 export function decodeProfileMutation(value: unknown): ProfileMutation {
   if (!value || typeof value !== 'object' || Array.isArray(value))

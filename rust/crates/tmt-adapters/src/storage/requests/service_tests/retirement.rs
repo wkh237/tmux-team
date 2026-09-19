@@ -114,10 +114,13 @@ fn late_final_uses_original_provenance_after_identity_retirement_and_name_reuse(
     drop(connection);
     let response = {
         let mut requests = service(&mut fixture);
-        requests
+        let lookup = requests
             .get_response(&prepared.request_id)
-            .expect("read late final through a fresh service")
-            .expect("late final remains retained")
+            .expect("read late final through a fresh service");
+        let tmt_core::request::ResponseLookup::Available(response) = lookup else {
+            panic!("late final must remain retained");
+        };
+        response
     };
     assert_eq!(response.body, "late final after retirement");
 }

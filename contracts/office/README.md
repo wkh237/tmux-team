@@ -11,6 +11,16 @@ The [native pairing contract](native-pairing.md) defines deployment discovery an
 the in-progress command/credential boundary, not shipped command guidance.
 The [local Office service v1](local-service-v1.md) defines the source-candidate optional
 loopback service, browser session and shared SQLite authority; it is not remote pairing.
+The [local request dispatch v1](dispatch-v1.md) capability owns explicit-recipient
+composition and replay receipts over the existing inbox, not a shell or room registry.
+The [local meeting-room resource](meeting-room-v1.md) supplies explicit membership
+and a revision/audience fence for that same dispatch capability.
+The [local map v1 foundation](map-v1.md) defines user-built topology, derived walls
+and draft projection. Its containing world owns persistence;
+[rooms and walls](rooms-and-walls.md) owns the full delivery goal.
+The [world layout contract](world-v1.md) composes that topology with ordered floor,
+wall and functional placements in one SQLite revision. Its protected local API
+and browser editor are implemented; complete CLI cutover and acceptance remain.
 
 The separately versioned [private world document v1](private-world.md) is the
 direct-Firestore contract. It uses native Firestore timestamps and Rules,
@@ -38,12 +48,27 @@ Rust file-reader proof because JavaScript object decoding occurs after JSON pars
 The local [avatar pack v1](avatar-pack-v1.md) contract owns strict data-only character
 art admission, its independent installation catalog, expiring local preview and immutable
 profile selection with stored-default fallback.
+[Avatar pack v2](avatar-pack-v2.md) adds 32×48/256-color rasters within the same
+file/cell/catalog budgets, retaining v1 and the existing physical character size.
 [`avatar-pack-vectors.json`](avatar-pack-vectors.json) is the shared Rust/Office
 projection source; the exact-byte sample freezes the separately framed avatar digest.
 The managed `tmt-avatar-create` guidance documents authoring and installation. Remote
 publication, animation, movement and runtime plugins remain out of scope.
 
 ## Single source of truth
+
+The accepted [World capabilities and functional extensions](functional-props.md)
+design owns the composition boundary and primary visual references. The
+[v1 discussion binding](extension-v1.md) admits separate definition/instance
+records; it does not extend prop-pack fields. Broader host actions, external
+extension installation remain planned, not implemented public APIs. The
+[whiteboard scene v1](whiteboard-v1.md) has local Rust/browser admission with
+[literal vectors](whiteboard-vectors.json) and an [all-tools example](whiteboard-scene-v1.json).
+Its editor, persistent resource and snapshot delivery are implemented locally;
+this does not imply release availability.
+
+The [saved notebook resource](notebook-v1.md) binds furniture to existing UUID-owned
+Markdown through a bounded read-only local adapter, without another content store.
 
 The [native companion handshake](native-companion.md) is an implemented internal
 local boundary, independently versioned from the remote work-handoff proposal.

@@ -6,7 +6,7 @@ use tmt_core::{
     limits::is_valid_js_safe_integer,
     request::{
         AttemptStatus, FinalResponse, Originator, RawRequestContext, RequestAttempt,
-        RequestEndpoint, RequestRoute,
+        RequestEndpoint, RequestKind, RequestRoute,
         attention::{AttentionRecord, ResponseMetadata},
     },
 };
@@ -19,7 +19,15 @@ pub(super) const ATTEMPT_COLUMNS: &str = "
     sending_at_ms, settled_at_ms, wait_released_at_ms, response_submitted_at_ms,
     expires_at_ms, retention_days, retention_expires_at_ms,
     attention_revision, attention_acknowledged_revision,
-    recipient_attention_revision, recipient_attention_acknowledged_revision";
+    recipient_attention_revision, recipient_attention_acknowledged_revision, request_kind, room_id";
+pub(super) const ATTEMPT_COLUMN_COUNT: usize = 33;
+pub(super) fn qualified_attempt_columns() -> String {
+    ATTEMPT_COLUMNS
+        .split(',')
+        .map(|column| format!("a.{}", column.trim()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
 pub(super) const RESPONSE_COLUMNS: &str = "
     request_id, attempt_id, route_kind, route_recipient_identity_id,
     server_id, socket_path, server_pid, server_start_time,
@@ -98,7 +106,20 @@ pub(super) fn attempt_row(row: &Row<'_>) -> rusqlite::Result<RequestAttempt> {
     if preamble_every == Some(0) {
         return Err(invalid_row());
     }
+    let room_id: Option<String> = row.get(32)?;
+    if room_id
+        .as_deref()
+        .is_some_and(|id| !tmt_core::dispatch::canonical_id(id))
+    {
+        return Err(invalid_row());
+    }
     Ok(RequestAttempt {
+        room_id,
+        kind: match row.get::<_, String>(31)?.as_str() {
+            "request" => RequestKind::Request,
+            "announcement" => RequestKind::Announcement,
+            _ => return Err(invalid_row()),
+        },
         attempt_id: row.get(0)?,
         request_id: row.get(1)?,
         originator,
@@ -144,10 +165,10 @@ pub(super) fn attention_row(row: &Row<'_>) -> rusqlite::Result<AttentionRecord> 
     let revision = u64_at(row, 27)?;
     let acknowledged_revision = u64_at(row, 28)?;
     let attempt = attempt_row(row)?;
-    let acknowledged_through = u64_at(row, 31)?;
-    let submitted_at_ms = optional_u64_at(row, 32)?;
-    let body_bytes = optional_u64_at(row, 33)?;
-    let expires_at_ms = optional_u64_at(row, 34)?;
+    let acknowledged_through = u64_at(row, ATTEMPT_COLUMN_COUNT)?;
+    let submitted_at_ms = optional_u64_at(row, ATTEMPT_COLUMN_COUNT + 1)?;
+    let body_bytes = optional_u64_at(row, ATTEMPT_COLUMN_COUNT + 2)?;
+    let expires_at_ms = optional_u64_at(row, ATTEMPT_COLUMN_COUNT + 3)?;
     let response_metadata = match (submitted_at_ms, body_bytes, expires_at_ms) {
         (None, None, None) => None,
         (Some(_), Some(body_bytes), Some(expires_at_ms)) => Some(ResponseMetadata {
@@ -169,10 +190,10 @@ pub(super) fn recipient_attention_row(row: &Row<'_>) -> rusqlite::Result<Attenti
     let revision = u64_at(row, 29)?;
     let acknowledged_revision = u64_at(row, 30)?;
     let attempt = attempt_row(row)?;
-    let acknowledged_through = u64_at(row, 31)?;
-    let submitted_at_ms = optional_u64_at(row, 32)?;
-    let body_bytes = optional_u64_at(row, 33)?;
-    let expires_at_ms = optional_u64_at(row, 34)?;
+    let acknowledged_through = u64_at(row, ATTEMPT_COLUMN_COUNT)?;
+    let submitted_at_ms = optional_u64_at(row, ATTEMPT_COLUMN_COUNT + 1)?;
+    let body_bytes = optional_u64_at(row, ATTEMPT_COLUMN_COUNT + 2)?;
+    let expires_at_ms = optional_u64_at(row, ATTEMPT_COLUMN_COUNT + 3)?;
     let response_metadata = match (submitted_at_ms, body_bytes, expires_at_ms) {
         (None, None, None) => None,
         (Some(_), Some(body_bytes), Some(expires_at_ms)) => Some(ResponseMetadata {
@@ -192,9 +213,9 @@ pub(super) fn recipient_attention_row(row: &Row<'_>) -> rusqlite::Result<Attenti
 
 pub(super) fn context_row(row: &Row<'_>) -> rusqlite::Result<RawRequestContext> {
     let attempt = attempt_row(row)?;
-    let message: Option<String> = row.get(31)?;
-    let message_bytes = optional_u64_at(row, 32)?;
-    let expires_at_ms = optional_u64_at(row, 33)?;
+    let message: Option<String> = row.get(ATTEMPT_COLUMN_COUNT)?;
+    let message_bytes = optional_u64_at(row, ATTEMPT_COLUMN_COUNT + 1)?;
+    let expires_at_ms = optional_u64_at(row, ATTEMPT_COLUMN_COUNT + 2)?;
     // Prompt scrubbing removes text and byte count but intentionally retains
     // the expiry marker, allowing reads to distinguish expired from historical
     // content that was never stored.

@@ -47,12 +47,21 @@ test('native block show/apply reaches durable state and visible browser geometry
     await expect(context.page.getByRole('button', { name: 'Desk 1', exact: true })).toBeVisible();
     await expect(context.page.getByRole('button', { name: 'Plant 2', exact: true })).toBeVisible();
     expect(
-      await context.page
-        .locator('svg.block-scene > g > g')
-        .evaluateAll((elements) => elements.map((element) => element.getAttribute('transform')))
+      await context.page.locator('svg.block-scene > g > g').evaluateAll((elements) =>
+        elements.map((element) => ({
+          placement: element.getAttribute('transform'),
+          artwork: element.firstElementChild?.getAttribute('transform'),
+        }))
+      )
     ).toEqual([
-      'translate(4 4) rotate(0) translate(-2 -1)',
-      'translate(9 5) rotate(0) translate(-1 -1)',
+      {
+        placement: 'translate(2 3)',
+        artwork: 'translate(2 1) rotate(0) translate(-2 -1)',
+      },
+      {
+        placement: 'translate(8 4)',
+        artwork: 'translate(1 1) rotate(0) translate(-1 -1)',
+      },
     ]);
     for (const viewport of [
       { name: 'desktop', width: 1280, height: 900 },

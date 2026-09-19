@@ -4,13 +4,20 @@ import { expect } from '@playwright/test';
 import { createArtifact } from '../../../test/support/native-artifact.js';
 import { runCli, type Sandbox } from '../../../test/support/cli-process.js';
 
-export async function installNativeOffice(sandbox: Sandbox): Promise<string> {
+export { unusedLoopbackPort } from '../../../test/support/loopback-port.mjs';
+
+export const NATIVE_OFFICE_FIXTURE_VERSION = '0.1.0-alpha.4';
+
+export async function installNativeOffice(
+  sandbox: Sandbox,
+  executable = path.resolve('../../rust/target/debug/tmt-office')
+): Promise<string> {
   const artifact = await createArtifact(
     sandbox,
-    '0.1.0-alpha.4',
+    NATIVE_OFFICE_FIXTURE_VERSION,
     new Uint8Array(),
     'office',
-    path.resolve('../../rust/target/debug/tmt-office')
+    executable
   );
   const prefix = path.join(sandbox.root, 'office-prefix');
   const installed = await runCli(

@@ -1,6 +1,6 @@
+import { boundedText, exactRecord } from '../contracts/record.js';
+import type { AvatarArt } from '../profiles/avatar-art.js';
 import {
-  boundedText,
-  exactRecord,
   indexedArtKey,
   INDEXED_ART_LIMITS,
   indexedLicense,
@@ -15,7 +15,7 @@ export interface AvatarDefinition {
 }
 
 export interface AvatarPack {
-  formatVersion: 1;
+  formatVersion: 1 | 2;
   label: string;
   credit: string;
   license: string;
@@ -28,6 +28,20 @@ export interface CatalogAvatarPack {
   pack: AvatarPack;
 }
 
+const FORMATS = {
+  1: { width: 16, height: 24, indexWidth: 1, paletteLimit: 16 },
+  2: { width: 32, height: 48, indexWidth: 2, paletteLimit: 256 },
+} as const;
+
+/** Preview and catalog resolution must preserve the admitted encoding together. */
+export function avatarRaster(pack: AvatarPack, avatar: AvatarDefinition): AvatarArt {
+  return {
+    pixels: avatar.pixels,
+    palette: pack.palette,
+    indexWidth: FORMATS[pack.formatVersion].indexWidth,
+  };
+}
+
 export function decodeAvatarPack(value: unknown): AvatarPack {
   const object = exactRecord(
     value,
@@ -35,12 +49,14 @@ export function decodeAvatarPack(value: unknown): AvatarPack {
     'avatar pack'
   );
   const palette = object.palette;
+  if (object.formatVersion !== 1 && object.formatVersion !== 2)
+    throw new Error('Invalid avatar format version.');
+  const format = FORMATS[object.formatVersion];
   if (
-    object.formatVersion !== 1 ||
     !boundedText(object.label, INDEXED_ART_LIMITS.labelBytes) ||
     !boundedText(object.credit, INDEXED_ART_LIMITS.creditBytes) ||
     !indexedLicense(object.license) ||
-    !indexedPalette(palette) ||
+    !indexedPalette(palette, format.paletteLimit) ||
     !Array.isArray(object.avatars) ||
     object.avatars.length < 1 ||
     object.avatars.length > 16
@@ -58,19 +74,20 @@ export function decodeAvatarPack(value: unknown): AvatarPack {
       throw new Error('Invalid avatar definition.');
     keys.add(avatar.key);
     const pixels = indexedRaster(avatar.pixels, palette.length, {
-      width: 16,
-      height: 24,
-      maxSide: 24,
-      maxCells: 384,
+      width: format.width,
+      height: format.height,
+      maxSide: format.height,
+      maxCells: format.width * format.height,
+      indexWidth: format.indexWidth,
     });
     if (!pixels || !pixels.some((row) => /[1-9a-f]/.test(row)))
       throw new Error('Invalid avatar pixels.');
-    cellCount += 384;
+    cellCount += format.width * format.height;
     return { key: avatar.key, label: avatar.label, pixels };
   });
   if (cellCount > 6144) throw new Error('Avatar pack cells exceed their bound.');
   return {
-    formatVersion: 1,
+    formatVersion: object.formatVersion,
     label: object.label,
     credit: object.credit,
     license: object.license,

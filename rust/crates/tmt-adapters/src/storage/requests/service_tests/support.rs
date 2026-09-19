@@ -77,6 +77,8 @@ pub fn prepare_input(
     preamble: bool,
 ) -> PrepareRequest {
     PrepareRequest {
+        room_id: None,
+        kind: tmt_core::request::RequestKind::Request,
         request_id: request_id.into(),
         message: format!("prompt for {request_id}"),
         route: RequestRoute::Pane(target),

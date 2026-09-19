@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => {
   const fileName = '.well-known/tmt-office.json';
   const source = deployment ? `${JSON.stringify(deployment)}\n` : undefined;
   return {
+    build: { license: { fileName: 'THIRD-PARTY-NOTICES.txt' } },
     plugins: [
       react(),
       {

@@ -46,6 +46,9 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                 &attempt.route,
                 &input.proof,
             )?;
+            if attempt.kind == RequestKind::Announcement {
+                return Err(RequestError::Response(ResponseRejection::NotRequired));
+            }
             if attempt.response_submitted_at_ms.is_some()
                 || response_deadline_passed(now, attempt.prepared_at_ms, attempt.expires_at_ms)
             {
@@ -82,14 +85,23 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
     pub fn get_response(
         &mut self,
         request_id: &str,
-    ) -> Result<Option<FinalResponse>, RequestError<R::Error>> {
+    ) -> Result<ResponseLookup, RequestError<R::Error>> {
         if request_id.is_empty() {
             return Err(RequestError::Response(ResponseRejection::InputInvalid));
         }
         self.read(|records, now| {
-            Ok(records
+            if let Some(response) = records
                 .find_response(request_id)?
-                .filter(|r| now < r.response_expires_at_ms))
+                .filter(|response| now < response.response_expires_at_ms)
+            {
+                return Ok(ResponseLookup::Available(Box::new(response)));
+            }
+            if records.find_request(request_id)?.is_some_and(|attempt| {
+                attempt.kind == RequestKind::Announcement && now < attempt.retention_expires_at_ms
+            }) {
+                return Ok(ResponseLookup::NotRequired);
+            }
+            Ok(ResponseLookup::Unavailable)
         })
     }
 }

@@ -15,6 +15,12 @@ pub(super) fn prepare(
     settings: &Settings,
     interrupt: Option<&Interrupt>,
 ) -> Result<Prepared, Failure> {
+    let room = input
+        .options
+        .room
+        .as_deref()
+        .map(|selector| crate::room_command::resolve(storage, selector))
+        .transpose()?;
     let inbox_identity = if input.options.inbox {
         Some(identity_context::resolve(
             storage,
@@ -53,6 +59,18 @@ pub(super) fn prepare(
             .or_else(|| observed.as_ref().and_then(|value| value.identity.clone())),
         inbox: input.options.inbox,
     };
+    if let Some(room) = &room
+        && !correlation
+            .identity
+            .as_ref()
+            .is_some_and(|identity| room.member_ids.contains(&identity.id))
+    {
+        return Err(correlation.error(
+            "ROOM_RECIPIENT_NOT_MEMBER",
+            "The direct target must be an identified member of the selected room. No message was sent.",
+            1,
+        ));
+    }
     if let Some(delay) = input.options.delay_seconds {
         let delay = Duration::from_secs_f64(delay);
         if let Some(interrupt) = interrupt {
@@ -108,32 +126,35 @@ pub(super) fn prepare(
                 1,
             )
         })?;
-    let prepared = RequestService::new(storage, wall_time_ms)
-        .prepare(
-            PrepareRequest {
-                request_id: correlation.request_id.clone(),
-                message: input.message.clone(),
-                route: route.clone(),
-                wait: !input.options.detach,
-                expires_at_ms,
-                originator,
-                recipient_identity_id: correlation
-                    .identity
-                    .as_ref()
-                    .map(|identity| identity.id.clone()),
-                preamble: (!input.options.inbox)
-                    .then_some(preamble.as_ref())
-                    .flatten()
-                    .as_ref()
-                    .map(|(identity_id, _)| PreambleReservation {
-                        identity_id: identity_id.clone(),
-                        every: settings.preamble_every,
-                    }),
-            },
-            attempt_id.clone(),
-            settings.retention_days,
-        )
-        .map_err(|error| correlation.state_error(error, false))?;
+    let request = PrepareRequest {
+        room_id: room.map(|room| room.id),
+        kind: tmt_core::request::RequestKind::Request,
+        request_id: correlation.request_id.clone(),
+        message: input.message.clone(),
+        route: route.clone(),
+        wait: !input.options.detach,
+        expires_at_ms,
+        originator,
+        recipient_identity_id: correlation
+            .identity
+            .as_ref()
+            .map(|identity| identity.id.clone()),
+        preamble: (!input.options.inbox)
+            .then_some(preamble.as_ref())
+            .flatten()
+            .as_ref()
+            .map(|(identity_id, _)| PreambleReservation {
+                identity_id: identity_id.clone(),
+                every: settings.preamble_every,
+            }),
+    };
+    let mut service = RequestService::new(storage, wall_time_ms);
+    let prepared = if input.options.inbox {
+        service.enqueue(request, attempt_id.clone(), settings.retention_days)
+    } else {
+        service.prepare(request, attempt_id.clone(), settings.retention_days)
+    }
+    .map_err(|error| correlation.state_error(error, false))?;
     let receipt = encode_route_receipt(&correlation.request_id, &attempt_id, &route);
     let message = if prepared.inject_preamble {
         preamble.map_or_else(

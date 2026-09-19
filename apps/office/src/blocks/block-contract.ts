@@ -1,6 +1,8 @@
-import { BUILTIN_DIGEST, BUILTIN_PACK } from '../props/prop-contract.js';
+import { BUILTIN_DIGEST, BUILTIN_CATALOG, PROP_FOOTPRINT_LIMIT } from '../props/prop-contract.js';
 import type { CatalogPack, Footprint } from '../props/prop-contract.js';
 import { validImmutableArtReference } from '../rendering/immutable-art-reference.js';
+import { validPropCustomization } from '../props/prop-customization.js';
+import type { PropCustomization } from '../props/prop-customization.js';
 
 export const BLOCK_SIZE = 32;
 export const OBJECT_LIMIT = 16;
@@ -17,12 +19,32 @@ export interface Furniture {
   x: number;
   y: number;
   rotation: number;
+  customization?: PropCustomization;
 }
 export interface Block {
   revision: number;
   objects: Furniture[];
   updatedAtMs: number;
   catalog?: CatalogPack[];
+}
+
+/** Palette actions and starter recipes produce the same ordinary layout records. */
+export function catalogFurniture(
+  catalog: CatalogPack,
+  key: string,
+  x: number,
+  y: number,
+  rotation = 0
+): Furniture {
+  const definition = catalog.pack.props.find((prop) => prop.key === key);
+  if (!definition) throw new Error('Furniture is not in this catalog pack.');
+  return {
+    prop: `${catalog.digest}/${key}`,
+    footprint: { ...definition.footprint },
+    x,
+    y,
+    rotation,
+  };
 }
 
 export function builtinFurniture(asset: Asset, x: number, y: number, rotation: number): Furniture {
@@ -41,11 +63,13 @@ export function footprint(item: Furniture): Footprint {
   return item.rotation % 2 ? { width: height, height: width } : { width, height };
 }
 
-export function validFurniture(value: unknown): value is Furniture {
+/** Appearance and signed placement shape; the enclosing surface owns its bounds. */
+export function validPlacement(value: unknown): value is Furniture {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const item = value as Record<string, unknown>;
   if (
-    Object.keys(item).length !== 5 ||
+    Object.keys(item).length !== (Object.hasOwn(item, 'customization') ? 6 : 5) ||
+    (Object.hasOwn(item, 'customization') && !validPropCustomization(item.customization)) ||
     !['prop', 'footprint', 'x', 'y', 'rotation'].every((field) => Object.hasOwn(item, field)) ||
     !validImmutableArtReference(item.prop) ||
     !item.footprint ||
@@ -64,15 +88,26 @@ export function validFurniture(value: unknown): value is Furniture {
   const furniture = item as unknown as Furniture;
   if (
     furniture.footprint.width < 1 ||
-    furniture.footprint.width > 8 ||
+    furniture.footprint.width > PROP_FOOTPRINT_LIMIT ||
     furniture.footprint.height < 1 ||
-    furniture.footprint.height > 8
+    furniture.footprint.height > PROP_FOOTPRINT_LIMIT
   )
     return false;
-  const size = footprint(furniture);
   return (
     furniture.rotation >= 0 &&
     furniture.rotation <= 3 &&
+    furniture.x >= -2147483648 &&
+    furniture.x <= 2147483647 &&
+    furniture.y >= -2147483648 &&
+    furniture.y <= 2147483647
+  );
+}
+
+export function validFurniture(value: unknown): value is Furniture {
+  if (!validPlacement(value)) return false;
+  const furniture = value;
+  const size = footprint(furniture);
+  return (
     furniture.x >= 0 &&
     furniture.y >= 0 &&
     furniture.x + size.width <= BLOCK_SIZE &&
@@ -86,6 +121,27 @@ export function validLayout(value: unknown): value is Furniture[] {
   );
 }
 
+export interface LocalLayout {
+  version: 2 | 3;
+  objects: Furniture[];
+}
+
+export function validLocalLayout(value: unknown): value is LocalLayout {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const layout = value as Record<string, unknown>;
+  return (
+    Object.keys(layout).length === 2 &&
+    (layout.version === 2 || layout.version === 3) &&
+    validLayout(layout.objects) &&
+    (layout.version === 3 || layout.objects.every((item) => !item.customization))
+  );
+}
+
+export function localLayoutValue(objects: Furniture[]): LocalLayout {
+  if (!validLayout(objects)) throw new Error('Invalid local layout.');
+  return { version: objects.some((item) => item.customization) ? 3 : 2, objects };
+}
+
 export function sameLayout(left: Furniture[], right: Furniture[]): boolean {
   return (
     left.length === right.length &&
@@ -97,7 +153,9 @@ export function sameLayout(left: Furniture[], right: Furniture[]): boolean {
         item.footprint.height === other.footprint.height &&
         item.x === other.x &&
         item.y === other.y &&
-        item.rotation === other.rotation
+        item.rotation === other.rotation &&
+        item.customization?.tint === other.customization?.tint &&
+        item.customization?.text === other.customization?.text
       );
     })
   );
@@ -114,10 +172,11 @@ function builtinAsset(item: Furniture): Asset | undefined {
     : undefined;
 }
 
-/** Remote v1 storage-only encoding. Local storage is canonical v2 JSON. */
+/** Remote v1 storage-only encoding. Local layouts use their versioned JSON codec. */
 export function encodeLayout(objects: Furniture[]): string[] {
   if (!validLayout(objects)) throw new Error('Invalid block layout.');
   return objects.map((item) => {
+    if (item.customization) throw new Error('Remote blocks do not support customization.');
     const asset = builtinAsset(item);
     if (!asset) throw new Error('Remote blocks support only built-in props.');
     return `${FURNITURE[asset].code}${item.rotation}${item.x.toString(32)}${item.y.toString(32)}`;
@@ -146,7 +205,7 @@ export function decodeLayout(value: unknown): Furniture[] {
 }
 
 export function defaultCatalog(): CatalogPack[] {
-  return [{ digest: BUILTIN_DIGEST, pack: BUILTIN_PACK }];
+  return [...BUILTIN_CATALOG];
 }
 
 export class BlockConflict extends Error {
@@ -155,6 +214,6 @@ export class BlockConflict extends Error {
   }
 }
 export interface BlockPort {
-  watch(worldId: string, changed: (block: Block | null) => void, failed: () => void): () => void;
-  apply(worldId: string, revision: number, objects: Furniture[]): Promise<Block>;
+  watch(blockKey: string, changed: (block: Block | null) => void, failed: () => void): () => void;
+  apply(blockKey: string, revision: number, objects: Furniture[]): Promise<Block>;
 }

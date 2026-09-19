@@ -22,25 +22,9 @@ impl From<StorageError> for BoardError<StorageError> {
 
 pub fn local_owner_actor(storage: &mut Storage) -> Result<Actor, StorageError> {
     with_immediate_transaction(storage, "local Office owner", |transaction| {
-        if let Some(id) = transaction
-            .query_row(
-                "SELECT id FROM office_local_worlds WHERE singleton = 1",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(|error| classify(error, "Read local Office world"))?
-        {
-            return Ok(Actor::Owner { world_id: id });
-        }
-        let id = uuid::Uuid::new_v4().to_string();
-        transaction
-            .execute(
-                "INSERT INTO office_local_worlds (singleton, id, created_at_ms) VALUES (1, ?, ?)",
-                params![id, timestamp()?],
-            )
-            .map_err(|error| classify(error, "Create local Office world"))?;
-        Ok(Actor::Owner { world_id: id })
+        Ok(Actor::Owner {
+            world_id: super::office_world::ensure_world(transaction, timestamp)?,
+        })
     })
 }
 
@@ -61,13 +45,20 @@ impl OfficeBoardRepository for Storage {
             {
                 return Ok(receipt);
             }
+            // Classify new threads under a real room; membership is not an ACL.
+            // Replays and existing content remain usable after room/area changes.
+            if let Category::Room(id) = &request.category
+                && super::room::read_room(tx, id)?.is_none()
+            {
+                return Err(BoardError::policy(BoardErrorCode::Invalid));
+            }
             let sequence = next_sequence(tx)?;
             let id = uuid::Uuid::new_v4().to_string();
             let now = timestamp()?;
-            let (category_kind, repository_id) = category_columns(&request.category);
+            let (category_kind, category_id) = category_columns(&request.category);
             let (author_kind, author_id, author_name) = actor_columns(&actor);
-            tx.execute("INSERT INTO office_board_entries (id,thread_id,is_root,category_kind,repository_id,author_kind,author_id,author_name,revision,deleted,created_sequence,activity_sequence,created_at_ms,updated_at_ms,title,body) VALUES (?,?,1,?,?,?,?,?,1,0,?,?,?,?,?,?)",
-                params![id,id,category_kind,repository_id,author_kind,author_id,author_name,sequence as i64,sequence as i64,now,now,request.title,request.body])
+            tx.execute("INSERT INTO office_board_entries (id,thread_id,is_root,category_kind,category_id,author_kind,author_id,author_name,revision,deleted,created_sequence,activity_sequence,created_at_ms,updated_at_ms,title,body) VALUES (?,?,1,?,?,?,?,?,1,0,?,?,?,?,?,?)",
+                params![id,id,category_kind,category_id,author_kind,author_id,author_name,sequence as i64,sequence as i64,now,now,request.title,request.body])
                 .map_err(|error| BoardError::storage(classify(error, "Create Office board thread")))?;
             advance_board(tx)?;
             let receipt = CreateReceipt {
@@ -91,7 +82,7 @@ impl OfficeBoardRepository for Storage {
             {
                 return Ok(receipt);
             }
-            let root = tx.query_row("SELECT category_kind,repository_id,deleted FROM office_board_entries WHERE id=? AND is_root=1", [&request.thread_id], |row| Ok((row.get::<_,String>(0)?,row.get::<_,Option<String>>(1)?,row.get::<_,bool>(2)?))).optional().map_err(|e| BoardError::storage(classify(e,"Read Office board thread")))?.ok_or_else(|| BoardError::policy(BoardErrorCode::ThreadNotFound))?;
+            let root = tx.query_row("SELECT category_kind,category_id,deleted FROM office_board_entries WHERE id=? AND is_root=1", [&request.thread_id], |row| Ok((row.get::<_,String>(0)?,row.get::<_,Option<String>>(1)?,row.get::<_,bool>(2)?))).optional().map_err(|e| BoardError::storage(classify(e,"Read Office board thread")))?.ok_or_else(|| BoardError::policy(BoardErrorCode::ThreadNotFound))?;
             if root.2 {
                 return Err(BoardError::policy(BoardErrorCode::ThreadNotFound));
             }
@@ -109,7 +100,7 @@ impl OfficeBoardRepository for Storage {
             let id = uuid::Uuid::new_v4().to_string();
             let now = timestamp()?;
             let (author_kind, author_id, author_name) = actor_columns(&actor);
-            tx.execute("INSERT INTO office_board_entries (id,thread_id,is_root,category_kind,repository_id,author_kind,author_id,author_name,revision,deleted,created_sequence,activity_sequence,created_at_ms,updated_at_ms,title,body) VALUES (?,?,0,?,?,?,?,?,1,0,?,?,?,?,NULL,?)", params![id,request.thread_id,root.0,root.1,author_kind,author_id,author_name,sequence as i64,sequence as i64,now,now,request.body]).map_err(|e| BoardError::storage(classify(e,"Create Office board reply")))?;
+            tx.execute("INSERT INTO office_board_entries (id,thread_id,is_root,category_kind,category_id,author_kind,author_id,author_name,revision,deleted,created_sequence,activity_sequence,created_at_ms,updated_at_ms,title,body) VALUES (?,?,0,?,?,?,?,?,1,0,?,?,?,?,NULL,?)", params![id,request.thread_id,root.0,root.1,author_kind,author_id,author_name,sequence as i64,sequence as i64,now,now,request.body]).map_err(|e| BoardError::storage(classify(e,"Create Office board reply")))?;
             tx.execute(
                 "UPDATE office_board_entries SET activity_sequence=?,updated_at_ms=? WHERE id=?",
                 params![sequence as i64, now, request.thread_id],
@@ -409,19 +400,30 @@ impl OfficeBoardRepository for Storage {
             request.cursor.as_deref(),
             "categories",
             request.limit,
-            "",
+            "scoped-v1",
             rev,
         )?;
         let after = cursor.as_ref().map(|c| c.key.as_str());
         let include_general = after.is_none();
-        let repo_take = request.limit as usize - usize::from(include_general);
+        let (after_kind, after_id) = match after {
+            None | Some("") => ("", ""),
+            Some(key) => key
+                .split_once(':')
+                .filter(|(kind, _)| matches!(*kind, "repository" | "room"))
+                .ok_or_else(|| BoardError::policy(BoardErrorCode::CursorInvalid))?,
+        };
+        let scoped_take = request.limit as usize - usize::from(include_general);
         let mut statement = tx
             .prepare(CATEGORIES_SQL)
             .map_err(|e| BoardError::storage(classify(e, "Prepare Office board categories")))?;
-        let repos = statement
+        let scopes = statement
             .query_map(
-                params![after, after, i64::try_from(repo_take + 1).unwrap()],
-                |row| row.get::<_, String>(0),
+                params![
+                    after_kind,
+                    after_id,
+                    i64::try_from(scoped_take + 1).unwrap()
+                ],
+                |row| decode_category(row.get(0)?, row.get(1)?),
             )
             .map_err(|e| BoardError::storage(classify(e, "List Office board categories")))?
             .collect::<Result<Vec<_>, _>>()
@@ -430,25 +432,19 @@ impl OfficeBoardRepository for Storage {
         if include_general {
             categories.push(Category::General);
         }
-        categories.extend(
-            repos
-                .iter()
-                .take(repo_take)
-                .cloned()
-                .map(Category::Repository),
-        );
-        let next = if repos.len() > repo_take {
-            let key = if repo_take == 0 {
+        categories.extend(scopes.iter().take(scoped_take).cloned());
+        let next = if scopes.len() > scoped_take {
+            let key = if scoped_take == 0 {
                 String::new()
             } else {
-                repos[repo_take - 1].clone()
+                category_key(&scopes[scoped_take - 1])
             };
             Some(
                 Cursor {
                     operation: "categories".into(),
                     board_revision: rev,
                     page_size: request.limit,
-                    binding: String::new(),
+                    binding: "scoped-v1".into(),
                     sequence: 0,
                     key,
                 }
@@ -470,13 +466,13 @@ impl OfficeBoardRepository for Storage {
 }
 
 const CATEGORIES_SQL: &str = concat!(
-    "SELECT DISTINCT repository_id FROM office_board_entries ",
-    "WHERE is_root=1 AND category_kind='repository' ",
-    "AND (? IS NULL OR repository_id>?) ",
-    "ORDER BY repository_id COLLATE BINARY LIMIT ?",
+    "SELECT DISTINCT category_kind,category_id FROM office_board_entries ",
+    "WHERE is_root=1 AND category_kind!='general' ",
+    "AND (category_kind,category_id)>(?,?) ",
+    "ORDER BY category_kind COLLATE BINARY,category_id COLLATE BINARY LIMIT ?",
 );
 const REPLIES_SQL: &str = concat!(
-    "SELECT id,thread_id,category_kind,repository_id,author_kind,author_id,",
+    "SELECT id,thread_id,category_kind,category_id,author_kind,author_id,",
     "author_name,revision,deleted,created_at_ms,updated_at_ms,title,body,created_sequence ",
     "FROM office_board_entries WHERE thread_id=? AND is_root=0 AND created_sequence>? ",
     "ORDER BY created_sequence,id LIMIT ?",
@@ -488,7 +484,7 @@ fn list_sql(view: ListView) -> String {
         ("activity_sequence", "updated_at_ms")
     };
     format!(
-        "SELECT id,thread_id,category_kind,repository_id,author_kind,author_id,author_name,revision,deleted,created_at_ms,updated_at_ms,title,body,activity_sequence,(SELECT count(*) FROM office_board_entries r WHERE r.thread_id=e.id AND r.is_root=0 AND r.deleted=0) FROM office_board_entries e WHERE is_root=1 AND category_kind=? AND repository_id IS ? AND (? IS NULL OR author_kind=?) AND (? IS NULL OR author_id=?) AND (?=0 OR {time}>=?) AND ({sequence}<? OR ({sequence}=? AND id<?)) ORDER BY {sequence} DESC,id DESC LIMIT ?"
+        "SELECT id,thread_id,category_kind,category_id,author_kind,author_id,author_name,revision,deleted,created_at_ms,updated_at_ms,title,body,activity_sequence,(SELECT count(*) FROM office_board_entries r WHERE r.thread_id=e.id AND r.is_root=0 AND r.deleted=0) FROM office_board_entries e WHERE is_root=1 AND category_kind=? AND category_id IS ? AND (? IS NULL OR author_kind=?) AND (? IS NULL OR author_id=?) AND (?=0 OR {time}>=?) AND ({sequence}<? OR ({sequence}=? AND id<?)) ORDER BY {sequence} DESC,id DESC LIMIT ?"
     )
 }
 
@@ -607,12 +603,14 @@ fn category_columns(c: &Category) -> (&'static str, Option<&str>) {
     match c {
         Category::General => ("general", None),
         Category::Repository(id) => ("repository", Some(id)),
+        Category::Room(id) => ("room", Some(id)),
     }
 }
 fn category_key(c: &Category) -> String {
     match c {
         Category::General => "general".into(),
         Category::Repository(id) => format!("repository:{id}"),
+        Category::Room(id) => format!("room:{id}"),
     }
 }
 fn actor_columns(a: &Actor) -> (&'static str, &str, Option<&str>) {
@@ -683,11 +681,7 @@ fn decode_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<Entry> {
     Ok(Entry {
         id: row.get(0)?,
         thread_id: row.get(1)?,
-        category: if kind == "general" {
-            Category::General
-        } else {
-            Category::Repository(repo.unwrap_or_default())
-        },
+        category: decode_category(kind, repo)?,
         author: if author_kind == "owner" {
             Actor::Owner {
                 world_id: author_id,
@@ -706,6 +700,15 @@ fn decode_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<Entry> {
         body: row.get(12)?,
     })
 }
+
+fn decode_category(kind: String, id: Option<String>) -> rusqlite::Result<Category> {
+    match (kind.as_str(), id) {
+        ("general", None) => Ok(Category::General),
+        ("repository", Some(id)) => Ok(Category::Repository(id)),
+        ("room", Some(id)) => Ok(Category::Room(id)),
+        _ => Err(rusqlite::Error::InvalidQuery),
+    }
+}
 fn decode_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadSummary> {
     Ok(ThreadSummary {
         entry: decode_entry(row)?,
@@ -714,7 +717,7 @@ fn decode_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<ThreadSummary> {
     })
 }
 fn query_entry(tx: &Transaction<'_>, id: &str) -> Result<Option<Entry>, BoardError<StorageError>> {
-    tx.query_row("SELECT id,thread_id,category_kind,repository_id,author_kind,author_id,author_name,revision,deleted,created_at_ms,updated_at_ms,title,body FROM office_board_entries WHERE id=?",[id],decode_entry).optional().map_err(|e|BoardError::storage(classify(e,"Read Office board entry")))
+    tx.query_row("SELECT id,thread_id,category_kind,category_id,author_kind,author_id,author_name,revision,deleted,created_at_ms,updated_at_ms,title,body FROM office_board_entries WHERE id=?",[id],decode_entry).optional().map_err(|e|BoardError::storage(classify(e,"Read Office board entry")))
 }
 fn entry_sequence(tx: &Transaction<'_>, id: &str) -> Result<u64, BoardError<StorageError>> {
     tx.query_row(

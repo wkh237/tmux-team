@@ -3,6 +3,7 @@
 
 pub mod attention;
 pub mod correlation;
+pub mod history;
 mod service;
 pub use service::RequestService;
 
@@ -22,6 +23,22 @@ pub struct RequestEndpoint {
 pub enum RequestRoute {
     Pane(RequestEndpoint),
     Inbox { recipient_identity_id: String },
+}
+
+/// Delivery and attention are shared; only requests admit a final response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestKind {
+    Request,
+    Announcement,
+}
+
+impl RequestKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Request => "request",
+            Self::Announcement => "announcement",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +96,9 @@ impl Originator {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestAttempt {
+    pub kind: RequestKind,
+    /// Original communication scope, independent of current room membership.
+    pub room_id: Option<String>,
     pub attempt_id: String,
     pub request_id: String,
     pub originator: Originator,
@@ -112,12 +132,21 @@ pub struct FinalResponse {
     pub response_expires_at_ms: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResponseLookup {
+    Available(Box<FinalResponse>),
+    Unavailable,
+    NotRequired,
+}
+
 pub struct PreambleReservation {
     pub identity_id: String,
     pub every: u64,
 }
 
 pub struct PrepareRequest {
+    pub kind: RequestKind,
+    pub room_id: Option<String>,
     pub request_id: String,
     pub message: String,
     pub route: RequestRoute,
@@ -184,6 +213,18 @@ pub struct RequestContext {
 /// is held. Domain decisions remain in RequestService, not in SQL adapters.
 pub trait RequestRecords {
     type Error;
+    fn list_request_history(
+        &self,
+        query: &history::HistoryQuery,
+        limit: u64,
+        now_ms: u64,
+    ) -> Result<Vec<history::HistoryRecord>, Self::Error>;
+    fn find_request_history(
+        &self,
+        request_id: &str,
+    ) -> Result<Option<attention::AttentionRecord>, Self::Error>;
+    /// Read effective membership while holding the request preparation transaction.
+    fn room_has_recipient(&self, room_id: &str, identity_id: &str) -> Result<bool, Self::Error>;
     fn find_attention(
         &self,
         identity_id: &str,
@@ -199,6 +240,7 @@ pub trait RequestRecords {
     fn list_response_attention(
         &self,
         identity_id: &str,
+        room_id: Option<&str>,
         after: u64,
         limit: u64,
         now_ms: u64,
@@ -212,6 +254,7 @@ pub trait RequestRecords {
     fn list_recipient_attention(
         &self,
         identity_id: &str,
+        room_id: Option<&str>,
         after: u64,
         limit: u64,
         now_ms: u64,
@@ -236,7 +279,12 @@ pub trait RequestRecords {
         identity_id: &str,
         latest: u64,
     ) -> Result<bool, Self::Error>;
-    fn incoming_watermark(&self, identity_id: &str, now_ms: u64) -> Result<u64, Self::Error>;
+    fn incoming_watermark(
+        &self,
+        identity_id: &str,
+        room_id: Option<&str>,
+        now_ms: u64,
+    ) -> Result<u64, Self::Error>;
     fn find_attempt(&self, attempt_id: &str) -> Result<Option<RequestAttempt>, Self::Error>;
     fn find_request(&self, request_id: &str) -> Result<Option<RequestAttempt>, Self::Error>;
     fn find_context(&self, request_id: &str) -> Result<Option<RawRequestContext>, Self::Error>;
@@ -321,6 +369,7 @@ pub trait RequestRepository {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResponseRejection {
+    NotRequired,
     InputInvalid,
     InputTooLarge,
     RequestNotFound,
@@ -335,6 +384,7 @@ pub enum ResponseRejection {
 impl ResponseRejection {
     pub fn code(self) -> &'static str {
         match self {
+            Self::NotRequired => "RESPONSE_NOT_REQUIRED",
             Self::InputInvalid => "RESPONSE_INPUT_INVALID",
             Self::InputTooLarge => "RESPONSE_INPUT_TOO_LARGE",
             Self::RequestNotFound => "RESPONSE_REQUEST_NOT_FOUND",
@@ -354,6 +404,7 @@ pub enum RequestError<E> {
     InputTooLarge,
     Expired,
     NotFound,
+    RoomRecipientNotMember,
     StateInvalid,
     AlreadyExists,
     CounterExhausted,
@@ -375,6 +426,9 @@ impl<E> fmt::Display for RequestError<E> {
             Self::InputTooLarge => f.write_str("Original request exceeds the UTF-8 byte limit."),
             Self::Expired => f.write_str("Request attempt has expired."),
             Self::NotFound => f.write_str("Request attempt was not found."),
+            Self::RoomRecipientNotMember => {
+                f.write_str("Recipient is not an active member of the selected room.")
+            }
             Self::StateInvalid => f.write_str("Request attempt cannot make this transition."),
             Self::AlreadyExists => f.write_str("Request ID already has a retained final."),
             Self::CounterExhausted => f.write_str("Preamble cadence counter is exhausted."),

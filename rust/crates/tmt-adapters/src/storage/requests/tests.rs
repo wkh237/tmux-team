@@ -28,6 +28,8 @@ fn seed_attempt(storage: &mut Storage, request_id: &str, attempt_id: &str) {
     service
         .prepare(
             PrepareRequest {
+                room_id: None,
+                kind: tmt_core::request::RequestKind::Request,
                 request_id: request_id.into(),
                 message: "original prompt".into(),
                 route: RequestRoute::Pane(endpoint()),
@@ -194,36 +196,122 @@ fn incoming_watermark_plan_uses_participant_indexes() {
     let directory = TestDirectory::new();
     let database = directory.path.join("state").join("requests.db");
     let mut storage = Storage::open(database).unwrap();
-    let plan_sql = format!("EXPLAIN QUERY PLAN {}", super::INCOMING_WATERMARK_SQL);
-    let details = {
-        let mut statement = storage.connection().unwrap().prepare(&plan_sql).unwrap();
-        statement
-            .query_map(rusqlite::params!["identity-id", 1_i64], |row| {
-                row.get::<_, String>(3)
-            })
-            .unwrap()
-            .collect::<rusqlite::Result<Vec<_>>>()
-            .unwrap()
-    };
-    assert!(
-        details
-            .iter()
-            .any(|detail| detail.contains("request_attempts_recipient_attention"))
-    );
-    assert!(
-        details
-            .iter()
-            .any(|detail| detail.contains("request_attempts_response_attention"))
-    );
-    assert!(
-        !details
-            .iter()
-            .any(|detail| detail == "SCAN request_attempts")
-    );
-    assert!(
-        !details
-            .iter()
-            .any(|detail| detail.contains("USE TEMP B-TREE FOR ORDER BY"))
-    );
+    for room_id in [None, Some("11111111-1111-4111-8111-111111111111")] {
+        let prefix = if room_id.is_some() {
+            "request_attempts_room"
+        } else {
+            "request_attempts"
+        };
+        let plan_sql = format!(
+            "EXPLAIN QUERY PLAN {}",
+            super::incoming_watermark_sql(room_id.is_some())
+        );
+        let details = {
+            let mut statement = storage.connection().unwrap().prepare(&plan_sql).unwrap();
+            statement
+                .query_map(rusqlite::params!["identity-id", 1_i64, room_id], |row| {
+                    row.get::<_, String>(3)
+                })
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap()
+        };
+        assert!(
+            details
+                .iter()
+                .any(|detail| detail.contains(&format!("{prefix}_recipient_attention")))
+        );
+        assert!(
+            details
+                .iter()
+                .any(|detail| detail.contains(&format!("{prefix}_response_attention")))
+        );
+        assert!(
+            !details
+                .iter()
+                .any(|detail| detail == "SCAN request_attempts")
+        );
+        assert!(
+            !details
+                .iter()
+                .any(|detail| detail.contains("USE TEMP B-TREE FOR ORDER BY"))
+        );
+    }
+    storage.close().unwrap();
+}
+
+#[test]
+fn request_history_plans_seek_the_scope_and_cursor_without_sorting() {
+    use tmt_core::request::history::HistoryScope;
+    let directory = TestDirectory::new();
+    let mut storage = Storage::open(directory.path.join("history.db")).unwrap();
+    let recipient = "11111111-1111-4111-8111-111111111111";
+    let room = "22222222-2222-4222-8222-222222222222";
+    for (scope, index, identity, room_id) in [
+        (
+            HistoryScope::Recipient {
+                identity_id: recipient.into(),
+                room_id: None,
+            },
+            "request_history_recipient",
+            Some(recipient),
+            None,
+        ),
+        (
+            HistoryScope::Recipient {
+                identity_id: recipient.into(),
+                room_id: Some(room.into()),
+            },
+            "request_history_recipient_room",
+            Some(recipient),
+            Some(room),
+        ),
+        (
+            HistoryScope::Room(room.into()),
+            "request_history_room",
+            None,
+            Some(room),
+        ),
+    ] {
+        for cursor in [false, true] {
+            let sql = format!(
+                "EXPLAIN QUERY PLAN {}",
+                super::history::history_query(&scope, cursor)
+            );
+            let mut statement = storage.connection().unwrap().prepare(&sql).unwrap();
+            let plan = statement
+                .query_map(
+                    rusqlite::params![
+                        identity,
+                        room_id,
+                        cursor.then_some(2000_i64),
+                        cursor.then_some("request-z"),
+                        21_i64,
+                        1000_i64
+                    ],
+                    |row| row.get::<_, String>(3),
+                )
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap();
+            assert!(
+                plan.iter()
+                    .any(|line| line.contains(&format!("SEARCH a USING INDEX {index} ("))),
+                "{plan:?}"
+            );
+            assert!(
+                !plan
+                    .iter()
+                    .any(|line| line.contains("TEMP B-TREE") || line.starts_with("SCAN a")),
+                "{plan:?}"
+            );
+            if cursor {
+                assert!(
+                    plan.iter().any(|line| line.contains("prepared_at_ms")),
+                    "Cursor must seek the indexed range: {plan:?}"
+                );
+            }
+        }
+    }
     storage.close().unwrap();
 }

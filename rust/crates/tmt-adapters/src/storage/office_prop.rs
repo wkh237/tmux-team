@@ -4,8 +4,8 @@ use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use std::collections::HashMap;
 
 use crate::office_prop::{
-    BUILTIN_DIGEST, PACK_INPUT_LIMIT, ValidatedPropPack, builtin_pack, parse_pack_digest,
-    validate_pack,
+    PACK_INPUT_LIMIT, PropPackError, ValidatedPropPack, builtin_by_digest, builtin_packs,
+    parse_pack_digest, validate_pack,
 };
 
 use super::{Storage, StorageError, StorageErrorCode, errors::classify};
@@ -105,9 +105,9 @@ impl<'connection> LocalPropResolver<'connection> {
         digest: &str,
     ) -> Result<&ResolvedLocalPropPack, LocalPropCatalogError> {
         if !self.cache.contains_key(digest) {
-            let loaded = if digest == BUILTIN_DIGEST {
+            let loaded = if let Some(pack) = builtin_by_digest(digest) {
                 CachedLocalPropPack::Available(Box::new(ResolvedLocalPropPack {
-                    pack: builtin_pack(),
+                    pack: pack.clone(),
                     builtin: true,
                     installed_at_ms: None,
                 }))
@@ -219,11 +219,11 @@ impl Storage {
             return Err(LocalPropCatalogError::RevisionConflict);
         }
 
-        if candidate.digest() == BUILTIN_DIGEST {
-            if candidate.bytes() != builtin_pack().bytes() {
+        if let Some(pack) = builtin_by_digest(candidate.digest()) {
+            if candidate.bytes() != pack.bytes() {
                 return Err(LocalPropCatalogError::Corrupt);
             }
-            let snapshot = builtin_snapshot(state.revision);
+            let snapshot = builtin_snapshot(state.revision, pack);
             transaction
                 .commit()
                 .map_err(|error| classify(error, "Finish built-in prop install no-op"))?;
@@ -303,7 +303,7 @@ impl Storage {
         if parse_pack_digest(digest).is_none() {
             return Err(LocalPropCatalogError::Invalid);
         }
-        if digest == BUILTIN_DIGEST {
+        if builtin_by_digest(digest).is_some() {
             return Err(LocalPropCatalogError::Builtin);
         }
         let transaction = self
@@ -496,7 +496,10 @@ impl Storage {
             .map_err(|error| classify(error, "Finish local prop catalog page"))?;
         Ok(LocalPropCatalogList {
             catalog_revision: revision,
-            builtins: vec![builtin_snapshot(revision)],
+            builtins: builtin_packs()
+                .iter()
+                .map(|pack| builtin_snapshot(revision, pack))
+                .collect(),
             packs,
             excluded,
             next_cursor,
@@ -661,22 +664,19 @@ fn exclusion_reason(row: &BoundedRow) -> LocalPropExcludedReason {
     {
         return LocalPropExcludedReason::Oversized;
     }
-    match row
-        .bytes
-        .as_deref()
-        .and_then(|bytes| validate_pack(bytes).ok())
-    {
-        Some(pack) if pack.digest() != row.digest => LocalPropExcludedReason::DigestMismatch,
+    match row.bytes.as_deref().map(validate_pack) {
+        Some(Err(PropPackError::TooLarge)) => LocalPropExcludedReason::Oversized,
+        Some(Ok(pack)) if pack.digest() != row.digest => LocalPropExcludedReason::DigestMismatch,
         _ => LocalPropExcludedReason::InvalidDocument,
     }
 }
 
-fn builtin_snapshot(revision: u64) -> LocalPropSnapshot {
+fn builtin_snapshot(revision: u64, pack: &ValidatedPropPack) -> LocalPropSnapshot {
     LocalPropSnapshot {
         catalog_revision: revision,
         builtin: true,
         installed_at_ms: None,
-        pack: builtin_pack(),
+        pack: pack.clone(),
     }
 }
 
@@ -716,13 +716,67 @@ fn current_time_ms() -> Result<u64, LocalPropCatalogError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{office_prop::validate_pack, test_support::TestDirectory};
+    use crate::{
+        office_prop::{
+            BROADCASTER_DIGEST, BUILTIN_DIGEST, COMMONS_DIGEST, MODULAR_LOUNGE_DIGEST,
+            MODULAR_MOUNTED_DIGEST, MODULAR_WORKSTATION_DIGEST, STUDY_DIGEST, WALL_DIGEST,
+            WHITEBOARD_DIGEST, WORKSHOP_DIGEST, validate_pack,
+        },
+        test_support::TestDirectory,
+    };
 
     fn custom(label: &str) -> ValidatedPropPack {
         validate_pack(
             format!(r##"{{"formatVersion":1,"label":"{label}","credit":"Test","license":"MIT","palette":["#00000000","#ffffffff"],"props":[{{"key":"lamp","label":"Lamp","footprint":{{"width":1,"height":1}},"pixels":["1"]}}]}}"##).as_bytes(),
         )
         .unwrap()
+    }
+
+    fn custom_with_props(label: &str, count: usize) -> ValidatedPropPack {
+        let props = (0..count)
+            .map(|index| {
+                serde_json::json!({
+                    "key": format!("prop-{index}"),
+                    "label": format!("Prop {index}"),
+                    "footprint": { "width": 1, "height": 1 },
+                    "pixels": ["1"]
+                })
+            })
+            .collect::<Vec<_>>();
+        validate_pack(
+            &serde_json::to_vec(&serde_json::json!({
+                "formatVersion": 1,
+                "label": label,
+                "credit": "Test",
+                "license": "MIT",
+                "palette": ["#00000000", "#ffffffff"],
+                "props": props
+            }))
+            .unwrap(),
+        )
+        .unwrap()
+    }
+
+    fn stored_rows(storage: &Storage) -> Vec<(String, Vec<u8>, i64, i64, i64)> {
+        storage
+            .connection()
+            .unwrap()
+            .prepare(
+                "SELECT digest, bytes, prop_count, installed_revision, installed_at_ms FROM office_prop_packs ORDER BY digest",
+            )
+            .unwrap()
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
     }
 
     #[test]
@@ -763,6 +817,99 @@ mod tests {
             storage.show_local_prop_pack(pack.digest()),
             Err(LocalPropCatalogError::NotFound)
         ));
+        storage.close().unwrap();
+    }
+
+    #[test]
+    fn prop_quota_accepts_256_and_rejects_overflow_without_mutation() {
+        let directory = TestDirectory::new();
+        let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+        for revision in 0..16 {
+            let candidate = custom_with_props(&format!("Pack {revision}"), 16);
+            let installed = storage
+                .install_local_prop_pack(revision, &candidate)
+                .unwrap();
+            assert!(installed.changed);
+            assert_eq!(installed.catalog_revision, revision + 1);
+        }
+
+        let before_catalog = storage.list_local_prop_packs(20, None).unwrap();
+        assert_eq!(before_catalog.catalog_revision, 16);
+        assert_eq!(before_catalog.packs.len(), 16);
+        assert_eq!(
+            before_catalog
+                .packs
+                .iter()
+                .map(|entry| entry.pack.pack().props.len())
+                .sum::<usize>(),
+            256
+        );
+        assert!(before_catalog.next_cursor.is_none());
+        let before_rows = stored_rows(&storage);
+        assert_eq!(before_rows.len(), 16);
+        assert_eq!(
+            before_rows
+                .iter()
+                .map(|(_, _, prop_count, _, _)| prop_count)
+                .sum::<i64>(),
+            256
+        );
+
+        let overflow = custom_with_props("Overflow", 16);
+        assert!(matches!(
+            storage.install_local_prop_pack(16, &overflow),
+            Err(LocalPropCatalogError::Limit)
+        ));
+        assert_eq!(
+            storage.list_local_prop_packs(20, None).unwrap(),
+            before_catalog
+        );
+        assert_eq!(stored_rows(&storage), before_rows);
+        storage.close().unwrap();
+    }
+
+    #[test]
+    fn directional_pack_above_legacy_bound_survives_storage_reopen() {
+        let directory = TestDirectory::new();
+        let database = directory.path.join("state.db");
+        let mut bytes =
+            include_bytes!("../../../../../contracts/office/prop-pack-v2-sample.tmtprop.json")
+                .to_vec();
+        bytes.resize(crate::office_prop::V1_PACK_INPUT_LIMIT + 1, b' ');
+        let pack = crate::office_prop::validate_pack(&bytes).unwrap();
+        let mut storage = Storage::open(&database).unwrap();
+        let mutation = storage.install_local_prop_pack(0, &pack).unwrap();
+        assert!(mutation.changed);
+        storage.close().unwrap();
+        let mut reopened = Storage::open(&database).unwrap();
+        let saved = reopened.show_local_prop_pack(pack.digest()).unwrap();
+        assert_eq!(saved.pack.bytes(), bytes);
+        assert_eq!(saved.pack.pack().format_version, 2);
+        assert!(!reopened.install_local_prop_pack(1, &pack).unwrap().changed);
+        reopened.close().unwrap();
+    }
+
+    #[test]
+    fn v1_rows_above_their_format_limit_are_excluded_as_oversized() {
+        let directory = TestDirectory::new();
+        let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
+        let pack = custom("Oversized v1");
+        storage.install_local_prop_pack(0, &pack).unwrap();
+        let mut bytes = pack.bytes().to_vec();
+        bytes.resize(crate::office_prop::V1_PACK_INPUT_LIMIT + 1, b' ');
+        storage
+            .connection()
+            .unwrap()
+            .execute(
+                "UPDATE office_prop_packs SET bytes = ? WHERE digest = ?",
+                params![bytes, pack.digest()],
+            )
+            .unwrap();
+        let list = storage.list_local_prop_packs(20, None).unwrap();
+        assert!(list.packs.is_empty());
+        assert_eq!(list.excluded.len(), 1);
+        assert_eq!(list.excluded[0].reason, LocalPropExcludedReason::Oversized);
+        assert_eq!(list.catalog_revision, 1);
         storage.close().unwrap();
     }
 
@@ -846,20 +993,59 @@ mod tests {
     fn builtin_is_discoverable_install_noop_and_remove_protected() {
         let directory = TestDirectory::new();
         let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
-        let builtin = builtin_pack();
-        let result = storage.install_local_prop_pack(0, &builtin).unwrap();
-        assert!(!result.changed);
-        assert!(result.snapshot.unwrap().builtin);
-        assert!(
-            storage
-                .show_local_prop_pack(BUILTIN_DIGEST)
-                .unwrap()
-                .builtin
+        for builtin in builtin_packs() {
+            let mut resolver = LocalPropResolver::new(storage.connection().unwrap());
+            assert_eq!(
+                resolver.resolve(builtin.digest()).unwrap().pack.bytes(),
+                builtin.bytes()
+            );
+            assert_eq!(resolver.database_reads, 0);
+            let result = storage.install_local_prop_pack(0, builtin).unwrap();
+            assert!(!result.changed);
+            assert_eq!(result.catalog_revision, 0);
+            assert!(result.snapshot.unwrap().builtin);
+            let shown = storage.show_local_prop_pack(builtin.digest()).unwrap();
+            assert!(shown.builtin);
+            assert_eq!(shown.pack.bytes(), builtin.bytes());
+            assert!(shown.installed_at_ms.is_none());
+            assert!(matches!(
+                storage.remove_local_prop_pack(0, builtin.digest()),
+                Err(LocalPropCatalogError::Builtin)
+            ));
+        }
+        let list = storage.list_local_prop_packs(1, None).unwrap();
+        assert_eq!(list.catalog_revision, 0);
+        assert_eq!(
+            list.builtins
+                .iter()
+                .map(|item| item.pack.digest())
+                .collect::<Vec<_>>(),
+            [
+                BUILTIN_DIGEST,
+                WORKSHOP_DIGEST,
+                COMMONS_DIGEST,
+                WHITEBOARD_DIGEST,
+                BROADCASTER_DIGEST,
+                STUDY_DIGEST,
+                WALL_DIGEST,
+                MODULAR_WORKSTATION_DIGEST,
+                MODULAR_MOUNTED_DIGEST,
+                MODULAR_LOUNGE_DIGEST,
+                crate::office_prop::MODULAR_FACILITIES_DIGEST,
+                crate::office_prop::MODULAR_RECEPTION_DIGEST
+            ]
         );
-        assert!(matches!(
-            storage.remove_local_prop_pack(0, BUILTIN_DIGEST),
-            Err(LocalPropCatalogError::Builtin)
-        ));
+        assert!(list.packs.is_empty());
+        assert!(list.next_cursor.is_none());
+        assert_eq!(
+            storage
+                .connection()
+                .unwrap()
+                .query_row("SELECT count(*) FROM office_prop_packs", [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
         storage.close().unwrap();
     }
 

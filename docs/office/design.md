@@ -8,8 +8,8 @@ This document owns policy and user-visible semantics; the
 
 ## Local-first M1
 
-The merged local slice is installation-owned. Direct `tmt office block show/apply
---local` commands use the existing local SQLite repository and need no Firebase
+The local slice is installation-owned. Direct `tmt office layout show/apply`
+commands use the existing local SQLite repository and need no Firebase
 account, remote world, pairing, or running browser service. `tmt office start` is
 an optional loopback UI for the same state, not a prerequisite for local content
 commands. The local path does not publish work, dispatch tasks, call models or

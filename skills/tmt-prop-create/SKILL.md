@@ -7,7 +7,9 @@ description: Create and validate bounded data-only TMT Office prop-pack JSON fil
 
 Produce one UTF-8 `.tmtprop.json` document. A prop pack is ordinary indexed-pixel
 data. Never add scripts, markup, URLs, external asset references, filesystem
-paths, prompts, tools, or executable behavior. Use exactly these fields:
+paths, prompts, tools, or executable behavior. Choose v2 for authored directional
+furniture and optional tint/text; v1 remains useful for simple rotated sprites.
+Check the installed companion supports the chosen version. This is a v1 example:
 
 ```json
 {
@@ -38,14 +40,47 @@ digits, `.`, `+`, or `-`. Use unique lowercase keys matching
 index string, and every index must exist in the palette. Unknown or duplicate
 fields reject at every level.
 
+For v2, keep the envelope but set `formatVersion: 2` and replace each prop's
+`pixels` with `frames`: exactly four rasters in **South, West, North, East** order.
+Use two hex digits per pixel (`00`, `01`, …, `ff`), not v1's single digit.
+Bounds are 512 KiB source, 256 palette entries, 128 pixels per raster side,
+16,384 cells per frame, 131,072 cells across the pack, and 16 tiles per footprint
+side; the 16-prop limit and other metadata rules are unchanged. Each frame must
+contain visible pixels. Never mix `pixels` and `frames`.
+
+Author upright views rather than rotating a finished image. Odd rotations swap
+the footprint dimensions. Prefer 8 source pixels per tile across all views;
+preserve consistent scale, material, perspective and contact placement. Keep
+transparent padding where the object should not touch its boundary. Symmetric
+props may intentionally reuse views.
+
+V2 may declare `customization` with `tint`, `text`, or both:
+
+- `tint: {"indices":[1,2]}` selects distinct nontransparent palette indices.
+  Every selected index must be used somewhere, and every frame must contain
+  the channel. Keep outlines, highlights and trim outside it when appropriate.
+- `text: {"color":"#fff0c2","regions":[...]}` provides four integer
+  `{x,y,width,height}` rectangles in source-pixel coordinates, one per frame.
+  Each rectangle must fit its frame. Choose a quiet, contrasting region away
+  from ornamental borders and check legibility at normal zoom.
+
+Capabilities contain no user text or chosen tint. Those values belong to each
+placement, so two instances can look different without modifying the pack.
+
 Validate the completed file with the installed companion:
 
 ```sh
 tmt office prop validate --file <pack.tmtprop.json> --json
 ```
 
+Validation is read-only and also returns advisory `warnings` with prop key,
+rotation, code and explanation. Resolve unintended stretching, changing pixel
+scale, clipped edges and small text regions. Intentional tiling may touch edges;
+an empty warning list is not proof of visual quality. Inspect every direction,
+normal-size placement, contrasting tint and text before handing off artwork.
+
 Treat the returned digest as the identity of the exact bytes. Do not hand-edit
-or predict it. Validation is read-only. Preview only when the user asks and the
+or predict it. Preview only when the user asks and the
 local Office service is already running; do not start or restart it implicitly:
 
 ```sh
@@ -62,30 +97,44 @@ tmt office prop install --local --file <pack.tmtprop.json> --if-revision <catalo
 tmt office prop show --local <sha256:digest> --json
 ```
 
-To place a validated prop, first read the identity's block. Copy only its exact
-`.layout` object into `layout.json`, add a v2 object using the returned immutable
-`<digest>/<key>` reference and the definition's exact footprint, then apply with
-the block revision:
+To place a validated prop, first read the local world. Use the returned immutable
+`<digest>/<key>` reference and the definition's exact footprint. Add an object
+to the existing world's `objects` list; this fragment is not a complete layout:
 
 ```json
 {
-  "version": 2,
-  "objects": [
-    {
+  "id": "30000000-0000-4000-8000-000000000001",
+  "kind": "decoration",
+  "surface": { "type": "floor" },
+  "extension": null,
+  "placement": {
       "prop": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/signal-lamp",
       "footprint": { "width": 2, "height": 2 },
       "x": 4,
       "y": 6,
       "rotation": 0
-    }
-  ]
+  }
 }
 ```
 
 ```sh
-tmt office block show --local --identity <name> --json
-tmt office block apply --local --identity <name> --file layout.json --if-revision <blockRevision> --json
+tmt office layout show --json
+tmt office layout apply --file layout.json --if-revision <revision> --json
 ```
+
+Copy the read result's `.layout` (`version`, `map`, `objects`) into the file;
+preserve the topology and other objects. Generate a unique UUID for each new
+placement; never reuse the example UUID. `layout` needs no identity or scope
+selector. At revision 0, also pass `--legacy-basis <legacyBasis>` from that same
+read; omit it at later revisions. Keep all placements on valid floor or wall
+surfaces; the entire world is bounded to 4 MiB and 4096 objects.
+
+For a prop that declares the corresponding capabilities, add
+`"customization":{"tint":"#803060","text":"Studio"}` inside `placement`.
+Tint is lowercase `#rrggbb`; text is nonblank, single-line, at most 24 Unicode
+scalar values and 64 UTF-8 bytes. Omit unused fields; remove the placement's
+`customization` entirely to restore the original art. Rotation still selects
+one upright authored view; the world remains version 1 with or without customization.
 
 On a revision conflict, reread and reconcile; never advance a revision
 automatically. Removing a pack is another authorized catalog mutation:

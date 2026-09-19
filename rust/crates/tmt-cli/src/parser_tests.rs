@@ -1,4 +1,62 @@
+use crate::invocation::IdentityStatusRequest;
 use std::ffi::OsString;
+
+#[test]
+fn identity_status_uses_shared_duration_grammar_and_scoped_options() {
+    for (duration, ttl_ms) in [
+        ("1s", 1000),
+        ("1500ms", 1500),
+        ("1.5m", 90000),
+        ("1440m", 86400000),
+    ] {
+        assert_eq!(
+            parsed(&[
+                "identity",
+                "status",
+                "set",
+                "Reviewing",
+                "--mood",
+                "focused",
+                "--for",
+                duration,
+                "--identity",
+                "Alice"
+            ])
+            .invocation,
+            Invocation::Identity(IdentityRequest::Status {
+                identity: Some("Alice".into()),
+                operation: IdentityStatusRequest::Set {
+                    activity: "Reviewing".into(),
+                    mood: Some("focused".into()),
+                    ttl_ms
+                }
+            })
+        );
+    }
+    assert_eq!(
+        parsed(&["identity", "status", "set", "Reviewing"]).invocation,
+        Invocation::Identity(IdentityRequest::Status {
+            identity: None,
+            operation: IdentityStatusRequest::Set {
+                activity: "Reviewing".into(),
+                mood: None,
+                ttl_ms: 3600000
+            }
+        })
+    );
+    for duration in ["0", "999ms", "1441m", "NaN", "1h"] {
+        assert_eq!(
+            parse_error(&["identity", "status", "set", "Reviewing", "--for", duration]).code,
+            "USAGE_ERROR"
+        );
+    }
+    for verb in ["show", "clear"] {
+        assert_eq!(
+            parse_error(&["identity", "status", verb, "--mood", "happy"]).code,
+            "USAGE_ERROR"
+        );
+    }
+}
 
 use super::{
     ContentInput, ExchangeOperation, IdentityFilterRequest, IdentityMetadataRequest,
@@ -7,6 +65,224 @@ use super::{
 
 fn args(values: &[&str]) -> Vec<OsString> {
     values.iter().map(OsString::from).collect()
+}
+
+#[test]
+fn local_layout_commands_have_one_explicit_revision_fence_and_no_identity_target() {
+    use crate::invocation::{OfficeLayoutOperation, OfficeOperation};
+    assert_eq!(
+        parsed(&["office", "layout", "show"]).invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Layout(OfficeLayoutOperation::Show)
+        }
+    );
+    let basis = "a".repeat(64);
+    assert_eq!(
+        parsed(&[
+            "office",
+            "layout",
+            "apply",
+            "--file",
+            "world.json",
+            "--if-revision",
+            "0",
+            "--legacy-basis",
+            &basis
+        ])
+        .invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::Layout(OfficeLayoutOperation::Apply {
+                file: "world.json".into(),
+                if_revision: 0,
+                legacy_basis: Some(basis),
+            })
+        }
+    );
+    for input in [
+        vec!["office", "layout", "show", "--identity", "Alice"],
+        vec!["office", "layout", "show", "--world", "remote"],
+        vec!["office", "layout", "show", "--local"],
+        vec!["office", "layout", "apply", "--file", "world.json"],
+        vec![
+            "office",
+            "layout",
+            "apply",
+            "--file",
+            "world.json",
+            "--if-revision",
+            "-1",
+        ],
+    ] {
+        assert_eq!(parse_error(&input).code, "USAGE_ERROR");
+    }
+}
+
+#[test]
+fn room_commands_share_typed_grammar_and_reject_unrelated_flags() {
+    use crate::invocation::RoomOperation;
+    use tmt_core::room::MembershipChange;
+    assert!(
+        matches!(parsed(&["x", "listen", "--room", "Design", "--identity", "Alice"]).invocation,
+        Invocation::Exchange { operation: ExchangeOperation::Listen { room: Some(room), .. }, .. } if room == "Design")
+    );
+    assert_eq!(
+        parsed(&["room", "create", "Design"]).invocation,
+        Invocation::Room(RoomOperation::Create("Design".into()))
+    );
+    assert_eq!(
+        parsed(&["room", "ls"]).invocation,
+        Invocation::Room(RoomOperation::List)
+    );
+    assert_eq!(
+        parsed(&["room", "show", "Design"]).invocation,
+        Invocation::Room(RoomOperation::Show("Design".into()))
+    );
+    for (verb, change) in [
+        ("join", MembershipChange::Join),
+        ("leave", MembershipChange::Leave),
+    ] {
+        assert_eq!(
+            parsed(&["room", verb, "Design", "--identity", "Alice"]).invocation,
+            Invocation::Room(RoomOperation::Membership {
+                room: "Design".into(),
+                identity: Some("Alice".into()),
+                change
+            })
+        );
+        assert_eq!(
+            parsed(&["room", verb, "Design"]).invocation,
+            Invocation::Room(RoomOperation::Membership {
+                room: "Design".into(),
+                identity: None,
+                change
+            })
+        );
+    }
+    assert_eq!(
+        parsed(&["ls", "--room", "Design"]).invocation,
+        Invocation::List {
+            target: None,
+            room: Some("Design".into())
+        }
+    );
+    for command in [
+        vec!["room"],
+        vec!["room", "join"],
+        vec!["room", "ls", "--identity", "Alice"],
+        vec!["room", "create", "Design", "--force"],
+        vec!["ls", "Alice", "--room", "Design"],
+        vec!["room", "send", "Design"],
+        vec!["room", "broadcast", "Design", "hello", "--timeout", "1s"],
+        vec!["room", "send", "Design", "hello", "--inbox"],
+    ] {
+        assert!(parse(&args(&command)).is_err(), "{command:?}");
+    }
+    for action in ["create", "ls", "show", "join", "leave", "send", "broadcast"] {
+        for help in ["-h", "--help"] {
+            assert!(matches!(
+                parsed(&["room", action, help]).invocation,
+                Invocation::Help(_)
+            ));
+        }
+    }
+}
+
+#[test]
+fn room_dispatch_uses_the_shared_request_kind_and_operation_identity() {
+    use crate::invocation::RoomOperation;
+    use tmt_core::request::RequestKind;
+    assert!(matches!(
+        parsed(&["talk", "Alice", "Only Alice", "--room", "Design", "--inbox", "--detach"]).invocation,
+        Invocation::Talk { options: TalkOptions { room: Some(room), inbox: true, .. }, .. } if room == "Design"
+    ));
+    for (verb, kind) in [
+        ("send", RequestKind::Request),
+        ("broadcast", RequestKind::Announcement),
+    ] {
+        assert_eq!(
+            parsed(&[
+                "room",
+                verb,
+                "Design",
+                "hello",
+                "--identity",
+                "Alice",
+                "--operation-id",
+                "11111111-1111-4111-8111-111111111111"
+            ])
+            .invocation,
+            Invocation::Room(RoomOperation::Dispatch {
+                room: "Design".into(),
+                message: "hello".into(),
+                identity: Some("Alice".into()),
+                operation_id: Some("11111111-1111-4111-8111-111111111111".into()),
+                kind,
+            })
+        );
+    }
+}
+
+#[test]
+fn whiteboard_snapshot_commands_require_an_exact_local_reference_and_explicit_output() {
+    use crate::invocation::OfficeOperation;
+    let reference = "tmt:whiteboard:snapshot:11111111-1111-4111-8111-111111111111";
+    for path in [
+        vec!["office", "whiteboard"],
+        vec!["office", "whiteboard", "snapshot"],
+        vec!["office", "whiteboard", "snapshot", "show"],
+        vec!["office", "whiteboard", "snapshot", "export"],
+    ] {
+        for help in ["-h", "--help"] {
+            let mut command = path.clone();
+            command.push(help);
+            assert_eq!(
+                parsed(&command).invocation,
+                Invocation::Help(path.iter().map(|part| (*part).into()).collect())
+            );
+        }
+    }
+    for (action, output) in [("show", None), ("export", Some("/tmp/snapshot.png"))] {
+        let mut command = vec!["office", "whiteboard", "snapshot", action, reference];
+        if let Some(path) = output {
+            command.extend(["--output", path]);
+        }
+        assert_eq!(
+            parsed(&command).invocation,
+            Invocation::Office {
+                prefix: None,
+                operation: OfficeOperation::WhiteboardSnapshot {
+                    reference: reference.into(),
+                    output: output.map(String::from)
+                }
+            }
+        );
+    }
+    for command in [
+        vec!["office", "whiteboard", "snapshot", "export", reference],
+        vec!["office", "whiteboard", "snapshot", "show", "latest"],
+        vec![
+            "office",
+            "whiteboard",
+            "snapshot",
+            "show",
+            reference,
+            "--output",
+            "/tmp/file",
+        ],
+        vec![
+            "office",
+            "whiteboard",
+            "snapshot",
+            "show",
+            reference,
+            "--identity",
+            "alice",
+        ],
+    ] {
+        assert!(parse(&args(&command)).is_err(), "{command:?}");
+    }
 }
 
 #[test]
@@ -121,6 +397,12 @@ fn office_board_grammar_preserves_exact_inputs_and_actor_category_choices() {
     use crate::invocation::{
         BoardActorSelection, BoardCategorySelection, OfficeBoardOperation, OfficeOperation,
     };
+    assert!(
+        matches!(parsed(&["office", "board", "list", "--room", "Design review"]).invocation,
+        Invocation::Office { operation: OfficeOperation::Board(OfficeBoardOperation::List {
+            category: BoardCategorySelection::Room(name), ..
+        }), .. } if name == "Design review")
+    );
     assert_eq!(
         parsed(&[
             "office",
@@ -180,6 +462,11 @@ fn office_board_grammar_preserves_exact_inputs_and_actor_category_choices() {
             "--title",
             "t",
         ] as &[&str],
+        &["office", "board", "list", "--room", "Design", "--general"],
+        &[
+            "office", "board", "list", "--room", "Design", "--repo", "origin",
+        ],
+        &["office", "board", "list", "--room"],
         &[
             "office",
             "board",
@@ -373,7 +660,7 @@ fn office_block_commands_are_typed_and_scoped() {
         Invocation::Office {
             prefix: None,
             operation: OfficeOperation::Block {
-                target: OfficeBlockTarget::Remote {
+                target: OfficeBlockTarget {
                     world: world.into(),
                     emulator: false
                 },
@@ -399,7 +686,7 @@ fn office_block_commands_are_typed_and_scoped() {
         Invocation::Office {
             prefix: None,
             operation: OfficeOperation::Block {
-                target: OfficeBlockTarget::Remote {
+                target: OfficeBlockTarget {
                     world: world.into(),
                     emulator: true
                 },
@@ -427,7 +714,7 @@ fn office_block_commands_are_typed_and_scoped() {
         Invocation::Office {
             prefix: None,
             operation: OfficeOperation::Block {
-                target: OfficeBlockTarget::Remote {
+                target: OfficeBlockTarget {
                     world: world.into(),
                     emulator: false
                 },
@@ -458,7 +745,7 @@ fn office_block_commands_are_typed_and_scoped() {
         Invocation::Office {
             prefix: None,
             operation: OfficeOperation::Block {
-                target: OfficeBlockTarget::Remote {
+                target: OfficeBlockTarget {
                     world: world.into(),
                     emulator: false
                 },
@@ -530,17 +817,38 @@ fn office_block_commands_are_typed_and_scoped() {
         );
     }
 
-    assert_eq!(
-        parsed(&["office", "block", "show", "--local", "--identity", "Alice"]).invocation,
-        Invocation::Office {
-            prefix: None,
-            operation: OfficeOperation::Block {
-                target: OfficeBlockTarget::Local,
-                identity: Some("Alice".into()),
-                operation: OfficeBlockOperation::Show { block_id: None },
-            },
-        }
-    );
+    for input in [
+        vec!["office", "block", "show", "--local", "--identity", "Alice"],
+        vec!["office", "block", "show", "--local", "--lobby"],
+        vec!["office", "block", "show", "--lobby"],
+        vec![
+            "office",
+            "block",
+            "show",
+            "--local",
+            "--lobby",
+            "--identity",
+            "Alice",
+        ],
+        vec!["office", "block", "show", "--local", "--lobby", "block-id"],
+        vec![
+            "office", "block", "show", "--local", "--lobby", "--world", world,
+        ],
+        vec![
+            "office",
+            "block",
+            "show",
+            "--local",
+            "--lobby",
+            "--emulator",
+        ],
+    ] {
+        assert_eq!(
+            parse_error(&input).code,
+            "USAGE_ERROR",
+            "arguments: {input:?}"
+        );
+    }
     assert_eq!(
         parsed(&["office", "start", "--port", "18457"]).invocation,
         Invocation::Office {
@@ -727,6 +1035,65 @@ fn office_prop_commands_have_exact_local_and_revision_grammar() {
         vec!["office", "prop", "show", "sha256:x"],
         vec!["office", "prop", "list", "--local", "--limit", "0"],
         vec!["office", "prop", "list", "--local", "--limit", "21"],
+    ] {
+        assert!(parse(&args(&invalid)).is_err(), "{invalid:?}");
+    }
+}
+
+#[test]
+fn extension_preflight_requires_both_named_files_and_rejects_execution_flags() {
+    use crate::invocation::OfficeOperation;
+    assert_eq!(
+        parsed(&[
+            "office",
+            "extension",
+            "validate",
+            "--file",
+            "definition.json",
+            "--instance",
+            "instance.json"
+        ])
+        .invocation,
+        Invocation::Office {
+            prefix: None,
+            operation: OfficeOperation::ExtensionValidate {
+                file: "definition.json".into(),
+                instance: "instance.json".into()
+            }
+        }
+    );
+    for invalid in [
+        vec![
+            "office",
+            "extension",
+            "validate",
+            "--file",
+            "definition.json",
+        ],
+        vec![
+            "office",
+            "extension",
+            "validate",
+            "--instance",
+            "instance.json",
+        ],
+        vec![
+            "office",
+            "extension",
+            "validate",
+            "--file",
+            "definition.json",
+            "--instance",
+            "instance.json",
+            "--execute",
+        ],
+        vec![
+            "office",
+            "extension",
+            "install",
+            "--file",
+            "definition.json",
+        ],
     ] {
         assert!(parse(&args(&invalid)).is_err(), "{invalid:?}");
     }
@@ -999,7 +1366,14 @@ fn assert_usage_error(values: &[&str], message: &str, mode: OutputMode) {
 #[test]
 fn command_aliases_preserve_typed_invocations() {
     let cases = [
-        ("ls alias", vec!["ls"], Invocation::List { target: None }),
+        (
+            "ls alias",
+            vec!["ls"],
+            Invocation::List {
+                target: None,
+                room: None,
+            },
+        ),
         (
             "this alias",
             vec!["this", "Alice"],
@@ -1025,6 +1399,7 @@ fn command_aliases_preserve_typed_invocations() {
                 message: "hello".into(),
                 originator: None,
                 options: TalkOptions {
+                    room: None,
                     inbox: false,
                     force: false,
                     detach: false,
@@ -1102,6 +1477,7 @@ fn literal_option_words_remain_data_when_the_grammar_requires_values() {
             message: "--json --debug".into(),
             originator: None,
             options: TalkOptions {
+                room: None,
                 inbox: false,
                 force: false,
                 detach: false,
@@ -1142,6 +1518,7 @@ fn root_and_command_local_options_work_before_and_after_the_command() {
                 message: "hello".into(),
                 originator: None,
                 options: TalkOptions {
+                    room: None,
                     inbox: false,
                     force: false,
                     detach: false,
@@ -1160,6 +1537,7 @@ fn root_and_command_local_options_work_before_and_after_the_command() {
             message: "hello".into(),
             originator: None,
             options: TalkOptions {
+                room: None,
                 inbox: false,
                 force: false,
                 detach: false,
@@ -1190,6 +1568,7 @@ fn removed_output_flags_are_rejected_but_remain_literal_payload_data() {
             message: "--verbose --debug -v".into(),
             originator: None,
             options: TalkOptions {
+                room: None,
                 inbox: false,
                 force: false,
                 detach: false,
@@ -1373,6 +1752,7 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
             message: "hello".into(),
             originator: None,
             options: TalkOptions {
+                room: None,
                 inbox: false,
                 force: false,
                 detach: false,
@@ -1390,6 +1770,7 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
             message: "hello".into(),
             originator: None,
             options: TalkOptions {
+                room: None,
                 inbox: false,
                 force: false,
                 detach: false,
@@ -1429,6 +1810,7 @@ fn timing_values_accept_exact_boundaries_and_reject_invalid_values() {
             message: "hello".into(),
             originator: None,
             options: TalkOptions {
+                room: None,
                 inbox: false,
                 force: false,
                 detach: true,
@@ -1458,6 +1840,7 @@ fn inbox_and_listener_options_have_typed_defaults_and_minutes() {
         Invocation::Exchange {
             identity: Some("Receiver".into()),
             operation: ExchangeOperation::Listen {
+                room: None,
                 timeout_seconds: 900.0,
                 debounce_seconds: 10.0
             },
@@ -1468,6 +1851,7 @@ fn inbox_and_listener_options_have_typed_defaults_and_minutes() {
         Invocation::Exchange {
             identity: None,
             operation: ExchangeOperation::Listen {
+                room: None,
                 timeout_seconds: 90.0,
                 debounce_seconds: 0.25
             },

@@ -4,10 +4,40 @@ import {
   PROFILE_CATALOG,
   decodeProfileMutation,
   decodeProfileSnapshot,
+  decodeProfileProjection,
   validProfile,
 } from './profile-contract.js';
 
 describe('profile contract', () => {
+  it('requires native lifetime independently of self-authored profile text', () => {
+    const value = {
+      identityId: '01020304-0000-4000-8000-000000000000',
+      identityName: 'Alice',
+      exists: false,
+      revision: 0,
+      profile: vectors.validProfiles[0],
+      updatedAtMs: null,
+      catalog: PROFILE_CATALOG,
+      presence: 'offline' as const,
+      selfReportedStatus: null,
+    };
+    expect(() => decodeProfileProjection(value)).toThrow();
+    for (const lifetime of ['saved', 'temporary'])
+      expect(decodeProfileProjection({ ...value, lifetime }).lifetime).toBe(lifetime);
+    expect(() => decodeProfileProjection({ ...value, lifetime: 'permanent' })).toThrow();
+    for (const presence of ['active', 'offline', 'unknown']) {
+      expect(decodeProfileProjection({ ...value, lifetime: 'saved', presence }).presence).toBe(
+        presence
+      );
+    }
+    for (const presence of [undefined, null, true, 'online', 'busy']) {
+      expect(() => decodeProfileProjection({ ...value, lifetime: 'saved', presence })).toThrow();
+    }
+    const { presence: _presence, ...snapshot } = value;
+    expect(() =>
+      decodeProfileProjection({ ...snapshot, lifetime: 'saved', online: false })
+    ).toThrow();
+  });
   it('uses the shared literal catalog and validation vectors', () => {
     expect(vectors.catalog).toEqual(PROFILE_CATALOG);
     for (const profile of vectors.validProfiles) expect(validProfile(profile)).toBe(true);

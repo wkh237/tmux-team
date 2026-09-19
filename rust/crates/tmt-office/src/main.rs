@@ -69,9 +69,17 @@ fn main() -> ExitCode {
                 Ok(_) => {
                     let output = if matches!(
                         operation,
-                        OfficeInvocation::LocalBlockShow | OfficeInvocation::LocalBlockApply
+                        OfficeInvocation::LocalWorldShow | OfficeInvocation::LocalWorldApply
                     ) {
-                        tmt_adapters::office_local::execute(operation, &input)
+                        tmt_adapters::office_world::access::execute(operation, &input)
+                    } else if operation == OfficeInvocation::LocalExtensionValidate {
+                        tmt_adapters::office_extension::preflight::execute(&input)
+                    } else if matches!(
+                        operation,
+                        OfficeInvocation::WhiteboardSnapshotShow
+                            | OfficeInvocation::WhiteboardSnapshotImage
+                    ) {
+                        tmt_adapters::office_whiteboard::access::execute(operation, &input)
                     } else if matches!(
                         operation,
                         OfficeInvocation::LocalPropValidate
@@ -128,22 +136,28 @@ fn main() -> ExitCode {
 fn input_sentinel_limit(operation: OfficeInvocation) -> u64 {
     if matches!(
         operation,
+        OfficeInvocation::LocalWorldShow | OfficeInvocation::LocalWorldApply
+    ) {
+        u64::try_from(tmt_adapters::office_world::WORLD_ENVELOPE_LIMIT)
+            .expect("world input bound fits u64")
+            + 1
+    } else if operation == OfficeInvocation::LocalExtensionValidate {
+        u64::try_from(tmt_adapters::office_extension::preflight::PROTOCOL_INPUT_LIMIT)
+            .expect("extension input bound fits u64")
+            + 1
+    } else if matches!(
+        operation,
         OfficeInvocation::LocalPropValidate | OfficeInvocation::LocalPropInstall
     ) {
-        180_001
+        u64::try_from(tmt_adapters::office_prop::PROTOCOL_INPUT_LIMIT)
+            .expect("prop input bound fits u64")
+            + 1
     } else if matches!(
         operation,
         OfficeInvocation::LocalAvatarValidate | OfficeInvocation::LocalAvatarInstall
     ) {
         u64::try_from(tmt_adapters::office_avatar::PROTOCOL_INPUT_LIMIT)
             .expect("avatar input bound fits u64")
-            + 1
-    } else if matches!(
-        operation,
-        OfficeInvocation::LocalBlockShow | OfficeInvocation::LocalBlockApply
-    ) {
-        u64::try_from(tmt_core::office_block::LOCAL_PROTOCOL_LIMIT)
-            .expect("local block input bound fits u64")
             + 1
     } else if matches!(
         operation,
@@ -167,14 +181,24 @@ mod input_limit_tests {
     #[test]
     fn operation_specific_input_sentinels_preserve_legacy_bounds() {
         assert_eq!(input_sentinel_limit(OfficeInvocation::PairBegin), 4_097);
-        assert_eq!(
-            input_sentinel_limit(OfficeInvocation::LocalBlockApply),
-            u64::try_from(tmt_core::office_block::LOCAL_PROTOCOL_LIMIT).unwrap() + 1
-        );
+        for operation in [
+            OfficeInvocation::LocalWorldShow,
+            OfficeInvocation::LocalWorldApply,
+        ] {
+            assert_eq!(
+                input_sentinel_limit(operation),
+                u64::try_from(tmt_adapters::office_world::WORLD_ENVELOPE_LIMIT).unwrap() + 1
+            );
+        }
         assert_eq!(input_sentinel_limit(OfficeInvocation::BoardPost), 65_537);
         assert_eq!(
+            input_sentinel_limit(OfficeInvocation::LocalExtensionValidate),
+            u64::try_from(tmt_adapters::office_extension::preflight::PROTOCOL_INPUT_LIMIT).unwrap()
+                + 1
+        );
+        assert_eq!(
             input_sentinel_limit(OfficeInvocation::LocalPropInstall),
-            180_001
+            u64::try_from(tmt_adapters::office_prop::PROTOCOL_INPUT_LIMIT).unwrap() + 1
         );
         assert_eq!(
             input_sentinel_limit(OfficeInvocation::LocalAvatarInstall),

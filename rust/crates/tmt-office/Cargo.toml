@@ -28,4 +28,5 @@ uuid = { workspace = true, optional = true, features = ["v4"] }
 workspace = true
 
 [dev-dependencies]
+png.workspace = true
 rusqlite.workspace = true

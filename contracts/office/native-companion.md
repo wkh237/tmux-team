@@ -5,7 +5,8 @@ schema. It grants no Office access and does not replace pairing.
 
 The core-owned `OfficeInvocation` has exact operations `probe`, `capabilities`, `pair-begin`,
 `pair-poll`, `pair-status`, `unpair`, `inspect`, `sync`, `block-show`, `block-apply`,
-`local-block-show`, `local-block-apply`, `local-profile-show`, `local-profile-apply`,
+`local-profile-show`, `local-profile-apply`,
+`local-world-show`, `local-world-apply`,
 `local-prop-validate`, `local-prop-install`, `local-prop-remove`, `local-prop-list`,
 `local-prop-show`, `local-avatar-validate`, `local-avatar-install`,
 `local-avatar-remove`, `local-avatar-list`, `local-avatar-show`, `board-post`,
@@ -92,9 +93,16 @@ become a busy/no-write claim.
 Unsupported operations from older companions
 are failures, never evidence of a saved layout. See [block v1](block-v1.md).
 
-Local block v2 operations use a separate core-owned 64 KiB private JSON ceiling for
-both requests and replies. This accommodates the bounded 16-object prop projection
-and its escaped resolution labels without raising remote v1 or unrelated operations.
+The local whole-world operations replace local block editing; the old private
+`local-block-show` and `local-block-apply` names are rejected as unknown operations.
+`local-world-show` accepts exactly `{}`. `local-world-apply` accepts the strict
+world save envelope (`expectedRevision`, `legacyBasis`, `layout`), bounded to
+4 MiB plus 512 bytes. Replies are bounded to 4 MiB plus 1024 bytes and decoded
+as one strict world snapshot or an allowlisted world failure. Fresh previews
+may have `worldId: null`; revision zero requires the source fingerprint, while
+saved revisions require a world UUID and null fingerprint. The same adapter
+storage operation serves CLI and HTTP. See [world v1](world-v1.md). These calls
+need neither identity selection nor an HTTP service or network connection.
 
 Local profile, prop, and avatar operations use their exact bounded contracts rather than
 the remote block envelope. Profile source files are bounded to 8 KiB while their

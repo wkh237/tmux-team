@@ -25,6 +25,7 @@ pub struct AttentionRecord {
 /// state variants therefore have one definition without optional body flags.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FinalState<T> {
+    NotRequired,
     NotSubmitted,
     Retained {
         content: T,
@@ -45,6 +46,7 @@ pub enum FinalState<T> {
 impl<T> FinalState<T> {
     pub fn as_str(&self) -> &'static str {
         match self {
+            Self::NotRequired => "not_required",
             Self::NotSubmitted => "not_submitted",
             Self::Retained { .. } => "retained",
             Self::Expired { .. } => "expired",
@@ -56,6 +58,7 @@ impl<T> FinalState<T> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Exchange<T = ()> {
     pub request_id: String,
+    pub room_id: Option<String>,
     pub recipient_identity_id: Option<String>,
     pub prepared_at_ms: u64,
     pub delivery: AttemptStatus,
@@ -80,6 +83,7 @@ pub struct ExchangePage {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IncomingKind {
+    Announcement,
     Request,
     Response,
 }
@@ -87,6 +91,7 @@ pub enum IncomingKind {
 impl IncomingKind {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Announcement => "announcement",
             Self::Request => "request",
             Self::Response => "response",
         }

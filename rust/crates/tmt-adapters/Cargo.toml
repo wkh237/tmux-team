@@ -24,6 +24,7 @@ sha2.workspace = true
 semver.workspace = true
 tar.workspace = true
 flate2.workspace = true
+png.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 subprocess.workspace = true

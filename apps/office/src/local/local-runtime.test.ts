@@ -1,20 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { BlockConflict, builtinFurniture } from '../blocks/block-contract.js';
-import { createBlockState } from '../blocks/block-state.js';
+import { builtinFurniture } from '../blocks/block-contract.js';
 import { startLocalRuntime } from './local-runtime.js';
 import { PROFILE_CATALOG, ProfileConflict } from '../profiles/profile-contract.js';
+import { BUILTIN_CATALOG, WORKSHOP_DIGEST } from '../props/prop-contract.js';
+import { officeWorldFixture } from '../../../../test/support/office-world.js';
 
 const token = 'a'.repeat(43);
-const block = {
-  exists: true as const,
-  blockId: '11111111-1111-4111-8111-111111111111',
-  identityId: '22222222-2222-4222-8222-222222222222',
-  identityName: 'Alice',
-  revision: 1,
-  layout: { version: 2 as const, objects: [] },
-  resolutions: [],
-  updatedAtMs: 1,
-};
+const identityId = '22222222-2222-4222-8222-222222222222';
 
 describe('local Office runtime', () => {
   beforeEach(() => history.replaceState(null, '', `/local#token=${token}`));
@@ -23,76 +15,26 @@ describe('local Office runtime', () => {
     vi.unstubAllGlobals();
   });
 
-  it('moves the fragment token to memory and authenticates bounded reads', async () => {
-    const fetch = vi.fn(async () => new Response(JSON.stringify([block]), { status: 200 }));
+  it('moves the fragment token to memory and authenticates world reads', async () => {
+    const world = officeWorldFixture();
+    const fetch = vi.fn(async () => new Response(JSON.stringify(world)));
     vi.stubGlobal('fetch', fetch);
     const runtime = startLocalRuntime(window.location);
     expect(location.hash).toBe('');
-    await expect(runtime.list()).resolves.toEqual([block]);
+    await expect(runtime.world.show()).resolves.toEqual(world);
     expect(fetch).toHaveBeenCalledWith(
-      '/api/v1/local/blocks',
+      '/api/v1/local/world',
       expect.objectContaining({ headers: { Authorization: `Bearer ${token}` } })
     );
     runtime.dispose();
   });
 
-  it('rejects missing sessions and preserves revision conflicts', async () => {
+  it('rejects missing sessions before fetching', () => {
     history.replaceState(null, '', '/local');
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
     expect(() => startLocalRuntime(window.location)).toThrow('session is missing');
-    history.replaceState(null, '', `/local#token=${token}`);
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response('{"error":"REVISION_CONFLICT"}', { status: 409 }))
-    );
-    const runtime = startLocalRuntime(window.location);
-    await expect(runtime.blocks.apply(block.identityId, 1, [])).rejects.toBeInstanceOf(
-      BlockConflict
-    );
-    runtime.dispose();
-  });
-
-  it('reads an absent room without writing and creates it with identity-targeted revision zero', async () => {
-    vi.useFakeTimers();
-    const absent = { ...block, exists: false, blockId: null, revision: 0, updatedAtMs: 0 };
-    const fetch = vi.fn(
-      async (_path: string, init?: RequestInit) =>
-        new Response(JSON.stringify(init?.method === 'PUT' ? { ...block, changed: true } : absent))
-    );
-    vi.stubGlobal('fetch', fetch);
-    const runtime = startLocalRuntime(window.location);
-    const changed = vi.fn();
-    const stop = runtime.blocks.watch(block.identityId, changed, vi.fn());
-    await vi.advanceTimersByTimeAsync(0);
-    expect(changed).toHaveBeenCalledExactlyOnceWith(null);
-    expect(fetch).toHaveBeenCalledTimes(1);
-    expect(fetch.mock.calls[0]?.[1]?.method).toBeUndefined();
-    await expect(runtime.blocks.apply(block.identityId, 0, [])).resolves.toMatchObject({
-      revision: 1,
-    });
-    expect(fetch.mock.calls[1]?.[0]).toBe(`/api/v1/local/identities/${block.identityId}/block`);
-    expect(JSON.parse(String(fetch.mock.calls[1]?.[1]?.body))).toEqual({
-      expectedRevision: 0,
-      layout: { version: 2, objects: [] },
-    });
-    stop();
-    runtime.dispose();
-  });
-
-  it('rejects an absent entry in the persisted list and a save for another identity', async () => {
-    const fetch = vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify([{ ...block, exists: false, blockId: null, revision: 0, updatedAtMs: 0 }])
-        )
-    );
-    vi.stubGlobal('fetch', fetch);
-    const runtime = startLocalRuntime(window.location);
-    await expect(runtime.list()).rejects.toThrow();
-    fetch.mockImplementation(async () => new Response(JSON.stringify({ ...block, changed: true })));
-    await expect(
-      runtime.blocks.apply('33333333-3333-4333-8333-333333333333', 0, [])
-    ).rejects.toThrow('Unexpected block identity');
-    runtime.dispose();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('resolves shared room props once in batches of at most sixteen unique digests', async () => {
@@ -116,7 +58,18 @@ describe('local Office runtime', () => {
       ...builtinFurniture('desk', 1, 1, 0),
       prop: `${digest}/desk`,
     }));
-    await runtime.resolveProps(props);
+    const catalog = await runtime.resolveProps([
+      ...props,
+      builtinFurniture('desk', 1, 1, 0),
+      {
+        prop: `${WORKSHOP_DIGEST}/oak-desk`,
+        footprint: { width: 12, height: 8 },
+        x: 1,
+        y: 1,
+        rotation: 0,
+      },
+    ]);
+    expect(catalog).toEqual(BUILTIN_CATALOG);
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(
       fetch.mock.calls.map(([url, init]) => [url, JSON.parse(String(init?.body)).digests])
@@ -198,7 +151,7 @@ describe('local Office runtime', () => {
 
   it('reads and conditionally writes typed local profiles with the same browser credential', async () => {
     const snapshot = {
-      identityId: block.identityId,
+      identityId: identityId,
       identityName: 'Alice',
       exists: false,
       revision: 0,
@@ -220,18 +173,31 @@ describe('local Office runtime', () => {
       if (init?.method === 'PUT')
         return new Response('{"error":"REVISION_CONFLICT"}', { status: 409 });
       return new Response(
-        JSON.stringify(path.endsWith('/profiles') ? [{ ...snapshot, online: false }] : snapshot),
+        JSON.stringify(
+          path.endsWith('/profiles')
+            ? [
+                {
+                  ...snapshot,
+                  presence: 'offline' as const,
+                  lifetime: 'saved',
+                  selfReportedStatus: null,
+                },
+              ]
+            : snapshot
+        ),
         { status: 200 }
       );
     });
     vi.stubGlobal('fetch', fetch);
     const runtime = startLocalRuntime(window.location);
-    await expect(runtime.profiles.list()).resolves.toEqual([{ ...snapshot, online: false }]);
-    await expect(runtime.profiles.show(block.identityId)).resolves.toEqual(snapshot);
-    await expect(
-      runtime.profiles.apply(block.identityId, 0, snapshot.profile)
-    ).rejects.toBeInstanceOf(ProfileConflict);
-    expect(fetch.mock.calls[2]?.[0]).toBe(`/api/v1/local/profiles/${block.identityId}`);
+    await expect(runtime.profiles.list()).resolves.toEqual([
+      { ...snapshot, presence: 'offline' as const, lifetime: 'saved', selfReportedStatus: null },
+    ]);
+    await expect(runtime.profiles.show(identityId)).resolves.toEqual(snapshot);
+    await expect(runtime.profiles.apply(identityId, 0, snapshot.profile)).rejects.toBeInstanceOf(
+      ProfileConflict
+    );
+    expect(fetch.mock.calls[2]?.[0]).toBe(`/api/v1/local/profiles/${identityId}`);
     expect(JSON.parse(String(fetch.mock.calls[2]?.[1]?.body))).toEqual({
       expectedRevision: 0,
       profile: snapshot.profile,
@@ -270,40 +236,9 @@ describe('local Office runtime', () => {
         shirtMark: '',
       },
     };
-    await expect(runtime.profiles.apply(block.identityId, 0, profile)).rejects.toThrow(
+    await expect(runtime.profiles.apply(identityId, 0, profile)).rejects.toThrow(
       'selected avatar is no longer installed'
     );
-    runtime.dispose();
-  });
-
-  it('preserves drafts through transient backoff and aborts an active poll on disposal', async () => {
-    vi.useFakeTimers();
-    let calls = 0;
-    let activeSignal: AbortSignal | undefined;
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (_path: string, init?: RequestInit) => {
-        calls += 1;
-        activeSignal = init?.signal ?? undefined;
-        if (calls === 1) return new Response(JSON.stringify(block), { status: 200 });
-        if (calls < 4) throw new TypeError('temporarily disconnected');
-        return await new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener('abort', () =>
-            reject(new DOMException('Aborted', 'AbortError'))
-          );
-        });
-      })
-    );
-    const runtime = startLocalRuntime(window.location);
-    const state = createBlockState(runtime.blocks, block.identityId);
-    await vi.advanceTimersByTimeAsync(0);
-    state.edit([builtinFurniture('plant', 2, 3, 0)]);
-    await vi.advanceTimersByTimeAsync(2_000 + 4_000 + 8_000);
-    expect(state.getSnapshot().draft?.objects[0]?.prop).toContain('/plant');
-    expect(state.getSnapshot().error).toBeNull();
-    expect(activeSignal?.aborted).toBe(false);
-    state.dispose();
-    expect(activeSignal?.aborted).toBe(true);
     runtime.dispose();
   });
 });

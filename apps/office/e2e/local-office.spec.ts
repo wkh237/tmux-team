@@ -1,253 +1,164 @@
+import { openOfficeDirectory } from './office-navigation.js';
 import { expect, test } from '@playwright/test';
 import type { Request } from '@playwright/test';
-import { builtinFurniture } from '../src/blocks/block-contract.js';
+import { captureWorldScene, installDrawObserver, observeIdleScene } from './scene-observation.js';
+import { furnishedOfficeFixture } from './furnished-office-fixture.js';
 
-test('office overview enters an unfurnished room and saves through shared profile and block ports', async ({
+test('world HUD preserves the canvas and profile edits persist independently of layout', async ({
   page,
-}, testInfo) => {
-  const token = 'a'.repeat(43);
-  const blockId = '11111111-1111-4111-8111-111111111111';
-  let revision = 0;
-  let profileRevision = 0;
-  let objects: ReturnType<typeof builtinFurniture>[] = [];
-  let profile = {
-    displayLabel: '',
-    description: 'Architecture review',
-    appearance: {
-      hairStyle: 'curls',
-      hairColor: 'silver',
-      skinTone: 'deep',
-      shirtColor: 'plum',
-      shirtMark: 'AI',
-    },
-  };
-  const catalog = {
-    hairStyles: ['short', 'bob', 'curls', 'tied', 'bald'],
-    hairColors: ['ink', 'brown', 'gold', 'silver'],
-    skinTones: ['light', 'warm', 'medium', 'deep'],
-    shirtColors: ['blue', 'green', 'clay', 'plum', 'gold', 'ink'],
-  };
-  const requests: string[] = [];
-  let avatarCatalogRequests = 0;
-  let extraRooms = false;
-  page.on('request', (request) => requests.push(request.url()));
-  await page.route('**/api/v1/local/avatar-catalog', async (route) => {
-    expect(route.request().method()).toBe('GET');
-    expect(route.request().headers().authorization).toBe(`Bearer ${token}`);
-    avatarCatalogRequests += 1;
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({ catalogRevision: 0, packs: [] }),
-    });
-  });
-  await page.route('**/api/v1/local/profiles', async (route) => {
-    expect(route.request().headers().authorization).toBe(`Bearer ${token}`);
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify([
-        {
-          identityId: '22222222-2222-4222-8222-222222222222',
-          identityName: 'Alice',
-          exists: profileRevision > 0,
-          revision: profileRevision,
-          profile,
-          updatedAtMs: profileRevision || null,
-          catalog,
-          online: true,
-        },
-        ...(extraRooms
-          ? [
-              {
-                identityId: '33333333-3333-4333-8333-333333333333',
-                identityName: 'Bob',
-                exists: false,
-                revision: 0,
-                profile: { ...profile, appearance: { ...profile.appearance, shirtColor: 'green' } },
-                updatedAtMs: null,
-                catalog,
-                online: true,
-              },
-              {
-                identityId: '44444444-4444-4444-8444-444444444444',
-                identityName: 'Casey — Documentation and architecture',
-                exists: false,
-                revision: 0,
-                profile,
-                updatedAtMs: null,
-                catalog,
-                online: false,
-              },
-            ]
-          : []),
-      ]),
-    });
-  });
-  await page.route(
-    '**/api/v1/local/profiles/22222222-2222-4222-8222-222222222222',
-    async (route) => {
-      expect(route.request().headers().authorization).toBe(`Bearer ${token}`);
-      if (route.request().method() === 'PUT') {
-        expect(route.request().headers().origin).toBe('http://127.0.0.1:4176');
-        const input = route.request().postDataJSON();
-        if (input.expectedRevision !== profileRevision)
-          return route.fulfill({ status: 409, body: '{"error":"REVISION_CONFLICT"}' });
-        profileRevision += 1;
-        profile = input.profile;
-      }
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          identityId: '22222222-2222-4222-8222-222222222222',
-          identityName: 'Alice',
-          exists: profileRevision > 0,
-          revision: profileRevision,
-          profile,
-          updatedAtMs: profileRevision || null,
-          catalog,
-          ...(route.request().method() === 'PUT' ? { changed: true } : {}),
-        }),
-      });
-    }
-  );
-  await page.route('**/api/v1/local/blocks', async (route) => {
-    expect(route.request().headers().authorization).toBe(`Bearer ${token}`);
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify(
-        revision === 0
-          ? []
-          : [
-              {
-                exists: true,
-                identityId: '22222222-2222-4222-8222-222222222222',
-                identityName: 'Alice',
-                blockId,
-                revision,
-                layout: { version: 2, objects },
-                resolutions: objects.map((_, index) => ({
-                  index,
-                  status: 'available',
-                  label: 'Desk',
-                })),
-                updatedAtMs: revision,
-              },
-            ]
-      ),
-    });
-  });
-  await page.route(
-    '**/api/v1/local/identities/22222222-2222-4222-8222-222222222222/block',
-    async (route) => {
-      const request = route.request();
-      expect(request.headers().authorization).toBe(`Bearer ${token}`);
-      if (request.method() === 'PUT') {
-        expect(request.headers().origin).toBe('http://127.0.0.1:4176');
-        const input = request.postDataJSON();
-        if (input.expectedRevision !== revision) {
-          await route.fulfill({ status: 409, body: '{"error":"REVISION_CONFLICT"}' });
-          return;
-        }
-        revision += 1;
-        objects = input.layout.objects;
-      }
-      await route.fulfill({
-        contentType: 'application/json',
-        body: JSON.stringify({
-          exists: revision > 0,
-          identityId: '22222222-2222-4222-8222-222222222222',
-          identityName: 'Alice',
-          blockId: revision > 0 ? blockId : null,
-          revision,
-          layout: { version: 2, objects },
-          resolutions: objects.map((_, index) => ({ index, status: 'available', label: 'Prop' })),
-          updatedAtMs: revision,
-          ...(request.method() === 'PUT' ? { changed: true } : {}),
-        }),
-      });
-    }
-  );
-
-  await page.goto(`http://127.0.0.1:4176/local#token=${token}`);
-  await expect(page).toHaveURL('http://127.0.0.1:4176/local');
-  await expect(page.getByRole('heading', { name: 'Your office' })).toBeVisible();
-  await expect(page.getByText('Unfurnished · not saved')).toBeVisible();
-  expect(revision).toBe(0);
-  expect(profileRevision).toBe(0);
-  await page.screenshot({ path: testInfo.outputPath('office-desktop.png'), fullPage: true });
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  await page.screenshot({ path: testInfo.outputPath('office-narrow.png'), fullPage: true });
+}, info) => {
+  await installDrawObserver(page);
+  const fixture = await furnishedOfficeFixture(page);
+  const world = structuredClone(fixture.read());
   await page.setViewportSize({ width: 1280, height: 900 });
-  const selectRoom = page.getByRole('button', { name: "Select Alice's room" });
-  await selectRoom.focus();
+  await page.goto(fixture.url);
+  await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
+  await observeIdleScene(page, info, 'world-idle');
+  const canvas = page.locator('.office-canvas canvas');
+  const node = await canvas.elementHandle();
+  const bounds = await canvas.boundingBox();
+  // Sample the furnished Lobby, outside the agent-anchored overlay. Comparing
+  // pixels underneath the HUD would test occlusion, not world/camera stability.
+  const strip = { x: 400, y: 650, width: 64, height: 64 };
+  const pixels = await page.screenshot({ clip: strip });
+  await openOfficeDirectory(page);
+  const alice = page.getByRole('button', { name: /Alice · Online/ });
+  await alice.focus();
   await page.keyboard.press('Enter');
-  await expect(selectRoom).toHaveAttribute('aria-pressed', 'true');
-  await expect(
-    page
-      .getByRole('complementary', { name: 'Room details' })
-      .getByRole('heading', { name: 'Alice' })
-  ).toBeVisible();
-  expect(revision).toBe(0);
-  expect(profileRevision).toBe(0);
-  await page.screenshot({
-    path: testInfo.outputPath('office-selected-desktop.png'),
-    fullPage: true,
-  });
-  await page.getByRole('link', { name: "Enter Alice's room" }).focus();
-  await page.keyboard.press('Enter');
-  await page.getByRole('button', { name: 'Add desk' }).click();
-  expect(revision).toBe(0);
-  await page.getByRole('button', { name: 'Save layout' }).click();
-  await expect(page.getByText('Avatar · default robot')).toBeVisible();
-  await expect(page.getByText('Saved · revision 1')).toBeVisible();
-  await expect(page.locator('.profile-preview .avatar-name')).toHaveText('Alice');
-  await expect(page.locator('.profile-preview .avatar-mark')).toHaveText('AI');
+  await expect(page.getByRole('complementary', { name: 'Agent details' })).toBeVisible();
+  const hud = (await page.getByRole('dialog', { name: 'Agent conversation' }).boundingBox())!;
+  expect(
+    hud.x >= strip.x + strip.width ||
+      hud.x + hud.width <= strip.x ||
+      hud.y >= strip.y + strip.height ||
+      hud.y + hud.height <= strip.y
+  ).toBe(true);
+  expect(await canvas.boundingBox()).toEqual(bounds);
+  expect(await page.screenshot({ clip: strip })).toEqual(pixels);
+  expect(await node!.evaluate((element) => element.isConnected)).toBe(true);
+  const catalogReads = fixture.reads.filter((path) => path.endsWith('/avatar-catalog')).length;
+  await page.getByRole('button', { name: 'Appearance', exact: true }).click();
   await page.getByLabel('Shirt mark').fill('UX');
   await page.getByRole('button', { name: 'Save appearance' }).click();
-  await expect(page.getByText('Saved · revision 1')).toHaveCount(2);
-  // Visual-only coverage uses this existing mocked port; durable profile
-  // acceptance remains in native-local-profile.spec.ts with the real service.
-  for (const hairStyle of catalog.hairStyles) {
-    await page.getByLabel('Hair style').selectOption(hairStyle);
+  await expect(page.getByText('Saved · revision 2', { exact: true })).toBeVisible();
+  expect(fixture.profiles[0]!.profile.appearance.shirtMark).toBe('UX');
+  expect(fixture.profileWrites).toHaveLength(1);
+  for (const style of fixture.profiles[0]!.catalog.hairStyles) {
+    await page.getByLabel('Hair style').selectOption(style);
     const avatar = page.locator('.profile-preview .profile-avatar');
-    await expect(avatar.locator('circle, path, image')).toHaveCount(0);
+    await expect(avatar.locator('circle, image, script, img')).toHaveCount(0);
+    // Accessible name/mark glyphs live outside the bounded indexed-pixel artwork.
+    await expect(avatar.locator('svg[shape-rendering="crispEdges"] foreignObject')).toHaveCount(0);
     await expect(avatar.locator('svg[shape-rendering="crispEdges"]')).toHaveCount(1);
     await expect(avatar.locator('.avatar-name')).toHaveText('Alice');
-    await page.locator('.profile-preview').screenshot({
-      path: testInfo.outputPath(`pixel-avatar-${hairStyle}.png`),
-    });
   }
-  await page.getByLabel('Hair style').selectOption('curls');
-  await page.screenshot({ path: testInfo.outputPath('profile-desktop.png'), fullPage: true });
+  expect(fixture.reads.filter((path) => path.endsWith('/avatar-catalog'))).toHaveLength(
+    catalogReads
+  );
   await page.setViewportSize({ width: 390, height: 844 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  await page.screenshot({ path: testInfo.outputPath('profile-narrow.png'), fullPage: true });
-  await page.getByRole('button', { name: 'Add plant' }).click();
-  await page.getByRole('button', { name: 'Save layout' }).click();
-  await expect(page.getByText('Saved · revision 2')).toBeVisible();
-  expect(objects).toHaveLength(2);
-  expect(profile.appearance.shirtMark).toBe('UX');
-  // The Vite dev server mounts effects twice under StrictMode. Edits must not
-  // trigger more catalog reads; the production companion verifier asserts one.
-  expect(avatarCatalogRequests).toBe(4);
-  await page.getByRole('link', { name: '← Back to office' }).click();
-  await expect(page.getByText('2 pieces · saved')).toBeVisible();
-  await expect(page.locator('.office-room .block-scene')).toBeVisible();
-  extraRooms = true;
-  await page.getByRole('button', { name: 'Refresh office' }).click();
-  await expect(page.getByText('3 spaces · 2 online')).toBeVisible();
-  await expect(page.locator('.office-room')).toHaveCount(3);
-  await expect(
-    page
-      .getByRole('article', { name: "Casey — Documentation and architecture's room" })
-      .locator('.profile-avatar')
-  ).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  await expect(page.getByRole('complementary', { name: 'Office directory' })).toBeHidden();
+  await page.getByLabel('Shirt mark').fill('NEW');
+  const close = page.getByRole('button', { name: 'Close agent conversation' });
+  const closeBounds = await close.boundingBox();
+  expect(await page.locator('.office-map').evaluate((element) => element.scrollTop)).toBe(0);
+  await page.getByRole('tabpanel', { name: 'Info' }).evaluate((body) => {
+    body.scrollTop = body.scrollHeight;
+  });
+  expect(await page.locator('.office-map').evaluate((element) => element.scrollTop)).toBe(0);
+  expect(await close.boundingBox()).toEqual(closeBounds);
+  await expect(close).toBeInViewport();
+  await page.screenshot({ path: info.outputPath('world-appearance-narrow.png') });
+  await openOfficeDirectory(page);
+  await expect(page.getByRole('complementary', { name: 'Agent details' })).toBeHidden();
+  await expect(page.getByRole('complementary', { name: 'Office directory' })).toBeVisible();
+  await page.getByRole('button', { name: /Alice · Online/ }).click();
+  await expect(page.getByLabel('Shirt mark')).toHaveValue('NEW');
+  await close.click();
+  await expect(page.getByRole('button', { name: 'Office menu' })).toBeFocused();
+  expect(fixture.profileWrites).toHaveLength(1);
+  expect(fixture.writes).toEqual([]);
+  expect(fixture.read()).toEqual(world);
+  expect(fixture.unexpected).toEqual([]);
+});
+
+test('viewport changes preserve the world framing and a manually panned view without rebuilding the canvas', async ({
+  page,
+}, info) => {
+  await installDrawObserver(page);
+  const fixture = await furnishedOfficeFixture(page);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(fixture.url);
+  await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
+  const canvas = page.locator('.office-canvas canvas');
+  const node = await canvas.elementHandle();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await observeIdleScene(page, info, 'resized-portrait');
+  const portrait = await captureWorldScene(page, info, 'resized-portrait.png');
+  await page.getByRole('button', { name: 'Fit office' }).click();
+  await observeIdleScene(page, info, 'fitted-portrait');
+  expect(await captureWorldScene(page, info, 'fitted-portrait.png')).toEqual(portrait);
+  await page.screenshot({ path: info.outputPath('world-resized-portrait.png') });
+
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole('button', { name: 'Zoom in' }).click();
+  await page.mouse.move(700, 500);
+  await page.mouse.down({ button: 'middle' });
+  await page.mouse.move(820, 570);
+  await page.mouse.up({ button: 'middle' });
+  await observeIdleScene(page, info, 'panned-desktop');
+  const panned = await captureWorldScene(page, info, 'panned-desktop.png');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await observeIdleScene(page, info, 'panned-portrait');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await observeIdleScene(page, info, 'restored-desktop');
+  expect(await captureWorldScene(page, info, 'restored-desktop.png')).toEqual(panned);
+  expect(await node!.evaluate((element) => element.isConnected)).toBe(true);
+  expect(fixture.writes).toEqual([]);
+  expect(fixture.unexpected).toEqual([]);
+});
+
+test('directory growth and empty presence do not rebuild terrain or animate an idle world', async ({
+  page,
+}, info) => {
+  await installDrawObserver(page);
+  const fixture = await furnishedOfficeFixture(page);
+  const world = structuredClone(fixture.read());
+  const people = Array.from({ length: 24 }, (_, index) => ({
+    ...fixture.profiles[0]!,
+    identityId: `20000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+    identityName: `Agent ${index + 1}`,
+    presence: index % 4 !== 0 ? 'active' : 'offline',
+  }));
+  await page.route('**/api/v1/local/profiles', (route) => route.fulfill({ json: people }));
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.screenshot({ path: testInfo.outputPath('office-team-desktop.png'), fullPage: true });
-  await page.setViewportSize({ width: 390, height: 844 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
-  await page.screenshot({ path: testInfo.outputPath('office-team-narrow.png'), fullPage: true });
-  expect(requests.every((url) => new URL(url).hostname === '127.0.0.1')).toBe(true);
+  await page.goto(fixture.url);
+  await expect(page.getByRole('button', { name: 'Office menu' })).toBeVisible();
+  await expect(
+    page.locator('#office-navigation').getByText('Directory · 24', { exact: true })
+  ).toHaveCount(1);
+  await observeIdleScene(page, info, '24-agents-unchanged-terrain');
+  const canvas = page.locator('.office-canvas canvas');
+  const node = await canvas.elementHandle();
+  await page.mouse.move(700, 650);
+  await page.mouse.wheel(0, -200);
+  await page.mouse.down();
+  await page.mouse.move(780, 690);
+  await page.mouse.up();
+  await observeIdleScene(page, info, 'world-after-navigation');
+  expect(await node!.evaluate((element) => element.isConnected)).toBe(true);
+  expect(fixture.read()).toEqual(world);
+  await page.route('**/api/v1/local/profiles', (route) => route.fulfill({ json: [] }));
+  await page.getByRole('button', { name: 'Refresh office' }).click();
+  await expect(page.getByRole('button', { name: 'Office menu' })).toBeVisible();
+  await expect(
+    page.locator('#office-navigation').getByText('Directory · 0', { exact: true })
+  ).toHaveCount(1);
+  await expect(canvas).toBeVisible();
+  expect(fixture.read()).toEqual(world);
+  expect(fixture.writes).toEqual([]);
+  expect(fixture.unexpected).toEqual([]);
+  await page.screenshot({ path: info.outputPath('world-no-present-agents.png') });
 });
 
 test('missing local session gives recoverable CLI guidance', async ({ page }) => {

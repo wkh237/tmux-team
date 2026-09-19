@@ -1,6 +1,63 @@
 {
   "packCases": [
     {
+      "name": "directional half-room footprint",
+      "valid": true,
+      "value": {
+        "formatVersion": 2,
+        "label": "Large rug",
+        "credit": "Fixture",
+        "license": "MIT",
+        "palette": ["#00000000", "#ffffffff"],
+        "props": [
+          {
+            "key": "rug",
+            "label": "Rug",
+            "footprint": { "width": 16, "height": 12 },
+            "frames": [["01"], ["01"], ["01"], ["01"]]
+          }
+        ]
+      }
+    },
+    {
+      "name": "directional footprint over half-room limit",
+      "valid": false,
+      "value": {
+        "formatVersion": 2,
+        "label": "Large rug",
+        "credit": "Fixture",
+        "license": "MIT",
+        "palette": ["#00000000", "#ffffffff"],
+        "props": [
+          {
+            "key": "rug",
+            "label": "Rug",
+            "footprint": { "width": 17, "height": 12 },
+            "frames": [["01"], ["01"], ["01"], ["01"]]
+          }
+        ]
+      }
+    },
+    {
+      "name": "legacy footprint limit remains eight",
+      "valid": false,
+      "value": {
+        "formatVersion": 1,
+        "label": "Large rug",
+        "credit": "Fixture",
+        "license": "MIT",
+        "palette": ["#00000000", "#ffffffff"],
+        "props": [
+          {
+            "key": "rug",
+            "label": "Rug",
+            "footprint": { "width": 9, "height": 1 },
+            "pixels": ["1"]
+          }
+        ]
+      }
+    },
+    {
       "name": "minimal valid pack",
       "valid": true,
       "value": {
@@ -79,6 +136,54 @@
     }
   ],
   "layoutCases": [
+    {
+      "name": "directional half-room footprint at rotated edge",
+      "valid": true,
+      "value": {
+        "version": 2,
+        "objects": [
+          {
+            "prop": "sha256:1111111111111111111111111111111111111111111111111111111111111111/rug",
+            "footprint": { "width": 16, "height": 12 },
+            "x": 20,
+            "y": 16,
+            "rotation": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "directional half-room footprint crosses rotated edge",
+      "valid": false,
+      "value": {
+        "version": 2,
+        "objects": [
+          {
+            "prop": "sha256:1111111111111111111111111111111111111111111111111111111111111111/rug",
+            "footprint": { "width": 16, "height": 12 },
+            "x": 21,
+            "y": 16,
+            "rotation": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "directional footprint over limit even inside room",
+      "valid": false,
+      "value": {
+        "version": 2,
+        "objects": [
+          {
+            "prop": "sha256:1111111111111111111111111111111111111111111111111111111111111111/rug",
+            "footprint": { "width": 17, "height": 1 },
+            "x": 0,
+            "y": 0,
+            "rotation": 0
+          }
+        ]
+      }
+    },
     {
       "name": "rotated footprint at room edge",
       "valid": true,

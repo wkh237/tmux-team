@@ -7,10 +7,16 @@
 
 .board-heading {
   display: flex;
-  align-items: end;
+  align-items: start;
   justify-content: space-between;
-  gap: 28px;
-  margin-bottom: 32px;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+.board-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  gap: 8px;
 }
 
 .board-heading h1 {
@@ -22,13 +28,42 @@
   align-items: end;
   flex-wrap: wrap;
   gap: 14px;
-  padding: 16px;
+  padding: 0 0 16px;
+  border-bottom: 1px solid var(--board-border);
+}
+.board-categories {
+  display: flex;
+  flex: 1 1 260px;
+  overflow-x: auto;
+  gap: 8px;
+  min-width: 0;
+}
+.board-categories button {
+  flex-shrink: 0;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 7px 12px;
   border: 1px solid var(--board-border);
-  border-radius: 12px;
-  background: #edf0e6;
+  border-radius: 8px;
+  background: #fffdf6;
+  color: #23372d;
+  font: inherit;
+}
+.board-categories [aria-pressed='true'] {
+  background: #e4ebdd;
+  border-color: #426848;
+}
+.board-back {
+  display: none;
+}
+.board-content > .board-compose {
+  margin-top: 16px;
 }
 
 .board-filters label,
+.board-reference label,
 .board-compose label,
 .board-entry form label {
   display: grid;
@@ -39,6 +74,7 @@
 }
 
 .board-filters select,
+.board-reference input,
 .board-compose input,
 .board-compose textarea,
 .board-entry input,
@@ -54,6 +90,17 @@
 
 .board-filters select {
   min-width: 190px;
+}
+
+.board-reference {
+  margin-block: 12px;
+  color: var(--board-muted);
+  font-size: 13px;
+}
+
+.board-reference summary {
+  cursor: pointer;
+  margin-bottom: 8px;
 }
 
 .board-compose textarea,
@@ -82,7 +129,7 @@
 .board-thread-list {
   display: grid;
   gap: 8px;
-  margin: 12px 0 0;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
@@ -92,9 +139,9 @@
   width: 100%;
   gap: 3px;
   padding: 13px 14px;
-  border: 1px solid var(--board-border);
+  border: 1px solid transparent;
   border-radius: 9px;
-  background: white;
+  background: transparent;
   color: #23372d;
   text-align: left;
 }
@@ -116,9 +163,7 @@
 
 .board-conversation {
   min-width: 0;
-  border: 1px solid var(--board-border);
-  border-radius: 14px;
-  background: white;
+  border-left: 1px solid var(--board-border);
   overflow: hidden;
 }
 
@@ -227,7 +272,6 @@
   opacity: 0.55;
 }
 
-.board-new,
 .board-more {
   width: 100%;
 }
@@ -248,6 +292,17 @@
 }
 
 @media (max-width: 760px) {
+  .board-page[data-pane='threads'] .board-conversation,
+  .board-page[data-pane='discussion'] .board-index {
+    display: none;
+  }
+  .board-back {
+    display: inline-block;
+    margin-bottom: 12px;
+  }
+  .board-conversation {
+    border-left: 0;
+  }
   .board-heading {
     align-items: start;
     flex-direction: column;

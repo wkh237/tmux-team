@@ -102,7 +102,16 @@ with the same name receives neither the old override nor its ownership.
 
 Add a typed profile port to the existing local runtime, sharing authentication,
 origin checks and cancellation. Native and browser mutations invoke the same
-domain service. Preserve block response compatibility and independent revisions.
+domain service. Profiles and world layouts retain independent revisions.
+The local directory projection includes required `lifetime: "saved" | "temporary"`
+beside `online`; both come from the native identity/presence owner, never from
+the profile description or the existence of a personal area. Individual profile
+snapshots and mutations retain their profile-only shape.
+The directory also requires nullable `selfReportedStatus`, the independent
+[identity status projection](../identity-status-v1.md). It is not part of profile
+storage, the profile revision or mutation input. Directory reads batch statuses;
+an appearance save preserves the latest observed status, and a newer appearance
+revision does not prevent observing a status update or clear.
 
 Active identities without layouts appear in the avatar preview/selector;
 do not create a persisted block on discovery. Reuse a curated avatar renderer for

@@ -6,7 +6,7 @@ use crate::{
         OfficeOperation, OutputMode,
     },
     office_pairing_command::resolve_identity,
-    output::Failure,
+    output::{Failure, after_cleanup},
 };
 use serde_json::{Value, json};
 use std::{
@@ -15,8 +15,10 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_adapters::{
+    config::ConfigPaths,
     office_companion::invoke_office_board,
     response_input::{read_file, read_stdin},
+    storage::Storage,
 };
 use tmt_core::office_protocol::OfficeInvocation;
 
@@ -36,8 +38,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
             body,
             operation_id,
         } => {
-            let operation_id =
-                operation_id.unwrap_or_else(tmt_core::office_board::new_operation_id);
+            let operation_id = operation_id.unwrap_or_else(tmt_core::operation::new_operation_id);
             (
                 OfficeInvocation::BoardPost,
                 json!({"category":category_value(category)?,"actor":actor_value(actor)?,"title":title,"body":body_value(body)?,"operationId":operation_id.clone()}),
@@ -50,8 +51,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
             body,
             operation_id,
         } => {
-            let operation_id =
-                operation_id.unwrap_or_else(tmt_core::office_board::new_operation_id);
+            let operation_id = operation_id.unwrap_or_else(tmt_core::operation::new_operation_id);
             (
                 OfficeInvocation::BoardReply,
                 json!({"threadId":thread_id,"actor":actor_value(actor)?,"body":body_value(body)?,"operationId":operation_id.clone()}),
@@ -73,8 +73,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
                     1,
                 ));
             }
-            let operation_id =
-                operation_id.unwrap_or_else(tmt_core::office_board::new_operation_id);
+            let operation_id = operation_id.unwrap_or_else(tmt_core::operation::new_operation_id);
             (
                 OfficeInvocation::BoardEdit,
                 json!({"entryId":entry_id,"actor":actor_value(actor)?,"title":title,"body":body.map(body_value).transpose()?,"ifRevision":if_revision,"operationId":operation_id.clone()}),
@@ -88,8 +87,7 @@ pub fn run(executable: &Path, operation: OfficeOperation, mode: OutputMode) -> R
             if_revision,
             operation_id,
         } => {
-            let operation_id =
-                operation_id.unwrap_or_else(tmt_core::office_board::new_operation_id);
+            let operation_id = operation_id.unwrap_or_else(tmt_core::operation::new_operation_id);
             (
                 OfficeInvocation::BoardDelete,
                 json!({"entryId":entry_id,"actor":actor_value(actor)?,"moderate":moderate,"ifRevision":if_revision,"operationId":operation_id.clone()}),
@@ -176,6 +174,19 @@ fn actor_value(actor: BoardActorSelection) -> Result<Value, Failure> {
 fn category_value(category: BoardCategorySelection) -> Result<Value, Failure> {
     match category {
         BoardCategorySelection::General => Ok(json!({"kind":"general"})),
+        BoardCategorySelection::Room(selector) => {
+            let paths = ConfigPaths::discover().map_err(|error| {
+                Failure::new("CONFIG_ERROR", "Could not resolve configuration paths.", 1)
+                    .caused_by(error)
+            })?;
+            let mut storage = Storage::open(paths.database)
+                .map_err(|error| crate::room_command::failure(error.into()))?;
+            // Category resolution is classification, not permission to create a
+            // new thread. The board transaction fences new posts after replay.
+            let room = crate::room_command::resolve_history(&mut storage, &selector);
+            after_cleanup(room, || storage.close())
+                .map(|room| json!({"kind":"room","roomId":room.id}))
+        }
         BoardCategorySelection::Repository(remote) => {
             let cwd = std::env::current_dir().map_err(io_failure)?;
             let id =

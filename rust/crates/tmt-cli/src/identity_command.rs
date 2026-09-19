@@ -20,7 +20,10 @@ use tmt_core::{
     identity_metadata::{self, MetadataError, MetadataFilter},
 };
 
+mod status;
+
 enum Report {
+    Status(status::Report),
     Created(identity::CreatedIdentity),
     Shown(Identity),
     Listed(Vec<Identity>),
@@ -85,7 +88,7 @@ fn run(request: IdentityRequest) -> Result<Report, Failure> {
     // Metadata may use the established verified-caller resolver. Explicit
     // identity operations remain storage-only and do not probe tmux.
     let selector = match &request {
-        IdentityRequest::Metadata { identity, .. } => {
+        IdentityRequest::Metadata { identity, .. } | IdentityRequest::Status { identity, .. } => {
             Some(identity_context::required(identity.as_deref())?)
         }
         _ => None,
@@ -102,6 +105,13 @@ fn operation(
     selector: Option<identity_context::Selector>,
 ) -> Result<Report, Failure> {
     match request {
+        IdentityRequest::Status { operation, .. } => {
+            let identity = identity_context::resolve(
+                storage,
+                selector.expect("status request resolved a selector"),
+            )?;
+            status::run(storage, identity.id, operation).map(Report::Status)
+        }
         IdentityRequest::Create(name) => {
             identity::create_or_resolve(storage, &name, Lifetime::Saved)
                 .map(Report::Created)
@@ -200,6 +210,7 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
     let mut stdout = io::stdout().lock();
     if mode.json {
         let document = match report {
+            Report::Status(report) => report.value(),
             Report::Created(result) => {
                 json!({"identity": identity_document(&result.identity), "created": result.created})
             }
@@ -231,6 +242,7 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
         writeln!(stdout, "{document}")?;
     } else {
         match report {
+            Report::Status(report) => report.write(&mut stdout)?,
             Report::Created(result) => {
                 let action = if result.created {
                     "Created"

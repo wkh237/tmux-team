@@ -1,10 +1,14 @@
 mod acceptance;
+mod announcement;
 mod attention;
 mod concurrency;
 mod crash;
+mod enqueue;
+mod history;
 mod lifecycle;
 mod receipts;
 mod response;
 mod retention;
 mod retirement;
+mod room_context;
 mod support;

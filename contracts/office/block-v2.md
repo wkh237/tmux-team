@@ -46,9 +46,11 @@ The exact v2 `.layout` value is directly reusable as an apply file:
 
 The envelope and every placement reject duplicate or unknown fields. `objects`
 is an ordered list of at most 16 entries. `prop` is the exact immutable reference
-from prop-pack-v1. `footprint` is the referenced prop's unrotated footprint,
+from an admitted [v1](prop-pack-v1.md) or [v2](prop-pack-v2.md) prop pack.
+`footprint` is the referenced prop's unrotated footprint,
 copied into the placement so a missing, removed, or corrupt pack cannot erase
-its geometry. Width and height are integers from 1 through 8. `x` and `y` are
+its geometry. Width and height are integers from 1 through 16; v1 prop definitions
+retain their original maximum of 8. `x` and `y` are
 integer tile origins from zero. `rotation` is an integer from zero through three;
 odd rotations swap footprint width and height. The complete rotated footprint
 must fit in the 32×32 block. Overlap and list-order painting remain intentional.

@@ -142,7 +142,7 @@ it('keeps full accessible text in bounded labels without distorting glyphs', () 
   const displayLabel = 'Architecture '.repeat(7).slice(0, 80);
   const marked = {
     ...snapshot,
-    identityName: '設計團隊 🚀',
+    identityName: '\u8a2d\u8a08\u5718\u968a 🚀',
     profile: {
       ...snapshot.profile,
       displayLabel,
@@ -157,12 +157,16 @@ it('keeps full accessible text in bounded labels without distorting glyphs', () 
   render(<ProfilePanel initial={marked} port={port} changed={() => undefined} />);
   expect(screen.getByText(displayLabel).parentElement?.getAttribute('width')).toBe('12');
   expect(screen.getByText(displayLabel).getAttribute('title')).toBe(displayLabel);
-  expect(document.querySelector('.avatar-name')?.getAttribute('title')).toBe('設計團隊 🚀');
+  expect(document.querySelector('.avatar-name')?.getAttribute('title')).toBe(
+    '\u8a2d\u8a08\u5718\u968a 🚀'
+  );
   expect(screen.getByText('🚀🚀').parentElement?.getAttribute('width')).toBe('4');
   expect(document.querySelector('[textLength], [lengthAdjust]')).toBeNull();
   expect(document.querySelector('img')).toBeNull();
   expect(document.querySelector('.profile-preview title')?.textContent).toContain(displayLabel);
-  expect(document.querySelector('.profile-preview title')?.textContent).toContain('設計團隊 🚀');
+  expect(document.querySelector('.profile-preview title')?.textContent).toContain(
+    '\u8a2d\u8a08\u5718\u968a 🚀'
+  );
 });
 
 it('uses custom art while retaining default controls and the independent shirt mark', async () => {
@@ -185,7 +189,7 @@ it('uses custom art while retaining default controls and the independent shirt m
   expect(screen.getByText('Avatar · Signal bots · Signal bot')).toBeTruthy();
   expect(screen.getByLabelText('Hair style').matches(':disabled')).toBe(true);
   expect(screen.getByLabelText('Shirt mark').matches(':disabled')).toBe(false);
-  expect(document.querySelector('.profile-preview rect')?.getAttribute('fill')).toBe('#ffffffff');
+  expect(document.querySelector('.profile-preview path')?.getAttribute('fill')).toBe('#ffffffff');
 
   fireEvent.change(screen.getByLabelText('Avatar art'), { target: { value: '' } });
   expect(screen.getByLabelText('Hair style').matches(':disabled')).toBe(false);
@@ -218,7 +222,7 @@ it('retains an unavailable selection and renders the saved default fallback', ()
   expect((screen.getByLabelText('Avatar art') as HTMLSelectElement).value).toBe(
     `${avatarDigest}/missing`
   );
-  expect(document.querySelector('.profile-preview rect')?.getAttribute('fill')).not.toBe(
+  expect(document.querySelector('.profile-preview path')?.getAttribute('fill')).not.toBe(
     '#ffffffff'
   );
 });

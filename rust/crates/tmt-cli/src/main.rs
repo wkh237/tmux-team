@@ -18,13 +18,17 @@ mod office_avatar_command;
 mod office_block_command;
 mod office_board_command;
 mod office_command;
+mod office_extension_command;
+mod office_layout_command;
 mod office_pairing_command;
 mod office_profile_command;
 mod office_prop_command;
+mod office_whiteboard_command;
 mod output;
 mod parser;
 mod profile_command;
 mod response_command;
+mod room_command;
 mod skill_refresh_command;
 mod skill_reminder;
 mod talk_command;
@@ -112,6 +116,10 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
         Invocation::Identity(request) => {
             drop(stdout);
             return identity_command::execute(request, parsed.mode);
+        }
+        Invocation::Room(request) => {
+            drop(stdout);
+            return room_command::execute(request, parsed.mode);
         }
         Invocation::NotesPath { identity } => {
             drop(stdout);

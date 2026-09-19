@@ -44,6 +44,9 @@ pub enum OfficeError {
     CatalogCursorStale,
     RevisionConflict,
     IdentityInactive,
+    WhiteboardInvalid,
+    WhiteboardNotFound,
+    StorageUnavailable,
     Busy,
 }
 
@@ -77,6 +80,9 @@ impl OfficeError {
             Self::CatalogCursorStale => "OFFICE_CATALOG_CURSOR_STALE",
             Self::RevisionConflict => "OFFICE_REVISION_CONFLICT",
             Self::IdentityInactive => "OFFICE_IDENTITY_INACTIVE",
+            Self::WhiteboardInvalid => "WHITEBOARD_INVALID",
+            Self::WhiteboardNotFound => "WHITEBOARD_NOT_FOUND",
+            Self::StorageUnavailable => "STORAGE_UNAVAILABLE",
             Self::Busy => "OFFICE_BUSY",
         }
     }
@@ -110,6 +116,9 @@ impl OfficeError {
             Self::CatalogCursorStale,
             Self::RevisionConflict,
             Self::IdentityInactive,
+            Self::WhiteboardInvalid,
+            Self::WhiteboardNotFound,
+            Self::StorageUnavailable,
             Self::Busy,
         ]
         .into_iter()
@@ -136,8 +145,8 @@ pub enum OfficeInvocation {
     Sync,
     BlockShow,
     BlockApply,
-    LocalBlockShow,
-    LocalBlockApply,
+    LocalWorldShow,
+    LocalWorldApply,
     LocalProfileShow,
     LocalProfileApply,
     LocalPropValidate,
@@ -150,6 +159,7 @@ pub enum OfficeInvocation {
     LocalAvatarRemove,
     LocalAvatarList,
     LocalAvatarShow,
+    LocalExtensionValidate,
     BoardPost,
     BoardList,
     BoardShow,
@@ -157,6 +167,8 @@ pub enum OfficeInvocation {
     BoardEdit,
     BoardDelete,
     BoardCategories,
+    WhiteboardSnapshotShow,
+    WhiteboardSnapshotImage,
 }
 
 impl OfficeInvocation {
@@ -172,8 +184,8 @@ impl OfficeInvocation {
             Self::Sync => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "sync"],
             Self::BlockShow => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "block-show"],
             Self::BlockApply => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "block-apply"],
-            Self::LocalBlockShow => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "local-block-show"],
-            Self::LocalBlockApply => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "local-block-apply"],
+            Self::LocalWorldShow => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "local-world-show"],
+            Self::LocalWorldApply => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "local-world-apply"],
             Self::LocalProfileShow => [
                 "__tmt-office",
                 OFFICE_PROTOCOL_VERSION,
@@ -214,6 +226,11 @@ impl OfficeInvocation {
             ],
             Self::LocalAvatarList => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "local-avatar-list"],
             Self::LocalAvatarShow => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "local-avatar-show"],
+            Self::LocalExtensionValidate => [
+                "__tmt-office",
+                OFFICE_PROTOCOL_VERSION,
+                "local-extension-validate",
+            ],
             Self::BoardPost => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "board-post"],
             Self::BoardList => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "board-list"],
             Self::BoardShow => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "board-show"],
@@ -221,6 +238,16 @@ impl OfficeInvocation {
             Self::BoardEdit => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "board-edit"],
             Self::BoardDelete => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "board-delete"],
             Self::BoardCategories => ["__tmt-office", OFFICE_PROTOCOL_VERSION, "board-categories"],
+            Self::WhiteboardSnapshotShow => [
+                "__tmt-office",
+                OFFICE_PROTOCOL_VERSION,
+                "whiteboard-snapshot-show",
+            ],
+            Self::WhiteboardSnapshotImage => [
+                "__tmt-office",
+                OFFICE_PROTOCOL_VERSION,
+                "whiteboard-snapshot-image",
+            ],
         }
     }
 
@@ -236,8 +263,8 @@ impl OfficeInvocation {
             Self::Sync,
             Self::BlockShow,
             Self::BlockApply,
-            Self::LocalBlockShow,
-            Self::LocalBlockApply,
+            Self::LocalWorldShow,
+            Self::LocalWorldApply,
             Self::LocalProfileShow,
             Self::LocalProfileApply,
             Self::LocalPropValidate,
@@ -250,6 +277,7 @@ impl OfficeInvocation {
             Self::LocalAvatarRemove,
             Self::LocalAvatarList,
             Self::LocalAvatarShow,
+            Self::LocalExtensionValidate,
             Self::BoardPost,
             Self::BoardList,
             Self::BoardShow,
@@ -257,6 +285,8 @@ impl OfficeInvocation {
             Self::BoardEdit,
             Self::BoardDelete,
             Self::BoardCategories,
+            Self::WhiteboardSnapshotShow,
+            Self::WhiteboardSnapshotImage,
         ]
         .into_iter()
         .find(|operation| arguments == operation.arguments())
@@ -321,6 +351,22 @@ mod tests {
             decode_office_probe(b"TMT-OFFICE/1\n0.1.0-alpha.1\n"),
             Ok(version)
         );
+    }
+
+    #[test]
+    fn world_operations_replace_local_block_protocol_without_aliases() {
+        for operation in [
+            OfficeInvocation::LocalWorldShow,
+            OfficeInvocation::LocalWorldApply,
+        ] {
+            assert_eq!(
+                OfficeInvocation::parse(&operation.arguments()),
+                Ok(operation)
+            );
+        }
+        for removed in ["local-block-show", "local-block-apply"] {
+            assert!(OfficeInvocation::parse(&["__tmt-office", "1", removed]).is_err());
+        }
     }
 
     #[test]

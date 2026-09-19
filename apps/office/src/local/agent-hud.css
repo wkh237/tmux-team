@@ -1,0 +1,240 @@
+.agent-hud-host {
+  --agent-hud-top: clamp(84px, var(--agent-y, 116px), calc(100dvh - 568px));
+  position: absolute;
+  left: clamp(12px, calc(var(--agent-x, 100vw) + 20px), calc(100vw - 388px));
+  top: var(--agent-hud-top);
+  z-index: 45;
+  width: min(368px, calc(100vw - 24px));
+  color: var(--hud-text);
+  color-scheme: dark;
+  font:
+    14px/1.45 system-ui,
+    sans-serif;
+}
+.agent-hud-host [hidden],
+.agent-hud-host[hidden] {
+  display: none;
+}
+.agent-hud {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - var(--agent-hud-top) - 12px);
+  overflow: hidden;
+  border: 1px solid var(--hud-border);
+  border-radius: 12px;
+  background: var(--hud-panel);
+  box-shadow: var(--hud-shadow);
+}
+.agent-hud-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--hud-control);
+  border-bottom: 1px solid var(--hud-border);
+}
+.agent-hud-header > div {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.agent-hud-header h2 {
+  display: block;
+  margin: 0;
+  font-size: 15px;
+}
+.agent-hud-header small {
+  display: block;
+  color: var(--hud-muted);
+}
+.agent-hud button {
+  cursor: pointer;
+  min-height: 44px;
+}
+.agent-hud-header button {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--hud-text);
+  background: var(--hud-control);
+  font-size: 22px;
+}
+.agent-hud-portrait {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  image-rendering: pixelated;
+}
+.agent-hud-tabs {
+  flex-shrink: 0;
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px;
+}
+.agent-hud-tabs button {
+  flex: 1;
+  border: 1px solid var(--hud-border);
+  border-radius: 5px;
+  padding: 6px;
+  background: var(--hud-control);
+  color: var(--hud-text);
+  font: inherit;
+}
+.agent-hud-tabs button[aria-selected='true'] {
+  background: var(--hud-selected);
+  color: var(--hud-control);
+}
+.agent-hud [role='tabpanel'][aria-label='Info'],
+.agent-hud-confirm {
+  padding: 12px;
+}
+.agent-hud > [role='tabpanel'] {
+  min-height: 0;
+  overflow: auto;
+}
+.agent-hud [role='tabpanel'][aria-label='Info'] > button {
+  padding: 8px 10px;
+  border: 1px solid var(--hud-border);
+  border-radius: 6px;
+  background: var(--hud-control);
+  color: var(--hud-text);
+  font: inherit;
+}
+.agent-hud [role='tabpanel'][aria-label='Info'] > .agent-info-message {
+  width: 100%;
+  margin-top: 12px;
+  background: var(--hud-selected);
+  color: var(--hud-control);
+}
+.agent-hud-confirm {
+  background: var(--hud-control);
+}
+.agent-hud .agent-conversation {
+  height: min(440px, calc(100dvh - 224px));
+}
+.agent-self-status {
+  margin-block: 12px;
+  padding: 10px;
+  border: 1px solid var(--hud-border);
+  border-radius: 8px;
+  background: var(--hud-control);
+  overflow-wrap: anywhere;
+}
+.agent-self-status > span {
+  margin-left: 8px;
+  color: var(--hud-muted);
+  font-size: 11px;
+}
+.agent-self-status p {
+  margin-block: 6px;
+}
+.agent-self-status small {
+  display: block;
+  color: var(--hud-muted);
+}
+.agent-hud .agent-conversation[data-empty='true'] {
+  height: auto;
+}
+.agent-hud .agent-conversation[data-empty='true'] .chat-feed {
+  flex: none;
+  min-height: 0;
+  padding: 8px 12px;
+}
+.agent-hud .conversation-heading {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.agent-hud .conversation-room {
+  padding: 4px 12px;
+  color: var(--hud-muted);
+  font-size: 11px;
+}
+.agent-hud .chat-toolbar {
+  padding: 4px 12px;
+  font-size: 11px;
+}
+.agent-hud .chat-feed {
+  padding: 12px;
+}
+.agent-hud .chat-message {
+  max-width: 94%;
+  padding: 8px 10px;
+}
+.agent-hud .chat-message pre {
+  font-size: 12px;
+  max-height: 160px;
+}
+.agent-hud .chat-exchange {
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.agent-hud .conversation-compose {
+  padding: 8px 12px;
+}
+.agent-hud .conversation-compose textarea {
+  min-height: 46px;
+  max-height: 100px;
+  padding: 8px;
+  font-size: 13px;
+}
+.agent-hud .chat-empty {
+  margin: 8px auto;
+  font-size: 12px;
+}
+.agent-hud .conversation-tip {
+  font-size: 10px;
+}
+.agent-hud .chat-notice {
+  padding: 5px 12px;
+}
+.agent-hud .chat-compose-actions {
+  gap: 6px;
+}
+.agent-hud :focus-visible,
+.agent-reply-cue:focus-visible {
+  outline: 3px solid var(--hud-focus);
+  outline-offset: 2px;
+}
+.agent-reply-cue {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 250px;
+  padding: 8px 16px;
+  border: 2px solid var(--hud-border);
+  border-radius: 16px;
+  background: var(--hud-panel);
+  color: var(--hud-text);
+  box-shadow: var(--hud-shadow);
+  cursor: pointer;
+  font: inherit;
+  overflow-wrap: anywhere;
+}
+.agent-hud-host[data-mode='minimized'] {
+  left: clamp(137px, var(--agent-x, calc(100vw - 137px)), calc(100vw - 137px));
+  top: clamp(84px, var(--agent-y, 116px), calc(100dvh - 96px));
+  width: max-content;
+  max-width: min(250px, calc(100vw - 24px));
+  transform: translateX(-50%);
+}
+.agent-reply-cue span {
+  font-size: 11px;
+}
+.agent-reply-cue[data-kind='reply'] {
+  color: var(--hud-control);
+  background: var(--hud-selected);
+  border-color: var(--hud-selected);
+}
+.agent-reply-cue[data-kind='notice'] {
+  border-color: var(--hud-warning);
+}
+@media (max-width: 600px) {
+  .agent-hud-host {
+    left: 12px;
+    top: 84px;
+  }
+}

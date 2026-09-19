@@ -166,7 +166,7 @@ describe('native installation process contract', () => {
         'tmt office prop validate --file',
         'tmt office prop list --local',
         'tmt office prop install --local',
-        'tmt office block apply --local',
+        'tmt office layout apply --file',
         'tmt office prop remove --local',
         '`.layout`',
       ])
@@ -177,7 +177,8 @@ describe('native installation process contract', () => {
       expect(avatarGuidance.stdout).toBe(avatarCreateSkill().toString('utf8'));
       expect(avatarGuidance.stdout).not.toContain('contracts/office/');
       for (const required of [
-        '"formatVersion": 1',
+        '`formatVersion: 1`',
+        '32×48 pixels',
         'tmt office avatar validate --file',
         'tmt office avatar list --local',
         'tmt office avatar install --local',
@@ -193,7 +194,8 @@ describe('native installation process contract', () => {
         'tmt office prop install --local',
         'tmt office prop remove --local',
         '`.layout`',
-        '{"version":2,"objects":[...]}',
+        '{"version":1,"map":{...},"objects":[...]}',
+        '--legacy-basis',
       ])
         expect(officeGuidance.stdout).toContain(required);
       expect(existsSync(sandbox.localConfig)).toBe(false);

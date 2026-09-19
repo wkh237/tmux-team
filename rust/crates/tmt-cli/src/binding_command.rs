@@ -68,6 +68,7 @@ fn preflight(
         }
         Invocation::List {
             target: Some(target),
+            ..
         } if is_pane_target(target) => Some(target.as_str()),
         Invocation::Bind { pane: None, .. } | Invocation::Whoami | Invocation::Unbind => {
             return tmux
@@ -179,13 +180,21 @@ fn operation(
                 .map(Report::Removed)
                 .map_err(binding_failure)
         }
-        Invocation::List { target: None } => {
-            binding::list_presence(storage, endpoint, current_socket)
-                .map(Report::Listed)
-                .map_err(binding_failure)
+        Invocation::List { target: None, room } => {
+            // Resolve scope first: a typo must not trigger global reconciliation.
+            let room = room
+                .map(|selector| crate::room_command::resolve(storage, &selector))
+                .transpose()?;
+            let mut rows = binding::list_presence(storage, endpoint, current_socket)
+                .map_err(binding_failure)?;
+            if let Some(room) = room {
+                rows.retain(|row| room.member_ids.contains(&row.identity.id));
+            }
+            Ok(Report::Listed(rows))
         }
         Invocation::List {
             target: Some(target),
+            ..
         } => {
             if let Some(pane) = pane {
                 let observed =

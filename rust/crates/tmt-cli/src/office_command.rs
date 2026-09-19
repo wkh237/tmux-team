@@ -407,6 +407,12 @@ fn run(
             }
             crate::office_pairing_command::run(&executable, operation, mode)
         }
+        OfficeOperation::Layout(operation) => {
+            if !installed(&executable)? {
+                return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
+            }
+            crate::office_layout_command::run(&executable, operation, mode)
+        }
         OfficeOperation::Block { .. } => {
             if !installed(&executable)? {
                 return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
@@ -431,11 +437,23 @@ fn run(
             }
             crate::office_avatar_command::run(&executable, operation, mode)
         }
+        OfficeOperation::ExtensionValidate { file, instance } => {
+            if !installed(&executable)? {
+                return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
+            }
+            crate::office_extension_command::run(&executable, &file, &instance, mode)
+        }
         OfficeOperation::Board(_) => {
             if !installed(&executable)? {
                 return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
             }
             crate::office_board_command::run(&executable, operation, mode)
+        }
+        OfficeOperation::WhiteboardSnapshot { reference, output } => {
+            if !installed(&executable)? {
+                return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
+            }
+            crate::office_whiteboard_command::run(&executable, &reference, output.as_deref(), mode)
         }
         OfficeOperation::Status | OfficeOperation::Open => {
             if !installed(&executable)? {

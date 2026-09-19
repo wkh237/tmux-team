@@ -13,7 +13,7 @@ export function OfficeSpaces({ world }: { world: World }) {
   return port ? (
     <ConnectedSpaces key={world.id} world={world} port={port} />
   ) : (
-    <BlockPanel worldId={world.id} />
+    <BlockPanel blockKey={world.id} />
   );
 }
 function ConnectedSpaces({ world, port }: { world: World; port: SpacePort }) {
@@ -39,7 +39,7 @@ function ConnectedSpaces({ world, port }: { world: World; port: SpacePort }) {
       )}
       <BlockPanel
         key={selected?.id ?? 'home'}
-        worldId={world.id}
+        blockKey={world.id}
         blockPort={selected?.port}
         label={selected ? `AGENT SPACE / ${selected.id}` : undefined}
       />

@@ -17,6 +17,162 @@ fn post(storage: &mut Storage, actor: Actor, operation_id: &str) -> CreateReceip
 }
 
 #[test]
+fn room_categories_share_storage_without_leaking_threads_or_gating_on_membership() {
+    for retire in [false, true] {
+        check_retained_room_discussion(retire);
+    }
+}
+
+fn check_retained_room_discussion(retire: bool) {
+    let directory = TestDirectory::new();
+    let database = directory.path.join("state.db");
+    let mut storage = Storage::open(&database).unwrap();
+    let identity_id = "11111111-1111-4111-8111-111111111111";
+    insert_identity(&storage, identity_id, "alice");
+    let room_a = "22222222-2222-4222-8222-222222222222";
+    let room_b = "33333333-3333-4333-8333-333333333333";
+    for id in [room_a, room_b] {
+        storage
+            .connection()
+            .unwrap()
+            .execute(
+                "INSERT INTO office_meeting_rooms (room_id,name,revision) VALUES (?,'Review',1)",
+                [id],
+            )
+            .unwrap();
+    }
+    let actor = Actor::Identity {
+        identity_id: identity_id.into(),
+        name: "alice".into(),
+    };
+    let categories = [
+        Category::General,
+        Category::Repository("example.com/team/project".into()),
+        Category::Room(room_a.into()),
+        Category::Room(room_b.into()),
+    ];
+    let mut requests = Vec::new();
+    let mut receipts = Vec::new();
+    for category in &categories {
+        let request = PostRequest {
+            category: category.clone(),
+            actor: actor.clone(),
+            title: "Review".into(),
+            body: "Independent discussion".into(),
+            operation_id: uuid::Uuid::new_v4().to_string(),
+        };
+        receipts.push(storage.post(&request).unwrap());
+        requests.push(request);
+    }
+    let list = |category| ListRequest {
+        category,
+        view: ListView::Recent,
+        author: None,
+        since_ms: None,
+        limit: 20,
+        cursor: None,
+    };
+    for (index, category) in categories.iter().enumerate() {
+        let threads = storage.list(&list(category.clone())).unwrap().threads;
+        assert_eq!(threads.len(), 1);
+        assert_eq!(threads[0].entry.id, receipts[index].entry_id);
+        assert_eq!(&threads[0].entry.category, category);
+    }
+    let reply = storage
+        .reply(&ReplyRequest {
+            thread_id: receipts[2].thread_id.clone(),
+            actor: actor.clone(),
+            body: "Reply".into(),
+            operation_id: uuid::Uuid::new_v4().to_string(),
+        })
+        .unwrap();
+    let detail = storage
+        .show(&ShowRequest {
+            thread_id: receipts[2].thread_id.clone(),
+            reply_limit: 20,
+            reply_cursor: None,
+        })
+        .unwrap();
+    assert_eq!(detail.replies[0].id, reply.entry_id);
+    assert_eq!(detail.replies[0].category, categories[2]);
+    let mut seen = Vec::new();
+    let mut cursor = None;
+    loop {
+        let page = storage
+            .categories(&CategoryListRequest { limit: 1, cursor })
+            .unwrap();
+        seen.extend(page.categories);
+        cursor = page.next_cursor;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(seen, categories);
+    let changed_scope = PostRequest {
+        category: categories[3].clone(),
+        ..requests[2].clone()
+    };
+    assert_eq!(
+        storage.post(&changed_scope).unwrap_err().code,
+        BoardErrorCode::IdempotencyConflict
+    );
+
+    // Missing or retired rooms keep discussion history and exact receipt replay.
+    if retire {
+        use tmt_core::room::RoomRepository;
+        storage.retire_meeting_room(room_a, 1).unwrap();
+    } else {
+        storage
+            .connection()
+            .unwrap()
+            .execute("DELETE FROM office_meeting_rooms WHERE room_id=?", [room_a])
+            .unwrap();
+    }
+    assert_eq!(storage.post(&requests[2]).unwrap(), receipts[2]);
+    let before: (i64, i64) = storage
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT revision,next_sequence FROM office_board_state",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    let absent = PostRequest {
+        operation_id: uuid::Uuid::new_v4().to_string(),
+        ..requests[2].clone()
+    };
+    assert_eq!(
+        storage.post(&absent).unwrap_err().code,
+        BoardErrorCode::Invalid
+    );
+    let after = storage
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT revision,next_sequence FROM office_board_state",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(before, after);
+    storage.close().unwrap();
+    let reopened = Storage::open(&database).unwrap();
+    assert_eq!(
+        reopened.list(&list(categories[2].clone())).unwrap().threads[0]
+            .entry
+            .id,
+        receipts[2].entry_id
+    );
+    assert_eq!(
+        reopened.list(&list(categories[3].clone())).unwrap().threads[0]
+            .entry
+            .id,
+        receipts[3].entry_id
+    );
+}
+
+#[test]
 fn mutations_replay_without_activity_and_soft_delete_without_body_receipts() {
     let directory = TestDirectory::new();
     let mut storage = Storage::open(directory.path.join("state.db")).unwrap();
@@ -238,11 +394,15 @@ fn cursors_go_stale_and_category_pages_are_bounded() {
         repository.categories,
         vec![Category::Repository("host/Repo00".into())]
     );
-    let plan: String = reopened.connection().unwrap().query_row(
-            "EXPLAIN QUERY PLAN SELECT DISTINCT repository_id FROM office_board_entries WHERE is_root=1 AND category_kind='repository' ORDER BY repository_id COLLATE BINARY LIMIT 51",
-            [],
+    let plan: String = reopened
+        .connection()
+        .unwrap()
+        .query_row(
+            &format!("EXPLAIN QUERY PLAN {CATEGORIES_SQL}"),
+            params!["", "", 51],
             |row| row.get(3),
-        ).unwrap();
+        )
+        .unwrap();
     assert!(plan.contains("office_board_categories"), "{plan}");
     reopened.close().unwrap();
 }

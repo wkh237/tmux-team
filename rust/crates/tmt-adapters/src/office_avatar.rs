@@ -3,19 +3,62 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::{collections::HashSet, path::Path};
+use std::{collections::HashSet, path::Path, sync::OnceLock};
 use tmt_core::office_protocol::{OfficeError, OfficeInvocation};
+
+mod quality;
+#[cfg(test)]
+mod version_tests;
+pub use quality::{QualityWarning, quality_warnings};
 
 pub const PACK_INPUT_LIMIT: usize = 32 * 1024;
 pub const PACK_AVATAR_LIMIT: usize = 16;
 pub const PACK_CELL_LIMIT: usize = 6_144;
 pub const AVATAR_WIDTH: usize = 16;
 pub const AVATAR_HEIGHT: usize = 24;
+#[derive(Debug, Clone, Copy)]
+pub struct AvatarFormat {
+    pub width: usize,
+    pub height: usize,
+    pub index_width: usize,
+    pub palette_limit: usize,
+}
+
+pub fn avatar_format(version: u64) -> Option<AvatarFormat> {
+    let (width, height, index_width, palette_limit) = match version {
+        1 => (AVATAR_WIDTH, AVATAR_HEIGHT, 1, 16),
+        2 => (32, 48, 2, 256),
+        _ => return None,
+    };
+    Some(AvatarFormat {
+        width,
+        height,
+        index_width,
+        palette_limit,
+    })
+}
 /// Raw 32 KiB source after base64 plus its strict JSON request envelope.
 pub const PROTOCOL_INPUT_LIMIT: usize = 44_000;
 /// Twenty maximum summary projections plus JSON escaping and envelope overhead.
 pub const PROTOCOL_OUTPUT_LIMIT: usize = 128 * 1024;
 const DIGEST_DOMAIN: &[u8] = b"TMT-OFFICE-AVATAR-PACK-V1\0";
+const DETAIL_DIGEST_DOMAIN: &[u8] = b"TMT-OFFICE-AVATAR-PACK-V2\0";
+
+pub fn builtin_packs() -> &'static [ValidatedAvatarPack] {
+    static PACKS: OnceLock<Vec<ValidatedAvatarPack>> = OnceLock::new();
+    PACKS.get_or_init(|| {
+        vec![
+            validate_pack(include_bytes!(
+                "../../../../contracts/office/modular-robots-v2.tmtavatar.json"
+            ))
+            .expect("bundled robot pack must pass normal admission"),
+        ]
+    })
+}
+
+pub fn builtin_by_digest(digest: &str) -> Option<&'static ValidatedAvatarPack> {
+    builtin_packs().iter().find(|pack| pack.digest() == digest)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -56,6 +99,9 @@ impl ValidatedAvatarPack {
     }
     pub fn cell_count(&self) -> usize {
         self.cell_count
+    }
+    pub fn format(&self) -> AvatarFormat {
+        avatar_format(u64::from(self.pack.format_version)).expect("admitted avatar format")
     }
     pub fn avatar(&self, key: &str) -> Option<&AvatarDefinition> {
         self.pack.avatars.iter().find(|avatar| avatar.key == key)
@@ -117,11 +163,11 @@ pub fn validate_pack(bytes: &[u8]) -> Result<ValidatedAvatarPack, AvatarPackErro
         return Err(AvatarPackError::Invalid);
     }
     let pack: AvatarPack = serde_json::from_slice(bytes).map_err(|_| AvatarPackError::Invalid)?;
-    if pack.format_version != 1
-        || !crate::indexed_art::valid_text(&pack.label, crate::indexed_art::LABEL_LIMIT)
+    let format = avatar_format(u64::from(pack.format_version)).ok_or(AvatarPackError::Invalid)?;
+    if !crate::indexed_art::valid_text(&pack.label, crate::indexed_art::LABEL_LIMIT)
         || !crate::indexed_art::valid_text(&pack.credit, crate::indexed_art::CREDIT_LIMIT)
         || !crate::indexed_art::valid_license(&pack.license)
-        || !crate::indexed_art::valid_palette(&pack.palette)
+        || !crate::indexed_art::valid_palette_with_limit(&pack.palette, format.palette_limit)
         || !(1..=PACK_AVATAR_LIMIT).contains(&pack.avatars.len())
     {
         return Err(AvatarPackError::Invalid);
@@ -135,13 +181,14 @@ pub fn validate_pack(bytes: &[u8]) -> Result<ValidatedAvatarPack, AvatarPackErro
         {
             return Err(AvatarPackError::Invalid);
         }
-        let count = crate::indexed_art::validate_raster(
+        let count = crate::indexed_art::validate_encoded_raster(
             &avatar.pixels,
             pack.palette.len(),
-            Some(AVATAR_WIDTH),
-            Some(AVATAR_HEIGHT),
-            AVATAR_HEIGHT,
-            AVATAR_WIDTH * AVATAR_HEIGHT,
+            Some(format.width),
+            Some(format.height),
+            format.height,
+            format.width * format.height,
+            format.index_width,
         )
         .ok_or(AvatarPackError::Invalid)?;
         if !avatar
@@ -157,17 +204,24 @@ pub fn validate_pack(bytes: &[u8]) -> Result<ValidatedAvatarPack, AvatarPackErro
             .ok_or(AvatarPackError::Invalid)?;
     }
     Ok(ValidatedAvatarPack {
-        digest: framed_digest(bytes),
+        digest: framed_digest(bytes, pack.format_version),
         bytes: bytes.to_vec(),
         pack,
         cell_count,
     })
 }
 
-pub fn framed_digest(bytes: &[u8]) -> String {
+pub fn framed_digest(bytes: &[u8], version: u8) -> String {
     format!(
         "sha256:{}",
-        crate::content_digest::framed_sha256(DIGEST_DOMAIN, bytes)
+        crate::content_digest::framed_sha256(
+            if version == 2 {
+                DETAIL_DIGEST_DOMAIN
+            } else {
+                DIGEST_DOMAIN
+            },
+            bytes
+        )
     )
 }
 
@@ -269,12 +323,13 @@ fn command_pack(input: &AvatarCommandInput) -> Result<ValidatedAvatarPack, Offic
 }
 
 fn pack_projection(pack: &ValidatedAvatarPack) -> Value {
+    let format = pack.format();
     json!({
         "digest":pack.digest(), "formatVersion":pack.pack().format_version,
         "label":pack.pack().label, "credit":pack.pack().credit, "license":pack.pack().license,
         "fileBytes":pack.bytes().len(), "cellCount":pack.cell_count(),
         "avatars":pack.pack().avatars.iter().map(|avatar| json!({
-            "key":avatar.key,"label":avatar.label,"raster":{"width":AVATAR_WIDTH,"height":AVATAR_HEIGHT}
+            "key":avatar.key,"label":avatar.label,"raster":{"width":format.width,"height":format.height}
         })).collect::<Vec<_>>()
     })
 }
@@ -282,6 +337,7 @@ fn snapshot_projection(snapshot: crate::storage::LocalAvatarSnapshot) -> Value {
     let mut value = pack_projection(&snapshot.pack);
     value["catalogRevision"] = json!(snapshot.catalog_revision);
     value["installedAtMs"] = json!(snapshot.installed_at_ms);
+    value["builtin"] = json!(snapshot.installed_at_ms.is_none());
     value
 }
 fn mutation_projection(mutation: crate::storage::LocalAvatarMutation, include_pack: bool) -> Value {
@@ -297,6 +353,7 @@ fn mutation_projection(mutation: crate::storage::LocalAvatarMutation, include_pa
 fn list_projection(list: crate::storage::LocalAvatarCatalogList) -> Value {
     json!({
         "catalogRevision":list.catalog_revision,
+        "builtins":list.builtins.into_iter().map(snapshot_projection).collect::<Vec<_>>(),
         "packs":list.packs.into_iter().map(snapshot_projection).collect::<Vec<_>>(),
         "excluded":list.excluded.into_iter().map(|excluded| json!({
             "digest":excluded.digest,"reason":excluded.reason.code()
@@ -382,7 +439,13 @@ mod tests {
         let bytes = valid_bytes();
         let pack = validate_pack(&bytes).unwrap();
         assert_eq!(pack.cell_count(), 384);
-        assert_ne!(pack.digest(), crate::office_prop::framed_digest(&bytes));
+        assert_ne!(
+            pack.digest(),
+            format!(
+                "sha256:{}",
+                crate::content_digest::framed_sha256(b"TMT-OFFICE-PROP-PACK-V1\0", &bytes)
+            )
+        );
         assert_eq!(
             parse_avatar_reference(&format!("{}/signal-bot", pack.digest())),
             Some((pack.digest(), "signal-bot"))
@@ -487,11 +550,12 @@ mod tests {
         .unwrap();
         let pack = validate_pack(&bytes).unwrap();
         let list = crate::storage::LocalAvatarCatalogList {
+            builtins: Vec::new(),
             catalog_revision: 1,
             packs: (0..20)
                 .map(|_| crate::storage::LocalAvatarSnapshot {
                     catalog_revision: 1,
-                    installed_at_ms: 1,
+                    installed_at_ms: Some(1),
                     pack: pack.clone(),
                 })
                 .collect(),

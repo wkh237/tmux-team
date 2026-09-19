@@ -4,12 +4,15 @@
 pub const BLOCK_SIZE: u8 = 32;
 /// The maximum number of ordered furniture objects in a layout.
 pub const OBJECT_LIMIT: usize = 16;
+/// Directional furniture may occupy up to half of a room along either axis.
+pub const PROP_FOOTPRINT_LIMIT: u8 = 16;
 /// The largest revision exactly representable by a JavaScript number.
 pub const MAX_REVISION: u64 = crate::limits::MAX_JS_SAFE_INTEGER;
-/// Shared finite transport ceiling for canonical local block v2 requests and replies.
-pub const LOCAL_PROTOCOL_LIMIT: usize = 65_536;
 /// The maximum input size reserved for bounded block documents.
-pub const INPUT_LIMIT: usize = LOCAL_PROTOCOL_LIMIT;
+pub const INPUT_LIMIT: usize = 65_536;
+/// Canonical local layouts, including bounded text, fit this SQLite byte budget.
+pub const STORED_LAYOUT_LIMIT: usize = 8192;
+pub const PROP_TEXT_LIMIT: usize = 64;
 pub const BUILTIN_PROP_PACK_DIGEST: &str =
     "sha256:5aa6a2d239d7111586abc06be799b2a1ec2ca46619752a90ae08a13e414afb6a";
 
@@ -169,15 +172,49 @@ impl BlockLayout {
     }
 }
 
-/// One canonical local-v2 immutable prop placement.
+/// Optional local-v3 values; capability authorization belongs to prop resolution.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PropCustomization {
+    pub tint: Option<String>,
+    pub text: Option<String>,
+}
+
+impl PropCustomization {
+    pub fn validate(&self) -> Result<(), LayoutError> {
+        let valid_tint = self.tint.as_ref().is_none_or(|value| {
+            let bytes = value.as_bytes();
+            bytes.len() == 7
+                && bytes[0] == b'#'
+                && bytes[1..]
+                    .iter()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+        });
+        let valid_text = self.text.as_ref().is_none_or(|value| {
+            !value.trim().is_empty()
+                && value.len() <= PROP_TEXT_LIMIT
+                && value.chars().count() <= 24
+                && !value.chars().any(|character| {
+                    character.is_control()
+                        || matches!(character, '\u{2028}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+                })
+        });
+        if (self.tint.is_none() && self.text.is_none()) || !valid_tint || !valid_text {
+            return Err(LayoutError::InvalidCustomization);
+        }
+        Ok(())
+    }
+}
+
+/// One canonical immutable prop placement, with optional local customization.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PropPlacement {
     pub prop: String,
     pub footprint_width: u8,
     pub footprint_height: u8,
-    pub x: u8,
-    pub y: u8,
+    pub x: i32,
+    pub y: i32,
     pub rotation: u8,
+    pub customization: Option<PropCustomization>,
 }
 
 impl PropPlacement {
@@ -189,21 +226,57 @@ impl PropPlacement {
         }
     }
 
-    fn validate(&self) -> Result<(), LayoutError> {
+    /// Shared artwork rules; the enclosing layout owns its placement surface.
+    pub fn validate_appearance(&self) -> Result<(), LayoutError> {
+        if let Some(customization) = &self.customization {
+            customization.validate()?;
+        }
         if crate::office_art_reference::parse_office_art_reference(&self.prop).is_none()
-            || !(1..=8).contains(&self.footprint_width)
-            || !(1..=8).contains(&self.footprint_height)
+            || !(1..=PROP_FOOTPRINT_LIMIT).contains(&self.footprint_width)
+            || !(1..=PROP_FOOTPRINT_LIMIT).contains(&self.footprint_height)
         {
             return Err(LayoutError::InvalidReference);
         }
         if self.rotation > 3 {
             return Err(LayoutError::InvalidRotation);
         }
+        Ok(())
+    }
+
+    fn validate(&self) -> Result<(), LayoutError> {
+        self.validate_appearance()?;
         let (width, height) = self.dimensions();
-        if self.x > BLOCK_SIZE.saturating_sub(width) || self.y > BLOCK_SIZE.saturating_sub(height) {
+        if self.x < 0
+            || self.y < 0
+            || self.x > i32::from(BLOCK_SIZE.saturating_sub(width))
+            || self.y > i32::from(BLOCK_SIZE.saturating_sub(height))
+        {
             return Err(LayoutError::OutOfBounds);
         }
         Ok(())
+    }
+}
+
+/// A local layout owner. The installation lobby is never a synthetic identity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LocalBlockTarget {
+    Identity(String),
+    Lobby,
+}
+
+impl LocalBlockTarget {
+    pub fn identity_id(&self) -> Option<&str> {
+        match self {
+            Self::Identity(id) => Some(id),
+            Self::Lobby => None,
+        }
+    }
+
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Identity(_) => "identity",
+            Self::Lobby => "lobby",
+        }
     }
 }
 
@@ -236,9 +309,10 @@ impl LocalBlockLayout {
                     prop: format!("{BUILTIN_PROP_PACK_DIGEST}/{}", item.asset.name()),
                     footprint_width: width,
                     footprint_height: height,
-                    x: item.x,
-                    y: item.y,
+                    x: i32::from(item.x),
+                    y: i32::from(item.y),
                     rotation: item.rotation,
+                    customization: None,
                 }
             })
             .collect();
@@ -254,6 +328,7 @@ pub enum LayoutError {
     OutOfBounds,
     InvalidToken,
     InvalidReference,
+    InvalidCustomization,
 }
 
 impl std::fmt::Display for LayoutError {
@@ -264,6 +339,7 @@ impl std::fmt::Display for LayoutError {
             Self::OutOfBounds => "Furniture footprint must fit inside the block.",
             Self::InvalidToken => "Invalid stored furniture token.",
             Self::InvalidReference => "Invalid immutable Office prop reference or footprint.",
+            Self::InvalidCustomization => "Invalid Office prop tint or display text.",
         })
     }
 }

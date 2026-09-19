@@ -34,7 +34,7 @@
   font-size: clamp(24px, 3vw, 36px);
   letter-spacing: -0.04em;
 }
-.block-heading [role='status'] {
+.block-statusbar [role='status'] {
   color: #58685d;
   font-size: 13px;
 }
@@ -43,6 +43,9 @@
   grid-template-columns: minmax(0, 1fr) 260px;
   gap: 28px;
   align-items: start;
+}
+.block-editor[data-editing='false'] .block-workbench {
+  grid-template-columns: minmax(0, 1fr);
 }
 .block-scene {
   width: 100%;
@@ -60,7 +63,8 @@
   font-size: 18px;
   margin-top: 0;
 }
-.block-tools button {
+.block-tools button,
+.block-actions button {
   border: 1px solid #c3ccbd;
   background: #fffdf6;
   color: #23372d;
@@ -69,7 +73,8 @@
   overflow-wrap: anywhere;
   white-space: normal;
 }
-.block-tools button:disabled {
+.block-tools button:disabled,
+.block-actions button:disabled {
   opacity: 0.5;
   cursor: default;
 }
@@ -77,6 +82,34 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
+}
+.block-starter {
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid #b4c5ad;
+  border-radius: 8px;
+  background: #e7eddf;
+}
+.block-starter p {
+  margin: 8px 0 0;
+  color: #50614f;
+}
+.block-starter select {
+  display: block;
+  width: 100%;
+  margin: 6px 0 10px;
+}
+.furniture-catalog button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  background: #f3eddd;
+}
+.furniture-catalog svg {
+  display: block;
+  width: 100%;
+  height: 60px;
 }
 .furniture-list {
   padding: 0;
@@ -121,13 +154,29 @@
   padding: 6px;
   font: inherit;
 }
+.block-tools label:has(input[type='text']) {
+  align-items: stretch;
+  flex-direction: column;
+  width: 100%;
+}
+.block-tools input[type='text'] {
+  min-width: 0;
+  width: 100%;
+}
 .block-actions {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: 8px;
+}
+.block-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
   margin-top: 20px;
 }
-.block-tools .block-save {
+.block-actions .block-save {
   background: #285b43;
   color: white;
 }

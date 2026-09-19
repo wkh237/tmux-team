@@ -4,12 +4,41 @@ use tmt_core::limits::MAX_JS_SAFE_INTEGER;
 use super::errors::{StorageError, StorageErrorCode, classify, incompatible};
 
 #[cfg(test)]
+mod announcement_tests;
+#[cfg(test)]
+mod board_scope_tests;
+#[cfg(test)]
+mod dispatch_tests;
+#[cfg(test)]
 #[path = "identity_lifetime_tests.rs"]
 mod identity_lifetime_tests;
 #[cfg(test)]
+mod local_block_tests;
+#[cfg(test)]
+mod prop_pack_tests;
+#[cfg(test)]
 mod receipt_tests;
 #[cfg(test)]
+mod request_history_tests;
+#[cfg(test)]
+mod request_room_tests;
+#[cfg(test)]
+mod room_tests;
+#[cfg(test)]
 mod test_support;
+#[cfg(test)]
+mod whiteboard_snapshot_tests;
+#[cfg(test)]
+mod whiteboard_tests;
+#[cfg(test)]
+mod world_layout_tests;
+
+/// Use the actual predecessor schemas, never a subtraction from today's inventory.
+#[cfg(test)]
+pub(super) fn seed_hook_predecessor(connection: &mut Connection) {
+    test_support::seed_history(connection);
+    apply_identity_lifetime(connection, &MIGRATIONS[8]).unwrap();
+}
 
 struct Migration {
     name: &'static str,
@@ -84,6 +113,62 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         name: "add installation-owned local Office avatar catalog",
         sql: include_str!("schema/017.sql"),
+    },
+    Migration {
+        name: "admit bounded directional Office prop packs",
+        sql: include_str!("schema/018.sql"),
+    },
+    Migration {
+        name: "add installation lobby target to local Office layouts",
+        sql: include_str!("schema/019.sql"),
+    },
+    Migration {
+        name: "allow bounded local Office placement customization",
+        sql: include_str!("schema/020.sql"),
+    },
+    Migration {
+        name: "add local whiteboard documents and operation receipts",
+        sql: include_str!("schema/021.sql"),
+    },
+    Migration {
+        name: "capture immutable whiteboard revisions and annotations",
+        sql: include_str!("schema/022.sql"),
+    },
+    Migration {
+        name: "retain Office request dispatch operation receipts",
+        sql: include_str!("schema/023.sql"),
+    },
+    Migration {
+        name: "add explicit local Office meeting membership",
+        sql: include_str!("schema/024.sql"),
+    },
+    Migration {
+        name: "distinguish inbox announcements from replyable requests",
+        sql: include_str!("schema/025.sql"),
+    },
+    Migration {
+        name: "retain original room context on durable requests",
+        sql: include_str!("schema/026.sql"),
+    },
+    Migration {
+        name: "index retained request conversations",
+        sql: include_str!("schema/027.sql"),
+    },
+    Migration {
+        name: "add atomic user-built Office world layouts",
+        sql: include_str!("schema/028.sql"),
+    },
+    Migration {
+        name: "add identity-owned expiring self-reported status",
+        sql: include_str!("schema/029.sql"),
+    },
+    Migration {
+        name: "extend shared Office discussions with room scopes",
+        sql: include_str!("schema/030.sql"),
+    },
+    Migration {
+        name: "retain retired meeting rooms without accepting new work",
+        sql: include_str!("schema/031.sql"),
     },
 ];
 

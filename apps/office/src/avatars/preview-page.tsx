@@ -3,6 +3,7 @@ import { LocalRuntimeContext } from '../local/local-runtime.js';
 import type { LocalRuntime } from '../local/local-runtime.js';
 import { usePreview } from '../local/use-preview.js';
 import { Avatar } from '../profiles/avatar.js';
+import { avatarRaster } from './avatar-contract.js';
 
 const requestPreview = (runtime: LocalRuntime, id: string) => runtime.avatarPreview(id);
 
@@ -36,7 +37,7 @@ export function AvatarPreviewPage({ previewId }: { previewId: string }) {
                 appearance={neutralAppearance}
                 name={avatar.key}
                 displayLabel={avatar.label}
-                customArt={{ pixels: avatar.pixels, palette: catalog.pack.palette }}
+                customArt={avatarRaster(catalog.pack, avatar)}
               />
             </svg>
           </article>

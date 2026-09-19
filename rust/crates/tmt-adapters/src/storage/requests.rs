@@ -5,9 +5,10 @@
 //! held.
 
 mod attention;
+mod history;
 mod rows;
 
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use tmt_core::request::{
     AttemptStatus, FinalResponse, RawRequestContext, RequestAttempt, RequestEndpoint,
     RequestRecords, RequestRepository, RequestRoute, StoredPrompt,
@@ -19,6 +20,21 @@ use super::{
 };
 
 struct RequestRows<'a>(&'a Connection);
+
+/// A caller-owned SQLite transaction can compose canonical request operations
+/// with its own receipt. This adapter never opens or commits a nested transaction.
+pub(super) struct TransactionRequests<'a, 'connection>(pub &'a Transaction<'connection>);
+
+impl RequestRepository for TransactionRequests<'_, '_> {
+    type Error = StorageError;
+
+    fn with_request_transaction<T, E: From<Self::Error>>(
+        &mut self,
+        operation: impl FnOnce(&mut dyn RequestRecords<Error = Self::Error>) -> Result<T, E>,
+    ) -> Result<T, E> {
+        operation(&mut RequestRows(self.0))
+    }
+}
 
 const DELETE_RETAINED_SQL: &str = "DELETE FROM request_attempts
              WHERE attempt_id IN (
@@ -38,13 +54,29 @@ const DELETE_RETAINED_SQL: &str = "DELETE FROM request_attempts
                  LIMIT ?
              )";
 
-const INCOMING_WATERMARK_SQL: &str = "SELECT MAX(
+fn incoming_watermark_sql(scoped: bool) -> String {
+    let (recipient_index, response_index, scope) = if scoped {
+        (
+            "request_attempts_room_recipient_attention",
+            "request_attempts_room_response_attention",
+            "room_id = ?3",
+        )
+    } else {
+        (
+            "request_attempts_recipient_attention",
+            "request_attempts_response_attention",
+            "?3 IS NULL",
+        )
+    };
+    format!(
+        "SELECT MAX(
              COALESCE((
                SELECT recipient_attention_revision FROM request_attempts
-               INDEXED BY request_attempts_recipient_attention
+               INDEXED BY {recipient_index}
                JOIN request_recipient_attention_identities AS state
                  ON state.identity_id = request_attempts.recipient_identity_id
                WHERE route_kind = 'inbox' AND status = 'queued'
+                 AND {scope}
                  AND recipient_identity_id = ?1 AND retention_expires_at_ms > ?2
                  AND recipient_attention_revision > recipient_attention_acknowledged_revision
                  AND recipient_attention_revision > state.acknowledged_through
@@ -53,17 +85,20 @@ const INCOMING_WATERMARK_SQL: &str = "SELECT MAX(
              ), 0),
              COALESCE((
                SELECT attention_revision FROM request_attempts
-               INDEXED BY request_attempts_response_attention
+               INDEXED BY {response_index}
                JOIN request_attention_identities AS state
                  ON state.identity_id = request_attempts.originator_identity_id
                WHERE originator_identity_id = ?1 AND retention_expires_at_ms > ?2
+                 AND {scope}
                  AND response_submitted_at_ms IS NOT NULL
                  AND attention_revision > attention_acknowledged_revision
                  AND attention_revision > state.acknowledged_through
                ORDER BY attention_revision DESC, request_id DESC
                LIMIT 1
              ), 0)
-           )";
+           )"
+    )
+}
 
 fn endpoint_args(endpoint: &RequestEndpoint) -> Result<[rusqlite::types::Value; 6], StorageError> {
     Ok([
@@ -113,6 +148,27 @@ fn checked_now(value: u64, label: &str) -> Result<i64, StorageError> {
 
 impl RequestRecords for RequestRows<'_> {
     type Error = StorageError;
+
+    fn list_request_history(
+        &self,
+        query: &tmt_core::request::history::HistoryQuery,
+        limit: u64,
+        now_ms: u64,
+    ) -> Result<Vec<tmt_core::request::history::HistoryRecord>, Self::Error> {
+        history::list_request_history(self.0, query, limit, now_ms)
+    }
+
+    fn find_request_history(
+        &self,
+        request_id: &str,
+    ) -> Result<Option<tmt_core::request::attention::AttentionRecord>, Self::Error> {
+        history::find_request_history(self.0, request_id)
+    }
+
+    fn room_has_recipient(&self, room_id: &str, identity_id: &str) -> Result<bool, Self::Error> {
+        Ok(super::room::read_room(self.0, room_id)?
+            .is_some_and(|room| room.member_ids.iter().any(|id| id == identity_id)))
+    }
 
     fn find_attempt(&self, attempt_id: &str) -> Result<Option<RequestAttempt>, Self::Error> {
         self.0
@@ -192,11 +248,12 @@ impl RequestRecords for RequestRows<'_> {
     fn list_response_attention(
         &self,
         identity_id: &str,
+        room_id: Option<&str>,
         after: u64,
         limit: u64,
         now_ms: u64,
     ) -> Result<Vec<tmt_core::request::attention::AttentionRecord>, Self::Error> {
-        attention::list_response_attention(self.0, identity_id, after, limit, now_ms)
+        attention::list_response_attention(self.0, identity_id, room_id, after, limit, now_ms)
     }
 
     fn identity_is_active(&self, identity_id: &str) -> Result<bool, Self::Error> {
@@ -235,11 +292,12 @@ impl RequestRecords for RequestRows<'_> {
     fn list_recipient_attention(
         &self,
         identity_id: &str,
+        room_id: Option<&str>,
         after: u64,
         limit: u64,
         now_ms: u64,
     ) -> Result<Vec<tmt_core::request::attention::AttentionRecord>, Self::Error> {
-        attention::list_recipient_attention(self.0, identity_id, after, limit, now_ms)
+        attention::list_recipient_attention(self.0, identity_id, room_id, after, limit, now_ms)
     }
 
     fn acknowledge_recipient_revision(
@@ -341,12 +399,12 @@ impl RequestRecords for RequestRows<'_> {
                 retention_expires_at_ms, attention_revision,
                 attention_acknowledged_revision, recipient_attention_revision,
                 recipient_attention_acknowledged_revision, message_text, message_bytes,
-                message_expires_at_ms
+                message_expires_at_ms, request_kind, room_id
             ) VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?
             )",
                 params![
                     attempt.attempt_id,
@@ -383,6 +441,8 @@ impl RequestRecords for RequestRows<'_> {
                     prompt.message,
                     prompt_bytes,
                     prompt_expires_at_ms,
+                    attempt.kind.as_str(),
+                    attempt.room_id,
                 ],
             )
             .map_err(|error| classify(error, "Create request attempt"))?;
@@ -695,13 +755,19 @@ impl RequestRecords for RequestRows<'_> {
         Ok(())
     }
 
-    fn incoming_watermark(&self, identity_id: &str, now_ms: u64) -> Result<u64, Self::Error> {
+    fn incoming_watermark(
+        &self,
+        identity_id: &str,
+        room_id: Option<&str>,
+        now_ms: u64,
+    ) -> Result<u64, Self::Error> {
         self.0
             .query_row(
-                INCOMING_WATERMARK_SQL,
+                &incoming_watermark_sql(room_id.is_some()),
                 params![
                     identity_id,
-                    checked_now(now_ms, "Incoming retention cutoff")?
+                    checked_now(now_ms, "Incoming retention cutoff")?,
+                    room_id,
                 ],
                 |row| rows::u64_at(row, 0),
             )

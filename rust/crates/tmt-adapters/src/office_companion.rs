@@ -1,5 +1,12 @@
 //! Verified, bounded execution of the optional companion; never resolves PATH.
 
+mod whiteboard;
+pub use whiteboard::{SnapshotResource, read_office_snapshot};
+mod extension;
+pub use extension::validate_office_extension;
+mod world;
+pub use world::invoke_office_world;
+
 use crate::{
     native_install::{self, Product},
     process::{CommandRequest, RunningCommand, UnixCommandRunner},
@@ -44,8 +51,8 @@ pub fn invoke_office_pairing(
             | OfficeInvocation::Sync
             | OfficeInvocation::BlockShow
             | OfficeInvocation::BlockApply
-            | OfficeInvocation::LocalBlockShow
-            | OfficeInvocation::LocalBlockApply
+            | OfficeInvocation::LocalWorldShow
+            | OfficeInvocation::LocalWorldApply
             | OfficeInvocation::LocalProfileShow
             | OfficeInvocation::LocalProfileApply
             | OfficeInvocation::BoardPost
@@ -55,6 +62,8 @@ pub fn invoke_office_pairing(
             | OfficeInvocation::BoardEdit
             | OfficeInvocation::BoardDelete
             | OfficeInvocation::BoardCategories
+            | OfficeInvocation::WhiteboardSnapshotShow
+            | OfficeInvocation::WhiteboardSnapshotImage
     ) {
         return Err(invalid_pairing());
     }
@@ -66,43 +75,6 @@ pub fn invoke_office_pairing(
     }
     let bytes = invoke_json(executable, operation, &input, deadline)?;
     decode_pairing_reply(&bytes, call.world)
-}
-
-pub fn invoke_local_office_block(
-    executable: &Path,
-    identity_id: &str,
-    edit: Option<(&tmt_core::office_block::LocalBlockLayout, u64)>,
-    deadline: Instant,
-) -> io::Result<Result<serde_json::Value, OfficeError>> {
-    let mut input = serde_json::json!({"identityId": identity_id});
-    let operation = if let Some((layout, revision)) = edit {
-        if revision >= tmt_core::office_block::MAX_REVISION {
-            return Ok(Err(OfficeError::LayoutInvalid));
-        }
-        input["layout"] = crate::office_block::local_layout_value(layout);
-        input["expectedRevision"] = serde_json::json!(revision);
-        OfficeInvocation::LocalBlockApply
-    } else {
-        OfficeInvocation::LocalBlockShow
-    };
-    let input = serde_json::to_vec(&input)?;
-    if input.len() > tmt_core::office_block::LOCAL_PROTOCOL_LIMIT {
-        return Err(invalid_pairing());
-    }
-    let bytes = match invoke_json_bounded(
-        executable,
-        operation,
-        &input,
-        deadline,
-        tmt_core::office_block::LOCAL_PROTOCOL_LIMIT,
-    ) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
-            return Ok(Err(OfficeError::Busy));
-        }
-        Err(error) => return Err(error),
-    };
-    decode_local_block_reply(&bytes, identity_id, edit.is_some())
 }
 
 pub fn invoke_local_office_profile(
@@ -153,10 +125,10 @@ pub fn invoke_local_office_prop(
         return Err(invalid_pairing());
     }
     let input = serde_json::to_vec(input)?;
-    if input.len() > 180_000 {
+    if input.len() > crate::office_prop::PROTOCOL_INPUT_LIMIT {
         return Err(invalid_pairing());
     }
-    let bytes = match invoke_json_bounded(executable, operation, &input, deadline, 131_072) {
+    let bytes = match invoke_bytes_bounded(executable, operation, &input, deadline, 131_072) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
             return Ok(Err(OfficeError::Busy));
@@ -196,7 +168,7 @@ pub fn invoke_local_office_avatar(
     if input.len() > crate::office_avatar::PROTOCOL_INPUT_LIMIT {
         return Err(invalid_pairing());
     }
-    let bytes = match invoke_json_bounded(
+    let bytes = match invoke_bytes_bounded(
         executable,
         operation,
         &input,
@@ -226,9 +198,12 @@ fn valid_local_avatar_reply(operation: OfficeInvocation, value: &serde_json::Val
     match operation {
         OfficeInvocation::LocalAvatarValidate => valid_avatar_pack_projection(value, &[]),
         OfficeInvocation::LocalAvatarInstall => {
-            valid_avatar_pack_projection(value, &["catalogRevision", "installedAtMs", "changed"])
-                && safe_u64(&value["catalogRevision"])
-                && value["installedAtMs"].as_u64().is_some_and(|time| time > 0)
+            valid_avatar_pack_projection(
+                value,
+                &["builtin", "catalogRevision", "installedAtMs", "changed"],
+            ) && safe_u64(&value["catalogRevision"])
+                && valid_install_time(value)
+                && (value["builtin"] != true || value["changed"] == false)
                 && value["changed"].is_boolean()
         }
         OfficeInvocation::LocalAvatarRemove => {
@@ -238,23 +213,41 @@ fn valid_local_avatar_reply(operation: OfficeInvocation, value: &serde_json::Val
                 && value["changed"].is_boolean()
         }
         OfficeInvocation::LocalAvatarShow => {
-            valid_avatar_pack_projection(value, &["catalogRevision", "installedAtMs"])
+            valid_avatar_pack_projection(value, &["builtin", "catalogRevision", "installedAtMs"])
                 && safe_u64(&value["catalogRevision"])
-                && value["installedAtMs"].as_u64().is_some_and(|time| time > 0)
+                && valid_install_time(value)
         }
         OfficeInvocation::LocalAvatarList => {
             exact_object(
                 value,
-                &["catalogRevision", "packs", "excluded", "nextCursor"],
+                &[
+                    "catalogRevision",
+                    "builtins",
+                    "packs",
+                    "excluded",
+                    "nextCursor",
+                ],
             ) && safe_u64(&value["catalogRevision"])
+                && value["builtins"].as_array().is_some_and(|items| {
+                    items.len() <= crate::office_avatar::builtin_packs().len()
+                        && items.iter().all(|item| {
+                            valid_avatar_pack_projection(
+                                item,
+                                &["builtin", "catalogRevision", "installedAtMs"],
+                            ) && item["catalogRevision"] == value["catalogRevision"]
+                                && item["builtin"] == true
+                                && valid_install_time(item)
+                        })
+                })
                 && value["packs"].as_array().is_some_and(|items| {
                     items.len() <= 20
                         && items.iter().all(|item| {
                             valid_avatar_pack_projection(
                                 item,
-                                &["catalogRevision", "installedAtMs"],
+                                &["builtin", "catalogRevision", "installedAtMs"],
                             ) && item["catalogRevision"] == value["catalogRevision"]
-                                && item["installedAtMs"].as_u64().is_some_and(|time| time > 0)
+                                && item["builtin"] == false
+                                && valid_install_time(item)
                         })
                 })
                 && value["excluded"].as_array().is_some_and(|items| {
@@ -275,6 +268,12 @@ fn valid_local_avatar_reply(operation: OfficeInvocation, value: &serde_json::Val
 }
 
 fn valid_avatar_pack_projection(value: &serde_json::Value, extra: &[&str]) -> bool {
+    let Some(format) = value["formatVersion"]
+        .as_u64()
+        .and_then(crate::office_avatar::avatar_format)
+    else {
+        return false;
+    };
     let mut fields = vec![
         "digest",
         "formatVersion",
@@ -288,7 +287,6 @@ fn valid_avatar_pack_projection(value: &serde_json::Value, extra: &[&str]) -> bo
     fields.extend_from_slice(extra);
     exact_object(value, &fields)
         && valid_avatar_digest(&value["digest"])
-        && value["formatVersion"].as_u64() == Some(1)
         && valid_indexed_text(&value["label"], crate::indexed_art::LABEL_LIMIT)
         && valid_indexed_text(&value["credit"], crate::indexed_art::CREDIT_LIMIT)
         && value["license"]
@@ -297,22 +295,32 @@ fn valid_avatar_pack_projection(value: &serde_json::Value, extra: &[&str]) -> bo
         && value["fileBytes"]
             .as_u64()
             .is_some_and(|bytes| (1..=32 * 1024).contains(&bytes))
-        && value["cellCount"]
-            .as_u64()
-            .is_some_and(|cells| (384..=6_144).contains(&cells))
+        && value["cellCount"].as_u64().is_some_and(|cells| {
+            ((format.width * format.height) as u64..=crate::office_avatar::PACK_CELL_LIMIT as u64)
+                .contains(&cells)
+        })
         && value["avatars"].as_array().is_some_and(|avatars| {
-            !avatars.is_empty() && avatars.len() <= 16 && avatars.iter().all(valid_avatar_summary)
+            !avatars.is_empty()
+                && avatars.len() <= crate::office_avatar::PACK_AVATAR_LIMIT
+                && value["cellCount"].as_u64()
+                    == Some((avatars.len() * format.width * format.height) as u64)
+                && avatars
+                    .iter()
+                    .all(|avatar| valid_avatar_summary(avatar, format))
         })
 }
-fn valid_avatar_summary(value: &serde_json::Value) -> bool {
+fn valid_avatar_summary(
+    value: &serde_json::Value,
+    format: crate::office_avatar::AvatarFormat,
+) -> bool {
     exact_object(value, &["key", "label", "raster"])
         && value["key"]
             .as_str()
             .is_some_and(crate::indexed_art::valid_key)
         && valid_indexed_text(&value["label"], crate::indexed_art::LABEL_LIMIT)
         && exact_object(&value["raster"], &["width", "height"])
-        && value["raster"]["width"].as_u64() == Some(16)
-        && value["raster"]["height"].as_u64() == Some(24)
+        && value["raster"]["width"].as_u64() == Some(format.width as u64)
+        && value["raster"]["height"].as_u64() == Some(format.height as u64)
 }
 fn valid_avatar_digest(value: &serde_json::Value) -> bool {
     value
@@ -357,7 +365,7 @@ fn valid_local_prop_reply(operation: OfficeInvocation, value: &serde_json::Value
                 ],
             ) && safe_u64(&value["catalogRevision"])
                 && value["builtins"].as_array().is_some_and(|items| {
-                    items.len() == 1
+                    items.len() == crate::office_prop::builtin_packs().len()
                         && items.iter().all(|item| {
                             valid_prop_snapshot_projection(item)
                                 && item["builtin"].as_bool() == Some(true)
@@ -420,31 +428,77 @@ fn valid_prop_pack_projection(value: &serde_json::Value, extra: &[&str]) -> bool
     fields.extend_from_slice(extra);
     exact_object(value, &fields)
         && valid_prop_digest(&value["digest"])
-        && value["formatVersion"].as_u64() == Some(1)
+        && matches!(value["formatVersion"].as_u64(), Some(1 | 2))
         && valid_indexed_text(&value["label"], crate::indexed_art::LABEL_LIMIT)
         && valid_indexed_text(&value["credit"], crate::indexed_art::CREDIT_LIMIT)
         && value["license"]
             .as_str()
             .is_some_and(crate::indexed_art::valid_license)
-        && value["fileBytes"]
-            .as_u64()
-            .is_some_and(|bytes| (1..=128 * 1024).contains(&bytes))
-        && value["pixelCount"]
-            .as_u64()
-            .is_some_and(|pixels| (1..=65_536).contains(&pixels))
+        && value["fileBytes"].as_u64().is_some_and(|bytes| {
+            (1..=if value["formatVersion"] == 2 {
+                crate::office_prop::PACK_INPUT_LIMIT as u64
+            } else {
+                crate::office_prop::V1_PACK_INPUT_LIMIT as u64
+            })
+                .contains(&bytes)
+        })
+        && value["pixelCount"].as_u64().is_some_and(|pixels| {
+            (1..=if value["formatVersion"] == 2 {
+                131_072
+            } else {
+                65_536
+            })
+                .contains(&pixels)
+        })
         && value["props"].as_array().is_some_and(|props| {
-            !props.is_empty() && props.len() <= 16 && props.iter().all(valid_prop_summary)
+            !props.is_empty()
+                && props.len() <= 16
+                && props
+                    .iter()
+                    .all(|prop| valid_prop_summary(prop, value["formatVersion"] == 2))
         })
 }
 
-fn valid_prop_summary(value: &serde_json::Value) -> bool {
-    exact_object(value, &["key", "label", "footprint", "raster"])
+fn valid_prop_summary(value: &serde_json::Value, directional: bool) -> bool {
+    let mut keys = vec![
+        "key",
+        "label",
+        "footprint",
+        if directional { "frames" } else { "raster" },
+    ];
+    if let Some(fields) = value.get("customizable") {
+        if !directional
+            || ![
+                serde_json::json!(["tint"]),
+                serde_json::json!(["text"]),
+                serde_json::json!(["tint", "text"]),
+            ]
+            .contains(fields)
+        {
+            return false;
+        }
+        keys.push("customizable");
+    }
+    exact_object(value, &keys)
         && value["key"]
             .as_str()
             .is_some_and(crate::indexed_art::valid_key)
         && valid_indexed_text(&value["label"], crate::indexed_art::LABEL_LIMIT)
-        && valid_dimensions(&value["footprint"], 8)
-        && valid_dimensions(&value["raster"], 64)
+        && valid_dimensions(
+            &value["footprint"],
+            if directional {
+                tmt_core::office_block::PROP_FOOTPRINT_LIMIT as u64
+            } else {
+                crate::office_prop::FOOTPRINT_LIMIT as u64
+            },
+        )
+        && if directional {
+            value["frames"].as_array().is_some_and(|frames| {
+                frames.len() == 4 && frames.iter().all(|frame| valid_dimensions(frame, 128))
+            })
+        } else {
+            valid_dimensions(&value["raster"], 64)
+        }
 }
 
 fn valid_dimensions(value: &serde_json::Value, limit: u64) -> bool {
@@ -660,6 +714,11 @@ fn category_value(value: &serde_json::Value) -> bool {
             && value["repositoryId"]
                 .as_str()
                 .is_some_and(tmt_core::office_board::valid_repository_id)
+        || exact_keys(value, &["kind", "roomId"])
+            && value["kind"] == "room"
+            && value["roomId"]
+                .as_str()
+                .is_some_and(tmt_core::dispatch::canonical_id)
 }
 fn actor_value(value: &serde_json::Value) -> bool {
     exact_keys(value, &["kind"]) && value["kind"] == "owner"
@@ -835,86 +894,6 @@ fn require_board_capability<T>(bytes: &[u8], dispatch: impl FnOnce() -> T) -> io
     Ok(dispatch())
 }
 
-fn decode_local_block_reply(
-    bytes: &[u8],
-    identity_id: &str,
-    editing: bool,
-) -> io::Result<Result<serde_json::Value, OfficeError>> {
-    if bytes.len() > tmt_core::office_block::LOCAL_PROTOCOL_LIMIT {
-        return Err(invalid_pairing());
-    }
-    let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|_| invalid_pairing())?;
-    let object = value.as_object().ok_or_else(invalid_pairing)?;
-    if object.len() == 1
-        && let Some(error) = value["error"].as_str().and_then(OfficeError::parse)
-    {
-        return Ok(Err(error));
-    }
-    let mut expected = vec![
-        "exists",
-        "identityId",
-        "identityName",
-        "blockId",
-        "revision",
-        "layout",
-        "resolutions",
-        "updatedAtMs",
-    ];
-    if editing {
-        expected.push("changed");
-    }
-    if object.len() != expected.len()
-        || !expected.iter().all(|key| object.contains_key(*key))
-        || value["identityId"].as_str() != Some(identity_id)
-        || value["identityName"].as_str().is_none_or(str::is_empty)
-        || value["revision"].as_u64().is_none()
-        || value["updatedAtMs"].as_u64().is_none()
-    {
-        return Err(invalid_pairing());
-    }
-    let exists = value["exists"].as_bool().ok_or_else(invalid_pairing)?;
-    let block_id = value["blockId"].as_str();
-    let valid_block_id = block_id.is_some_and(|id| {
-        uuid::Uuid::parse_str(id)
-            .ok()
-            .is_some_and(|parsed| parsed.to_string() == id)
-    });
-    if (exists
-        && (!valid_block_id
-            || value["revision"]
-                .as_u64()
-                .is_none_or(|revision| revision == 0)
-            || value["updatedAtMs"]
-                .as_u64()
-                .is_none_or(|updated| updated == 0)))
-        || (!exists
-            && (!value["blockId"].is_null()
-                || value["revision"].as_u64() != Some(0)
-                || value["updatedAtMs"].as_u64() != Some(0)))
-    {
-        return Err(invalid_pairing());
-    }
-    let layout = serde_json::to_vec(&value["layout"])?;
-    let layout =
-        crate::office_block::decode_local_layout(&layout).map_err(|_| invalid_pairing())?;
-    let resolutions = value["resolutions"]
-        .as_array()
-        .ok_or_else(invalid_pairing)?;
-    if resolutions.len() != layout.objects().len()
-        || resolutions.iter().enumerate().any(|(index, resolution)| {
-            resolution["index"].as_u64() != Some(index as u64)
-                || !matches!(
-                    resolution["status"].as_str(),
-                    Some("available" | "unavailable")
-                )
-        })
-        || (editing && value["changed"].as_bool().is_none())
-    {
-        return Err(invalid_pairing());
-    }
-    Ok(Ok(value))
-}
-
 pub fn invoke_office_block(
     executable: &Path,
     call: &PairingCall<'_>,
@@ -985,10 +964,10 @@ fn invoke_json(
     input: &[u8],
     deadline: Instant,
 ) -> io::Result<Vec<u8>> {
-    invoke_json_bounded(executable, operation, input, deadline, 4096)
+    invoke_bytes_bounded(executable, operation, input, deadline, 4096)
 }
 
-fn invoke_json_bounded(
+fn invoke_bytes_bounded(
     executable: &Path,
     operation: OfficeInvocation,
     input: &[u8],
@@ -1221,6 +1200,15 @@ mod pairing_tests {
         assert!(!category_value(
             &serde_json::json!({"kind":"repository","repositoryId":"Bad Host/repo"})
         ));
+        assert!(category_value(
+            &serde_json::json!({"kind":"room","roomId":id})
+        ));
+        assert!(!category_value(
+            &serde_json::json!({"kind":"room","roomId":"Review"})
+        ));
+        assert!(!category_value(
+            &serde_json::json!({"kind":"room","roomId":id,"repositoryId":"example.com/repo"})
+        ));
         assert!(!actor_value(
             &serde_json::json!({"kind":"identity","identityId":id,"name":"bad\nname"})
         ));
@@ -1284,108 +1272,6 @@ mod pairing_tests {
     }
 
     #[test]
-    fn local_block_replies_are_exact_and_distinguish_missing_from_existing() {
-        let identity_id = "11111111-1111-4111-8111-111111111111";
-        let block_id = "22222222-2222-4222-8222-222222222222";
-        let existing = serde_json::json!({
-            "exists": true,
-            "identityId": identity_id,
-            "identityName": "Alice",
-            "blockId": block_id,
-            "revision": 1,
-            "layout": {"version":2,"objects":[]},
-            "resolutions": [],
-            "updatedAtMs": 1
-        });
-        assert!(
-            decode_local_block_reply(existing.to_string().as_bytes(), identity_id, false)
-                .unwrap()
-                .is_ok()
-        );
-        let missing = serde_json::json!({
-            "exists": false,
-            "identityId": identity_id,
-            "identityName": "Alice",
-            "blockId": null,
-            "revision": 0,
-            "layout": {"version":2,"objects":[]},
-            "resolutions": [],
-            "updatedAtMs": 0
-        });
-        assert!(
-            decode_local_block_reply(missing.to_string().as_bytes(), identity_id, false)
-                .unwrap()
-                .is_ok()
-        );
-        for invalid in [
-            serde_json::json!({"exists":true,"identityId":identity_id,"identityName":"Alice","blockId":block_id,"revision":0,"layout":{"version":2,"objects":[]},"resolutions":[],"updatedAtMs":1}),
-            serde_json::json!({"exists":false,"identityId":identity_id,"identityName":"Alice","blockId":17,"revision":0,"layout":{"version":2,"objects":[]},"resolutions":[],"updatedAtMs":0}),
-            serde_json::json!({"exists":false,"identityId":identity_id,"identityName":"","blockId":null,"revision":0,"layout":{"version":2,"objects":[]},"resolutions":[],"updatedAtMs":0}),
-            serde_json::json!({"exists":false,"identityId":identity_id,"identityName":"Alice","blockId":null,"revision":0,"layout":{"version":2,"objects":[]},"resolutions":[],"updatedAtMs":0,"token":"private"}),
-        ] {
-            assert!(
-                decode_local_block_reply(invalid.to_string().as_bytes(), identity_id, false)
-                    .is_err()
-            );
-        }
-    }
-
-    #[test]
-    fn full_capacity_local_block_reply_exceeds_legacy_bound_but_stays_bounded() {
-        let identity_id = "11111111-1111-4111-8111-111111111111";
-        let block_id = "22222222-2222-4222-8222-222222222222";
-        let digest = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
-        let prop = format!("{digest}/{}", "p".repeat(32));
-        let objects = (0..tmt_core::office_block::OBJECT_LIMIT)
-            .map(|index| {
-                serde_json::json!({
-                    "prop": prop,
-                    "footprint":{"width":1,"height":1},
-                    "x": index,
-                    "y": 0,
-                    "rotation": 0
-                })
-            })
-            .collect::<Vec<_>>();
-        let resolutions = (0..tmt_core::office_block::OBJECT_LIMIT)
-            .map(|index| {
-                serde_json::json!({
-                    "index":index,
-                    "status":"available",
-                    "label":"\\".repeat(crate::office_prop::PROP_LABEL_LIMIT)
-                })
-            })
-            .collect::<Vec<_>>();
-        let reply = serde_json::json!({
-            "exists": true,
-            "identityId": identity_id,
-            "identityName": "Alice",
-            "blockId": block_id,
-            "revision": 1,
-            "layout": {"version":2,"objects":objects},
-            "resolutions": resolutions,
-            "updatedAtMs": 1,
-            "changed": true
-        });
-        let bytes = serde_json::to_vec(&reply).unwrap();
-        assert!(bytes.len() > 4_096);
-        assert!(bytes.len() <= tmt_core::office_block::LOCAL_PROTOCOL_LIMIT);
-        assert!(
-            decode_local_block_reply(&bytes, identity_id, true)
-                .unwrap()
-                .is_ok()
-        );
-        assert!(
-            decode_local_block_reply(
-                &vec![b' '; tmt_core::office_block::LOCAL_PROTOCOL_LIMIT + 1],
-                identity_id,
-                true
-            )
-            .is_err()
-        );
-    }
-
-    #[test]
     fn local_prop_replies_are_exact_and_bounded() {
         let pack = serde_json::json!({
             "digest":"sha256:1111111111111111111111111111111111111111111111111111111111111111",
@@ -1427,6 +1313,72 @@ mod pairing_tests {
                 "credit":"TMT", "license":"MIT", "fileBytes":128, "pixelCount":1,
                 "props":pack["props"], "builtin":true, "catalogRevision":0,
                 "installedAtMs":null
+            }, {
+                "digest":crate::office_prop::WORKSHOP_DIGEST, "formatVersion":2, "label":"Workshop",
+                "credit":"TMT", "license":"MIT", "fileBytes":512, "pixelCount":4,
+                "props":[{"key":"desk","label":"Desk","footprint":{"width":1,"height":1},
+                    "frames":[{"width":1,"height":1},{"width":1,"height":1},{"width":1,"height":1},{"width":1,"height":1}]}],
+                "builtin":true, "catalogRevision":0, "installedAtMs":null
+            }, {
+                "digest":crate::office_prop::COMMONS_DIGEST, "formatVersion":2, "label":"Commons",
+                "credit":"TMT", "license":"MIT", "fileBytes":512, "pixelCount":4,
+                "props":[{"key":"noticeboard","label":"Noticeboard","footprint":{"width":12,"height":8},
+                    "frames":[{"width":96,"height":64},{"width":64,"height":96},{"width":96,"height":64},{"width":64,"height":96}]}],
+                "builtin":true, "catalogRevision":0, "installedAtMs":null
+            }, {
+                "digest":crate::office_prop::WHITEBOARD_DIGEST, "formatVersion":2, "label":"Whiteboard",
+                "credit":"TMT", "license":"MIT", "fileBytes":512, "pixelCount":4,
+                "props":[{"key":"whiteboard","label":"Whiteboard","footprint":{"width":12,"height":8},
+                    "frames":[{"width":96,"height":64},{"width":64,"height":96},{"width":96,"height":64},{"width":64,"height":96}]}],
+                "builtin":true, "catalogRevision":0, "installedAtMs":null
+            }, {
+                "digest":crate::office_prop::BROADCASTER_DIGEST, "formatVersion":2, "label":"Broadcaster",
+                "credit":"TMT", "license":"MIT", "fileBytes":512, "pixelCount":4,
+                "props":[{"key":"broadcast-station","label":"Broadcast station","footprint":{"width":8,"height":8},
+                    "frames":[{"width":64,"height":64},{"width":64,"height":64},{"width":64,"height":64},{"width":64,"height":64}]}],
+                "builtin":true, "catalogRevision":0, "installedAtMs":null
+            }, {
+                "digest":crate::office_prop::STUDY_DIGEST, "formatVersion":2, "label":"Study",
+                "credit":"TMT", "license":"MIT", "fileBytes":512, "pixelCount":4,
+                "props":[{"key":"oak-bookcase","label":"Bookcase","footprint":{"width":12,"height":12},
+                    "frames":[{"width":96,"height":96},{"width":96,"height":96},{"width":96,"height":96},{"width":96,"height":96}]}],
+                "builtin":true, "catalogRevision":0, "installedAtMs":null
+            }, {
+                "digest":crate::office_prop::WALL_DIGEST, "formatVersion":2, "label":"Walls",
+                "credit":"TMT", "license":"CC0-1.0", "fileBytes":512, "pixelCount":4,
+                "props":[{"key":"observatory-window","label":"Window","footprint":{"width":12,"height":8},
+                    "frames":[{"width":96,"height":64},{"width":64,"height":96},{"width":96,"height":64},{"width":64,"height":96}]}],
+                "builtin":true, "catalogRevision":0, "installedAtMs":null
+            }, {
+                "digest":crate::office_prop::MODULAR_WORKSTATION_DIGEST, "formatVersion":2, "label":"Modular workstation",
+                "credit":"TMT", "license":"MIT", "fileBytes":283399, "pixelCount":129280,
+                "props":[{"key":"workstation-chair","label":"Rolling chair","footprint":{"width":8,"height":8},
+                    "frames":[{"width":64,"height":64},{"width":64,"height":64},{"width":64,"height":64},{"width":64,"height":64}]}],
+                "builtin":true, "catalogRevision":0, "installedAtMs":null
+            }, {
+                "digest":crate::office_prop::MODULAR_MOUNTED_DIGEST, "formatVersion":2, "label":"Modular wall objects",
+                "credit":"TMT", "license":"MIT", "fileBytes":256962, "pixelCount":116736,
+                "props":[{"key":"mounted-window","label":"Celestial window","footprint":{"width":16,"height":16},
+                    "frames":[{"width":128,"height":128},{"width":128,"height":128},{"width":128,"height":128},{"width":128,"height":128}]}],
+                "builtin":true, "catalogRevision":0, "installedAtMs":null
+            }, {
+                "digest":crate::office_prop::MODULAR_LOUNGE_DIGEST, "formatVersion":2, "label":"Modular lounge",
+                "credit":"TMT", "license":"MIT", "fileBytes":272183, "pixelCount":123904,
+                "props":[{"key":"lounge-sofa","label":"Velvet sofa","footprint":{"width":16,"height":16},
+                    "frames":[{"width":128,"height":128},{"width":128,"height":128},{"width":128,"height":128},{"width":128,"height":128}]}],
+                "builtin":true, "catalogRevision":0, "installedAtMs":null
+            }, {
+                "digest":crate::office_prop::MODULAR_FACILITIES_DIGEST, "formatVersion":2, "label":"Modular facilities",
+                "credit":"TMT", "license":"MIT", "fileBytes":259019, "pixelCount":118784,
+                "props":[{"key":"lobby-radio","label":"Radio","footprint":{"width":8,"height":8},
+                    "frames":[{"width":64,"height":64},{"width":64,"height":64},{"width":64,"height":64},{"width":64,"height":64}]}],
+                "builtin":true, "catalogRevision":0, "installedAtMs":null
+            }, {
+                "digest":crate::office_prop::MODULAR_RECEPTION_DIGEST, "formatVersion":2, "label":"Modular reception",
+                "credit":"TMT", "license":"MIT", "fileBytes":222410, "pixelCount":102400,
+                "props":[{"key":"reception-armchair","label":"Reception armchair","footprint":{"width":12,"height":12},
+                    "frames":[{"width":96,"height":96},{"width":96,"height":96},{"width":96,"height":96},{"width":96,"height":96}]}],
+                "builtin":true, "catalogRevision":0, "installedAtMs":null
             }],
             "packs":[], "excluded":[], "nextCursor":null
         });
@@ -1434,6 +1386,14 @@ mod pairing_tests {
             OfficeInvocation::LocalPropList,
             &list
         ));
+        for count in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13] {
+            let mut invalid = list.clone();
+            invalid["builtins"] = serde_json::json!(vec![list["builtins"][0].clone(); count]);
+            assert!(!valid_local_prop_reply(
+                OfficeInvocation::LocalPropList,
+                &invalid
+            ));
+        }
         let mut cursor_list = list.clone();
         cursor_list["nextCursor"] =
             serde_json::json!("x".repeat(crate::office_prop::CATALOG_CURSOR_MAX_BYTES));
@@ -1447,6 +1407,92 @@ mod pairing_tests {
             OfficeInvocation::LocalPropList,
             &cursor_list
         ));
+    }
+
+    #[test]
+    fn directional_prop_replies_preserve_the_admitted_shape_and_reject_hostile_summaries() {
+        let pack = crate::office_prop::validate_pack(include_bytes!(
+            "../../../../contracts/office/prop-pack-v2-sample.tmtprop.json"
+        ))
+        .unwrap();
+        let input = serde_json::to_vec(&crate::office_prop::command_pack_input(&pack)).unwrap();
+        let summary: serde_json::Value = serde_json::from_slice(&crate::office_prop::execute(
+            OfficeInvocation::LocalPropValidate,
+            &input,
+        ))
+        .unwrap();
+        assert!(valid_local_prop_reply(
+            OfficeInvocation::LocalPropValidate,
+            &summary
+        ));
+        for fields in [
+            serde_json::json!(["tint"]),
+            serde_json::json!(["text"]),
+            serde_json::json!(["tint", "text"]),
+        ] {
+            let mut customized = summary.clone();
+            customized["props"][0]["customizable"] = fields;
+            assert!(valid_local_prop_reply(
+                OfficeInvocation::LocalPropValidate,
+                &customized
+            ));
+        }
+        for fields in [
+            serde_json::json!([]),
+            serde_json::json!(["tint", "tint"]),
+            serde_json::json!(["text", "tint"]),
+            serde_json::json!(["script"]),
+            serde_json::Value::Null,
+        ] {
+            let mut customized = summary.clone();
+            customized["props"][0]["customizable"] = fields;
+            assert!(!valid_local_prop_reply(
+                OfficeInvocation::LocalPropValidate,
+                &customized
+            ));
+        }
+        let mut largest_footprint = summary.clone();
+        largest_footprint["props"][0]["footprint"] = serde_json::json!({"width":16,"height":16});
+        assert!(valid_local_prop_reply(
+            OfficeInvocation::LocalPropValidate,
+            &largest_footprint
+        ));
+        for kind in [
+            "version",
+            "missing",
+            "extra",
+            "null",
+            "mixed",
+            "dimension",
+            "footprint",
+            "bytes",
+            "cells",
+        ] {
+            let mut value = summary.clone();
+            match kind {
+                "version" => value["formatVersion"] = serde_json::json!(1),
+                "missing" => {
+                    value["props"][0]["frames"].as_array_mut().unwrap().pop();
+                }
+                "extra" => value["props"][0]["frames"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(serde_json::json!({"width":1,"height":1})),
+                "null" => value["props"][0]["frames"] = serde_json::Value::Null,
+                "mixed" => value["props"][0]["raster"] = serde_json::json!({"width":1,"height":1}),
+                "dimension" => value["props"][0]["frames"][0]["width"] = serde_json::json!(129),
+                "footprint" => value["props"][0]["footprint"]["width"] = serde_json::json!(17),
+                "bytes" => {
+                    value["fileBytes"] = serde_json::json!(crate::office_prop::PACK_INPUT_LIMIT + 1)
+                }
+                "cells" => value["pixelCount"] = serde_json::json!(131_073),
+                _ => unreachable!(),
+            }
+            assert!(
+                !valid_local_prop_reply(OfficeInvocation::LocalPropValidate, &value),
+                "{kind}"
+            );
+        }
     }
 
     #[test]
@@ -1469,6 +1515,58 @@ mod pairing_tests {
             OfficeInvocation::LocalAvatarValidate,
             &pack
         ));
+        let mut builtin = pack.clone();
+        builtin["builtin"] = serde_json::json!(true);
+        builtin["catalogRevision"] = serde_json::json!(0);
+        builtin["installedAtMs"] = serde_json::Value::Null;
+        assert!(valid_local_avatar_reply(
+            OfficeInvocation::LocalAvatarShow,
+            &builtin
+        ));
+        let list = serde_json::json!({
+            "catalogRevision":0,"builtins":[builtin.clone()],"packs":[],"excluded":[],"nextCursor":null
+        });
+        assert!(valid_local_avatar_reply(
+            OfficeInvocation::LocalAvatarList,
+            &list
+        ));
+        let mut invalid = list.clone();
+        invalid["builtins"][0]["installedAtMs"] = serde_json::json!(1);
+        assert!(!valid_local_avatar_reply(
+            OfficeInvocation::LocalAvatarList,
+            &invalid
+        ));
+        builtin["changed"] = serde_json::json!(false);
+        assert!(valid_local_avatar_reply(
+            OfficeInvocation::LocalAvatarInstall,
+            &builtin
+        ));
+        builtin["changed"] = serde_json::json!(true);
+        assert!(!valid_local_avatar_reply(
+            OfficeInvocation::LocalAvatarInstall,
+            &builtin
+        ));
+        let mut detailed = pack.clone();
+        detailed["formatVersion"] = serde_json::json!(2);
+        detailed["cellCount"] = serde_json::json!(1536);
+        detailed["avatars"][0]["raster"] = serde_json::json!({"width":32,"height":48});
+        assert!(valid_local_avatar_reply(
+            OfficeInvocation::LocalAvatarValidate,
+            &detailed
+        ));
+        for (path, invalid) in [
+            ("/formatVersion", serde_json::json!(3)),
+            ("/cellCount", serde_json::json!(384)),
+            ("/avatars/0/raster/width", serde_json::json!(64)),
+            ("/avatars/0/raster/height", serde_json::json!(24)),
+        ] {
+            let mut value = detailed.clone();
+            *value.pointer_mut(path).unwrap() = invalid;
+            assert!(!valid_local_avatar_reply(
+                OfficeInvocation::LocalAvatarValidate,
+                &value
+            ));
+        }
         let mut maximum_key = pack.clone();
         maximum_key["avatars"][0]["key"] =
             serde_json::json!("a".repeat(crate::indexed_art::KEY_LIMIT));
