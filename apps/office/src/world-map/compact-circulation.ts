@@ -34,111 +34,35 @@ export function compactCirculation(rooms: readonly ModuleRect[]): ModuleRect[] {
   return result;
 }
 
-/** Direct neighbors use only the short bridge at their entrance. More distant
- * rooms retain public access through the central spine, never a private room.
- */
+/** V6 connects immediate cardinal neighbors only. Platforms can be traversed;
+ * there is no perimeter bypass or bridge across an empty slot. */
 export function skybridgeCirculation(rooms: readonly ModuleRect[]) {
-  const { passageWidth: gap, lobbyWidth, roomHeight } = MODULE_METRICS;
-  const lobbyHeight = 2 * roomHeight + gap;
-  const direct: {
-    room: ModuleRect;
-    passage: ModuleRect;
-    openings: { x: number; y: number; axis: 'horizontal' | 'vertical' }[];
-  }[] = [];
-  const remote: ModuleRect[] = [];
-  for (const room of rooms) {
-    const x = room.x + (room.width - gap) / 2;
-    const y = room.y + (room.height - gap) / 2;
-    const north = room.y + room.height === -gap;
-    const south = room.y === lobbyHeight + gap;
-    const west = room.x + room.width === -gap;
-    const east = room.x === lobbyWidth + gap;
-    if ((north || south) && room.x >= 0 && room.x + room.width <= lobbyWidth) {
-      const edge = north ? -gap : lobbyHeight;
-      direct.push({
-        room,
-        passage: { x, y: edge, width: gap, height: gap },
-        openings: [
-          { x, y: edge, axis: 'horizontal' },
-          { x, y: edge + gap, axis: 'horizontal' },
-        ],
-      });
-    } else if ((west || east) && room.y >= 0 && room.y + room.height <= lobbyHeight) {
-      const edge = west ? -gap : lobbyWidth;
-      direct.push({
-        room,
-        passage: { x: edge, y, width: gap, height: gap },
-        openings: [
-          { x: edge, y, axis: 'vertical' },
-          { x: edge + gap, y, axis: 'vertical' },
-        ],
-      });
-    } else remote.push(room);
-  }
-  const passages = direct.map(({ passage }) => passage);
-  const openings = direct.flatMap(({ openings }) => openings);
-  for (const room of remote) {
-    if (room.x === 0 && room.y === 0 && room.width === lobbyWidth && room.height === lobbyHeight)
-      continue;
-    // Share a direct neighbor's public perimeter across empty slots. Prefer
-    // the side-column shaft, then nearest distance and stable coordinate order.
-    const neighbor = direct
-      .filter(
-        ({ room: other }) =>
-          (other.x === room.x &&
-            (other.x + other.width === -gap || other.x === lobbyWidth + gap)) ||
-          (other.y === room.y && (other.y + other.height === -gap || other.y === lobbyHeight + gap))
-      )
-      .sort(
-        (a, b) =>
-          Number(a.room.x !== room.x) - Number(b.room.x !== room.x) ||
-          Math.abs(a.room.x - room.x) +
-            Math.abs(a.room.y - room.y) -
-            Math.abs(b.room.x - room.x) -
-            Math.abs(b.room.y - room.y) ||
-          a.room.y - b.room.y ||
-          a.room.x - b.room.x
-      )[0];
-    const x = room.x + (room.width - gap) / 2;
-    if (neighbor) {
-      const y = room.y + (room.height - gap) / 2;
-      const target = neighbor.passage;
-      const vertical = neighbor.room.x === room.x;
-      passages.push(
-        vertical
-          ? {
-              x: target.x,
-              y: Math.min(y, target.y),
-              width: gap,
-              height: Math.max(y, target.y) + gap - Math.min(y, target.y),
-            }
-          : {
-              x: Math.min(x, target.x),
-              y: target.y,
-              width: Math.max(x, target.x) + gap - Math.min(x, target.x),
-              height: gap,
-            }
-      );
-      openings.push(
-        vertical
-          ? { x: room.x < 0 ? room.x + room.width : room.x, y, axis: 'vertical' }
-          : { x, y: room.y < 0 ? room.y + room.height : room.y, axis: 'horizontal' }
-      );
-      continue;
+  const gap = MODULE_METRICS.passageWidth;
+  const passages: ModuleRect[] = [];
+  const openings: { x: number; y: number; axis: 'horizontal' | 'vertical' }[] = [];
+  const ordered = [...rooms].sort((a, b) => a.y - b.y || a.x - b.x);
+  for (let i = 0; i < ordered.length; i++)
+    for (let j = i + 1; j < ordered.length; j++) {
+      const a = ordered[i]!,
+        b = ordered[j]!;
+      const west = a.x < b.x ? a : b,
+        east = west === a ? b : a;
+      const top = Math.max(a.y, b.y),
+        bottom = Math.min(a.y + a.height, b.y + b.height);
+      if (east.x - west.x - west.width === gap && bottom - top >= gap) {
+        const x = west.x + west.width,
+          y = top + (bottom - top - gap) / 2;
+        passages.push({ x, y, width: gap, height: gap });
+        openings.push({ x, y, axis: 'vertical' }, { x: x + gap, y, axis: 'vertical' });
+      }
+      const left = Math.max(a.x, b.x),
+        right = Math.min(a.x + a.width, b.x + b.width);
+      if (b.y - a.y - a.height === gap && right - left >= gap) {
+        const x = left + (right - left - gap) / 2,
+          y = a.y + a.height;
+        passages.push({ x, y, width: gap, height: gap });
+        openings.push({ x, y, axis: 'horizontal' }, { x, y: y + gap, axis: 'horizontal' });
+      }
     }
-    passages.push(...compactCirculation([room]));
-    const north = room.y < 0;
-    const south = room.y >= lobbyHeight;
-    openings.push({
-      x,
-      y: north ? room.y + room.height : south || room.y > 0 ? room.y : room.y + room.height,
-      axis: 'horizontal',
-    });
-    openings.push(
-      north || south
-        ? { x: MODULE_METRICS.roomWidth, y: north ? 0 : lobbyHeight, axis: 'horizontal' }
-        : { x: room.x < 0 ? 0 : lobbyWidth, y: roomHeight, axis: 'vertical' }
-    );
-  }
   return { passages, openings };
 }

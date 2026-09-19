@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { WorldObjectActions } from '../extensions/world-object-actions.js';
 import type { ProfileSnapshot } from '../profiles/profile-contract.js';
 import type { IdentityChoice } from '../profiles/identity-choice.js';
@@ -84,6 +84,27 @@ function ReadyOffice({
     ...worldEditor,
     busy: worldEditor.busy || roomBusy,
   };
+  const { undo, redo, busy } = editor;
+  useEffect(() => {
+    const historyKey = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (
+        event.defaultPrevented ||
+        !(event.metaKey || event.ctrlKey) ||
+        event.altKey ||
+        event.key.toLowerCase() !== 'z' ||
+        !(target instanceof HTMLElement) ||
+        target.closest('input, textarea, select, [contenteditable], dialog, [role="dialog"]')
+      )
+        return;
+      event.preventDefault();
+      if (!busy) (event.shiftKey ? redo : undo)();
+    };
+    // Disabling the last Undo button can return focus to body. History shortcuts
+    // must still work there, without taking over text or resource-editor history.
+    window.addEventListener('keydown', historyKey);
+    return () => window.removeEventListener('keydown', historyKey);
+  }, [undo, redo, busy]);
   const [cameraHost, setCameraHost] = useState<HTMLDivElement | null>(null);
   const above = useRef<HTMLDivElement>(null);
   const editorViewport = useRef<HTMLDivElement>(null);

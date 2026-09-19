@@ -22,6 +22,13 @@ export function drawWall(
     const sprite = new Sprite({ texture: textures.rail });
     sprite.eventMode = 'none';
     sprite.position.set(bounds.x, bounds.y);
+    if (wall.open) {
+      // Platform docks are painted by scene-platform, never by legacy wall art.
+      sprite.width = 0;
+      sprite.height = 0;
+      parent.addChild(sprite);
+      return { sprite, depth };
+    }
     if (wall.axis === 'vertical') {
       sprite.rotation = Math.PI / 2;
       sprite.x += bounds.width;

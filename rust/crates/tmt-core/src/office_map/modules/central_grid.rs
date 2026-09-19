@@ -1,4 +1,4 @@
-//! Public lattice independent of paired rooms. Private cells never become shortcuts.
+//! V6 cardinal neighbor links; retained layouts use the public perimeter lattice.
 
 use super::*;
 use crate::office_map::{MAX_SPANS, MAX_TILES};
@@ -10,6 +10,10 @@ pub(super) fn project(
     compact: bool,
     bridges: bool,
 ) -> Result<(), MapError> {
+    if bridges {
+        neighbor_bridges(circulation, rooms);
+        return Ok(());
+    }
     let left = rooms.iter().map(|rect| rect.x).min().unwrap();
     let right = rooms.iter().map(|rect| rect.right()).max().unwrap();
     let top = rooms.iter().map(|rect| rect.y).min().unwrap();
@@ -28,16 +32,6 @@ pub(super) fn project(
     let mut required = Vec::new();
     if compact {
         for room in rooms.iter().filter(|room| **room != lobby) {
-            if bridges {
-                if let Some(rect) = direct_bridge(circulation, *room) {
-                    required.push(rect);
-                    continue;
-                }
-                if let Some(rect) = perimeter_bridge(circulation, *room, rooms) {
-                    required.push(rect);
-                    continue;
-                }
-            }
             let branch_y = if room.y < 0 {
                 room.bottom()
             } else if room.y >= LOBBY_HEIGHT {
@@ -46,34 +40,6 @@ pub(super) fn project(
                 ROOM_HEIGHT
             };
             let entrance_x = room.x + (room.width - PASSAGE_WIDTH) / 2;
-            if bridges {
-                let north = room.y < 0;
-                let south = room.y >= LOBBY_HEIGHT;
-                circulation.door(
-                    entrance_x,
-                    if north {
-                        room.bottom()
-                    } else if south || room.y > 0 {
-                        room.y
-                    } else {
-                        room.bottom()
-                    },
-                    Axis::Horizontal,
-                );
-                if north || south {
-                    circulation.door(
-                        ROOM_WIDTH,
-                        if north { 0 } else { LOBBY_HEIGHT },
-                        Axis::Horizontal,
-                    );
-                } else {
-                    circulation.door(
-                        if room.x < 0 { 0 } else { LOBBY_WIDTH },
-                        ROOM_HEIGHT,
-                        Axis::Vertical,
-                    );
-                }
-            }
             required.push(ModuleRect {
                 x: entrance_x.min(ROOM_WIDTH),
                 y: branch_y,
@@ -151,9 +117,6 @@ pub(super) fn project(
             });
         }
     }
-    if bridges {
-        return Ok(());
-    }
     // An opening depends only on adjacent public floor. No opposite room is
     // required, including the four entrances on the Lobby's central axes.
     for room in rooms {
@@ -173,105 +136,41 @@ pub(super) fn project(
     Ok(())
 }
 
-/// Share direct perimeter bridges across empty slots without incidental doors.
-fn perimeter_bridge(
-    circulation: &mut Circulation,
-    room: ModuleRect,
-    rooms: &[ModuleRect],
-) -> Option<ModuleRect> {
-    let neighbor = rooms
-        .iter()
-        .filter(|other| {
-            (other.x == room.x
-                && (other.right() == -PASSAGE_WIDTH || other.x == LOBBY_WIDTH + PASSAGE_WIDTH)
-                && other.y >= 0
-                && other.bottom() <= LOBBY_HEIGHT)
-                || (other.y == room.y
-                    && (other.bottom() == -PASSAGE_WIDTH
-                        || other.y == LOBBY_HEIGHT + PASSAGE_WIDTH)
-                    && other.x >= 0
-                    && other.right() <= LOBBY_WIDTH)
-        })
-        .min_by_key(|other| {
-            (
-                other.x != room.x,
-                (other.x - room.x).abs() + (other.y - room.y).abs(),
-                other.y,
-                other.x,
-            )
-        })?;
-    if neighbor.x != room.x {
-        let x = room.x + (room.width - PASSAGE_WIDTH) / 2;
-        let target_x = neighbor.x + (neighbor.width - PASSAGE_WIDTH) / 2;
-        let y = if room.y < 0 {
-            -PASSAGE_WIDTH
-        } else {
-            LOBBY_HEIGHT
-        };
-        circulation.door(
-            x,
-            if room.y < 0 { room.bottom() } else { room.y },
-            Axis::Horizontal,
-        );
-        return Some(ModuleRect {
-            x: x.min(target_x),
-            y,
-            width: x.max(target_x) + PASSAGE_WIDTH - x.min(target_x),
-            height: PASSAGE_WIDTH,
-        });
-    }
-    let y = room.y + (room.height - PASSAGE_WIDTH) / 2;
-    let target_y = neighbor.y + (neighbor.height - PASSAGE_WIDTH) / 2;
-    let x = if room.x < 0 {
-        -PASSAGE_WIDTH
-    } else {
-        LOBBY_WIDTH
-    };
-    circulation.door(
-        if room.x < 0 { room.right() } else { room.x },
-        y,
-        Axis::Vertical,
-    );
-    Some(ModuleRect {
-        x,
-        y: y.min(target_y),
-        width: PASSAGE_WIDTH,
-        height: y.max(target_y) + PASSAGE_WIDTH - y.min(target_y),
-    })
-}
-
-/// Neighboring pods open directly onto a short bridge; distant rooms still use
-/// the public lattice so another private office never becomes their only route.
-fn direct_bridge(circulation: &mut Circulation, room: ModuleRect) -> Option<ModuleRect> {
-    let x = room.x + (room.width - PASSAGE_WIDTH) / 2;
-    let y = room.y + (room.height - PASSAGE_WIDTH) / 2;
-    let north = room.bottom() == -PASSAGE_WIDTH;
-    let south = room.y == LOBBY_HEIGHT + PASSAGE_WIDTH;
-    let west = room.right() == -PASSAGE_WIDTH;
-    let east = room.x == LOBBY_WIDTH + PASSAGE_WIDTH;
-    if (north || south) && room.x >= 0 && room.right() <= LOBBY_WIDTH {
-        let edge = if north { -PASSAGE_WIDTH } else { LOBBY_HEIGHT };
-        let rect = ModuleRect {
-            x,
-            y: edge,
-            width: PASSAGE_WIDTH,
-            height: PASSAGE_WIDTH,
-        };
-        circulation.door(x, edge, Axis::Horizontal);
-        circulation.door(x, edge + PASSAGE_WIDTH, Axis::Horizontal);
-        Some(rect)
-    } else if (west || east) && room.y >= 0 && room.bottom() <= LOBBY_HEIGHT {
-        let edge = if west { -PASSAGE_WIDTH } else { LOBBY_WIDTH };
-        let rect = ModuleRect {
-            x: edge,
-            y,
-            width: PASSAGE_WIDTH,
-            height: PASSAGE_WIDTH,
-        };
-        circulation.door(edge, y, Axis::Vertical);
-        circulation.door(edge + PASSAGE_WIDTH, y, Axis::Vertical);
-        Some(rect)
-    } else {
-        None
+/// Connect each immediate pair once; platform traversal replaces perimeter detours.
+fn neighbor_bridges(circulation: &mut Circulation, rooms: &[ModuleRect]) {
+    let mut ordered = rooms.to_vec();
+    ordered.sort_by_key(|room| (room.y, room.x));
+    for (index, a) in ordered.iter().enumerate() {
+        for b in &ordered[index + 1..] {
+            let (west, east) = if a.x < b.x { (a, b) } else { (b, a) };
+            let top = a.y.max(b.y);
+            let bottom = a.bottom().min(b.bottom());
+            if east.x - west.right() == PASSAGE_WIDTH && bottom - top >= PASSAGE_WIDTH {
+                let x = west.right();
+                let y = top + (bottom - top - PASSAGE_WIDTH) / 2;
+                circulation.rect(ModuleRect {
+                    x,
+                    y,
+                    width: PASSAGE_WIDTH,
+                    height: PASSAGE_WIDTH,
+                });
+                circulation.door(x, y, Axis::Vertical);
+                circulation.door(x + PASSAGE_WIDTH, y, Axis::Vertical);
+            }
+            let left = a.x.max(b.x);
+            let right = a.right().min(b.right());
+            if b.y - a.bottom() == PASSAGE_WIDTH && right - left >= PASSAGE_WIDTH {
+                let x = left + (right - left - PASSAGE_WIDTH) / 2;
+                let y = a.bottom();
+                circulation.rect(ModuleRect {
+                    x,
+                    y,
+                    width: PASSAGE_WIDTH,
+                    height: PASSAGE_WIDTH,
+                });
+                circulation.door(x, y, Axis::Horizontal);
+                circulation.door(x, y + PASSAGE_WIDTH, Axis::Horizontal);
+            }
+        }
     }
 }

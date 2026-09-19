@@ -22,9 +22,27 @@ test('click selects, direct drag applies once, cancellation never moves, and Und
   await expect(page.getByRole('heading', { name: /^Selected object:/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Open whiteboard', exact: true })).toBeVisible();
   expect(fixture.writes).toHaveLength(0);
+  // A rejected drop is presentation only: no persistence or history entry.
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  const outside = point(-1, 29.125);
+  await page.mouse.move(outside.x, outside.y, { steps: 5 });
+  await expect(page.locator('.office-canvas canvas')).toHaveAttribute(
+    'data-drop-validity',
+    'invalid'
+  );
+  await page.screenshot({ path: info.outputPath('invalid-drop-preview.png') });
+  await page.mouse.up();
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+  expect(fixture.read().layout).toEqual(original);
+  expect(fixture.writes).toHaveLength(0);
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
   await page.mouse.move(end.x, end.y, { steps: 5 });
+  await expect(page.locator('.office-canvas canvas')).toHaveAttribute(
+    'data-drop-validity',
+    'valid'
+  );
   expect(fixture.writes).toHaveLength(0);
   await page.mouse.up();
   await expect.poll(() => fixture.writes.length).toBe(1);
@@ -36,6 +54,14 @@ test('click selects, direct drag applies once, cancellation never moves, and Und
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect.poll(() => fixture.writes.length).toBe(2);
   expect(fixture.read().layout).toEqual(original);
+  await page.keyboard.press('ControlOrMeta+Shift+z');
+  await expect.poll(() => fixture.writes.length).toBe(3);
+  expect(fixture.read().layout.objects.find((object) => object.id === board.id)!.placement.x).toBe(
+    21
+  );
+  await page.keyboard.press('ControlOrMeta+z');
+  await expect.poll(() => fixture.writes.length).toBe(4);
+  expect(fixture.read().layout).toEqual(original);
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
   await page.mouse.move(end.x, end.y, { steps: 4 });
@@ -43,7 +69,14 @@ test('click selects, direct drag applies once, cancellation never moves, and Und
   await page.mouse.up();
   await expect(page.getByRole('status')).toHaveText('All changes applied');
   expect(fixture.read().layout).toEqual(original);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(end.x, end.y, { steps: 4 });
   await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await expect(page.getByRole('button', { name: 'Redo', exact: true })).toBeEnabled();
+  expect(fixture.writes).toHaveLength(4);
+  expect(fixture.read().layout).toEqual(original);
   await expect(page.getByRole('heading', { name: 'Furniture & devices' })).toBeVisible();
   // Bare floor chooses the room, not a tool or object dropdown.
   const floor = point(1, 44);

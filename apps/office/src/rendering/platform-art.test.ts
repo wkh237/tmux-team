@@ -38,6 +38,7 @@ it('decodes once, clips silhouettes once, and disposes textures once', async () 
     closePath: vi.fn(),
     clip: vi.fn(),
     drawImage: vi.fn(),
+    fillRect: vi.fn(),
   };
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
     context as unknown as ReturnType<HTMLCanvasElement['getContext']>
@@ -46,7 +47,10 @@ it('decodes once, clips silhouettes once, and disposes textures once', async () 
   const count = Object.keys(PLATFORM_FRAMES).length;
   expect(evidence.decoded).toBe(1);
   expect(context.drawImage).toHaveBeenCalledTimes(count);
-  expect(context.clip).toHaveBeenCalledTimes(3);
+  // Four alloy panels, paired rivets, a service grille and restrained wear.
+  expect(context.fillRect).toHaveBeenCalledTimes(36);
+  // Lamp, bracket, corner and the brass docking threshold have silhouettes.
+  expect(context.clip).toHaveBeenCalledTimes(4);
   expect(Object.keys(art.textures)).toHaveLength(count);
   art.dispose();
   art.dispose();

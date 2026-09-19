@@ -125,8 +125,26 @@ text and update/expiry timestamps, independently of endpoint presence. Avatar sa
 and directory refreshes never use profile revision to order or overwrite status.
 The [identity status contract](../../contracts/identity-status-v1.md) owns semantics.
 
-`use-world-editor` owns one bounded history, saved revision and migration fence.
-Topology, occupancy, furniture and resource attachments share persisted Undo/Redo.
+`world-map/world-yjs` owns the mounted layout's Y.Doc and selective Y.UndoManager.
+Stable object/module/area UUIDs are separate map entries; an entity's placement or
+module value stays atomic. Retained freeform floor/door topology is one value.
+Local gestures are tracked; bootstrap and confirmed native observations are not.
+An observed replacement of the same entity takes precedence over an older local
+inverse. Removed entities use explicit null tombstones: undoing an earlier move
+must not resurrect an externally deleted entity. Order metadata cannot create phantom entities or delete another writer's
+insertion. Y.Array order preserves restored paint positions. Each completed gesture
+is one history step; an explicitly grouped name input coalesces within 500 ms and
+ends on blur. The existing JSON decoder
+admits input and history projections; an unrenderable inverse is reverted.
+External changes invalidate pending format-conversion history, with a visible notice;
+undo must not hide newer-format entities by reverting to an older representation.
+The history is session-local, survives save acknowledgements and is discarded on
+explicit reload or disposal. A 16 MiB accumulated Yjs-update budget checkpoints
+the current projection before the next edit, clears older history and reports it
+in the HUD. This is an update-byte budget, not a measured JavaScript heap limit.
+`use-world-editor` owns the saved revision, migration fence and write queue.
+Topology, occupancy, furniture and resource attachments share this selective Undo/Redo;
+undo results auto-apply, but the history itself is not persisted.
 Completed gestures and property changes auto-apply through a 300 ms coalescing queue.
 One revision-fenced write runs at a time; acknowledgements advance the saved base
 without replacing newer local edits or clearing history. A failed or uncertain
@@ -134,6 +152,34 @@ write pauses the queue and retains local changes; retry or reload is explicit,
 never an automatic overwrite or rebase. Explicit reload discards local changes only
 after a successful read. Native validation owns commit admission and affected
 object diagnostics; the browser may display an invalid intermediate draft.
+
+`WorldYjsDocument` encapsulates raw shared maps and order arrays. Its typed cell
+union preserves atomic placement/module values; callers cannot write arbitrary keys
+or mutate stored JSON through input/output aliases. Whole-domain decoding and delta
+preparation precede a single Yjs transaction. This provides coherent observation,
+not exception rollback or native geometry admission. UI snapshots retain their
+render identity between history changes; SDKs and presentation do not own shared types.
+
+Yjs is an MIT-licensed browser dependency, not another database or authorization
+boundary. SQLite and the existing whole-world JSON/CAS port remain authoritative.
+Clean refreshed native snapshots enter the Y.Doc as untracked observations without
+clearing local history; dirty/conflicted drafts are not silently rebased. No Yjs
+network provider, awareness channel, binary-update endpoint or cross-client CRDT
+persistence is shipped here. Simultaneous native/agent writers still use the
+revision fence; selective browser history alone does not implement live collaboration.
+
+Future providers (planned, not implemented) must adapt the same Yjs update/state-vector
+protocol without importing Firestore or Cloudflare SDKs into layout policy, history
+or rendering. Provider transport, durable update/checkpoint storage and authorization
+are separate responsibilities. Incoming updates must have an untracked origin;
+neither an origin nor CRDT convergence is authorization or native geometry admission.
+Local durable authority remains the user's SSOT. A provider implementation must define
+document identity, bootstrap, offline retention, acknowledgement, deduplication,
+reconnect and deletion semantics, and replace the standalone session's document-reset
+checkpoint with coordinated compaction. Independently seeding each client from JSON
+or replacing a live synchronized Y.Doc is not a valid provider integration. The current
+JSON/CAS bridge is not a persisted CRDT log; adding a provider requires that explicit
+storage/protocol slice rather than silently making remote storage authoritative.
 
 `office-population` owns the read-only home and meeting-membership projection for
 both the directory and `office-scene-model`. Meeting instances retain the same
@@ -496,8 +542,8 @@ The [map v1 foundation](../../contracts/office/map-v1.md) is the topology
 owner, separate from resource contents and existing stored block layouts. Native
 admission derives reachability and walls; browser `world-map` only decodes bounded
 values, projects draft geometry and applies module or retained-area edits. It must
-not authorize commits or silently repair invalidated placements. Map and whiteboard
-undo/redo share `editor/snapshot-history`, with domain-specific decoders. Production
+not authorize commits or silently repair invalidated placements. Whiteboard and pixel
+drafts retain `editor/snapshot-history`; the production layout uses `world-yjs`. Production
 UI and `office layout show/apply` use the whole-world API. Their HTTP and private
 companion entrypoints share `office_world::access` and its close-before-publication
 storage operation. The CLI requires an explicit revision and the read fingerprint
@@ -511,7 +557,8 @@ object IDs. Wall/window/door rules are core-owned. Schema 28 and
 cutover, including transaction-time identity, room and artwork checks. The
 world contract owns those semantics. `local_service/world` and `LocalRuntime.world`
 now expose protected whole-candidate reads/saves and preserve placement diagnostics.
-`world-draft` shares one history across topology and dependent placements. Former
+`world-draft` contains pure layout mutations; `world-yjs` shares one history across
+topology and dependent placements. Former
 bundled functional objects use the existing typed extension bindings without
 copying their resources. The production editor now consumes this world; no
 independent browser placement policy authorizes a save.

@@ -109,91 +109,44 @@ fn skybridge_samples(key: &str) -> Vec<(i32, i32)> {
 }
 
 #[test]
-fn skybridge_west_chain_uses_public_perimeter_without_incidental_doors() {
-    for (rows, prefix) in [
-        (vec![-1, 0], "westChain"),
-        (vec![-2, 0], "sparseWest"),
-        (vec![-2, -1, 0], "sparseWest"),
-    ] {
-        let mut source = central_starter();
-        source.layout = ModuleLayout::Skybridges;
-        source.modules.extend(
-            rows.iter()
-                .enumerate()
-                .map(|(index, row)| office(6 + index, -1, *row)),
-        );
-        let map = OfficeMap::from_modules(source).unwrap();
-        let at = |x, y| {
+fn skybridge_extended_row_has_only_cardinal_center_links() {
+    let mut source = central_starter();
+    source.layout = ModuleLayout::Skybridges;
+    source.modules.extend([office(8, 2, -1), office(9, 3, -1)]);
+    let map = OfficeMap::from_modules(source.clone()).unwrap();
+    for (x, y) in skybridge_samples("extendedRowPublic") {
+        assert!(
             map.draft()
                 .floor
                 .iter()
-                .find(|span| span.y == y && span.start <= x && x < span.end)
-        };
-        for (x, y) in skybridge_samples(&format!("{prefix}Public")) {
-            assert!(at(x, y).is_some_and(|span| span.area_id.is_none()));
-        }
-        for (x, y) in skybridge_samples(&format!("{prefix}Empty")) {
-            assert!(at(x, y).is_none());
-        }
-        for (x, y) in skybridge_samples(&format!("{prefix}Doors")) {
-            assert!(
-                map.draft()
-                    .doors
-                    .iter()
-                    .any(|edge| edge.x == x && edge.y == y && edge.axis == Axis::Vertical)
-            );
-        }
-        for (x, y) in skybridge_samples(&format!("{prefix}ForbiddenHorizontalDoors")) {
-            assert!(
-                !map.draft()
-                    .doors
-                    .iter()
-                    .any(|edge| edge.x == x && edge.y == y && edge.axis == Axis::Horizontal)
-            );
-        }
-        if rows.contains(&-1) {
-            assert!(
-                map.draft()
-                    .doors
-                    .iter()
-                    .any(|edge| edge.x == -8 && edge.y == -28 && edge.axis == Axis::Vertical)
-            );
-            assert!(
-                !map.draft()
-                    .doors
-                    .iter()
-                    .any(|edge| edge.x == -36 && edge.y == -8 && edge.axis == Axis::Horizontal)
-            );
-        }
+                .any(|s| s.y == y && s.start <= x && x < s.end && s.area_id.is_none())
+        );
     }
-}
-
-#[test]
-fn skybridge_diagonal_pods_reuse_nearest_north_south_bridge() {
-    for row in [-1, 2] {
-        let mut source = central_starter();
-        source.layout = ModuleLayout::Skybridges;
-        source.modules.push(office(9, -1, row));
-        let map = OfficeMap::from_modules(source).unwrap();
-        let y = if row < 0 { -4 } else { 92 };
-        for x in [-32, -4, 24] {
-            assert!(map.draft().floor.iter().any(|span| span.y == y
-                && span.start <= x
-                && x < span.end
-                && span.area_id.is_none()));
-        }
+    for (x, y) in skybridge_samples("extendedRowEmpty") {
         assert!(
             !map.draft()
                 .floor
                 .iter()
-                .any(|span| span.y == y && span.start <= 50 && 50 < span.end)
+                .any(|s| s.y == y && s.start <= x && x < s.end)
         );
-        assert!(map.draft().doors.iter().any(|edge| edge.x == -36
-            && edge.y == if row < 0 { -8 } else { 96 }
-            && edge.axis == Axis::Horizontal));
-        assert!(!map.draft().doors.iter().any(|edge| edge.x == 48
-            && edge.y == if row < 0 { 0 } else { 88 }
-            && edge.axis == Axis::Horizontal));
+    }
+    source
+        .modules
+        .retain(|m| m.slot != (Slot::Office { column: 2, row: -1 }));
+    assert!(
+        OfficeMap::from_modules(source).is_err(),
+        "removing the middle platform must not invent a bypass"
+    );
+}
+
+#[test]
+fn skybridges_reject_isolated_diagonal_and_skipped_slots() {
+    for (column, row) in [(-1, -1), (-2, 0)] {
+        let mut source = central_starter();
+        source.layout = ModuleLayout::Skybridges;
+        source.modules.truncate(1);
+        source.modules.push(office(9, column, row));
+        assert!(OfficeMap::from_modules(source).is_err());
     }
 }
 

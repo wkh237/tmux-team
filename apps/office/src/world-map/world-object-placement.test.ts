@@ -6,6 +6,7 @@ import {
   suggestWallPlacement,
   hasObjectSupport,
   isWallCatalog,
+  placementProblem,
 } from './world-object-placement.js';
 import { projectMap } from './map-geometry.js';
 import type { WorldDocument, WorldObject } from './world-contract.js';
@@ -13,6 +14,59 @@ import { platformModuleWorld } from './module-upgrade.js';
 
 const pack = BUILTIN_CATALOG.find((entry) => entry.digest === WALL_DIGEST)!;
 const id = (index: number) => `30000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
+
+it('rejects unsupported, doorway and partition-crossing drops without banning floor layering', () => {
+  const world = officeWorldFixture().layout;
+  const object: WorldObject = {
+    ...world.objects[0]!,
+    kind: 'decoration',
+    surface: { type: 'floor' },
+    placement: {
+      ...world.objects[0]!.placement,
+      x: 1,
+      y: 1,
+      rotation: 0,
+      footprint: { width: 2, height: 2 },
+    },
+  };
+  const source = {
+    version: 1 as const,
+    primaryLobbyId: WORLD_LOBBY_ID,
+    areas: [{ id: WORLD_LOBBY_ID, name: 'Lobby', binding: { type: 'lobby' as const } }],
+    floor: Array.from({ length: 5 }, (_, y) => ({ y, start: 0, end: 6, areaId: WORLD_LOBBY_ID })),
+    doors: [],
+  };
+  const geometry = projectMap(source);
+  expect(placementProblem(geometry, object, [{ ...object, id: id(99) }])).toBeUndefined();
+  const at = (x: number, y: number) => ({ ...object, placement: { ...object.placement, x, y } });
+  expect(placementProblem(geometry, at(-1, 1), [])).toContain('entire object');
+  expect(placementProblem(geometry, at(5, 1), [])).toContain('entire object');
+  const partitioned = projectMap({
+    ...source,
+    areas: [
+      ...source.areas,
+      { id: id(9), name: 'Office', binding: { type: 'personal', identityId: null } },
+    ],
+    floor: source.floor.flatMap((row) => [
+      { ...row, end: 3 },
+      { ...row, start: 3, areaId: id(9) },
+    ]),
+  });
+  expect(placementProblem(partitioned, at(2, 1), [])).toContain('boundary');
+  const open = projectMap({
+    ...source,
+    areas: [
+      ...source.areas,
+      { id: id(9), name: 'Office', binding: { type: 'personal', identityId: null } },
+    ],
+    floor: source.floor.flatMap((row) => [
+      { ...row, end: 3 },
+      { ...row, start: 3, areaId: id(9) },
+    ]),
+    doors: [{ x: 3, y: 1, axis: 'vertical' }],
+  });
+  expect(placementProblem(open, at(1, 1), [])).toContain('entrance');
+});
 
 it('places imported wall-pack art as ordinary floor decoration on a platform', () => {
   const world = platformModuleWorld(officeWorldFixture().layout);

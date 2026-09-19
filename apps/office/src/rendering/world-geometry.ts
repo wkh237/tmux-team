@@ -42,21 +42,33 @@ export interface WallRun extends SceneRect {
 export function wallProjection(wall: WallRun, projection = flatProjection) {
   const ground = projection.projectGroundRect(wall, wall.areaId);
   if (projection.version >= 6) {
-    const height = wall.open
-      ? 0
-      : wall.axis === 'horizontal'
-        ? wall.raised
-          ? 1.2
-          : wall.circulation
-            ? 4
-            : 6
-        : ground.height;
+    if (wall.open) {
+      // The brass threshold has visible area even though the opening has no wall.
+      // Match the authored 150x66 dock, including posts overlapping each rail end.
+      const horizontal = wall.axis === 'horizontal';
+      const span = (horizontal ? ground.width : ground.height) + 1.8;
+      const thickness = span * (66 / 150);
+      return {
+        art: 'rail' as const,
+        bounds: horizontal
+          ? {
+              x: ground.x - 0.9,
+              y: ground.y + 0.35 - thickness / 2,
+              width: span,
+              height: thickness,
+            }
+          : { x: ground.x - thickness / 2, y: ground.y - 0.9, width: thickness, height: span },
+        depth: ground.y + ground.height,
+      };
+    }
+    const height =
+      wall.axis === 'horizontal' ? (wall.raised ? 1.2 : wall.circulation ? 4 : 6) : ground.height;
     return {
       art: 'rail' as const,
       bounds:
         wall.axis === 'horizontal'
-          ? { x: wall.x, y: ground.y, width: wall.width, height }
-          : { x: wall.x - 0.9, y: ground.y, width: wall.open ? 0 : 1.8, height },
+          ? { x: ground.x, y: ground.y, width: ground.width, height }
+          : { x: ground.x - 0.9, y: ground.y, width: 1.8, height },
       depth: ground.y + ground.height,
     };
   }
@@ -114,9 +126,9 @@ export function worldObjectRect(object: WorldObject, projection = flatProjection
   const ground = projection.projectWallGround({ x, y }, object.surface.axis, object.surface.face);
   const elevation = object.surface.elevation;
   return object.surface.axis === 'horizontal'
-    ? { x, y: ground.y - elevation - size.height, ...size }
+    ? { x: ground.x, y: ground.y - elevation - size.height, ...size }
     : {
-        x: x - size.height / 2,
+        x: ground.x - size.height / 2,
         y: ground.y - elevation,
         width: size.height,
         height: size.width,
@@ -209,18 +221,24 @@ export function worldGeometry(world: WorldDocument) {
     return value;
   }
   for (const span of document.floor) {
-    for (let start = span.start; start < span.end;) {
-      const cx = Math.floor(start / CHUNK),
-        cy = Math.floor(projection.projectGround({ x: start, y: span.y }).y / CHUNK);
-      const end = Math.min(span.end, (cx + 1) * CHUNK);
-      chunk(cx, cy).floors.push({
-        ...projection.projectGroundRect(
-          { x: start, y: span.y, width: end - start, height: 1 },
-          span.areaId
-        ),
-        areaId: span.areaId,
-      });
-      start = end;
+    const rect = projection.projectGroundRect(
+      { x: span.start, y: span.y, width: span.end - span.start, height: 1 },
+      span.areaId
+    );
+    // Index display chunks after projection, including expanded bridge bands.
+    // Split once at chunk edges so floor coverage never duplicates or disappears.
+    for (let cx = Math.floor(rect.x / CHUNK); cx * CHUNK < rect.x + rect.width; cx++) {
+      for (let cy = Math.floor(rect.y / CHUNK); cy * CHUNK < rect.y + rect.height; cy++) {
+        const x = Math.max(rect.x, cx * CHUNK),
+          y = Math.max(rect.y, cy * CHUNK);
+        chunk(cx, cy).floors.push({
+          x,
+          y,
+          width: Math.min(rect.x + rect.width, (cx + 1) * CHUNK) - x,
+          height: Math.min(rect.y + rect.height, (cy + 1) * CHUNK) - y,
+          areaId: span.areaId,
+        });
+      }
     }
   }
   // Merge equal projected runs; floor units never become individual display objects.

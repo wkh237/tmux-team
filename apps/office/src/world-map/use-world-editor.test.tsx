@@ -1,4 +1,5 @@
 import { act, renderHook } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { officeWorldFixture } from '../../../../test/support/office-world.js';
 import { useWorldEditor } from './use-world-editor.js';
@@ -12,12 +13,12 @@ const advance = () =>
   });
 
 function fixture() {
-  const initial = officeWorldFixture();
+  const initial: WorldSnapshot = officeWorldFixture();
   let saved: WorldSnapshot = initial;
   const port = {
     show: vi.fn(async () => saved),
     save: vi.fn(async (write: WorldWrite) => {
-      saved = { ...saved, revision: saved.revision + 1, layout: write.layout };
+      saved = { ...saved, revision: write.expectedRevision + 1, layout: write.layout };
       return saved;
     }),
   };
@@ -152,5 +153,91 @@ it('does not write a cancelled debounce and accepts only newer clean observation
   expect(result.current.world).toEqual(latest.layout);
   rerender({ snapshot: { ...initial } });
   expect(result.current.saved).toEqual(latest);
+  unmount();
+});
+
+it('preserves external additions and native revision while undoing an acknowledged local move', async () => {
+  vi.useFakeTimers();
+  const { initial, port } = fixture();
+  const { result, rerender, unmount } = renderHook(
+    ({ snapshot }: { snapshot: WorldSnapshot }) => useWorldEditor(snapshot, port),
+    {
+      initialProps: { snapshot: initial },
+    }
+  );
+  act(() =>
+    result.current.change((world) => ({
+      ...world,
+      objects: world.objects.map((object) => ({
+        ...object,
+        placement: { ...object.placement, x: 8 },
+      })),
+    }))
+  );
+  await advance();
+  const other = { ...initial.layout.objects[0]!, id: '30000000-0000-4000-8000-000000000002' };
+  rerender({
+    snapshot: {
+      ...initial,
+      revision: 9,
+      layout: {
+        ...result.current.world,
+        objects: [...result.current.world.objects, other],
+      },
+    },
+  });
+  expect(result.current.canUndo).toBe(true);
+  act(() => result.current.undo());
+  await advance();
+  expect(port.save.mock.calls.at(-1)![0]).toMatchObject({
+    expectedRevision: 9,
+    layout: { ...initial.layout, objects: [...initial.layout.objects, other] },
+  });
+  unmount();
+});
+
+it('keeps the Yjs owner usable through StrictMode effect replay', async () => {
+  vi.useFakeTimers();
+  const { initial, port } = fixture();
+  const { result, unmount } = renderHook(() => useWorldEditor(initial, port), {
+    wrapper: StrictMode,
+  });
+  act(() => result.current.change((world) => ({ ...world, objects: [] })));
+  await advance();
+  expect(result.current.canUndo).toBe(true);
+  act(() => result.current.undo());
+  await advance();
+  expect(result.current.world).toEqual(initial.layout);
+  expect(port.save).toHaveBeenCalledTimes(2);
+  unmount();
+});
+
+it('reconsiders a newer observation received while the local save was in flight', async () => {
+  vi.useFakeTimers();
+  const { initial, port } = fixture();
+  let finish!: (snapshot: WorldSnapshot) => void;
+  port.save.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      })
+  );
+  const { result, rerender, unmount } = renderHook(
+    ({ snapshot }) => useWorldEditor(snapshot, port),
+    {
+      initialProps: { snapshot: initial },
+    }
+  );
+  act(() => result.current.change((world) => ({ ...world, objects: [] })));
+  await advance();
+  const pending = result.current.world;
+  const external = { ...initial, revision: 10 };
+  rerender({ snapshot: external });
+  expect(result.current.world).toEqual(pending);
+  await act(async () => finish({ ...initial, revision: 2, layout: pending }));
+  expect(result.current.world).toEqual(external.layout);
+  expect(result.current.saved.revision).toBe(10);
+  await advance();
+  expect(port.save).toHaveBeenCalledTimes(1);
   unmount();
 });

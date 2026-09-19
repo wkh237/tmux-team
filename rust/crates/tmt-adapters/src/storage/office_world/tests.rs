@@ -296,12 +296,14 @@ fn fresh_world_has_furnished_central_lobby_and_four_unassigned_offices_without_w
         world_value(&storage.show_local_world().unwrap().layout),
         world_value(&cleared.layout)
     );
-    assert!(storage
-        .show_local_world()
-        .unwrap()
-        .layout
-        .objects()
-        .is_empty());
+    assert!(
+        storage
+            .show_local_world()
+            .unwrap()
+            .layout
+            .objects()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -488,9 +490,11 @@ fn migration_preserves_all_saved_temporary_retired_layouts_and_empty_lobby_overr
     assert_eq!(count(&storage, "office_local_blocks"), 0);
     assert_eq!(count(&storage, "identities"), 4);
     assert_eq!(world_value(&saved.layout), world_value(&before.layout));
-    assert!(storage
-        .apply_local_block(&LocalBlockTarget::Identity(ALICE.into()), 0, &layout())
-        .is_err());
+    assert!(
+        storage
+            .apply_local_block(&LocalBlockTarget::Identity(ALICE.into()), 0, &layout())
+            .is_err()
+    );
     assert_eq!(count(&storage, "office_local_blocks"), 0); // Old binaries cannot resurrect a second owner.
 }
 
@@ -513,11 +517,13 @@ fn concurrent_legacy_edits_and_world_edits_are_fenced_without_rebasing() {
     ));
     let current = a.show_local_world().unwrap();
     assert_eq!(current.layout.objects().len(), 3);
-    assert!(current
-        .layout
-        .objects()
-        .iter()
-        .all(|object| object.extension.is_some()));
+    assert!(
+        current
+            .layout
+            .objects()
+            .iter()
+            .all(|object| object.extension.is_some())
+    );
     let saved = save(&mut a, &current, &current.layout, 101).unwrap();
     let other = b.show_local_world().unwrap();
     let mut map = saved.layout.map().draft().clone();
@@ -1010,7 +1016,7 @@ fn external_link_is_layout_data_and_survives_reopen_without_creating_resources()
 
 #[test]
 fn wall_catalog_objects_persist_with_native_mount_rules_without_a_second_store() {
-    use crate::office_prop::{builtin_by_digest, WALL_DIGEST};
+    use crate::office_prop::{WALL_DIGEST, builtin_by_digest};
     use crate::office_world::decode_world;
     use serde_json::json;
     let directory = TestDirectory::new();

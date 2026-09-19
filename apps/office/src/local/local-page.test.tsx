@@ -309,6 +309,24 @@ it('has no mode switch and selects room properties directly without writing', as
   expect(local.world.save).not.toHaveBeenCalled();
 });
 
+it('handles layout history keys from body without intercepting native input history', async () => {
+  const local = runtime();
+  const view = await show(local);
+  const before = canvas.model!.world;
+  act(() => canvas.editor!.moveObject(before.objects[0]!.id, { x: 8, y: 4 }));
+  expect(canvas.model!.world.objects[0]!.placement.x).toBe(8);
+  fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true });
+  expect(canvas.model!.world).toEqual(before);
+  fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true, shiftKey: true });
+  expect(canvas.model!.world.objects[0]!.placement.x).toBe(8);
+  act(() => canvas.select!({ kind: 'area', areaId: WORLD_LOBBY_ID }));
+  const input = screen.getByLabelText('Area name');
+  expect(fireEvent.keyDown(input, { key: 'z', metaKey: true })).toBe(true);
+  expect(canvas.model!.world.objects[0]!.placement.x).toBe(8);
+  view.unmount();
+  expect(fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true })).toBe(true);
+});
+
 it('does not grow terrain for saved or temporary identities; Contractors stay in the Lobby', async () => {
   const local = runtime([
     profile,

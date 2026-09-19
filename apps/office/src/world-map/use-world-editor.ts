@@ -1,52 +1,56 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { worldHistory } from './world-draft.js';
+import { createWorldYjs } from './world-yjs.js';
 import { sameWorld } from './world-contract.js';
 import type { WorldDocument } from './world-contract.js';
 import { WorldConflict, WorldValidationError } from './world-port.js';
 import type { WorldPort, WorldSnapshot, WorldPlacementIssue } from './world-port.js';
 
-/** One local history and one serialized, revision-fenced auto-apply queue. */
+/** One Yjs history and one serialized, revision-fenced auto-apply queue. */
 export function useWorldEditor(initial: WorldSnapshot, port: WorldPort) {
   const [saved, setSaved] = useState(initial);
-  const [history, setHistory] = useState(() => worldHistory.create(initial.layout));
-  const current = useRef({ saved, history });
+  const [history] = useState(() => createWorldYjs(initial.layout));
+  const [world, setWorld] = useState(() => history.world);
+  const current = useRef({ saved });
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(false);
   const [blocked, setBlocked] = useState(false);
   const [error, setError] = useState<string>();
   const [issues, setIssues] = useState<readonly WorldPlacementIssue[]>([]);
   const request = useRef<AbortController | undefined>(undefined);
-  const observed = useRef(initial);
-  useEffect(() => () => request.current?.abort(), []);
-  const world = worldHistory.current(history);
+  useEffect(() => {
+    history.resume();
+    return () => {
+      request.current?.abort();
+      history.destroy();
+    };
+  }, [history]);
   const dirty = !sameWorld(world, saved.layout);
-  function replaceHistory(next: typeof history) {
-    current.current.history = next;
-    setHistory(next);
-  }
+  const historyChanged = useCallback(() => {
+    // Publish a detached projection only when history changes, not on each render.
+    setWorld(history.world);
+  }, [history]);
   function acknowledge(next: WorldSnapshot) {
     current.current.saved = next;
     setSaved(next);
   }
   useEffect(() => {
-    if (observed.current === initial) return;
-    observed.current = initial;
     const state = current.current;
     if (
       !request.current &&
       !blocked &&
-      sameWorld(worldHistory.current(state.history), state.saved.layout) &&
+      sameWorld(history.world, state.saved.layout) &&
       initial.revision > state.saved.revision
     ) {
       acknowledge(initial);
-      replaceHistory(worldHistory.create(initial.layout));
+      history.observe(initial.layout);
+      historyChanged();
     }
-  }, [initial, blocked]);
-  function change(edit: (world: WorldDocument) => WorldDocument) {
+  }, [initial, blocked, history, historyChanged, saving, busy, saved]);
+  function change(edit: (world: WorldDocument) => WorldDocument, historyGroup?: string) {
     if (busy) return false;
     try {
-      const history = current.current.history;
-      replaceHistory(worldHistory.commit(history, edit(worldHistory.current(history))));
+      history.change(edit(history.world), historyGroup);
+      historyChanged();
       if (!blocked) {
         setError(undefined);
         setIssues([]);
@@ -59,8 +63,8 @@ export function useWorldEditor(initial: WorldSnapshot, port: WorldPort) {
   }
   const apply = useCallback(async () => {
     if (request.current || busy) return;
-    const { saved, history } = current.current;
-    const layout = worldHistory.current(history);
+    const { saved } = current.current;
+    const layout = history.world;
     if (sameWorld(layout, saved.layout)) {
       setBlocked(false);
       setError(undefined);
@@ -94,12 +98,12 @@ export function useWorldEditor(initial: WorldSnapshot, port: WorldPort) {
       if (request.current === controller) request.current = undefined;
       if (!controller.signal.aborted) setSaving(false);
     }
-  }, [busy, port]);
+  }, [busy, port, history]);
   useEffect(() => {
     if (!dirty || saving || busy || blocked) return;
     const timer = window.setTimeout(() => void apply(), 300);
     return () => window.clearTimeout(timer);
-  }, [history, saved, dirty, saving, busy, blocked, apply]);
+  }, [world, saved, dirty, saving, busy, blocked, apply]);
   useEffect(() => {
     if (!dirty && !saving) return;
     const warn = (event: BeforeUnloadEvent) => {
@@ -118,7 +122,8 @@ export function useWorldEditor(initial: WorldSnapshot, port: WorldPort) {
       const latest = await port.show(controller.signal);
       if (!controller.signal.aborted) {
         acknowledge(latest);
-        replaceHistory(worldHistory.create(latest.layout));
+        history.reset(latest.layout);
+        historyChanged();
         setBlocked(false);
         setError(undefined);
         setIssues([]);
@@ -130,6 +135,15 @@ export function useWorldEditor(initial: WorldSnapshot, port: WorldPort) {
       if (!controller.signal.aborted) setBusy(false);
     }
   }
+  function travel(direction: 'undo' | 'redo') {
+    if (busy) return;
+    try {
+      history[direction]();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'This history step is unavailable.');
+    }
+    historyChanged();
+  }
   return {
     world,
     saved,
@@ -139,16 +153,14 @@ export function useWorldEditor(initial: WorldSnapshot, port: WorldPort) {
     blocked,
     error,
     issues,
+    historyNotice: history.historyNotice,
     change,
+    stopCapturing: history.stopCapturing,
     reload,
     retry: apply,
-    undo() {
-      if (!busy) replaceHistory(worldHistory.undo(current.current.history));
-    },
-    redo() {
-      if (!busy) replaceHistory(worldHistory.redo(current.current.history));
-    },
-    canUndo: history.cursor > 0,
-    canRedo: history.cursor + 1 < history.entries.length,
+    undo: () => travel('undo'),
+    redo: () => travel('redo'),
+    canUndo: history.canUndo,
+    canRedo: history.canRedo,
   };
 }

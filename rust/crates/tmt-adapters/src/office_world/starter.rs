@@ -2,14 +2,14 @@
 
 use super::{lobby_objects, placement_id};
 use crate::office_prop::{
-    builtin_packs, MODULAR_FACILITIES_DIGEST, MODULAR_LOUNGE_DIGEST, MODULAR_RECEPTION_DIGEST,
-    MODULAR_WORKSTATION_DIGEST, STUDY_DIGEST, WORKSHOP_DIGEST,
+    MODULAR_FACILITIES_DIGEST, MODULAR_LOUNGE_DIGEST, MODULAR_RECEPTION_DIGEST,
+    MODULAR_WORKSTATION_DIGEST, STUDY_DIGEST, WORKSHOP_DIGEST, builtin_packs,
 };
 use tmt_core::{
     office_block::PropPlacement,
     office_map::{
-        modules::{Material, Module, ModuleDraft, ModuleLayout, Slot},
         Area, AreaKind, OfficeMap,
+        modules::{Material, Module, ModuleDraft, ModuleLayout, Slot},
     },
     office_world::{ObjectKind, Surface, WorldLayout, WorldObject},
 };

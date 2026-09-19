@@ -37,6 +37,23 @@ If `better-sqlite3` is used by retained tooling, it is a development-only
 independent SQLite oracle. It is not the Rust runtime, a product dependency or
 an excuse to reopen native schema state through Node.
 
+## Run the workspace CLI
+
+From this checkout's root:
+
+```bash
+(cd rust && cargo build --locked -p tmt-cli)
+pnpm tmt --version
+pnpm tmt office --help
+```
+
+`pnpm tmt` launches only this checkout's `rust/target/debug/tmt`. It does not
+build automatically, install anything, or fall back to a global binary. Rebuild
+after changing Rust sources. For clean JSON stdout use `pnpm --silent tmt ...`.
+The launcher preserves arguments, exit status and environment; normal CLI commands
+still use the usual application data unless you explicitly select isolated settings.
+It does not replace the installed Office companion or update a running Office UI.
+
 ## Office SPA
 
 The optional app uses React, Vite, TanStack Router and Jotai. Read
@@ -309,6 +326,10 @@ Direct-manipulation UI changes are covered by `local-office-direct-manipulation.
 (click/drag/cancel, auto-apply, persisted Undo and room properties),
 `local-office-editor-hud.spec.ts` (desktop/narrow context controls) and
 `native-local-skybridges.spec.ts` (native auto-apply and canvas meeting creation).
+`world-yjs.test.ts` covers selective history, entity ordering, observation exclusion,
+atomic gestures and lifecycle; `use-world-editor.test.tsx` covers the JSON/CAS queue,
+acknowledgement races, explicit conflict recovery and refreshed native observations.
+These are local history checks, not evidence of a deployed Yjs synchronization provider.
 The remaining legacy browser scenarios below still contain explicit layout-mode
 scripts and require migration before a release gate can claim full current-UI coverage.
 
@@ -368,6 +389,15 @@ encoding and its source-review gates are documented in the
 `native-local-room-materials.spec.ts` checks exact world-pixel Undo/Redo, retained
 content and bounded finish textures. `captureWorldScene` excludes HUD presentation
 for pixel comparisons; separate unmodified screenshots verify the visible HUD.
+For the accepted platform style, review the same seeded scene at a fixed viewport,
+DPR and browser version: a Lobby with four offices, both bridge axes, meeting
+branches, selected objects, and valid/invalid drag previews. Geometry assertions
+lock the connector constant and inverse picking; behavior assertions lock no-write
+invalid/cancelled drops and one completed gesture per Undo/Redo step. Current
+skybridge/direct-manipulation tests produce review artifacts, not a persisted golden
+image gate. Establish that pixel baseline only after visual approval; never regenerate
+it merely to make a failing comparison pass. Baseline changes require reviewing the
+before/after images alongside the intended design change.
 `native-local-world-capacity.spec.ts` exercises dense tile-budget and connected
 sparse worlds through native admission and the browser. `scene-observation.ts`
 observes actual WebGL submissions and texture lifetimes across zoom, pan, revisit

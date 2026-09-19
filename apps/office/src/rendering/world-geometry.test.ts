@@ -13,7 +13,7 @@ import central from '../../../../contracts/office/modules-central-grid-vectors.j
 import { moduleGhostGeometry } from './scene-module-ghost.js';
 import { mapGeometry } from '../world-map/map-source.js';
 
-it('keeps platform entrances flush and renders only low exposed edges', () => {
+it('indexes visible platform thresholds on both axes without restoring tall walls', () => {
   const geometry = worldGeometry({
     ...officeWorldFixture().layout,
     map: decodeModuleMap({ ...central.map, version: 6 }),
@@ -21,7 +21,13 @@ it('keeps platform entrances flush and renders only low exposed edges', () => {
   });
   const walls = geometry.visible(geometry.bounds).walls;
   const doors = walls.filter((wall) => wall.open);
-  expect(doors).toHaveLength(0);
+  expect(doors.length).toBeGreaterThan(0);
+  expect(new Set(doors.map((door) => door.axis))).toEqual(new Set(['horizontal', 'vertical']));
+  for (const door of doors) {
+    const bounds = wallProjection(door, geometry.projection).bounds;
+    expect(bounds.width).toBeGreaterThan(0);
+    expect(bounds.height).toBeGreaterThan(0);
+  }
   expect(geometry.map.boundaries.some((boundary) => boundary.open)).toBe(true);
   const solid = walls.find(
     (wall) => !wall.open && !wall.circulation && wall.axis === 'horizontal'
@@ -80,15 +86,15 @@ it.each([4, 5, 6])(
     expect(geometry.nameplate(byName.get('Lobby')!)).toEqual({ x: 52, y: version >= 6 ? 3 : 6 });
     expect(geometry.nameplate(byName.get('North west')!)).toEqual({
       x: 24,
-      y: version >= 6 ? -39 : version >= 5 ? -36 : -42,
+      y: version >= 6 ? -53 : version >= 5 ? -36 : -42,
     });
     expect(geometry.nameplate(byName.get('North east')!)).toEqual({
       x: 80,
-      y: version >= 6 ? -39 : version >= 5 ? -36 : -42,
+      y: version >= 6 ? -53 : version >= 5 ? -36 : -42,
     });
     expect(geometry.nameplate(byName.get('South west')!)).toEqual({
       x: 24,
-      y: version >= 6 ? 87 : version >= 5 ? 90 : 102,
+      y: version >= 6 ? 101 : version >= 5 ? 90 : 102,
     });
     expect(geometry.nameplate('missing-area')).toBeUndefined();
     expect(geometry.anchors.get(byName.get('Lobby')!)?.y).toBe(44.5);

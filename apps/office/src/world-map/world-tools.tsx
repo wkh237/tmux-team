@@ -83,22 +83,24 @@ export function WorldTools({
       objects: world.objects.map((item) => (item.id === next.id ? next : item)),
     }));
   }
-  function setArea(next: MapArea) {
-    editor.change((world) =>
-      world.map.version !== 1
-        ? {
-            ...world,
-            map: {
+  function setArea(next: MapArea, historyGroup?: string) {
+    editor.change(
+      (world) =>
+        world.map.version !== 1
+          ? {
+              ...world,
+              map: {
+                ...world.map,
+                modules: world.map.modules.map((module) =>
+                  module.area.id === next.id ? { ...module, area: next } : module
+                ),
+              },
+            }
+          : updateWorldMap(world, {
               ...world.map,
-              modules: world.map.modules.map((module) =>
-                module.area.id === next.id ? { ...module, area: next } : module
-              ),
-            },
-          }
-        : updateWorldMap(world, {
-            ...world.map,
-            areas: world.map.areas.map((area) => (area.id === next.id ? next : area)),
-          })
+              areas: world.map.areas.map((area) => (area.id === next.id ? next : area)),
+            }),
+      historyGroup
     );
   }
   return (
@@ -121,6 +123,7 @@ export function WorldTools({
                   : 'All changes applied'}
           </span>
         </div>
+        {editor.historyNotice && <p role="status">{editor.historyNotice}</p>}
         {editor.error && (
           <div role="alert">
             <p>{editor.error}</p>
@@ -230,9 +233,10 @@ export function WorldTools({
                     onChange={(event) => {
                       const name = event.target.value;
                       setAreaName(name);
-                      if (name.trim()) setArea({ ...area, name });
+                      if (name.trim()) setArea({ ...area, name }, `area-name:${area.id}`);
                     }}
                     onBlur={() => {
+                      editor.stopCapturing();
                       if (!areaName.trim()) setAreaName(area.name);
                     }}
                   />

@@ -5,6 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "tmt": "sh scripts/tmt-dev.sh",
     "test": "pnpm test:run",
     "test:watch": "vitest",
     "test:e2e": "node scripts/run-e2e.mjs",

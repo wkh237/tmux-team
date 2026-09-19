@@ -270,9 +270,18 @@ through `scene-materials`; front and rear share one straight-wall frame and
 nine-slice crown/base definition, with cutaway height owned by geometry.
 It cannot introduce independent topology or placement
 state. Texture views share one mount-owned source and are disposed before it.
-`editor/snapshot-history` supplies bounded undo/redo to map and whiteboard drafts;
-domain decoders retain value ownership. The production UI uses a whole-world
-draft and the same revisioned native persistence, not per-identity block editors.
+`editor/snapshot-history` supplies bounded undo/redo to whiteboard and pixel drafts.
+The production layout uses `world-map/world-yjs`: one mounted Y.Doc, entity-keyed
+values and a local-origin Y.UndoManager. `WorldYjsDocument` exclusively owns raw
+shared types, typed cells, detached snapshots and prevalidated batch writes.
+Yjs transactions batch observation, not rollback; native commit admission remains
+separate. Confirmed clean native observations do not
+enter the user's undo stack or erase it; an externally replaced entity is not
+overwritten by its older local inverse. History is session-local, with an explicit
+update-byte-budget checkpoint, not stored in SQLite. Domain decoders still admit
+projections. `use-world-editor` retains the existing serialized JSON/CAS persistence
+and pauses on conflicts; Yjs adds no provider, remote authority or second database.
+See [Office architecture](docs/office/architecture.md) for history lifecycle and limits.
 The [world value foundation](contracts/office/world-v1.md) composes that map with
 stable placement IDs. `tmt-core::office_world` validates floor/wall support,
 door clearance and window exclusions over the map index. Shared prop appearance
@@ -301,8 +310,8 @@ The guarded `link.open` handler opens a destination review, never a URL itself;
 only the review's explicit no-opener anchor navigates. Neither storage nor rendering
 fetches links, and artwork remains independent of the action.
 `local_service/world` and the browser world port use the existing authenticated,
-bounded transport. Browser `world-draft` supplies one complete-candidate history
-to the production editor and renderer. Surface controls change the same placement,
+bounded transport. Browser `world-draft` supplies pure changes to the Yjs-owned
+layout, whose admitted projection feeds the editor and renderer. Surface controls change the same placement,
 not a second wall layout; resource bindings survive moves and unmounting.
 The wall collection is an ordinary immutable indexed prop pack. Native and browser
 catalogs admit the same bytes; windows, lights and decorations share art resolution
@@ -371,26 +380,49 @@ requests reach the bounded HTTP adapter. Manual area bindings use identity UUIDs
 retirement does not erase stored placements or linked content.
 The local overview and identity deep links select the same whole-world loader,
 editor and mount-owned Pixi renderer. React owns browse panels independently of
-selection and the world draft. Directory/area browsing and layout editing suspend
+selection and the world draft. Selecting directory, area or object controls suspends
 the retained agent HUD. Chat/Info share one recipient/context; minimized chat
 observes replies, while closing pauses observation without cancelling work.
 The existing scene camera projects the selected actor anchor; an absent/offscreen
 actor uses a viewport fallback. Hidden details retain unsaved appearance edits;
-changing panels never resizes the canvas. The editing HUD uses one viewport overlay
-grid for the header and a right-hand editor whose draft status and Save/Cancel
-precede the tools and inspector. Creation cards measure that editor's viewport
+changing panels never resizes the canvas. The HUD uses one viewport overlay
+grid for the header and a right-hand inspector with auto-apply status and Undo/Redo.
+There is no layout edit mode or manual Save/Cancel. Selection reveals contextual
+controls; no selection reveals the furniture library. Creation cards measure the inspector's viewport
 boundary rather than reserving a bottom save bar. Directory and room management
 use a collapsed Office menu. Camera controls remain
-owned by the mounted canvas and portal into one stable top-line dock in both browse
-and edit modes. The header and camera wrap together without fixed-height offsets;
+owned by the mounted canvas and portal into one stable top-line dock.
+The header and camera wrap together without fixed-height offsets;
 neither docking nor error feedback rebuilds the scene or reserves physical canvas space.
 V6 platform shells use a shared fixed-scale mechanical sprite kit, owned by
 `platform-art` and `scene-platform`. Repeated hardware and selection contours are
 derived presentation; module topology, bridge openings and persistence remain
 owned by the existing map geometry. See the Office architecture for texture lifetime.
+Bridge decking uses a fixed metal-panel scale, not the room floor's wood repeat;
+`platform-projection` expands short empty bands to the single 24-unit connector
+span while preserving room interiors and the Lobby origin. The invertible display
+transform is shared by bounds, thresholds, ghosts, picking and dragging; it does
+not change stored topology. Longer routed circulation is not shortened. Blue-green
+support bases paint below all bridge deck runs, before room floors and brass trim.
+Brass rails are centered on each edge; the deck repeat excludes authored side
+seams. Deterministic alloy tones, rivets and service grilles are baked into the
+shared deck texture once at load. Brass threshold sprites cover both axes of real
+openings, with static layered warm light spilling over the dock rather than hidden
+behind its opaque artwork. Blue-green girders sit outboard and below the brass
+rails, using long panels and platform-end attachment shoes rather than repeated
+rail-like saddles. `bridge-pulse` owns one 20 Hz clock for visible threshold
+glows: a five-second cycle changes only halo scale and opacity, not the lamp sprite.
+It invalidates the shared frame scheduler without rebuilding scene geometry or
+using blur filters. Hidden tabs, reduced-motion preferences, an empty visible-light
+set and disposal stop the clock. This decorative activity means a visible
+lit scene is no longer completely idle; camera and input still use demand-driven
+frames. Drag feedback
+uses `world-object-placement::placementProblem` against the existing geometry index.
+Invalid drops are red and never enter history or the save queue. Native admission
+remains authoritative; ordinary floor layering remains allowed.
 Same-runtime refresh retains the mounted workspace and its drafts, reports read
 failure in place, and fences late reads from replaced runtimes. The world editor adopts refreshed saved snapshots only
-outside editing and never rolls back a locally confirmed revision. The world
+when clean and idle, without clearing selective undo history or rolling back a confirmed revision. The world
 port distinguishes a confirmed revision rejection from an
 unconfirmed write. Area-removal previews consume the same population projection
 and physical object-anchor lookup as browsing, not separate ownership state.

@@ -1,9 +1,10 @@
-import { catalogFurniture, footprint } from '../blocks/block-contract.js';
+import { catalogFurniture, footprint, validPlacement } from '../blocks/block-contract.js';
 import { WALL_DIGEST, MODULAR_MOUNTED_DIGEST } from '../props/prop-contract.js';
 import type { CatalogPack } from '../props/prop-contract.js';
 import { projectMap, wallInteriorTile } from './map-geometry.js';
 import type { MapGeometry } from './map-geometry.js';
 import type { MapEdge } from './map-contract.js';
+import { MAP_LIMITS } from './map-contract.js';
 import { mapGeometry } from './map-source.js';
 import { WORLD_LIMITS } from './world-contract.js';
 import type { WorldDocument, WorldObject } from './world-contract.js';
@@ -15,6 +16,62 @@ const WALL_PRESETS: Readonly<Record<string, Readonly<Record<string, WorldObject[
   [WALL_DIGEST]: { 'observatory-window': 'window', 'brass-wall-lamp': 'wallLight' },
   [MODULAR_MOUNTED_DIGEST]: { 'mounted-window': 'window', 'mounted-sconce': 'wallLight' },
 };
+
+/** Immediate drag feedback matching native spatial admission. Ordinary floor
+ * objects may overlap (for example a desk on a rug); only window mounts conflict.
+ * Native Save still owns final resource and whole-document admission.
+ */
+export function placementProblem(
+  geometry: MapGeometry,
+  object: WorldObject,
+  others: readonly WorldObject[]
+): string | undefined {
+  const p = object.placement;
+  if (
+    !validPlacement(p) ||
+    Math.abs(p.x) > MAP_LIMITS.coordinate ||
+    Math.abs(p.y) > MAP_LIMITS.coordinate
+  )
+    return 'Invalid placement';
+  const size = footprint(p);
+  if (object.surface.type === 'floor') {
+    if (object.kind !== 'decoration') return 'This object requires a wall';
+    for (let y = p.y; y < p.y + size.height; y++) {
+      for (let x = p.x; x < p.x + size.width; x++) {
+        if (geometry.areaAt(x, y) === undefined) return 'Keep the entire object on the platform';
+        const left = geometry.boundaryAt({ x, y, axis: 'vertical' });
+        const top = geometry.boundaryAt({ x, y, axis: 'horizontal' });
+        const right = geometry.boundaryAt({ x: x + 1, y, axis: 'vertical' });
+        const bottom = geometry.boundaryAt({ x, y: y + 1, axis: 'horizontal' });
+        if ([left, top, right, bottom].some((edge) => edge?.open)) return 'Keep the entrance clear';
+        if ((x > p.x && left) || (y > p.y && top)) return 'Cannot cross a room boundary';
+      }
+    }
+    return;
+  }
+  const surface = object.surface;
+  if (surface.elevation < 0 || surface.elevation + size.height > WORLD_LIMITS.wallHeight)
+    return 'Keep the object within the wall height';
+  if (!hasObjectSupport(geometry, object)) return 'This wall cannot support the object';
+  const start = surface.axis === 'horizontal' ? p.x : p.y;
+  const fixed = surface.axis === 'horizontal' ? p.y : p.x;
+  for (const other of others) {
+    if (other.id === object.id || other.surface.type !== 'wall') continue;
+    if (other.kind !== 'window' && object.kind !== 'window') continue;
+    if (other.surface.axis !== surface.axis || other.surface.face !== surface.face) continue;
+    const otherFixed = surface.axis === 'horizontal' ? other.placement.y : other.placement.x;
+    if (otherFixed !== fixed) continue;
+    const otherStart = surface.axis === 'horizontal' ? other.placement.x : other.placement.y;
+    const otherSize = footprint(other.placement);
+    if (
+      start < otherStart + otherSize.width &&
+      otherStart < start + size.width &&
+      surface.elevation < other.surface.elevation + otherSize.height &&
+      other.surface.elevation < surface.elevation + size.height
+    )
+      return 'Keep the window clear';
+  }
+}
 
 export function isWallCatalog(digest: string): boolean {
   return Object.hasOwn(WALL_PRESETS, digest);

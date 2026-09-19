@@ -23,7 +23,8 @@
     "jotai": "3.0.0",
     "pixi.js": "8.20.1",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "yjs": "13.6.32"
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",

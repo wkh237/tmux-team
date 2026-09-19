@@ -88,7 +88,9 @@ test('auto-applies platform conversion and creates meeting space through direct 
       expect((await office<WorldSnapshot>(['layout', 'show'])).layout).toEqual(saved.layout);
       // Independent v6 fixture framing: the eastern ghost ends at X=184;
       // Four-unit framing margins have no rear-wall reserve on platforms.
-      const point = await fitWorldCoordinates(page, { x: -4, y: -46, width: 192, height: 173 });
+      // Two 8-unit north/south gaps render as 24-unit connectors, adding 14
+      // projected units on each side without moving any saved floor coordinates.
+      const point = await fitWorldCoordinates(page, { x: -4, y: -60, width: 192, height: 201 });
       const ghost = point(160, 17.5);
       const creation = page.getByRole('region', { name: 'Create meeting space', exact: true });
       await expect(page.locator('.meeting-entry')).toHaveCount(0);
@@ -128,6 +130,54 @@ test('auto-applies platform conversion and creates meeting space through direct 
       expect(furnished.layout.objects.every((object) => object.surface.type === 'floor')).toBe(
         true
       );
+      if (furnished.layout.map.version === 1) throw new Error('Expected platform modules');
+      const template = furnished.layout.map.modules.find(
+        (module) => module.slot.type === 'office'
+      )!;
+      const extended = {
+        ...furnished.layout,
+        map: {
+          ...furnished.layout.map,
+          modules: [
+            ...furnished.layout.map.modules,
+            ...[2, 3].map((column) => ({
+              ...template,
+              slot: { type: 'office' as const, column, row: -1 },
+              area: {
+                ...template.area,
+                id: `10000000-0000-4000-8000-00000000009${column}`,
+                name: `Extension ${column}`,
+              },
+            })),
+          ],
+        },
+      };
+      writeFileSync(file, JSON.stringify(extended));
+      await office([
+        'layout',
+        'apply',
+        '--file',
+        file,
+        '--if-revision',
+        String(furnished.revision),
+      ]);
+      const persisted = (await office<WorldSnapshot>(['layout', 'show'])).layout;
+      if (persisted.map.version === 1) throw new Error('Expected platform modules');
+      // Native storage canonicalizes module order; compare every entity exactly
+      // without treating insertion order as part of the topology contract.
+      const byId = (a: typeof template, b: typeof template) => a.area.id.localeCompare(b.area.id);
+      expect({
+        ...persisted,
+        map: { ...persisted.map, modules: [...persisted.map.modules].sort(byId) },
+      }).toEqual({
+        ...extended,
+        map: { ...extended.map, modules: [...extended.map.modules].sort(byId) },
+      });
+      await page.goto('about:blank');
+      await page.goto(started.url);
+      await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
+      await page.getByRole('button', { name: 'Fit office', exact: true }).click();
+      await page.screenshot({ path: info.outputPath('skybridge-extended-row.png') });
     } finally {
       await page.goto('about:blank');
       await office(['stop']);

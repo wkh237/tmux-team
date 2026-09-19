@@ -1,46 +1,5 @@
 {
   "version": 6,
-  "westChainPublic": [
-    [-4, -24],
-    [-4, -4],
-    [-4, 20]
-  ],
-  "westChainEmpty": [
-    [-30, -4],
-    [4, -4],
-    [50, -4]
-  ],
-  "westChainDoors": [
-    [-8, -28],
-    [-8, 16],
-    [0, 16]
-  ],
-  "westChainForbiddenHorizontalDoors": [
-    [-36, 0],
-    [48, 0]
-  ],
-  "sparseWestPublic": [
-    [-4, -76],
-    [-4, -52],
-    [-4, -4],
-    [-4, 20]
-  ],
-  "sparseWestEmpty": [
-    [-30, -52],
-    [4, -52],
-    [50, -52],
-    [-30, -4],
-    [50, -4]
-  ],
-  "sparseWestDoors": [
-    [-8, -76],
-    [-8, 16],
-    [0, 16]
-  ],
-  "sparseWestForbiddenHorizontalDoors": [
-    [-36, -56],
-    [48, 0]
-  ],
   "starterPublic": [
     [24, -4],
     [80, -4],
@@ -72,5 +31,22 @@
     [140, 44],
     [116, 124]
   ],
-  "lastMeetingBounds": { "x": 136, "y": 96, "width": 48, "height": 40 }
+  "lastMeetingBounds": {
+    "x": 136,
+    "y": 96,
+    "width": 48,
+    "height": 40
+  },
+  "extendedRowPublic": [
+    [108, -28],
+    [164, -28],
+    [52, -28]
+  ],
+  "extendedRowEmpty": [
+    [108, -4],
+    [136, -4],
+    [164, -4],
+    [108, -40],
+    [108, -16]
+  ]
 }

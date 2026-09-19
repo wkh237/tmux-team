@@ -33,8 +33,18 @@ export const PLATFORM_FRAMES = {
       9,
     ],
   },
-  deck: { x: 844, y: 780, width: 71, height: 128 },
+  // Interior only: repeating the authored side seams creates an off-center rail.
+  deck: { x: 857, y: 780, width: 46, height: 128 },
   bridgeRail: { x: 823, y: 780, width: 20, height: 120 },
+  bridgeDock: {
+    x: 1344,
+    y: 820,
+    width: 150,
+    height: 66,
+    outline: [
+      2, 10, 14, 0, 27, 8, 126, 8, 135, 0, 148, 6, 150, 58, 138, 66, 125, 58, 27, 58, 18, 66, 0, 60,
+    ],
+  },
 } as const;
 export type PlatformTextures = Record<keyof typeof PLATFORM_FRAMES, Texture>;
 
@@ -81,6 +91,32 @@ export async function createPlatformArt(signal: AbortSignal) {
         frame.width,
         frame.height
       );
+      if (key === 'deck') {
+        // Bake a deterministic alloy/service-panel mix once into the shared
+        // texture. No per-floor objects, random noise or extra runtime filters.
+        for (let panel = 0; panel < 4; panel++) {
+          const y = panel * 32;
+          context.fillStyle = panel % 2 ? '#8e927b20' : '#244b5928';
+          context.fillRect(0, y, frame.width, 32);
+          context.fillStyle = '#152e3680';
+          context.fillRect(3, y + 2, frame.width - 6, 1);
+          context.fillStyle = '#b5bc9570';
+          context.fillRect(3, y + 3, frame.width - 6, 1);
+          for (const x of [4, frame.width - 6]) {
+            context.fillStyle = '#18313bcc';
+            context.fillRect(x, y + 7, 3, 3);
+            context.fillStyle = '#b5b99c';
+            context.fillRect(x, y + 7, 2, 1);
+          }
+          if (panel === 2) {
+            context.fillStyle = '#142b3666';
+            for (let line = 0; line < 4; line++)
+              context.fillRect(14, y + 10 + line * 3, frame.width - 28, 1);
+          }
+          context.fillStyle = '#d6cfac35';
+          context.fillRect(12 + panel * 2, y + 24, 8, 1);
+        }
+      }
       textures[key] = new Texture({
         source: new CanvasSource({ resource: canvas, scaleMode: 'nearest' }),
       });

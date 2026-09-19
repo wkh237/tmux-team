@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { skybridgeCirculation } from './compact-circulation.js';
 import vectors from '../../../../contracts/office/modules-central-grid-vectors.json';
 import bridges from '../../../../contracts/office/modules-skybridge-vectors.json';
 import { decodeModuleMap } from './module-contract.js';
@@ -11,57 +12,36 @@ import { decodeMapSource } from './map-source.js';
 const source = () =>
   decodeModuleMap({ ...vectors.map, version: 6, modules: vectors.map.modules.slice(0, 5) });
 
-it.each([
-  { rows: [-1, 0], prefix: 'westChain' },
-  { rows: [-2, 0], prefix: 'sparseWest' },
-  { rows: [-2, -1, 0], prefix: 'sparseWest' },
-] as const)(
-  'joins west column $rows through public bridges without incidental doors',
-  ({ rows, prefix }) => {
-    const map = source();
-    const added = rows.map((row, index) => ({
-      ...map.modules[1]!,
-      slot: { type: 'office' as const, column: -1, row },
-      area: { ...map.modules[1]!.area, id: `10000000-0000-4000-8000-00000000009${index}` },
-    }));
-    const input = { ...map, modules: [...map.modules, ...added] };
-    const geometry = projectModules(input);
-    const at = (x: number, y: number) =>
-      geometry.floor.find((s) => s.y === y && s.start <= x && x < s.end);
-    for (const [x, y] of bridges[`${prefix}Public`]) expect(at(x!, y!)?.areaId).toBeNull();
-    for (const [x, y] of bridges[`${prefix}Empty`]) expect(at(x!, y!)).toBeUndefined();
-    for (const [x, y] of bridges[`${prefix}Doors`])
-      expect(geometry.doors).toContainEqual({ x, y, axis: 'vertical' });
-    for (const [x, y] of bridges[`${prefix}ForbiddenHorizontalDoors`])
-      expect(geometry.doors).not.toContainEqual({ x, y, axis: 'horizontal' });
-    if ((rows as readonly number[]).includes(-1)) {
-      expect(geometry.doors).toContainEqual({ x: -8, y: -28, axis: 'vertical' });
-      expect(geometry.doors).not.toContainEqual({ x: -36, y: -8, axis: 'horizontal' });
-    }
-    expect(projectModules({ ...input, modules: [...input.modules].reverse() })).toEqual(geometry);
-  }
-);
-
-it.each([-1, 2])('joins a diagonal pod through the nearest row %i bridge', (row) => {
+it('connects an extended row only across neighbor centers and remains order independent', () => {
   const map = source();
-  const pod = {
+  const added = [2, 3].map((column) => ({
     ...map.modules[1]!,
-    slot: { type: 'office' as const, column: -1, row },
-    area: { ...map.modules[1]!.area, id: '10000000-0000-4000-8000-000000000099' },
-  };
-  const input = { ...map, modules: [...map.modules, pod] };
+    slot: { type: 'office' as const, column, row: -1 },
+    area: { ...map.modules[1]!.area, id: `10000000-0000-4000-8000-00000000009${column}` },
+  }));
+  const input = { ...map, modules: [...map.modules, ...added] };
   const geometry = projectModules(input);
-  const y = row < 0 ? -4 : 92;
-  for (const x of [-32, -4, 24])
-    expect(
-      geometry.floor.find((span) => span.y === y && span.start <= x && x < span.end)?.areaId
-    ).toBeNull();
-  expect(
-    geometry.floor.find((span) => span.y === y && span.start <= 50 && 50 < span.end)
-  ).toBeUndefined();
-  expect(geometry.doors).toContainEqual({ x: -36, y: row < 0 ? -8 : 96, axis: 'horizontal' });
-  expect(geometry.doors).not.toContainEqual({ x: 48, y: row < 0 ? 0 : 88, axis: 'horizontal' });
+  const at = (x: number, y: number) =>
+    geometry.floor.find((s) => s.y === y && s.start <= x && x < s.end);
+  for (const [x, y] of bridges.extendedRowPublic) expect(at(x!, y!)?.areaId).toBeNull();
+  for (const [x, y] of bridges.extendedRowEmpty) expect(at(x!, y!)).toBeUndefined();
+  expect(geometry.doors).toContainEqual({ x: 104, y: -32, axis: 'vertical' });
+  expect(geometry.doors).toContainEqual({ x: 112, y: -32, axis: 'vertical' });
   expect(projectModules({ ...input, modules: [...input.modules].reverse() })).toEqual(geometry);
+  const removed = projectModules({
+    ...input,
+    modules: input.modules.filter((m) => m !== added[0]),
+  });
+  expect(removed.floor.some((s) => s.areaId === null && s.start >= 104 && s.y === -28)).toBe(false);
+});
+
+it('does not bridge diagonals or missing slots', () => {
+  const rooms = [
+    { x: 0, y: 0, width: 48, height: 40 },
+    { x: 56, y: 48, width: 48, height: 40 },
+    { x: 112, y: 0, width: 48, height: 40 },
+  ];
+  expect(skybridgeCirculation(rooms).passages).toEqual([]);
 });
 
 it('connects four neighboring offices only at their doors, leaving empty slots unbuilt', () => {

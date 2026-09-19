@@ -69,10 +69,34 @@ it('extends Lobby repeats without stretching hardware or introducing interactive
     const opening = drawPlatformEdge(
       parent,
       { ...wall, open: true },
-      { x: 0, y: 0, width: 8, height: 6 },
+      { x: -0.9, y: -1.806, width: 9.8, height: 4.312 },
       textures
     );
-    expect(opening.children).toHaveLength(0);
+    expect(opening.children).toHaveLength(2);
+    expect(opening.children[1]!.eventMode).toBe('none');
+    expect(opening.children[1]!.filters ?? []).toHaveLength(0);
+    const dock = opening.children[0] as Sprite;
+    expect(dock.texture).toBe(textures.bridgeDock);
+    expect(dock.width).toBeCloseTo(9.8);
+    const bridge = drawPlatformEdge(
+      parent,
+      { ...wall, axis: 'vertical', circulation: true },
+      { x: 19.1, y: 0, width: 1.8, height: 24 },
+      textures
+    );
+    const rail = bridge.children[1] as TilingSprite;
+    expect(rail.x + rail.width / 2).toBeCloseTo(0.9);
+    expect(bridge.children[0]!.eventMode).toBe('none');
+    expect(bridge.children).toHaveLength(2);
+    expect(bridge.children[0]!.scale.x).toBe(1);
+    const opposite = drawPlatformEdge(
+      parent,
+      { ...wall, axis: 'vertical', circulation: true, facing: 'positive' },
+      { x: 0, y: 0, width: 1.8, height: 24 },
+      textures
+    );
+    expect(opposite.children[0]!.scale.x).toBe(-1);
+    expect(opposite.children[1]!.x).toBeCloseTo(rail.x);
   } finally {
     parent.destroy({ children: true });
     for (const texture of Object.values(textures)) texture.destroy(false);

@@ -11,13 +11,15 @@ import { drawPlatformEdge, platformContour } from './scene-platform.js';
 import { moduleBounds } from '../world-map/module-geometry.js';
 import { createSceneTextures } from './scene-textures.js';
 import { createSceneFloor } from './scene-floor.js';
-import { drawBridgeDeck } from './scene-skybridge.js';
+import { drawBridgeBase, drawBridgeDeck } from './scene-skybridge.js';
+import { createBridgePulse } from './bridge-pulse.js';
 import { drawWall } from './scene-wall.js';
 import { drawModuleGhost, moduleGhostGeometry } from './scene-module-ghost.js';
 import { officeExpansionPassages } from '../world-map/module-geometry.js';
 import { officeSlotKey } from '../world-map/module-contract.js';
 import type { MeetingSlot, OfficeSlot } from '../world-map/module-contract.js';
 import { mapGeometry } from '../world-map/map-source.js';
+import { placementProblem } from '../world-map/world-object-placement.js';
 import { sceneLabel } from './scene-label.js';
 import { sceneActorLabel, sceneNameplate } from './scene-nameplate.js';
 import { drawSceneProp } from './scene-props.js';
@@ -140,6 +142,14 @@ export async function createOfficeScene(
   let nameplates: ReturnType<typeof sceneNameplate>[] = [];
   let actors: { actor: OfficeActor; bounds: SceneRect }[] = [];
   let renderedView: SceneRect | undefined;
+  const bridgePulse = createBridgePulse(invalidate);
+  let bridgeLights: { light: Graphics; bounds: SceneRect }[] = [];
+  function refreshBridgeLights() {
+    const view = viewport();
+    bridgePulse.setLights(
+      bridgeLights.filter(({ bounds }) => intersects(view, bounds)).map(({ light }) => light)
+    );
+  }
   const preview = new Graphics(),
     highlight = new Graphics();
   const canvas = application.canvas;
@@ -271,6 +281,8 @@ export async function createOfficeScene(
   }
   function draw() {
     if (!model || !geometry || !materials) return;
+    bridgePulse.setLights([]);
+    bridgeLights = [];
     root.removeChild(preview, highlight);
     for (const child of root.removeChildren()) child.destroy({ children: true });
     textures.begin();
@@ -296,6 +308,13 @@ export async function createOfficeScene(
       ...part.floors.filter((rect) => rect.areaId === null),
       ...part.floors.filter((rect) => rect.areaId !== null),
     ];
+    if (model.world.map.version >= 6) {
+      for (const source of floors) {
+        if (source.areaId !== null) continue;
+        const rect = geometry.floorPaintBounds(source);
+        if (rect) drawBridgeBase(root, rect);
+      }
+    }
     for (const source of floors) {
       const rect = geometry.floorPaintBounds(source);
       if (!rect) continue;
@@ -320,7 +339,9 @@ export async function createOfficeScene(
       const node = new Container();
       if (model.world.map.version >= 6) {
         const { depth, bounds } = wallProjection(wall, geometry.projection);
-        drawPlatformEdge(node, wall, bounds, platformArt!.textures);
+        drawPlatformEdge(node, wall, bounds, platformArt!.textures, (light) => {
+          bridgeLights.push({ light, bounds });
+        });
         layers.push({ depth, node, frontFace: wall.axis === 'horizontal' });
         continue;
       }
@@ -491,6 +512,7 @@ export async function createOfficeScene(
     root.addChild(highlight, preview);
     textures.end();
     selection(selected);
+    refreshBridgeLights();
   }
   function applyCamera(force = false) {
     root.position.set(camera.x, camera.y);
@@ -508,6 +530,7 @@ export async function createOfficeScene(
     componentLayer?.zoom(camera.scale);
     for (const plate of nameplates) plate.zoom(camera.scale);
     selection(selected);
+    refreshBridgeLights();
     invalidate();
   }
   function fit() {
@@ -627,6 +650,14 @@ export async function createOfficeScene(
     return {
       id: object.id,
       position,
+      problem: placementProblem(
+        geometry.map,
+        {
+          ...object,
+          placement: { ...object.placement, ...position },
+        },
+        model!.world.objects
+      ),
       rect: geometry.objectRect({
         ...object,
         placement: { ...object.placement, ...position },
@@ -677,13 +708,16 @@ export async function createOfficeScene(
     if (Math.hypot(x, y) > 5) pointer.moved = true;
     if (!pointer.moved) return;
     if (pointer.objectId) {
-      const rect = movedObject(point)?.rect;
-      if (!rect) return;
+      const moved = movedObject(point);
+      if (!moved) return;
+      const { rect, problem } = moved;
+      canvas.dataset.dropValidity = problem ? 'invalid' : 'valid';
+      canvas.style.cursor = problem ? 'not-allowed' : 'grabbing';
       preview
         .clear()
         .rect(rect.x, rect.y, rect.width, rect.height)
-        .fill({ color: '#70ddc6', alpha: 0.3 })
-        .stroke({ color: '#c9fff1', width: 0.15 });
+        .fill({ color: problem ? '#ff525e' : '#70ddc6', alpha: 0.3 })
+        .stroke({ color: problem ? '#ff8790' : '#c9fff1', width: 0.25 });
       invalidate();
     } else {
       camera = { ...camera, x: pointer.originX + x, y: pointer.originY + y };
@@ -696,7 +730,7 @@ export async function createOfficeScene(
     if (event.type !== 'pointercancel') {
       if (pointer.moved && pointer.objectId) {
         const moved = movedObject(point);
-        if (moved) {
+        if (moved && !moved.problem) {
           editor?.select?.(moved.id);
           editor?.moveObject(moved.id, moved.position);
         }
@@ -721,6 +755,8 @@ export async function createOfficeScene(
       }
     }
     preview.clear();
+    delete canvas.dataset.dropValidity;
+    canvas.style.cursor = 'grab';
     invalidate();
     if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
     pointer = undefined;
@@ -738,6 +774,8 @@ export async function createOfficeScene(
     if (pointer && canvas.hasPointerCapture(pointer.id)) canvas.releasePointerCapture(pointer.id);
     pointer = undefined;
     preview.clear();
+    delete canvas.dataset.dropValidity;
+    canvas.style.cursor = 'grab';
     hoveredOffice = undefined;
     hoveredMeeting = false;
     editor?.clearSelection?.();
@@ -793,6 +831,7 @@ export async function createOfficeScene(
     canvas.removeEventListener('pointercancel', up);
     canvas.removeEventListener('wheel', wheel);
     if (application.renderer) application.renderer.off('resize', resize);
+    bridgePulse.dispose();
     disposeApplication();
     textures.dispose();
     materials?.dispose();

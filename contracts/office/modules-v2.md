@@ -184,17 +184,14 @@ of its historical admission path. Functional object IDs and resource bindings
 must survive; conversion must not delete a board, whiteboard or broadcaster.
 The current implementation is transitional until this conversion is verified.
 
-V6 retains the central Lobby and office bounds. Immediate Lobby neighbors use
-only an eight-unit bridge centered on each office entrance, with a matching
-Lobby doorway. Offices in the same column as a direct west/east neighbor
-join its public perimeter bridge, including across empty slots; they do not add a duplicate route
-across the north/south offices. Without a matching side-column bridge, pods in a
-direct north/south neighbor's row join that row's nearest bridge. Distance and
-coordinate tie-breaks keep routing independent of module order. Other distant
-offices retain public lattice access.
-Doorways belong to planned route endpoints, not every room touching public floor;
-no route depends on walking through another private office. Empty neighboring
-slots do not generate branches. Existing v4/v5 geometry is unchanged.
+V6 retains the central Lobby and office bounds. Every immediately adjacent
+cardinal pair has one eight-unit-wide bridge centered in its shared side overlap,
+with an opening at each endpoint. Platforms may be traversed to reach subsequent
+offices. No perimeter bypass, diagonal link or bridge across an empty slot is
+generated. Pair ordering is deterministic. Removing a connecting platform is
+rejected by native admission if it disconnects the remaining world; the renderer
+must not invent a replacement route. This pre-release correction replaces the
+earlier v6 perimeter routing; existing v4/v5 geometry is unchanged.
 
 Meeting pods begin at x=136 and return to a 48-unit vertical step. The public
 spine stays at x=112..120; a 16-unit horizontal branch connects each occupied
