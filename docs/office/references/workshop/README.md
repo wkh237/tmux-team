@@ -1,8 +1,9 @@
 # Workshop visual reference
 
 These retained interaction concepts are not product screenshots or proof that a
-feature exists. The [modular reference](../rooms-and-walls/modular-v1/README.md)
-owns current building geometry, materials and HUD styling. The
+feature exists. The [visual reference index](../rooms-and-walls/README.md)
+owns the current wall-free platform direction; the older illustrations do not
+define geometry or editor modes. The
 [functional-extension contract](../../../../contracts/office/functional-props.md)
 owns behavior; this reference set owns visual intent.
 
@@ -16,13 +17,8 @@ Preserve honey-oak floors, deep teal structure, cream panels, moss textiles,
 terracotta seating and rich readable pixel-art furniture. Uniform room shells
 and simplified/static lighting are acceptable. A flat dashboard or geometric
 placeholder artwork is not visual alignment.
-Walls must read as cutaway building fabric: visible thickness, top/end faces,
-recessed doorways and foreground occlusion, with material detail matching the
-pixel furniture. Thickening a flat outline alone does not meet this reference.
-Keep side-wall crowns distinct from inward-facing reveals. Front and rear walls
-retain equal height; obstructing faces fade during arrangement without moving
-floor coordinates or the camera. Do not derive wall height from the older
-interaction illustrations.
+Platform geometry and structural finish follow the current visual reference
+index, not the high walls and doorways in these older interaction illustrations.
 
 Interactive objects deliberately stand out from decoration: contrasting sci-fi
 teal docking outlines and high-contrast action markers are welcome against
@@ -37,10 +33,10 @@ inspector; closing restores the office. Desktop/narrow layouts retain keyboard
 access and readable controls. Incidental mock labels, counts, character limits,
 decorative rooms and sample conversations are not domain requirements.
 Recipient modes are exclusive; unread indicators require real read-state support.
-Room browsing keeps furniture tools closed until Arrange is chosen. Appearance
-uses that same inspector position, not a second simultaneous sidebar. Dirty layout
-actions remain visible when the inspector closes. Functional props work in browse
-mode; a compact Objects disclosure provides the equivalent keyboard/fallback entry.
+Appearance and object properties share that inspector position, not simultaneous
+sidebars. The images' Arrange and Save controls are historical, not requirements
+for the current editing flow. Functional actions retain an equivalent accessible
+entry outside the spatial renderer.
 
 Generated with the built-in imagegen tool. These are documentation assets, not
 runtime scene textures. Superseded overview artwork and generation transcripts

@@ -145,22 +145,26 @@ Promotion preserves UUID and makes assignment eligible, without building a room.
 Retirement removes active projections through the existing lifecycle and does
 not erase retained content.
 
-The editor provides inspection, module creation/removal, platform finishes and Furniture,
-whole-module preview, undo/redo, explicit Cancel and Save. A selected office's
+The editor provides inspection, module creation/removal, platform finishes and
+furniture without a separate edit mode or layout Save/Cancel bar. A selected office's
 anchored properties expose its label and optional saved resident. Changing its
 purpose through arbitrary zoning is not part of this model. Meeting creation
 and membership use their own contextual controls.
 There is no Walls tab, wall-height setting or mounting action on platforms.
 Furniture and functional stations use the admitted object catalog.
-Gestures do not autosave. Undo only affects layout drafts, not messages or
-independently saved resource contents.
+Completed valid gestures and property changes auto-apply through one serialized,
+revision-fenced queue. A drag preview does not write; invalid or cancelled drops
+change neither durable state nor history. Undo/Redo changes use the same queue
+and affect layout only, not messages or independently saved resource contents.
+Failed or uncertain writes retain local changes and pause for explicit retry or
+reload. Acknowledgements preserve newer edits and session-local history.
 
 The revised editing experience is canvas-first: select modules and their eligible
 extension slots directly on the world. Preview the entire added module and its
-derived connections before accepting it into the draft. Do not make a persistent HTML inspector or a large
+derived connections before confirming creation. Do not make a persistent HTML inspector or a large
 configuration modal the primary creation path. Small anchored HTML controls may
 serve text entry, accessible choices, resource selection and necessary safety
-confirmation. They must preserve the same draft/Undo/Save owner and not resize
+confirmation. They must preserve the same layout/history/write owner and not resize
 the world. Creation cards must use their measured size and the full hologram
 bounds to avoid covering the selected module whenever the viewport permits;
 keep the name field focused, location selection expandable, and Escape a
@@ -181,18 +185,18 @@ failure and do not silently rebase. Preserve existing room/furniture data throug
 an explicit tested migration or compatibility projection. Missing world-map data
 is not permission to erase old layouts.
 
-For existing v2/v3 module layouts, **Preview modular layout** creates one undoable
-v4 draft. The Lobby expands to 2×2 cells; southern office rows and their interior
+For existing v2/v3 module layouts, explicit modular conversion creates one undoable
+v4 change through the auto-apply queue. The Lobby expands to 2×2 cells; southern office rows and their interior
 contents shift one row south. Meeting slots stay fixed. Preserve area IDs,
 resident assignments, materials, object IDs and resource attachments. South-wall
 Lobby mounts follow the enlarged boundary. Objects without an unambiguous room
 interior owner block the preview with their ID; do not guess a new location or
-discard them. Save performs normal full placement admission and revision checks.
+discard them. Native writes perform normal full placement admission and revision checks.
 For free-form v1 layouts, the preview reuses existing eligible module slots to
 place personal areas near their former positions relative to the primary Lobby.
 Meeting areas enter the separate wing in stable spatial order. Terrain shapes
 and corridors become generated module geometry; area IDs, names, assignments and
-contents remain. The user reviews this arrangement before Save. Empty areas,
+contents remain. Conversion is explicit, not a read-time mutation. Empty areas,
 additional Lobbies, ambiguous object ownership and contents too large for their
 destination block conversion rather than being discarded. This is not a reset
 to the new-install preset and does not create extra identities or offices.
@@ -201,7 +205,7 @@ The browser no longer offers free-form floor painting, zoning, new area
 designations or manual door editing. Retained layouts can still be inspected,
 have objects moved or explicitly removed, and have redundant area designations
 removed before conversion. An empty area must be removed explicitly, not silently
-dropped. Native Save remains the authority for valid placements. Conversion and
+dropped. Native write admission remains the authority for valid placements. Conversion and
 repair share the whole-world history; no map-only history or alternate write
 path is retained.
 
@@ -258,8 +262,8 @@ come from explicit layout, not room-list order. Bind the canonical room UUID and
 display its name; core rooms remain usable without a spatial area. The six-room
 concept with one central meeting room is superseded and must not drive the preset.
 Offer table, chairs, room whiteboard/discussion and broadcast entry as a reusable
-starter preset through existing catalogs/bindings. Defaults are presentation until
-explicit Save; merely opening a room creates no resources.
+starter preset through existing catalogs/bindings. Applying a preset is an
+explicit layout change; merely opening a room creates no resources.
 
 Member avatars are projections of the same identity appearance. Showing Alice in
 two rooms does not clone her identity, online state, inbox or private notes.
@@ -287,9 +291,9 @@ removal. Switching board scopes must not lose an unsent or unconfirmed operation
 
 ## Platform materials, backdrop and lights
 
-Editing is explicit: show an Editing layout state and keep Save/Cancel at the
-top of the right-hand editor, above tools and scrollable content. Undo/Redo and
-save feedback stay with that draft owner, not a distant bottom bar. Directory
+Selection drives the right-hand inspector: floor selection exposes area controls,
+object selection exposes its properties, and no selection exposes furniture.
+Undo/Redo and apply feedback stay visible with that layout owner. Directory
 and meeting management remain accessible through a collapsed Office menu;
 in-world meeting creation and room panels are the primary spatial entry points.
 Lobby details do not repeat the global Edit layout action.
@@ -314,7 +318,7 @@ The platform is a board in space, not a room with shortened walls. Perimeter
 trim stays on its top plane; visible front thickness extends down below it.
 No rear plaster face, side wall, corner pillar or doorway may be layered over
 that plane. Bridges meet interrupted trim without gaps, wooden exterior strips
-or doubled frames. Static amber guide lights run along bridge edges and never
+or doubled frames. Amber guide lights run along bridge edges and never
 span an entrance. Furniture and functional stations remain independently
 editable across finish changes; boards and whiteboards are freestanding objects.
 Names, board contents, live status and action cues are rendered from their
@@ -329,12 +333,14 @@ No source sheet may bypass the existing data-only custom-art boundary.
 ### Backdrop and furniture
 
 Use a quiet dark-space backdrop: sparse stars, low-contrast nebula, prominent warm
-interiors and readable cream HUD. Default to static rendering, without continuous
-star animation, parallax or live lighting/shadow simulation. Background is
+interiors and readable cream HUD. Avoid continuous star animation or live
+lighting/shadow simulation. Background is
 presentation, not terrain or authority; changing it never changes floor data.
 
-Show construction grid/handles only in edit mode. Use visible-world projection,
-bounded reusable textures, local baked lamp glows and invalidation-driven painting.
+Show construction feedback with the active selection or gesture, not a separate
+edit mode. Use visible-world projection, bounded reusable textures and
+invalidation-driven painting. Visible bridge lights share one bounded pulse
+clock; hidden, reduced-motion, empty and disposed scenes stop that clock.
 A Motion selector in a concept is not a requirement to ship animation or a theme
 marketplace. Decorative celestial scenery is not another simulated world.
 
@@ -342,7 +348,7 @@ New presets contain no mounted windows, lamps or wall decorations. Legacy
 surface support is a retained-data concern, not a platform customization feature.
 An explicit conversion preserves artwork, IDs and linked content as floor
 decorations; ambiguous ownership or oversized objects reject the draft without
-deleting anything. The user reviews the result before Save. Native validation
+deleting anything. Explicit conversion uses the same undoable auto-apply path. Native validation
 for retained layouts remains in force until their conversion.
 
 ## Furniture artwork and actions
@@ -425,23 +431,7 @@ An uncertain submission retries its original operation, never silently duplicate
 Existing loopback bearer/Origin/input limits remain in force; no generic command
 executor is exposed. Remote HTTP/MCP deployment is not part of this local stage.
 
-## Delivery and verification
-
-1. Use the cosmic-platform direction for composition and operation states, with
-   admitted modular artwork for furnishings. This document controls semantics;
-   high-wall cutaways, freeform floor painting and zoning, disconnected room
-   islands and identity-generated expansion are superseded.
-2. Inspect current owners and tests; preserve verified room/context CLI, direct
-   history, retry and fan-out work rather than replacing them with UI-only state.
-3. Implement world topology/areas/occupancy and existing-layout migration. Integrate
-   the editor and renderer through one geometry/revision owner.
-4. Provide floor-object placement, platform finishes, pixel-art authoring and safe
-   link actions through existing artwork/extension bindings. Retained wall mounts
-   convert only through an explicit reversible platform preview.
-5. Integrate canonical meeting resources, default facilities, status/mood, compact
-   direct chat and explicit room audiences. Verify CLI/browser interoperability.
-6. Refine real desktop/narrow renders against the reference hierarchy; update
-   architecture, canonical installed skills and help to actual behavior.
+## Verification
 
 Acceptance must include:
 
