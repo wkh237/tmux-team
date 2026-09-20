@@ -1,5 +1,7 @@
 use tmt_core::{
-    binding::{BindingError, BindingRepository, bind_identity},
+    binding::{
+        BindingError, BindingRepository, BindingTargetEvidence, bind_identity, bind_identity_at,
+    },
     identity::{IdentityReader, Lifetime, create_or_resolve},
 };
 
@@ -146,6 +148,41 @@ fn dead_pane_after_creation_cannot_be_revived_between_creation_and_publication()
         .unwrap();
     assert!(entry.binding.is_none());
     assert_eq!(endpoint.publish_calls, 0);
+    storage.close().unwrap();
+}
+
+#[test]
+fn frozen_target_rejects_pane_id_reuse_before_publication() {
+    let fixture = Fixture::new();
+    let mut storage = fixture.open();
+    let mut endpoint = FakeEndpoint::new(&["%1"]);
+    let target = BindingTargetEvidence {
+        server: endpoint.server.clone(),
+        pane_id: "%1".into(),
+        pane_pid: endpoint.pane_mut("%1").pane_pid,
+    };
+    endpoint.replace_pane_after_current = Some(2);
+
+    let error = bind_identity_at(
+        &mut storage,
+        &mut endpoint,
+        "%1",
+        Some(&target),
+        "Alice",
+        false,
+    )
+    .unwrap_err();
+    assert!(matches!(error, BindingError::TargetChanged(pane) if pane == "%1"));
+    assert_eq!(endpoint.publish_calls, 0);
+    let identity = storage.find_identity("alice").unwrap().unwrap();
+    assert!(
+        storage
+            .with_binding_transaction(|records| records.entry_by_id(&identity.id))
+            .unwrap()
+            .unwrap()
+            .binding
+            .is_none()
+    );
     storage.close().unwrap();
 }
 

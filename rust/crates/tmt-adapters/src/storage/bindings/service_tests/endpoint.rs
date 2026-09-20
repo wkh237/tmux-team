@@ -34,6 +34,7 @@ pub(super) struct FakeEndpoint {
     pub(super) expire_after_probe: Option<usize>,
     pub(super) expire_after_publish: bool,
     pub(super) hide_panes_after_current: Option<usize>,
+    pub(super) replace_pane_after_current: Option<usize>,
     pub(super) publish_failure: bool,
     pub(super) verification_failure: bool,
     pub(super) clear_result: bool,
@@ -55,6 +56,7 @@ impl FakeEndpoint {
             expire_after_probe: None,
             expire_after_publish: false,
             hide_panes_after_current: None,
+            replace_pane_after_current: None,
             publish_failure: false,
             verification_failure: false,
             clear_result: true,
@@ -116,6 +118,14 @@ impl BindingEndpoint for FakeEndpoint {
             .is_some_and(|call| self.current_calls >= call)
         {
             snapshot.panes.clear();
+        }
+        if self
+            .replace_pane_after_current
+            .is_some_and(|call| self.current_calls >= call)
+        {
+            for pane in &mut snapshot.panes {
+                pane.pane_pid += 1;
+            }
         }
         Ok(snapshot)
     }

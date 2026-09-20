@@ -17,13 +17,22 @@ pub fn bind_identity<R: BindingRepository, O: BindingEndpoint>(
     name: &str,
     save: bool,
 ) -> Result<IdentityPresence, BindingError<R::Error, O::Error>> {
+    bind_identity_at(repository, endpoint, pane_id, None, name, save)
+}
+
+pub fn bind_identity_at<R: BindingRepository, O: BindingEndpoint>(
+    repository: &mut R,
+    endpoint: &mut O,
+    pane_id: &str,
+    target: Option<&BindingTargetEvidence>,
+    name: &str,
+    save: bool,
+) -> Result<IdentityPresence, BindingError<R::Error, O::Error>> {
     endpoint.begin_coordination();
     let preflight = endpoint
         .current_snapshot(&[pane_id.into()])
         .map_err(BindingError::Endpoint)?;
-    if !preflight.panes.iter().any(|pane| pane.id == pane_id) {
-        return Err(BindingError::PaneNotFound(pane_id.into()));
-    }
+    target_pane(&preflight, pane_id, target)?;
     // Reconcile only the requested old name before creation. Conclusively lost
     // temporary identities release their name; create_or_resolve then allocates
     // a new UUID instead of resurrecting that old identity's history.
@@ -69,11 +78,7 @@ pub fn bind_identity<R: BindingRepository, O: BindingEndpoint>(
         let snapshot = endpoint
             .current_snapshot(&scope)
             .map_err(BindingError::Endpoint)?;
-        let pane = snapshot
-            .panes
-            .iter()
-            .find(|pane| pane.id == pane_id)
-            .ok_or_else(|| BindingError::PaneNotFound(pane_id.into()))?;
+        let pane = target_pane(&snapshot, pane_id, target)?;
         let mut current = None;
         if let Some(occupied) = records.entry_by_pane(pane_id, &snapshot.server.server_id)? {
             match evaluate_binding(&occupied, &EndpointProbe::Live(snapshot.clone())) {
@@ -127,6 +132,7 @@ pub fn bind_identity<R: BindingRepository, O: BindingEndpoint>(
         let verified = endpoint
             .current_snapshot(&[pane_id.into()])
             .map_err(BindingError::Endpoint)?;
+        target_pane(&verified, pane_id, target)?;
         let persisted = records
             .entry_by_pane(pane_id, &binding.server.server_id)?
             .ok_or(BindingError::Unverified)?;
@@ -149,6 +155,26 @@ pub fn bind_identity<R: BindingRepository, O: BindingEndpoint>(
             binding: Some(binding),
         })
     })
+}
+
+fn target_pane<'a, R, O>(
+    snapshot: &'a EndpointSnapshot,
+    pane_id: &str,
+    target: Option<&BindingTargetEvidence>,
+) -> Result<&'a PaneObservation, BindingError<R, O>> {
+    let pane = snapshot
+        .panes
+        .iter()
+        .find(|pane| pane.id == pane_id)
+        .ok_or_else(|| BindingError::PaneNotFound(pane_id.into()))?;
+    if target.is_some_and(|target| {
+        target.pane_id != pane_id
+            || target.server != snapshot.server
+            || target.pane_pid != pane.pane_pid
+    }) {
+        return Err(BindingError::TargetChanged(pane_id.into()));
+    }
+    Ok(pane)
 }
 
 pub fn unbind_identity<R: BindingRepository, O: BindingEndpoint>(

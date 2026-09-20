@@ -61,6 +61,10 @@ tmt name reviewer
 gemini
 ```
 
+When the target shell cannot run TMT, mark that pane in tmux and run
+`tmt marked reviewer` from a shell connected to the same tmux server. TMT uses
+the explicit mark and leaves it unchanged.
+
 From another terminal or tmux pane on the same machine (the sender need not be
 inside tmux):
 

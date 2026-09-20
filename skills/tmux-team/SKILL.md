@@ -480,9 +480,10 @@ may be resolved through a bounded process-ancestry lookup on the selected server
 Malformed, conflicting or unresolvable context returns `PANE_NOT_FOUND` (exit 3),
 not the default pane's identity. Implicit `role`
 access returns `IDENTITY_REQUIRED` (exit 1). Do not fabricate caller variables:
-outside tmux, use explicit `add <pane-target> <global-name>`, `talk <target>`,
-`check <target>`, or `role show|set|clear --identity <name>`. Explicit selection
-does not bind or authenticate the caller.
+outside tmux, use explicit `add <pane-target> <global-name>`, mark the intended
+pane and use `marked <global-name>`, or use `talk <target>`, `check <target>`, or
+`role show|set|clear --identity <name>`. Explicit selection does not authenticate
+the caller.
 
 Sandbox permissions still apply: tmux operations need socket access, and durable
 operations need access to TMT's SQLite storage. If access is denied, use the
@@ -496,6 +497,7 @@ tmt list
 tmt name <global-name>               # bind temporarily; add -s to save
 tmt this <global-name>               # exact supported alias for `name`
 tmt add <pane-target> <global-name>  # bind an explicit pane by stable `%pane_id`
+tmt marked <global-name>             # bind the explicit tmux mark; add -s to save
 tmt whoami                            # show the current pane identity
 tmt unbind                            # remove the current pane identity
 tmt rm <global-name>                  # retire; saved identities require --force
@@ -509,11 +511,14 @@ tmt install [claude|codex|gemini|agy|pi|opencode|all]
 tmt upgrade
 ```
 
-`name`, `this`, and `add` manage one global identity per pane. Names can be
-undeclared identities; they do not need to match a configured role. `add`
+`name`, `this`, `add`, and `marked` manage one global identity per pane. Names
+can be undeclared identities; they do not need to match a configured role. `add`
 accepts `%pane_id`, `window.pane`, or `session:window.pane` and stores the
-resolved stable `%pane_id`. There is no daemon. Identity badges are off by
-default; TMT never changes pane titles or window border layout.
+resolved stable `%pane_id`. `marked` resolves the explicit mark only on the
+invocation-selected server, freezes that pane evidence for the binding, and
+leaves the mark unchanged. It never falls back to the active or caller pane.
+There is no daemon. Identity badges are off by default; TMT never changes pane
+titles or window border layout.
 
 Global identities are independent of the current working directory. `talk`,
 `check`, and `list` accept either a global name or a direct pane target. The
@@ -533,9 +538,10 @@ uncertain check. Rebinding a proven stale endpoint retains its identity and
 profile; no cross-server routing or daemon is provided.
 
 Earlier name-only v5 pane markers are not automatically imported into durable
-identities. Use `name`, `this`, or `add` explicitly to bind such a pane. Invalid
-metadata is not active presence; do not delete durable data or old files to
-repair it. Direct pane targeting remains separate from identity discovery.
+identities. Use `name`, `this`, `add`, or `marked` explicitly to bind such a
+pane. Invalid metadata is not active presence; do not delete durable data or
+old files to repair it. Direct pane targeting remains separate from identity
+discovery.
 
 `update` aliases `upgrade`; `remove` aliases `rm`. `unbind` retires a temporary
 identity but retains a saved identity/profile offline. There is no `migrate`
@@ -620,8 +626,9 @@ wall-clock rollback can delay logical expiry while data remains stored.
 `tmt config set ui.paneBadge on --global` opts into a cosmetic pane-local
 `@tmux-team.badge` label, such as `alice (tmt)`; `off` is the default.
 It is global-only and uses `ui.paneBadge` in the same global file. Settings
-changes do not scan panes; the next successful `name`, `this`, or `add` applies
-the setting to that pane. `unbind` clears its badge regardless of the setting.
+changes do not scan panes; the next successful `name`, `this`, `add`, or
+`marked` applies the setting to that pane. `unbind` clears its badge regardless
+of the setting.
 With `off`, the next successful binding clears a previously published badge.
 Badge writes are bounded and best-effort; a display failure is not a reason to
 retry a successful identity mutation. Binding commands validate loaded settings

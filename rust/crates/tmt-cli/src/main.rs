@@ -149,6 +149,7 @@ fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
             return response_command::execute(request, parsed.mode);
         }
         request @ (Invocation::Bind { .. }
+        | Invocation::BindMarked { .. }
         | Invocation::Whoami
         | Invocation::Unbind
         | Invocation::Remove { .. }

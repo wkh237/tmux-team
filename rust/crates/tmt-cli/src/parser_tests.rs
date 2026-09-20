@@ -1453,6 +1453,20 @@ fn save_and_force_flags_have_false_defaults_and_short_aliases() {
         }
     );
     assert_eq!(
+        parsed(&["marked", "Alice"]).invocation,
+        Invocation::BindMarked {
+            name: "Alice".into(),
+            save: false,
+        }
+    );
+    assert_eq!(
+        parsed(&["marked", "Alice", "-s"]).invocation,
+        Invocation::BindMarked {
+            name: "Alice".into(),
+            save: true,
+        }
+    );
+    assert_eq!(
         parsed(&["rm", "Alice"]).invocation,
         Invocation::Remove {
             name: "Alice".into(),

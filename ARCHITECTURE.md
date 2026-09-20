@@ -688,7 +688,13 @@ signed/unsigned conversion. Invalid stored PIDs fail decoding
 without repair or retirement, and invalid inputs fail before insertion.
 
 Names are global within the selected local database, not folder-scoped. Plain
-`name`/`add` creates temporary bindings; `-s` saves/promotes the same identity UUID.
+`name`/`add`/`marked` creates temporary bindings; `-s` saves/promotes the same
+identity UUID. `marked` resolves one `pane_marked` observation on the
+invocation-selected tmux server, then passes frozen server and pane ID/PID
+evidence through the existing binding coordination. Later focus or mark changes
+cannot redirect the operation; lost, replaced or conflicting endpoint evidence
+fails closed. The resolver never substitutes a caller/active pane, searches a
+different server or mutates the user's mark.
 Conclusive pane/server death or explicit unbind retires temporary names without
 erasing retained exchanges; saved identities remain available offline. Saved
 removal requires explicit force. Neither removal nor unbind kills a pane.

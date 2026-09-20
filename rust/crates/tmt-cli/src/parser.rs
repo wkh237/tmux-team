@@ -526,6 +526,10 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
             name: required(m, "name"),
             save: flag(m, "save"),
         },
+        ["marked"] => Invocation::BindMarked {
+            name: required(m, "name"),
+            save: flag(m, "save"),
+        },
         ["rm"] => Invocation::Remove {
             name: required(m, "name"),
             force: flag(m, "force"),

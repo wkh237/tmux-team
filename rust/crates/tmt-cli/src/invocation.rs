@@ -16,6 +16,10 @@ pub enum Invocation {
         name: String,
         save: bool,
     },
+    BindMarked {
+        name: String,
+        save: bool,
+    },
     Remove {
         name: String,
         force: bool,

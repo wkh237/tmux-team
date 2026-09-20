@@ -34,7 +34,7 @@ pub fn execute(skill: Option<&str>) -> io::Result<u8> {
         )?;
         writeln!(
             output,
-            "  tmt name alice             Bind this pane temporarily; add -s to save it.\n  tmt add %14 reviewer       Bind another pane by stable ID.\n  tmt ls                     Show lifetime and verified presence.\n  tmt talk reviewer 'Review this patch' --timeout 300 --json\n  tmt talk reviewer 'Run the tests' --detach --json\n  tmt result <request-id> --json\n  tmt x ackall --identity coordinator\n  tmt config show --json\n"
+            "  tmt name alice             Bind this pane temporarily; add -s to save it.\n  tmt add %14 reviewer       Bind another pane by stable ID.\n  tmt marked reviewer        Bind the pane explicitly marked in tmux.\n  tmt ls                     Show lifetime and verified presence.\n  tmt talk reviewer 'Review this patch' --timeout 300 --json\n  tmt talk reviewer 'Run the tests' --detach --json\n  tmt result <request-id> --json\n  tmt x ackall --identity coordinator\n  tmt config show --json\n"
         )?;
         writeln!(
             output,

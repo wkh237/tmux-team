@@ -50,6 +50,7 @@ describe('native grammar process contract', () => {
         expect(completion.status).toBe(0);
         expect(completion.stderr).toBe('');
         expect(completion.stdout).toContain('--save');
+        expect(completion.stdout).toContain('marked');
         expect(completion.stdout).not.toContain('--wait');
         expect(completion.stdout).not.toContain('--team');
         expect(completion.stdout).not.toContain('--config');
