@@ -1,0 +1,44 @@
+# Local native-architecture artifact proof. Not a publishing workflow.
+FROM rust:1.97.0-bookworm@sha256:8fa55b2f3ddf97471ab6a767bfa3f37e6bad0986ba823e75fea57e2a2a5c3073 AS build
+RUN apt-get update && apt-get install --no-install-recommends -y musl-tools \
+  && rm -rf /var/lib/apt/lists/*
+RUN cargo install cargo-dist --version 0.32.0 --locked \
+  && cargo install cargo-about --version 0.9.2 --locked --features cli
+ARG TARGET_TRIPLE
+ARG PRODUCT=cli
+RUN test -n "$TARGET_TRIPLE" && rustup target add "$TARGET_TRIPLE"
+WORKDIR /workspace
+COPY rust/ rust/
+COPY skills/ skills/
+COPY scripts/native-cargo.sh scripts/build-native-artifact.sh scripts/
+COPY dist-workspace.toml LICENSE NATIVE-INSTALL.md ./
+COPY typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml typescript/
+COPY typescript/apps/office/package.json typescript/apps/office/package.json
+COPY typescript/apps/office/ typescript/apps/office/
+COPY contracts/ contracts/
+RUN cd rust && cargo fetch --locked
+RUN scripts/build-native-artifact.sh "$TARGET_TRIPLE" "$PRODUCT" > native-manifest.json
+
+FROM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
+RUN apt-get update && apt-get install --no-install-recommends -y binutils \
+  && rm -rf /var/lib/apt/lists/*
+RUN npm install --global pnpm@10.33.0
+WORKDIR /verification
+COPY typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml typescript/
+COPY typescript/apps/office/package.json typescript/apps/office/package.json
+RUN cd typescript && pnpm --filter tmux-team install --frozen-lockfile --ignore-scripts
+COPY typescript/scripts/native-artifact-policy.mjs typescript/scripts/verify-native-artifact.mjs typescript/scripts/verify-native-installation.mjs typescript/scripts/packed-command.mjs typescript/scripts/
+COPY typescript/scripts/native-runtime-proof.mjs typescript/scripts/
+COPY typescript/test/support/performance-contract.mjs typescript/test/support/performance-contract.mjs
+COPY typescript/scripts/native-bootstrap.mjs typescript/scripts/generate-native-bootstrap.mjs typescript/scripts/verify-native-bootstrap.mjs typescript/scripts/
+COPY scripts/native-bootstrap.sh scripts/native-bootstrap.sh
+COPY skills/tmux-team/SKILL.md expected-skill.md
+COPY skills/tmux-team/SKILL.md skills/tmux-team/SKILL.md
+COPY skills/tmt-inbox/SKILL.md skills/tmt-inbox/SKILL.md
+COPY skills/tmt-office/SKILL.md skills/tmt-office/SKILL.md
+COPY --from=build /workspace/native-manifest.json ./
+COPY --from=build /workspace/rust/target/native-notices/THIRD-PARTY-NOTICES.txt expected-notices.txt
+COPY LICENSE expected-license.txt
+COPY --from=build /workspace/target/distrib/ artifacts/
+# Pass archive and target explicitly from the generator's target selection.
+ENTRYPOINT ["node", "typescript/scripts/verify-native-artifact.mjs", "--manifest", "native-manifest.json", "--skill", "expected-skill.md", "--notices", "expected-notices.txt", "--license", "expected-license.txt"]

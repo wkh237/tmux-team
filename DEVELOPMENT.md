@@ -1,9 +1,10 @@
 # Development
 
 The Rust workspace is the shipped CLI runtime. The optional Office SPA foundation
-lives in `apps/office` and is not required to use the CLI. The root Node package is
-private developer tooling for Vitest, fixtures and release verification; it is
-not an npm product and must not be used as a CLI fallback. Repository policy is
+lives in `typescript/apps/office` and is not required to use the CLI. The nested
+`typescript` pnpm workspace owns private developer tooling for Vitest, fixtures
+and release verification. Nx orchestrates repository tasks without making the
+tooling workspace an npm product or a CLI fallback. Repository policy is
 in [AGENTS.md](AGENTS.md), architecture ownership in
 [ARCHITECTURE.md](ARCHITECTURE.md), and style in [CONVENTIONS.md](CONVENTIONS.md).
 Use this guide for reproducible commands and evidence.
@@ -11,11 +12,13 @@ Use this guide for reproducible commands and evidence.
 ## Setup
 
 This section is for contributors, not end users. Rust/Cargo builds the product.
-Node and pinned pnpm run Vitest/native-process/Docker orchestration, formatting,
+Node and pinned pnpm run Vitest, native-process and Docker orchestration, formatting,
 type checks and release verification. `better-sqlite3` is an independent test
 oracle; `tar` builds test archives. These are retained developer dependencies,
 not reasons to install TMT through npm. npm is not a separate required workflow;
 use the pinned pnpm lockfile rather than introducing another package manager.
+Unless a command explicitly changes directories, pnpm commands in this guide run
+from `typescript/`; Cargo, Nx and Docker commands run from the repository root.
 
 Requirements are Node.js 22.12 or newer, the pinned pnpm toolchain, and the
 Rust toolchain declared by `rust/rust-toolchain.toml`. The workspace MSRV is
@@ -25,9 +28,17 @@ macOS developer tools or Linux `readelf` (binutils); these are verifier tools,
 not product runtime dependencies.
 
 ```bash
-pnpm install --frozen-lockfile
+(cd typescript && corepack pnpm install --frozen-lockfile)
 (cd rust && rustup show)
+NX_DAEMON=false NX_INTERACTIVE=false ./nx show projects
 ```
+
+The checked-in non-JavaScript Nx wrapper pins Nx 23.2.1 in `nx.json`. On first
+use, the official wrapper uses npm only to populate ignored `.nx/installation`
+runtime files; this isolated bootstrap is not a product workspace, a lockfile
+owner, or an alternative to the nested pnpm commands above. Nx task caching is
+disabled while this layout is established, and automated checks disable the Nx
+daemon and interactive prompts.
 
 Do not install the product globally while testing. Keep application state,
 provider directories, temporary prefixes, sockets and child processes inside a
@@ -43,13 +54,15 @@ From this checkout's root:
 
 ```bash
 (cd rust && cargo build --locked -p tmt-cli)
-pnpm tmt --version
-pnpm tmt office --help
+NX_DAEMON=false NX_INTERACTIVE=false ./nx run native:tmt -- --version
+(cd typescript && corepack pnpm tmt office --help)
 ```
 
-`pnpm tmt` launches only this checkout's `rust/target/debug/tmt`. It does not
+The `native:tmt` Nx target and nested `pnpm tmt` script both launch only this
+checkout's `rust/target/debug/tmt`. They do not
 build automatically, install anything, or fall back to a global binary. Rebuild
-after changing Rust sources. For clean JSON stdout use `pnpm --silent tmt ...`.
+after changing Rust sources. For clean JSON stdout use
+`(cd typescript && corepack pnpm --silent tmt ...)`.
 The launcher preserves arguments, exit status and environment; normal CLI commands
 still use the usual application data unless you explicitly select isolated settings.
 It does not replace the installed Office companion or update a running Office UI.
@@ -61,27 +74,29 @@ The optional app uses React, Vite, TanStack Router and Jotai. Read
 From the repository root:
 
 ```sh
-pnpm install --frozen-lockfile
-pnpm office:dev
-pnpm office:check
-pnpm office:test
-pnpm office:build
+cd typescript
+corepack pnpm install --frozen-lockfile
+corepack pnpm office:dev
+corepack pnpm office:check
+corepack pnpm office:test
+corepack pnpm office:build
 ```
 
-The dev server binds loopback. Production output is `apps/office/dist`; preview
+The dev server binds loopback. Production output is `typescript/apps/office/dist`; preview
 with `pnpm --filter @tmt/office preview`. A deployed SPA host must rewrite app
 routes such as `/setup` to `index.html`; hosting and Firebase setup are not part
 of the scaffold. Tests use jsdom and the real router, not a browser-layout proof.
 
-`pnpm check` checks root tooling and Office. `pnpm check:tooling` retains the
-native test/release tooling's independent quality gate. Root `test:run` still
+`pnpm check` checks workspace tooling and Office. `pnpm check:tooling` retains the
+native test/release tooling's independent quality gate. Tooling-workspace `test:run` still
 selects only tooling tests; `office:test` explicitly selects app tests and fails
-on empty discovery. Office uses Oxfmt; existing root tooling/docs use Prettier.
-Run `pnpm --filter @tmt/office format` for app formatting, not the root formatter.
+on empty discovery. Office uses Oxfmt; tooling and repository docs use the
+`typescript/.prettierrc` Prettier configuration. Run
+`pnpm --filter @tmt/office format` for app formatting, not the tooling formatter.
 The distinct Vitest versions are lockfile-owned, not a claim that native tests
 were migrated to the newer app runner.
-Office wire-schema conformance is a root tooling test:
-`pnpm exec vitest run test/tooling/office-contracts.test.ts`. See
+Office wire-schema conformance is a nested tooling test. From `typescript`, run
+`corepack pnpm exec vitest run test/tooling/office-contracts.test.ts`. See
 [`contracts/office`](contracts/office/README.md) for its single source of truth,
 versioning and limits. Design vectors are not executable authorization or crash
 recovery evidence; downstream suites must prove those behaviors separately.
@@ -90,7 +105,7 @@ startup overwhelming the existing per-test budgets; assertion/time limits are
 unchanged. Native process and tmux configurations keep their own execution rules.
 
 For an Office-only clean checkout, use `pnpm office:install`. It installs from
-the app directory against the same root lockfile, without workspace recursion.
+the app directory against the same workspace lockfile, without workspace recursion.
 With pinned pnpm 10.33, a plain Office `--filter` install still builds root
 SQLite; the explicit isolated install avoids that unrelated dependency. Do not
 create an app lockfile or remove `--frozen-lockfile` to work around a mismatch.
@@ -105,7 +120,7 @@ the root SQLite oracle nor a native TMT executable. It runs quality, DOM tests
 and a production build with networking disabled:
 
 ```sh
-docker build -f apps/office/Dockerfile -t tmt-office-check:local .
+docker build -f typescript/apps/office/Dockerfile -t tmt-office-check:local .
 docker run --rm --init --network none tmt-office-check:local
 docker image rm tmt-office-check:local
 ```
@@ -114,7 +129,7 @@ Choose an unused task-owned image tag; remove only that verification image.
 This is not a deployment image or a browser/Firebase E2E claim.
 
 For native-only fixtures, `pnpm --filter tmux-team install --frozen-lockfile`
-installs only root dependencies; Docker copies workspace/package metadata before
+installs only tooling dependencies; Docker copies workspace/package metadata before
 this step. Do not make native fixture containers install or execute Office.
 The workspace explicitly permits lifecycle scripts only for the existing
 `better-sqlite3` oracle and esbuild tooling. Fresh oracle builds need Python,
@@ -135,7 +150,7 @@ and negative selection/gate evidence before pushing; do not change branch
 protection merely to get a newly skipped job accepted.
 
 For the separate Office Auth/Firestore environment, follow
-[`services/office/README.md`](services/office/README.md). It uses Docker-contained
+[`typescript/services/office/README.md`](typescript/services/office/README.md). It uses Docker-contained
 Java and Firebase tooling with a demo project; no host Firebase login is required
 for emulator tests. Local real-project mappings and credentials must remain
 ignored by both Git and Docker. Never substitute this bootstrap smoke proof for
@@ -156,13 +171,13 @@ does not inherit the session. Default `office:dev` / `office:build` stays a
 disconnected preview. Login does not create a world or grant access.
 Console-managed tester admission gates direct Firestore world creation/read.
 For explicit real Google sign-in and owner-local configuration, see
-[the limited cloud pilot](services/office/README.md#limited-cloud-pilot).
+[the limited cloud pilot](typescript/services/office/README.md#limited-cloud-pilot).
 Do not point automated tests at a real project.
 
 Run the real-browser suite with the same emulator owner:
 
 ```sh
-docker build --target browser-tests -f services/office/Dockerfile -t tmt-office-browser:local .
+docker build --target browser-tests -f typescript/services/office/Dockerfile -t tmt-office-browser:local .
 docker run --rm --init --shm-size=256m tmt-office-browser:local
 ```
 
@@ -203,11 +218,11 @@ the partition count alone.
 Capacity diagnostics are preserved as explicit opt-in runs and are not required CI:
 
 ```bash
-docker build --target browser-tests -f services/office/Dockerfile -t tmt-office-browser:capacity .
+docker build --target browser-tests -f typescript/services/office/Dockerfile -t tmt-office-browser:capacity .
 docker run --rm --init --shm-size=256m --network none \
   --env TMT_TEST_BROWSER_CHANNEL=chromium \
   tmt-office-browser:capacity \
-  sh /workspace/services/office/with-test-keyring.sh \
+  sh /workspace/typescript/services/office/with-test-keyring.sh \
   pnpm --filter @tmt/office test:browser:capacity
 ```
 
@@ -256,7 +271,7 @@ Node encoder. Review desktop/narrow screenshots rather than accepting their
 existence as visual proof.
 
 `native-pairing.spec.ts` installs the real compiled CLI/companion through a
-synthetic verified archive, using the existing `test/support` process and artifact
+synthetic verified archive, using the existing `typescript/test/support` process and artifact
 owners. It resumes a protected proof across CLI processes after Chromium consent,
 then independently checks the issued grant, OS-store record, scoped Firestore
 read, token refresh, expired server/native lease renewal, simulated lost-response readback,
@@ -380,7 +395,7 @@ scripts and require migration before a release gate can claim full current-UI co
 `native-local-world.spec.ts` owns the installation-wide layout lifecycle: a lazy
 furnished 2×2 Lobby plus four unassigned offices, explicit browser Save, one SQLite world revision, empty placements
 remaining empty after restart, and no new per-identity block rows.
-`test/support/office-world.ts` owns explicit legacy fixtures for older topology
+`typescript/test/support/office-world.ts` owns explicit legacy fixtures for older topology
 scenarios; do not translate the evolving new-world preset to simulate old inputs.
 `native-local-topology.spec.ts` owns personal-area removal, replacement Lobby,
 retained identity content and real external-write conflicts using explicit legacy
@@ -464,7 +479,7 @@ rotated credentials, version drift, dead-child recovery, occupied ports, early
 companion exit and uncertain receipts. Use the shared native Office fixture;
 do not recreate its installer, process sandbox or executable selection in scripts.
 
-`apps/office/e2e/native-local-discussion.spec.ts` owns spatial presentation checks:
+`typescript/apps/office/e2e/native-local-discussion.spec.ts` owns spatial presentation checks:
 opening and closing over the same panned canvas, unsent draft retention, explicit
 post/reply persistence without task dispatch, mobile navigation and focus return.
 It uses the shared native Office fixture, not a second service harness.
@@ -509,7 +524,7 @@ tests own exact deadline/rollback scheduling and appearance/status read races.
 Build the local SPA from the repository root:
 
 ```bash
-pnpm office:build:local
+NX_DAEMON=false NX_INTERACTIVE=false ./nx run office-spa:build-local
 ```
 
 After the SPA build exits successfully, run the pinned toolchain from `rust/`,
@@ -517,16 +532,16 @@ where `rust-toolchain.toml` applies. Never overlap these producer/consumer steps
 Cargo can otherwise reuse the old embedded assets before Vite replaces them.
 
 ```bash
-TMT_OFFICE_SPA_DIR="$PWD/../target/office-spa" CARGO_PROFILE_DEV_DEBUG=0 cargo clippy --locked -p tmt-office --features local-service -- -D warnings
-TMT_OFFICE_SPA_DIR="$PWD/../target/office-spa" CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked -p tmt-office --features local-service
-TMT_OFFICE_SPA_DIR="$PWD/../target/office-spa" CARGO_PROFILE_DEV_DEBUG=0 cargo test --locked -p tmt-office --features local-service
-CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked -p tmt-cli
+(cd rust && TMT_OFFICE_SPA_DIR="$PWD/../target/office-spa" CARGO_PROFILE_DEV_DEBUG=0 cargo clippy --locked -p tmt-office --features local-service -- -D warnings)
+(cd rust && TMT_OFFICE_SPA_DIR="$PWD/../target/office-spa" CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked -p tmt-office --features local-service)
+(cd rust && TMT_OFFICE_SPA_DIR="$PWD/../target/office-spa" CARGO_PROFILE_DEV_DEBUG=0 cargo test --locked -p tmt-office --features local-service)
+(cd rust && CARGO_PROFILE_DEV_DEBUG=0 cargo build --locked -p tmt-cli)
 ```
 
 Finally, return to the repository root and exercise the real installed-style flow:
 
 ```bash
-pnpm office:local:e2e
+(cd typescript && corepack pnpm office:local:e2e)
 ```
 
 Run the complete applicable local gates before pushing the reviewed commit.
@@ -587,8 +602,8 @@ I/O; adapters own SQLite/files/processes; CLI owns grammar and composition.
 
 ### Selecting the CLI under test
 
-The maintained JavaScript suites live under `test/native/`, `test/e2e/`,
-`test/tooling/` and `test/support/`. Rust tests stay beside the owner in
+The maintained JavaScript suites live under `typescript/test/native/`, `typescript/test/e2e/`,
+`typescript/test/tooling/` and `typescript/test/support/`. Rust tests stay beside the owner in
 `rust/crates/*`. The native process selector resolves the repository build at
 `rust/target/debug/tmt` by default and fails if it is absent. An explicit
 descriptor may select another absolute native executable; it must be
@@ -624,14 +639,14 @@ The suite covers grammar, configuration-before-effects, identity metadata and
 binding lifecycle, role/preamble, response/receipts, exchanges/attention, inbox listening, talk,
 local Office board grammar/persistence, managed skills and native installation. It uses bounded process budgets,
 task-owned files and independent SQL/schema oracles. Frozen migration fixtures
-and provenance under `test/fixtures/storage-history/` are immutable evidence;
+and provenance under `typescript/test/fixtures/storage-history/` are immutable evidence;
 do not generate expected data with the implementation under test.
 For schema changes, update the independent native schema expectation in
-`test/native/storage-fixture.ts` and the explicit migration/table assertions,
+`typescript/test/native/storage-fixture.ts` and the explicit migration/table assertions,
 then run this complete process suite before pushing. Rust storage tests do not
 replace process-level migration and future-version rejection tests.
 
-`test/native/inbox.test.ts` owns the real no-tmux queue -> bounded listen ->
+`typescript/test/native/inbox.test.ts` owns the real no-tmux queue -> bounded listen ->
 detail/receipt -> reply -> result path. It uses isolated SQLite, verifies compact
 listen output excludes receipts and bodies, preserves participant-scoped
 acknowledgment, and starts no Office process. Rust request/storage tests own route
@@ -643,7 +658,7 @@ must contain no deleted TypeScript source and must not present Rust as a
 cross-language percentage. Run focused tooling tests with:
 
 ```bash
-pnpm exec vitest run test/tooling
+(cd typescript && corepack pnpm exec vitest run test/tooling)
 ```
 
 Native process tests must prove the missing-native negative control and selected
@@ -657,7 +672,7 @@ share active runs; disposal stops outstanding commands before deleting files
 and rejects later launches. Each run has its execution deadline plus at most
 one second to confirm direct close and process-group exit. Unconfirmed cleanup
 fails and reports the retained fixture path instead of deleting potentially
-live state. Focused lifecycle regressions live in `test/tooling/cli-process.test.ts`;
+live state. Focused lifecycle regressions live in `typescript/test/tooling/cli-process.test.ts`;
 they use explicit Node fixtures, not a product-runtime fallback.
 
 ## Docker E2E
@@ -666,8 +681,8 @@ Run the full private tmux/caller lifecycle harness twice for lifecycle,
 transport, identity, talk, or cleanup changes:
 
 ```bash
-pnpm test:e2e
-pnpm test:e2e
+(cd typescript && corepack pnpm test:e2e)
+(cd typescript && corepack pnpm test:e2e)
 ```
 
 The harness builds its pinned image, uses `--network none`, private tmux
@@ -704,28 +719,28 @@ action, assertions and failure/cleanup observations. The redundant basic badge
 case formerly in the binding suite is owned by the stronger `pane-badge` cases;
 do not add another copy there.
 
-`test/e2e/cli-assertions.ts` owns `expectJsonResult` for the E2E result shape.
+`typescript/test/e2e/cli-assertions.ts` owns `expectJsonResult` for the E2E result shape.
 It checks the success envelope and returns the same parsed value; it does not
 validate domain fields. Scenarios retain their exact/partial payload assertions
 and independent SQL oracles. Helpers with a different stderr or parse contract
 remain local. Do not combine partial identity views into a permissive shared
 schema or import product types to manufacture expected results.
 
-Shared cross-suite utilities belong in `test/support/`; suite-only harness,
+Shared cross-suite utilities belong in `typescript/test/support/`; suite-only harness,
 assertions and observers stay with their suite. Focused helper tests belong in
-`test/tooling/` and must prove rejection as well as positive behavior.
+`typescript/test/tooling/` and must prove rejection as well as positive behavior.
 
 For ordinary developer checks, run:
 
 ```bash
-pnpm check
-pnpm test:run
+(cd typescript && corepack pnpm check)
+(cd typescript && corepack pnpm test:run)
 ```
 
-`pnpm check` is the common quality entrypoint for all retained tooling, including
-E2E. For focused work use `pnpm type:check`, `pnpm lint` or
-`pnpm format:check`; the old duplicate `e2e:*` quality aliases are removed.
-`pnpm test:e2e` remains the actual Docker scenario runner.
+The nested `pnpm check` script is the common quality entrypoint for all retained
+tooling, including E2E. For focused work use `pnpm type:check`, `pnpm lint` or
+`pnpm format:check` from `typescript/`; the old duplicate `e2e:*` quality aliases
+are removed. `pnpm test:e2e` remains the actual Docker scenario runner.
 
 The first command checks TypeScript types and lint/format for retained tooling
 and docs; the second runs tooling behavior and source-boundary tests. Neither
@@ -776,7 +791,7 @@ managed links, repeat no-op, backup/conflict and partial-failure behavior, lock
 ownership, refresh without resurrection, and no effects on SQLite or tmux.
 Follow `USER-GUIDE.md` and `skills/README.md` for provider/custom-root usage; do
 not add provider-specific skill copies. Runtime/linkage proof shared by archive
-and raw verification lives in `scripts/native-runtime-proof.mjs`.
+and raw verification lives in `typescript/scripts/native-runtime-proof.mjs`.
 
 ## Review and evidence
 

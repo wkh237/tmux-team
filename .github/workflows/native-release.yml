@@ -50,6 +50,7 @@ jobs:
           node-version: 22.23.2
       - name: Install embedded Office build dependencies
         if: inputs.product == 'office'
+        working-directory: typescript
         run: |
           corepack enable
           corepack prepare pnpm@10.33.0 --activate
@@ -114,6 +115,7 @@ jobs:
           key: native-tools-${{ runner.os }}-${{ runner.arch }}-rust1.97-dist0.32.0-about0.9.2
           fail-on-cache-miss: true
       - name: Install verification dependencies
+        working-directory: typescript
         run: |
           corepack enable
           corepack prepare pnpm@10.33.0 --activate
@@ -141,7 +143,7 @@ jobs:
           dist build --tag "$tag" --artifacts global --output-format=json --no-local-paths > "$RUNNER_TEMP/dist-manifest.json"
           cp "$RUNNER_TEMP/dist-manifest.json" target/distrib/dist-manifest.json
           if [ "$PRODUCT" = cli ]; then
-            node scripts/generate-native-bootstrap.mjs --manifest target/distrib/dist-manifest.json --archive-dir target/distrib --plan "$RUNNER_TEMP/plan.json" > target/distrib/tmt-installer.sh
+            node typescript/scripts/generate-native-bootstrap.mjs --manifest target/distrib/dist-manifest.json --archive-dir target/distrib --plan "$RUNNER_TEMP/plan.json" > target/distrib/tmt-installer.sh
             sh -n target/distrib/tmt-installer.sh
             shellcheck --shell sh target/distrib/tmt-installer.sh
           fi
@@ -174,6 +176,7 @@ jobs:
         with:
           node-version: 22.23.2
       - name: Install verification dependencies
+        working-directory: typescript
         run: |
           corepack enable
           corepack prepare pnpm@10.33.0 --activate
@@ -188,19 +191,19 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           if [ "$PRODUCT" = cli ]; then
-            node scripts/verify-native-artifact.mjs \
+            node typescript/scripts/verify-native-artifact.mjs \
               --manifest target/distrib/dist-manifest.json \
               --archive "target/distrib/tmt-cli-$TARGET.tar.gz" --target "$TARGET" \
               --skill skills/tmux-team/SKILL.md --license LICENSE \
               --notices "target/distrib/$TARGET-notices.txt"
-            node scripts/verify-native-bootstrap.mjs \
+            node typescript/scripts/verify-native-bootstrap.mjs \
               --manifest target/distrib/dist-manifest.json \
               --archive "target/distrib/tmt-cli-$TARGET.tar.gz" --target "$TARGET" \
               --skill skills/tmux-team/SKILL.md
-            node scripts/generate-native-bootstrap.mjs --manifest target/distrib/dist-manifest.json --archive-dir target/distrib > "$RUNNER_TEMP/installer.sh"
+            node typescript/scripts/generate-native-bootstrap.mjs --manifest target/distrib/dist-manifest.json --archive-dir target/distrib > "$RUNNER_TEMP/installer.sh"
             cmp "$RUNNER_TEMP/installer.sh" target/distrib/tmt-installer.sh
           else
-            node scripts/verify-native-artifact.mjs \
+            node typescript/scripts/verify-native-artifact.mjs \
               --product office \
               --manifest target/distrib/dist-manifest.json \
               --archive "target/distrib/tmt-office-$TARGET.tar.gz" --target "$TARGET" \
