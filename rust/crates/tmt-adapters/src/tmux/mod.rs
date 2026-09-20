@@ -27,6 +27,7 @@ use std::{
     fmt,
     time::{Duration, Instant},
 };
+use tmt_core::binding::BindingTargetEvidence;
 use tmt_core::endpoint::{
     BindingMarker, EndpointProbe, EndpointSnapshot, ServerEvidence, valid_process_id,
     valid_server_id,
@@ -215,34 +216,34 @@ impl<R: CommandRunner> Tmux<R> {
         )
     }
 
-    fn ensure_server_id(&self, options: OperationOptions<'_>) -> Result<String, TmuxError> {
+    fn ensure_server_id_on(
+        &self,
+        socket: Option<&str>,
+        options: OperationOptions<'_>,
+    ) -> Result<String, TmuxError> {
         let read = || {
-            self.execute(
-                vec![
-                    "show-options".into(),
-                    "-s".into(),
-                    "-v".into(),
-                    SERVER_ID_OPTION.into(),
-                ],
-                options,
-                TmuxFailure::Command,
-            )
+            let mut args = socket_args(socket);
+            args.extend([
+                "show-options".into(),
+                "-s".into(),
+                "-v".into(),
+                SERVER_ID_OPTION.into(),
+            ]);
+            self.execute(args, options, TmuxFailure::Command)
         };
         let value = match read() {
             Ok(value) => value,
             Err(error) if error.cleanup_failed() => return Err(error),
             Err(_) => {
-                self.execute(
-                    vec![
-                        "set-option".into(),
-                        "-s".into(),
-                        "-o".into(),
-                        SERVER_ID_OPTION.into(),
-                        uuid::Uuid::new_v4().to_string(),
-                    ],
-                    options,
-                    TmuxFailure::Command,
-                )?;
+                let mut args = socket_args(socket);
+                args.extend([
+                    "set-option".into(),
+                    "-s".into(),
+                    "-o".into(),
+                    SERVER_ID_OPTION.into(),
+                    uuid::Uuid::new_v4().to_string(),
+                ]);
+                self.execute(args, options, TmuxFailure::Command)?;
                 read()?
             }
         };
@@ -251,6 +252,46 @@ impl<R: CommandRunner> Tmux<R> {
             return Err(TmuxError::evidence("tmux server identity is unavailable"));
         }
         Ok(value.into())
+    }
+
+    fn ensure_server_id(&self, options: OperationOptions<'_>) -> Result<String, TmuxError> {
+        self.ensure_server_id_on(None, options)
+    }
+
+    /// Resolve the explicit mark on the invocation-selected server once. The
+    /// returned endpoint evidence is independent of later focus or mark moves.
+    pub fn marked_pane(
+        &self,
+        environment: &CallerEnvironment,
+        options: OperationOptions<'_>,
+    ) -> Result<Option<BindingTargetEvidence>, TmuxError> {
+        let socket = environment.selected_server_socket()?;
+        let expected = self.ensure_server_id_on(socket, options)?;
+        let mut args = socket_args(socket);
+        args.extend([
+            "list-panes".into(),
+            "-a".into(),
+            "-f".into(),
+            "#{pane_marked}".into(),
+            "-F".into(),
+            evidence::endpoint_format(),
+        ]);
+        let output = self.execute(args, options, TmuxFailure::Command)?;
+        if output.trim().is_empty() {
+            return Ok(None);
+        }
+        let snapshot = evidence::parse_snapshot(&output, Some(&expected))?;
+        if snapshot.panes.len() != 1 {
+            return Err(TmuxError::evidence(
+                "tmux marked pane evidence is ambiguous",
+            ));
+        }
+        let pane = &snapshot.panes[0];
+        Ok(Some(BindingTargetEvidence {
+            server: snapshot.server,
+            pane_id: pane.id.clone(),
+            pane_pid: pane.pane_pid,
+        }))
     }
 
     pub fn snapshot(&self, options: OperationOptions<'_>) -> Result<EndpointSnapshot, TmuxError> {

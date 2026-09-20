@@ -111,6 +111,16 @@ pub fn grammar() -> Command {
     .subcommand(
         with_options(
             general(
+                "marked",
+                "Bind the pane explicitly marked in tmux; temporary unless saved",
+            ),
+            &["save"],
+        )
+        .arg(operand("name", true)),
+    )
+    .subcommand(
+        with_options(
+            general(
                 "rm",
                 "Retire identity and remove role/preamble; keep pane/exchanges (--force for saved)",
             ),

@@ -70,6 +70,16 @@ fn notes_help_identifies_the_shared_file_and_explicit_creation_boundary() {
 }
 
 #[test]
+fn marked_help_comes_from_the_public_grammar() {
+    let mut command = grammar::help_command(&["marked".into()]).unwrap();
+    let text = command.render_long_help().to_string();
+    assert!(text.contains("tmt marked"));
+    assert!(text.contains("<name>"));
+    assert!(text.contains("--save"));
+    assert!(text.contains("explicitly marked in tmux"));
+}
+
+#[test]
 fn help_respects_data_boundaries_and_machine_mode() {
     for argv in [
         vec!["talk", "peer", "--", "--help"],

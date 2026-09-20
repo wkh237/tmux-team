@@ -15,12 +15,17 @@ use tmt_adapters::{
     tmux::{BindingSession, CallerEnvironment, OperationOptions, Tmux},
 };
 use tmt_core::{
-    binding::{self, BindingEntry, IdentityPresence, UnboundIdentity},
+    binding::{self, BindingEntry, BindingTargetEvidence, IdentityPresence, UnboundIdentity},
     endpoint::PaneObservation,
     identity::Identity,
     names::is_pane_target,
     settings::PaneBadge,
 };
+
+struct ResolvedPane {
+    id: String,
+    frozen: Option<BindingTargetEvidence>,
+}
 
 enum Report {
     Bound(IdentityPresence),
@@ -49,8 +54,25 @@ fn preflight(
     request: &Invocation,
     tmux: &Tmux,
     environment: &CallerEnvironment,
-) -> Result<Option<String>, Failure> {
+) -> Result<Option<ResolvedPane>, Failure> {
     let target = match request {
+        Invocation::BindMarked { .. } => {
+            let target = tmux
+                .marked_pane(environment, OperationOptions::default())
+                .map_err(endpoint_failure)?
+                .ok_or_else(|| {
+                    Failure::new(
+                        "MARKED_PANE_NOT_FOUND",
+                        "No marked pane was found on the selected tmux server.",
+                        3,
+                    )
+                    .suggestion("Mark the intended pane in tmux, then retry.".into())
+                })?;
+            return Ok(Some(ResolvedPane {
+                id: target.pane_id.clone(),
+                frozen: Some(target),
+            }));
+        }
         Invocation::Bind {
             pane: Some(pane),
             name,
@@ -74,7 +96,7 @@ fn preflight(
             return tmux
                 .caller_pane(environment)
                 .map_err(endpoint_failure)?
-                .map(Some)
+                .map(|id| Some(ResolvedPane { id, frozen: None }))
                 .ok_or_else(|| {
                     Failure::new(
                         "PANE_NOT_FOUND",
@@ -96,6 +118,7 @@ fn preflight(
                         3,
                     )
                 })
+                .map(|id| ResolvedPane { id, frozen: None })
         })
         .transpose()
 }
@@ -105,7 +128,10 @@ fn run(request: Invocation) -> Result<Report, Failure> {
     let environment = CallerEnvironment::current();
     let pane = preflight(&request, &tmux, &environment)?;
     let paths = ConfigPaths::discover().map_err(Failure::from)?;
-    let badge = if matches!(request, Invocation::Bind { .. }) {
+    let badge = if matches!(
+        request,
+        Invocation::Bind { .. } | Invocation::BindMarked { .. }
+    ) {
         ConfigFiles {
             paths: paths.clone(),
         }
@@ -144,21 +170,34 @@ fn operation(
     storage: &mut Storage,
     endpoint: &mut BindingSession<'_, tmt_adapters::process::UnixCommandRunner>,
     request: Invocation,
-    pane: Option<String>,
+    pane: Option<ResolvedPane>,
     current_socket: Option<&str>,
 ) -> Result<Report, Failure> {
     match request {
         Invocation::Bind { name, save, .. } => binding::bind_identity(
             storage,
             endpoint,
-            pane.as_deref().expect("binding preflight"),
+            &pane.as_ref().expect("binding preflight").id,
             &name,
             save,
         )
         .map(Report::Bound)
         .map_err(binding_failure),
+        Invocation::BindMarked { name, save } => {
+            let pane = pane.as_ref().expect("marked binding preflight");
+            binding::bind_identity_at(
+                storage,
+                endpoint,
+                &pane.id,
+                pane.frozen.as_ref(),
+                &name,
+                save,
+            )
+            .map(Report::Bound)
+            .map_err(binding_failure)
+        }
         Invocation::Whoami => {
-            let pane = pane.expect("caller preflight");
+            let pane = pane.expect("caller preflight").id;
             let observed =
                 binding::pane_presence(storage, endpoint, &pane).map_err(binding_failure)?;
             Ok(Report::Caller {
@@ -167,7 +206,7 @@ fn operation(
             })
         }
         Invocation::Unbind => {
-            let pane = pane.expect("caller preflight");
+            let pane = pane.expect("caller preflight").id;
             let result = binding::unbind_identity(storage, endpoint, &pane)
                 .map_err(binding_failure)?
                 .ok_or_else(|| {
@@ -198,7 +237,7 @@ fn operation(
         } => {
             if let Some(pane) = pane {
                 let observed =
-                    binding::pane_presence(storage, endpoint, &pane).map_err(binding_failure)?;
+                    binding::pane_presence(storage, endpoint, &pane.id).map_err(binding_failure)?;
                 Ok(Report::Pane {
                     target,
                     pane: observed.pane,

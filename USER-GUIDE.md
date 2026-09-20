@@ -44,6 +44,8 @@ launching the agent:
 tmt name reviewer
 # Or bind another pane from a shell that can address it:
 tmt add %12 gemini
+# Or mark the intended pane in tmux, then bind that explicit mark:
+tmt marked claude
 ```
 
 Use these commands to inspect the current tmux server:
@@ -61,8 +63,12 @@ human spacing is presentation, not a machine-readable format.
 
 `name` and `whoami` need a live caller pane. `add` accepts `%pane_id`,
 `window.pane`, or `session:window.pane`; the current order is pane target first,
-global name second. `tmt unbind` retires a temporary identity; a saved identity
-and its profile remain offline. Neither operation kills the pane.
+global name second. `marked` selects only the pane explicitly marked on the
+tmux server selected by the invocation. It never substitutes the caller or
+active pane, never searches another server, and leaves the mark unchanged.
+Add `-s` to any binding command to save or promote the identity. `tmt unbind`
+retires a temporary identity; a saved identity and its profile remain offline.
+Neither operation kills the pane.
 
 Global names are independent of the working directory. A durable identity can
 exist without an active pane:
@@ -336,7 +342,8 @@ Display labels replace
 48 Unicode code points; the stored identity name remains unchanged.
 
 Configuration changes do not scan or rewrite panes. They apply on the next
-successful `name`, `this`, or `add` for that pane. To disable the current badge:
+successful `name`, `this`, `add`, or `marked` for that pane. To disable the
+current badge:
 
 ```bash
 tmt config set ui.paneBadge off --global

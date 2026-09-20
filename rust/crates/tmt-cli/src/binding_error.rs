@@ -13,6 +13,7 @@ pub fn binding_failure(error: BindingError<StorageError, TmuxError>) -> Failure 
         BindingError::InvalidName(_) => ("INVALID_NAME", 1),
         BindingError::NameNotFound(_) => ("NAME_NOT_FOUND", 3),
         BindingError::PaneNotFound(_) => ("PANE_NOT_FOUND", 3),
+        BindingError::TargetChanged(_) => ("PANE_CHANGED", 3),
         BindingError::NameAlreadyActive => ("NAME_ALREADY_ACTIVE", 5),
         BindingError::PaneAlreadyBound => ("PANE_ALREADY_BOUND", 5),
         BindingError::ConfirmationRequired => ("CONFIRMATION_REQUIRED", 5),

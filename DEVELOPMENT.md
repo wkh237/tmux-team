@@ -703,6 +703,7 @@ Keep these boundaries when choosing where a regression belongs:
 | E2E file(s)                                                    | Distinct evidence                                                                                                                     |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | `binding-reconciliation`                                       | Publication races, uncertain endpoint evidence, scoped/global discovery, binding transitions and live listing presentation            |
+| `marked-binding`                                               | Explicit marked-pane selection, frozen target evidence, server isolation, mark preservation and binding lifecycle reuse               |
 | `durable-identity`, `identity-lifecycle`, `identity-retention` | Stored identity/profile continuity, pane/server lifecycle and retirement consequences                                                 |
 | `check-routing` versus `capture-limits`                        | Real target/server resolution and capture failures versus numeric/configuration bounds                                                |
 | `profile-binding` versus `role-lifecycle`                      | Verified caller/retired-name ownership versus restart, file input, validation and concurrent writes                                   |

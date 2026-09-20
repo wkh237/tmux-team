@@ -25,6 +25,21 @@ impl CallerEnvironment {
         context(self.tmux.as_ref()?.to_str()?).map(|context| context.socket)
     }
 
+    /// The selected tmux server, with malformed supplied evidence rejected
+    /// instead of treated as permission to use an ambient default server.
+    pub fn selected_server_socket(&self) -> Result<Option<&str>, TmuxError> {
+        let Some(value) = &self.tmux else {
+            return Ok(None);
+        };
+        let text = value.to_str().ok_or_else(unavailable)?;
+        if text.is_empty() {
+            return Ok(None);
+        }
+        context(text)
+            .map(|context| Some(context.socket))
+            .ok_or_else(unavailable)
+    }
+
     pub fn current() -> Self {
         Self {
             tmux: std::env::var_os("TMUX"),

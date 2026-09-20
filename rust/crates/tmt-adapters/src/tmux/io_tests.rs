@@ -4,6 +4,23 @@ use crate::process::CommandOutput;
 
 const SERVER_ID: &str = "123e4567-e89b-42d3-a456-426614174000";
 
+fn marked_row() -> String {
+    [
+        SERVER_ID,
+        "/tmp/private.sock",
+        "321",
+        "1700000000",
+        "%9",
+        "e2e:0.0",
+        "/workspace",
+        "zsh",
+        "900",
+        "1",
+        "",
+    ]
+    .join(evidence::SEPARATOR)
+}
+
 fn full_environment() -> CallerEnvironment {
     CallerEnvironment {
         tmux: Some("/tmp/private.sock,321,0".into()),
@@ -26,6 +43,54 @@ fn complete_caller_evidence_uses_one_small_query_without_ancestry() {
     assert_eq!(calls[0].program, "tmux");
     assert_eq!(&calls[0].args[..4], ["display-message", "-p", "-t", "%9"]);
     assert_eq!(calls[0].max_output_bytes, 4096);
+}
+
+#[test]
+fn marked_pane_uses_only_the_selected_server_and_returns_frozen_evidence() {
+    let runner = ScriptedRunner::new([Ok(SERVER_ID)]);
+    runner.push_output(format!("{}\n", marked_row()).into_bytes(), Vec::new());
+    let tmux = Tmux::new(runner);
+    let target = tmux
+        .marked_pane(&full_environment(), OperationOptions::default())
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(target.server.server_id, SERVER_ID);
+    assert_eq!(target.server.socket_path, "/tmp/private.sock");
+    assert_eq!(target.pane_id, "%9");
+    assert_eq!(target.pane_pid, 900);
+    let calls = tmux.runner.calls.borrow();
+    assert_eq!(&calls[0].args[..2], ["-S", "/tmp/private.sock"]);
+    assert_eq!(&calls[1].args[..2], ["-S", "/tmp/private.sock"]);
+    assert_eq!(
+        &calls[1].args[2..7],
+        ["list-panes", "-a", "-f", "#{pane_marked}", "-F"]
+    );
+    assert!(calls.iter().all(|call| call.program == "tmux"));
+}
+
+#[test]
+fn absent_mark_is_distinct_from_invalid_selected_server_evidence() {
+    let tmux = Tmux::new(ScriptedRunner::new([Ok(SERVER_ID), Ok("")]));
+    assert_eq!(
+        tmux.marked_pane(&full_environment(), OperationOptions::default())
+            .unwrap(),
+        None
+    );
+
+    let tmux = Tmux::new(ScriptedRunner::default());
+    let invalid = CallerEnvironment {
+        tmux: Some("malformed".into()),
+        pane: None,
+        process_id: 900,
+    };
+    assert_eq!(
+        tmux.marked_pane(&invalid, OperationOptions::default())
+            .unwrap_err()
+            .kind,
+        TmuxFailure::Evidence
+    );
+    assert!(tmux.runner.calls.borrow().is_empty());
 }
 
 #[test]

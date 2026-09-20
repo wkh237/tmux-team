@@ -9,7 +9,7 @@ mod evidence_tests;
 pub use observation::{
     current_name_presence, evaluate_binding, list_presence, name_presence, pane_presence,
 };
-pub use operations::{bind_identity, remove_identity, unbind_identity};
+pub use operations::{bind_identity, bind_identity_at, remove_identity, unbind_identity};
 
 use crate::{
     endpoint::{BindingMarker, EndpointProbe, EndpointSnapshot, PaneObservation, ServerEvidence},
@@ -22,6 +22,19 @@ use std::{error::Error, fmt};
 pub struct Binding {
     pub id: String,
     pub identity_id: String,
+    pub server: ServerEvidence,
+    pub pane_id: String,
+    pub pane_pid: u64,
+}
+
+/// Endpoint evidence frozen before a binding operation begins.
+///
+/// Explicit selectors such as a tmux mark can change independently of the
+/// pane they identified. Keeping this evidence separate from the selector
+/// lets binding policy reject pane-id reuse or server drift without resolving
+/// the selector again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BindingTargetEvidence {
     pub server: ServerEvidence,
     pub pane_id: String,
     pub pane_pid: u64,
@@ -143,6 +156,7 @@ pub enum BindingError<R, O> {
     InvalidName(NameError),
     NameNotFound(String),
     PaneNotFound(String),
+    TargetChanged(String),
     PaneAlreadyBound,
     NameAlreadyActive,
     ConfirmationRequired,
@@ -164,6 +178,10 @@ impl<R, O: fmt::Display> fmt::Display for BindingError<R, O> {
             Self::InvalidName(error) => error.fmt(output),
             Self::NameNotFound(name) => write!(output, "Identity '{name}' was not found."),
             Self::PaneNotFound(pane) => write!(output, "Pane '{pane}' was not found."),
+            Self::TargetChanged(pane) => write!(
+                output,
+                "Pane '{pane}' changed before binding completed. No successful binding change is claimed."
+            ),
             Self::PaneAlreadyBound => output.write_str("Pane is already bound to another name."),
             Self::NameAlreadyActive => output.write_str("Name is already active on another pane."),
             Self::ConfirmationRequired => output.write_str("Saved identity removal requires --force. Its role and preamble will be removed; exchanges are retained."),
