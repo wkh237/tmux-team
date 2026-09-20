@@ -37,11 +37,11 @@ assertNativeTarget(values.target, 'Artifact requires a matching native host');
 const skill = values.skill ? fs.readFileSync(values.skill, 'utf8') : undefined;
 const inboxSkill =
   values.product === 'cli'
-    ? fs.readFileSync(new URL('../skills/tmt-inbox/SKILL.md', import.meta.url), 'utf8')
+    ? fs.readFileSync(new URL('../../skills/tmt-inbox/SKILL.md', import.meta.url), 'utf8')
     : undefined;
 const officeSkill =
   values.product === 'cli'
-    ? fs.readFileSync(new URL('../skills/tmt-office/SKILL.md', import.meta.url), 'utf8')
+    ? fs.readFileSync(new URL('../../skills/tmt-office/SKILL.md', import.meta.url), 'utf8')
     : undefined;
 const notices = fs.readFileSync(values.notices, 'utf8');
 assert(

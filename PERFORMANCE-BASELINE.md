@@ -108,12 +108,12 @@ measurements. Node runs the measurement tooling only. From the repository root:
 ```bash
 cargo build --locked --release --manifest-path rust/Cargo.toml
 export TMT_TEST_CLI="{\"executable\":\"$PWD/rust/target/release/tmt\",\"args\":[]}"
-node scripts/benchmark-startup.mjs > /tmp/tmt-startup-run-1.json
-node scripts/benchmark-startup.mjs > /tmp/tmt-startup-run-2.json
+node typescript/scripts/benchmark-startup.mjs > /tmp/tmt-startup-run-1.json
+node typescript/scripts/benchmark-startup.mjs > /tmp/tmt-startup-run-2.json
 ```
 
 The script uses macOS `/usr/bin/time -lp` and the existing bounded
-[packed-command runner](scripts/packed-command.mjs). It creates and removes a
+[packed-command runner](typescript/scripts/packed-command.mjs). It creates and removes a
 private home/config/workspace, omits caller environment, blocks PATH-based tmux
 execution and asserts command output. Each create uses a new storage directory;
 show reads that identity in a later process. It never installs globally or
@@ -152,11 +152,11 @@ Use the pinned E2E Dockerfile and a task-owned image; do not run tmux scenarios
 on the host. No extra benchmark dependency or second test framework is installed.
 
 ```bash
-docker build --build-arg TMT_NATIVE_PROFILE=release -f test/e2e/Dockerfile -t tmt-performance-local .
+docker build --build-arg TMT_NATIVE_PROFILE=release -f typescript/test/e2e/Dockerfile -t tmt-performance-local .
 docker run --rm --init --network none \
   -e TMT_PERFORMANCE_BASELINE=1 tmt-performance-local \
-  pnpm exec vitest run --config test/e2e/vitest.config.ts \
-  test/e2e/performance-baseline.e2e.test.ts
+  sh -c 'cd /workspace/typescript && pnpm exec vitest run --config test/e2e/vitest.config.ts \
+  test/e2e/performance-baseline.e2e.test.ts'
 docker image rm tmt-performance-local
 ```
 

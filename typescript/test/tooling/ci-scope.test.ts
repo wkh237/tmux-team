@@ -11,7 +11,9 @@ const { runPackedCommand } = await import(
 
 describe('CI area selection', () => {
   it('selects Office without the native matrix for app-only changes', () => {
-    expect(selectCiAreas(['apps/office/src/main.tsx', 'docs/office/architecture.md'])).toEqual({
+    expect(
+      selectCiAreas(['typescript/apps/office/src/main.tsx', 'docs/office/architecture.md'])
+    ).toEqual({
       native: false,
       office: true,
     });
@@ -24,30 +26,36 @@ describe('CI area selection', () => {
   });
 
   it.each([
-    'pnpm-lock.yaml',
-    'pnpm-workspace.yaml',
-    'package.json',
+    'typescript/pnpm-lock.yaml',
+    'typescript/pnpm-workspace.yaml',
+    'typescript/package.json',
     '.github/workflows/ci.yml',
-    'scripts/ci-scope.mjs',
-    'test/e2e/Dockerfile',
+    'typescript/scripts/ci-scope.mjs',
+    'typescript/test/e2e/Dockerfile',
     'contracts/office/request.json',
-    'services/office/firestore.rules',
+    'typescript/services/office/firestore.rules',
     'new-owner/file.ts',
   ])('fans out shared or unknown input %s', (file) => {
     expect(selectCiAreas([file])).toEqual({ native: true, office: true });
   });
 
   it('does not confuse similar prefixes and fails closed on an empty diff', () => {
-    expect(selectCiAreas(['apps/office-other/file.ts'])).toEqual({ native: true, office: true });
+    expect(selectCiAreas(['typescript/apps/office-other/file.ts'])).toEqual({
+      native: true,
+      office: true,
+    });
     expect(selectCiAreas([])).toEqual({ native: true, office: true });
   });
 
   it('unions mixed paths including both sides of a no-renames diff', () => {
-    expect(selectCiAreas(['apps/office/removed.ts', 'rust/new.rs'])).toEqual({
+    expect(selectCiAreas(['typescript/apps/office/removed.ts', 'rust/new.rs'])).toEqual({
       native: true,
       office: true,
     });
-    expect(selectCiAreas(['apps/office/deleted.ts'])).toEqual({ native: false, office: true });
+    expect(selectCiAreas(['typescript/apps/office/deleted.ts'])).toEqual({
+      native: false,
+      office: true,
+    });
   });
 });
 
@@ -80,10 +88,15 @@ describe('CI diff and command integration', () => {
       writeFileSync(path.join(root, 'README.md'), 'fixture\n');
       const base = commit();
       mkdirSync(path.join(root, 'apps/office'), { recursive: true });
-      const source = path.join(root, 'apps/office/name with\nnewline.ts');
-      writeFileSync(source, 'export const fixture = true;\n');
+      const historicalSource = path.join(root, 'apps/office/name with\nnewline.ts');
+      writeFileSync(historicalSource, 'export const fixture = true;\n');
+      const historical = commit();
+      expect(readChangedCiAreas(base, historical, root)).toEqual({ native: false, office: true });
+      mkdirSync(path.join(root, 'typescript/apps/office'), { recursive: true });
+      const source = path.join(root, 'typescript/apps/office/name with\nnewline.ts');
+      renameSync(historicalSource, source);
       const added = commit();
-      expect(readChangedCiAreas(base, added, root)).toEqual({ native: false, office: true });
+      expect(readChangedCiAreas(historical, added, root)).toEqual({ native: false, office: true });
       mkdirSync(path.join(root, 'rust'));
       const target = path.join(root, 'rust/fixture.rs');
       renameSync(source, target);
@@ -166,7 +179,7 @@ describe('required CI gate', () => {
 
   it('keeps browser diagnostics outside required aggregates while required results fail closed', () => {
     const workflow = readFileSync(
-      fileURLToPath(new URL('../../.github/workflows/ci.yml', import.meta.url)),
+      fileURLToPath(new URL('../../../.github/workflows/ci.yml', import.meta.url)),
       'utf8'
     );
     const office = workflow.slice(

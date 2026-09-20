@@ -25,7 +25,7 @@ and browser editor are implemented; complete CLI cutover and acceptance remain.
 The separately versioned [private world document v1](private-world.md) is the
 direct-Firestore contract. It uses native Firestore timestamps and Rules,
 not the work-handoff HTTP/JSON envelopes below. Its actual client adapter and
-Rules are exercised together in `apps/office/e2e/world-rules.spec.ts`.
+Rules are exercised together in `typescript/apps/office/e2e/world-rules.spec.ts`.
 
 The [home block document v1](block-v1.md) extends that owner-only world with
 bounded, revision-checked decoration. Its vectors are shared by client and
@@ -126,11 +126,11 @@ do not forward native CLI error details to remote clients.
 ## Local conformance
 
 ```sh
-pnpm exec vitest run test/tooling/office-contracts.test.ts
-pnpm check:tooling
+(cd typescript && corepack pnpm exec vitest run test/tooling/office-contracts.test.ts)
+(cd typescript && corepack pnpm check:tooling)
 ```
 
-The root tooling suite uses [Ajv JSON Schema validation](https://ajv.js.org/json-schema.html) in strict mode rather than a
+The TypeScript tooling suite uses [Ajv JSON Schema validation](https://ajv.js.org/json-schema.html) in strict mode rather than a
 home-grown schema validator. It checks actual examples, required/unknown fields,
 versions, local-metadata injection and Unicode size boundaries, plus scenario
 reference integrity. It cannot prove server authorization, stale-token rejection,

@@ -47,17 +47,17 @@ including concrete defect coverage and meaningful positive/negative controls.
 
 Read the relevant files before changing behavior:
 
-- [`test/e2e/`](../../../test/e2e/): Vitest configuration, scenarios, harness, and mock-agent behavior.
-- [`scripts/run-e2e.mjs`](../../../scripts/run-e2e.mjs): Docker build/run wrapper and exit-code handling.
+- [`typescript/test/e2e/`](../../../typescript/test/e2e/): Vitest configuration, scenarios, harness, and mock-agent behavior.
+- [`typescript/scripts/run-e2e.mjs`](../../../typescript/scripts/run-e2e.mjs): Docker build/run wrapper and exit-code handling.
 - [`DEVELOPMENT.md#selecting-the-cli-under-test`](../../../DEVELOPMENT.md#selecting-the-cli-under-test):
   shared executable/peer descriptors and container-path requirements. Reuse
-  `test/support/cli-executable.mjs`; never add a hard-coded Node launcher or
+  `typescript/test/support/cli-executable.mjs`; never add a hard-coded Node launcher or
   silent TS fallback. Prove selection reaches nested replies and real descendants
   with causal results. Historical TypeScript worker/pack tests are retired;
   their retained native guarantees are mapped in RUST-REWRITE.md.
-- Keep retained native/E2E helpers under `test/support/`, independent of the old
+- Keep retained native/E2E helpers under `typescript/test/support/`, independent of the old
   TypeScript product. Historical SQLite migration inputs and reference results
-  live in `test/fixtures/storage-history/`; preserve their provenance, integrity
+  live in `typescript/test/fixtures/storage-history/`; preserve their provenance, integrity
   checks and independent SQL assertions. Never use the native implementation to
   regenerate its own expected migration results. Keep stopped-schema public reply
   coverage on schema 8 rather than substituting an already-current database.
@@ -77,4 +77,4 @@ or silently expand the tracked feature's acceptance criteria.
 
 ## Verification
 
-Prefer the repository's documented E2E command through [`scripts/run-e2e.mjs`](../../../scripts/run-e2e.mjs). Confirm failures propagate as non-zero exit codes, and inspect cleanup behavior when tests fail—not only when they pass.
+Prefer the repository's documented E2E command through [`typescript/scripts/run-e2e.mjs`](../../../typescript/scripts/run-e2e.mjs). Confirm failures propagate as non-zero exit codes, and inspect cleanup behavior when tests fail—not only when they pass.

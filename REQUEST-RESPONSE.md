@@ -389,8 +389,8 @@ The following semantic scenarios are illustrative only, not final JSON schemas:
 ## Verification ownership
 
 Exact body, retained retry, revision races and expiry belong to the request
-service and storage tests. [Native response tests](test/native/response.test.ts)
-cover public receipt/input contracts; [Docker response integrity](test/e2e/response-integrity.e2e.test.ts)
+service and storage tests. [Native response tests](typescript/test/native/response.test.ts)
+cover public receipt/input contracts; [Docker response integrity](typescript/test/e2e/response-integrity.e2e.test.ts)
 checks complete bodies against independent mock-agent events even when the
 terminal renders only a tail. Terminal echo is not a completion oracle.
 See [Development](DEVELOPMENT.md) for commands and scenario ownership.

@@ -10,7 +10,7 @@ export const NATIVE_OFFICE_FIXTURE_VERSION = '0.1.0-alpha.4';
 
 export async function installNativeOffice(
   sandbox: Sandbox,
-  executable = path.resolve('../../rust/target/debug/tmt-office')
+  executable = path.resolve('../../../rust/target/debug/tmt-office')
 ): Promise<string> {
   const artifact = await createArtifact(
     sandbox,

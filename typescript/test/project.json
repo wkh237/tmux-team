@@ -1,0 +1,32 @@
+{
+  "name": "office-installed-browser",
+  "targets": {
+    "acceptance": {
+      "command": "corepack pnpm --filter @tmt/office test:browser:native",
+      "options": {
+        "cwd": "typescript"
+      },
+      "inputs": [
+        "{projectRoot}/**/*",
+        "{workspaceRoot}/typescript/apps/office/**/*",
+        "{workspaceRoot}/typescript/services/office/**/*",
+        "{workspaceRoot}/typescript/package.json",
+        "{workspaceRoot}/typescript/pnpm-lock.yaml",
+        "{workspaceRoot}/contracts/**/*",
+        "{workspaceRoot}/skills/**/*",
+        "{workspaceRoot}/target/office-spa/**/*"
+      ],
+      "dependsOn": [
+        {
+          "projects": ["native"],
+          "target": "build-cli"
+        },
+        {
+          "projects": ["native"],
+          "target": "embedded-office-build"
+        }
+      ],
+      "cache": false
+    }
+  }
+}

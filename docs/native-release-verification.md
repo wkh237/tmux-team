@@ -72,7 +72,7 @@ generator's distribution directory and generated notice input are per-checkout.
 # Choose a target from dist-workspace.toml that matches the verification host.
 native_manifest=$(mktemp)
 MACOSX_DEPLOYMENT_TARGET=11.0 scripts/build-native-artifact.sh aarch64-apple-darwin > "$native_manifest"
-node scripts/verify-native-artifact.mjs \
+node typescript/scripts/verify-native-artifact.mjs \
   --manifest "$native_manifest" \
   --archive target/distrib/tmt-cli-aarch64-apple-darwin.tar.gz \
   --target aarch64-apple-darwin --skill skills/tmux-team/SKILL.md \
@@ -95,7 +95,7 @@ success or failure. It runs the extracted executable with no Node/Rust/tmux on
 PATH and verifies native SQLite persistence through public commands. macOS
 requires system `otool`; Linux requires `readelf` for static-musl linkage checks.
 
-`test/native/artifact.Dockerfile` provides a local matching-architecture Linux
+`typescript/test/native/artifact.Dockerfile` provides a local matching-architecture Linux
 musl build and verifier. Set `TARGET_TRIPLE` from the selected generator target,
 give the image a task-owned name, then run it with `--rm --init --network none`
 and `--archive artifacts/<manifest archive name> --target <target>`. Remove that
@@ -204,7 +204,7 @@ target policy, selecting Office's runtime dependency notices:
 
 ```sh
 scripts/build-native-artifact.sh aarch64-apple-darwin office > /absolute/office-manifest.json
-node scripts/verify-native-artifact.mjs --product office \
+node typescript/scripts/verify-native-artifact.mjs --product office \
   --manifest /absolute/office-manifest.json \
   --archive target/distrib/tmt-office-aarch64-apple-darwin.tar.gz \
   --target aarch64-apple-darwin \
@@ -250,7 +250,7 @@ offline installer; the older artifact must run its real reported version. Verify
 each archive's notices/linkage with the artifact verifier above, then run:
 
 ```sh
-node scripts/verify-native-installation.mjs \
+node typescript/scripts/verify-native-installation.mjs \
   --previous-archive "$previous_archive" --previous-manifest "$previous_manifest" \
   --archive "$next_archive" --manifest "$next_manifest" \
   --target aarch64-apple-darwin --skill skills/tmux-team/SKILL.md
@@ -269,11 +269,11 @@ their independent runtime verification. All selected archives must be present;
 the manifest, not a hand-maintained version table, owns the generated facts:
 
 ```sh
-node scripts/generate-native-bootstrap.mjs \
+node typescript/scripts/generate-native-bootstrap.mjs \
   --manifest /absolute/dist-manifest.json --archive-dir /absolute/artifacts \
   > /absolute/artifacts/tmt-installer.sh
 sh -n /absolute/artifacts/tmt-installer.sh
-node scripts/verify-native-bootstrap.mjs \
+node typescript/scripts/verify-native-bootstrap.mjs \
   --manifest /absolute/dist-manifest.json \
   --archive /absolute/artifacts/tmt-cli-aarch64-apple-darwin.tar.gz \
   --target aarch64-apple-darwin --skill skills/tmux-team/SKILL.md
@@ -286,18 +286,19 @@ endpoint. It checks repeat/no-op, explicit pin followed by no-network upgrade,
 exact installed skill-bundle bytes, old npm command preservation, PATH warning and
 temporary cleanup. It is not live GitHub download or cross-target evidence.
 
-The existing `test/native/artifact.Dockerfile` also carries this verifier. After
+The existing `typescript/test/native/artifact.Dockerfile` also carries this verifier. After
 building its task-owned matching-architecture image, run the normal artifact
 entrypoint, then repeat with `--entrypoint node` and
-`scripts/verify-native-bootstrap.mjs --manifest native-manifest.json --archive
+`typescript/scripts/verify-native-bootstrap.mjs --manifest native-manifest.json --archive
 artifacts/<archive-name> --target <target> --skill expected-skill.md`. Keep
 `--rm --init --network none` and remove only the task-owned image afterwards.
 
-`test/tooling/native-bootstrap.test.ts` covers the generated shell's negative paths with
+`typescript/test/tooling/native-bootstrap.test.ts` covers the generated shell's negative paths with
 the existing bounded CLI sandbox and a synthetic executable for orchestration.
 Do not count that stub as native publication evidence; pair it with the actual
-artifact verifier. Run `pnpm check`, unit tests and two Docker lifecycle passes
-before the reviewed CI candidate. Keep generated outputs out of source control.
+artifact verifier. Run `(cd typescript && corepack pnpm check)`, unit tests and
+two Docker lifecycle passes before the reviewed CI candidate. Keep generated
+outputs out of source control.
 No new runtime dependency, data migration or public publication is authorized
 by generation. An authorized release must upload the exact verified manifest,
 archives and generated script, establish immutable release/provenance evidence,

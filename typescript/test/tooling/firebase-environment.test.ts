@@ -5,31 +5,31 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-const root = fileURLToPath(new URL('../../', import.meta.url));
+const root = fileURLToPath(new URL('../../../', import.meta.url));
 
 describe('Firebase configuration isolation', () => {
   it('ignores local settings and secrets but keeps shared setup trackable', () => {
     const ignored = [
       '.firebaserc',
-      'services/office/.firebaserc',
-      'services/office/.env.local',
-      'apps/office/.env.production',
-      'services/office/.firebase/cache.json',
-      'services/office/.firebase-local/export/data.json',
-      'services/office/.secrets/arbitrary-name.json',
-      'services/office/project-firebase-adminsdk-fixture.json',
-      'services/office/service-account.json',
-      'services/office/application_default_credentials.json',
-      'services/office/private.pem',
-      'services/office/private.key',
+      'typescript/services/office/.firebaserc',
+      'typescript/services/office/.env.local',
+      'typescript/apps/office/.env.production',
+      'typescript/services/office/.firebase/cache.json',
+      'typescript/services/office/.firebase-local/export/data.json',
+      'typescript/services/office/.secrets/arbitrary-name.json',
+      'typescript/services/office/project-firebase-adminsdk-fixture.json',
+      'typescript/services/office/service-account.json',
+      'typescript/services/office/application_default_credentials.json',
+      'typescript/services/office/private.pem',
+      'typescript/services/office/private.key',
     ];
     const shared = [
-      'services/office/.firebaserc.example',
-      'services/office/.env.example',
-      'services/office/firebase.json',
-      'services/office/firestore.rules',
-      'services/office/compose.yaml',
-      'services/office/Dockerfile',
+      'typescript/services/office/.firebaserc.example',
+      'typescript/services/office/.env.example',
+      'typescript/services/office/firebase.json',
+      'typescript/services/office/firestore.rules',
+      'typescript/services/office/compose.yaml',
+      'typescript/services/office/Dockerfile',
     ];
     // Test only the versioned rules; local/global excludes could mask a missing
     // rule in the developer checkout and produce a false pass.

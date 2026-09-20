@@ -2,8 +2,8 @@ name: tmt-office
 services:
   emulators:
     build:
-      context: ../..
-      dockerfile: services/office/Dockerfile
+      context: ../../..
+      dockerfile: typescript/services/office/Dockerfile
     init: true
     ports:
       - '127.0.0.1:9099:9099'

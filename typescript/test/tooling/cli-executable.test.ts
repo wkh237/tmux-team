@@ -64,7 +64,7 @@ afterEach(() => {
 describe('CLI executable descriptors', () => {
   it('uses the repository native executable by default for both invocation roles', () => {
     const executables = resolveCliExecutables({});
-    const expected = fileURLToPath(new URL('../../rust/target/debug/tmt', import.meta.url));
+    const expected = fileURLToPath(new URL('../../../rust/target/debug/tmt', import.meta.url));
 
     expect(path.isAbsolute(executables.cli.executable)).toBe(true);
     expect(executables.cli.executable).toBe(expected);
@@ -74,7 +74,7 @@ describe('CLI executable descriptors', () => {
   });
 
   it('fails clearly when the repository native executable is unavailable', () => {
-    const expected = fileURLToPath(new URL('../../rust/target/debug/tmt', import.meta.url));
+    const expected = fileURLToPath(new URL('../../../rust/target/debug/tmt', import.meta.url));
     const stat = vi.spyOn(fs, 'statSync').mockImplementation(() => {
       throw new Error('native executable intentionally unavailable');
     });

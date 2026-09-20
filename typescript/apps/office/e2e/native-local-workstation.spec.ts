@@ -6,7 +6,7 @@ import { installNativeOffice, unusedLoopbackPort } from './native-office-fixture
 import { savedWorld } from './native-world-state.js';
 import { legacyLobbyObjects } from '../../../test/support/office-world.js';
 import { captureWorldScene, installDrawObserver, observeIdleScene } from './scene-observation.js';
-import vectors from '../../../contracts/office/modules-central-grid-vectors.json' with { type: 'json' };
+import vectors from '../../../../contracts/office/modules-central-grid-vectors.json' with { type: 'json' };
 import { decodeModuleMap } from '../src/world-map/module-contract.js';
 import { MODULAR_WORKSTATION_DIGEST, MODULAR_MOUNTED_DIGEST } from '../src/props/prop-contract.js';
 import type { WorldSnapshot } from '../src/world-map/world-port.js';

@@ -12,6 +12,10 @@ COPY rust/ rust/
 COPY skills/ skills/
 COPY scripts/native-cargo.sh scripts/build-native-artifact.sh scripts/
 COPY dist-workspace.toml LICENSE NATIVE-INSTALL.md ./
+COPY typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml typescript/
+COPY typescript/apps/office/package.json typescript/apps/office/package.json
+COPY typescript/apps/office/ typescript/apps/office/
+COPY contracts/ contracts/
 RUN cd rust && cargo fetch --locked
 RUN scripts/build-native-artifact.sh "$TARGET_TRIPLE" "$PRODUCT" > native-manifest.json
 
@@ -20,14 +24,16 @@ RUN apt-get update && apt-get install --no-install-recommends -y binutils \
   && rm -rf /var/lib/apt/lists/*
 RUN npm install --global pnpm@10.33.0
 WORKDIR /verification
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY apps/office/package.json apps/office/package.json
-RUN pnpm --filter tmux-team install --frozen-lockfile --ignore-scripts
-COPY scripts/native-artifact-policy.mjs scripts/verify-native-artifact.mjs scripts/verify-native-installation.mjs scripts/packed-command.mjs scripts/
-COPY scripts/native-runtime-proof.mjs scripts/
-COPY test/support/performance-contract.mjs test/support/performance-contract.mjs
-COPY scripts/native-bootstrap.mjs scripts/native-bootstrap.sh scripts/generate-native-bootstrap.mjs scripts/verify-native-bootstrap.mjs scripts/
+COPY typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml typescript/
+COPY typescript/apps/office/package.json typescript/apps/office/package.json
+RUN cd typescript && pnpm --filter tmux-team install --frozen-lockfile --ignore-scripts
+COPY typescript/scripts/native-artifact-policy.mjs typescript/scripts/verify-native-artifact.mjs typescript/scripts/verify-native-installation.mjs typescript/scripts/packed-command.mjs typescript/scripts/
+COPY typescript/scripts/native-runtime-proof.mjs typescript/scripts/
+COPY typescript/test/support/performance-contract.mjs typescript/test/support/performance-contract.mjs
+COPY typescript/scripts/native-bootstrap.mjs typescript/scripts/generate-native-bootstrap.mjs typescript/scripts/verify-native-bootstrap.mjs typescript/scripts/
+COPY scripts/native-bootstrap.sh scripts/native-bootstrap.sh
 COPY skills/tmux-team/SKILL.md expected-skill.md
+COPY skills/tmux-team/SKILL.md skills/tmux-team/SKILL.md
 COPY skills/tmt-inbox/SKILL.md skills/tmt-inbox/SKILL.md
 COPY skills/tmt-office/SKILL.md skills/tmt-office/SKILL.md
 COPY --from=build /workspace/native-manifest.json ./
@@ -35,4 +41,4 @@ COPY --from=build /workspace/rust/target/native-notices/THIRD-PARTY-NOTICES.txt 
 COPY LICENSE expected-license.txt
 COPY --from=build /workspace/target/distrib/ artifacts/
 # Pass archive and target explicitly from the generator's target selection.
-ENTRYPOINT ["node", "scripts/verify-native-artifact.mjs", "--manifest", "native-manifest.json", "--skill", "expected-skill.md", "--notices", "expected-notices.txt", "--license", "expected-license.txt"]
+ENTRYPOINT ["node", "typescript/scripts/verify-native-artifact.mjs", "--manifest", "native-manifest.json", "--skill", "expected-skill.md", "--notices", "expected-notices.txt", "--license", "expected-license.txt"]

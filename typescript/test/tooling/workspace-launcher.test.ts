@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
 import { runCli, withSandbox } from '../support/cli-process.js';
 
-const launcher = fileURLToPath(new URL('../../scripts/tmt-dev.sh', import.meta.url));
+const launcher = fileURLToPath(new URL('../../../scripts/tmt-dev.sh', import.meta.url));
 
 it('preserves arguments, caller directory and exit status in a checkout with spaces', async () => {
   await withSandbox(async (sandbox) => {

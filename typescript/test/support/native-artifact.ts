@@ -36,7 +36,7 @@ export async function createArtifact(
   version: string,
   executableSuffix: Uint8Array = new Uint8Array(),
   product: 'cli' | 'office' = 'cli',
-  companionExecutable = path.resolve('rust/target/debug/tmt-office')
+  companionExecutable = path.resolve('../rust/target/debug/tmt-office')
 ): Promise<ArtifactFixture> {
   const target = nativeTarget();
   const name = `${product}-${version}-${target}.tar.gz`;

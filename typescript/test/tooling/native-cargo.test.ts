@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
 
-const wrapper = fileURLToPath(new URL('../../scripts/native-cargo.sh', import.meta.url));
+const wrapper = fileURLToPath(new URL('../../../scripts/native-cargo.sh', import.meta.url));
 
 interface FakeCargo {
   readonly argsFile: string;

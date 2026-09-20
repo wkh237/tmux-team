@@ -7,9 +7,9 @@ import {
   wallProjection,
 } from './world-geometry.js';
 import { updateWorldMap } from '../world-map/world-draft.js';
-import vectors from '../../../../contracts/office/modules-v2-vectors.json';
+import vectors from '../../../../../contracts/office/modules-v2-vectors.json';
 import { decodeModuleMap } from '../world-map/module-contract.js';
-import central from '../../../../contracts/office/modules-central-grid-vectors.json';
+import central from '../../../../../contracts/office/modules-central-grid-vectors.json';
 import { moduleGhostGeometry } from './scene-module-ghost.js';
 import { mapGeometry } from '../world-map/map-source.js';
 

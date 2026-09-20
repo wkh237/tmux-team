@@ -39,19 +39,22 @@ const PROVIDERS = ['claude', 'codex', 'gemini', 'agy', 'pi', 'opencode'] as cons
 
 function canonicalSkill(): Buffer {
   return readFileSync(
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../skills/tmux-team/SKILL.md')
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../skills/tmux-team/SKILL.md')
   );
 }
 
 function inboxSkill(): Buffer {
   return readFileSync(
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../skills/tmt-inbox/SKILL.md')
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../skills/tmt-inbox/SKILL.md')
   );
 }
 
 function officeSkill(): Buffer {
   return readFileSync(
-    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../skills/tmt-office/SKILL.md')
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      '../../../skills/tmt-office/SKILL.md'
+    )
   );
 }
 
@@ -59,7 +62,7 @@ function propCreateSkill(): Buffer {
   return readFileSync(
     path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
-      '../../skills/tmt-prop-create/SKILL.md'
+      '../../../skills/tmt-prop-create/SKILL.md'
     )
   );
 }
@@ -68,7 +71,7 @@ function avatarCreateSkill(): Buffer {
   return readFileSync(
     path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
-      '../../skills/tmt-avatar-create/SKILL.md'
+      '../../../skills/tmt-avatar-create/SKILL.md'
     )
   );
 }

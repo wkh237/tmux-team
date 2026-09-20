@@ -2,7 +2,7 @@ use super::test_support::seed_history;
 use super::*;
 
 // Runner-focused tests use the actual historical migrations. Independent
-// TypeScript-created fixtures and full data/schema oracles live in test/native.
+// TypeScript-created fixtures and full data/schema oracles live in typescript/test/native.
 fn historical_connection() -> Connection {
     let mut connection = Connection::open_in_memory().unwrap();
     seed_history(&mut connection);

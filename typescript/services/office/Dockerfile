@@ -12,19 +12,19 @@ RUN firebase setup:emulators:firestore --non-interactive
 ENV GCLOUD_PROJECT=demo-tmt-office
 
 FROM emulator-tools AS emulators
-COPY --chown=node:node services/office/firebase.json services/office/firestore.rules ./
-COPY --chown=node:node scripts/verify-office-emulators.mjs ./
+COPY --chown=node:node typescript/services/office/firebase.json typescript/services/office/firestore.rules ./
+COPY --chown=node:node typescript/scripts/verify-office-emulators.mjs ./
 CMD ["firebase", "emulators:start", "--only", "auth,firestore", "--project", "demo-tmt-office", "--config", "firebase.json", "--non-interactive"]
 
 # Opt-in browser proof reuses the emulator owner; no host credentials or volumes.
 FROM emulator-tools AS browser-tests-base
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends dbus git gnome-keyring libglib2.0-bin libsecret-tools sqlite3 tmux && rm -rf /var/lib/apt/lists/*
-RUN npm install --global pnpm@10.33.0 && mkdir -p /workspace/apps/office && chown -R node:node /workspace
-WORKDIR /workspace
-COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY --chown=node:node apps/office/package.json apps/office/package.json
-COPY --chown=node:node services/office/functions/package.json services/office/functions/package.json
+RUN npm install --global pnpm@10.33.0 && mkdir -p /workspace/typescript/apps/office && chown -R node:node /workspace
+WORKDIR /workspace/typescript
+COPY --chown=node:node typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml ./
+COPY --chown=node:node typescript/apps/office/package.json apps/office/package.json
+COPY --chown=node:node typescript/services/office/functions/package.json services/office/functions/package.json
 USER node
 RUN pnpm office:install && test ! -e node_modules/better-sqlite3 && test ! -e /node_modules
 RUN cd services/office/functions && pnpm install --ignore-workspace --lockfile-dir "$PWD/../../.." --frozen-lockfile
@@ -36,13 +36,13 @@ USER root
 RUN pnpm --filter @tmt/office exec playwright install --with-deps chromium
 USER node
 COPY --from=emulators --chown=node:node /home/node/office/ /home/node/office/
-COPY --chown=node:node apps/office apps/office
-COPY --chown=node:node contracts/office contracts/office
-COPY --chown=node:node test/e2e test/e2e
-COPY --chown=node:node test/support test/support
-COPY --chown=node:node services/office/functions services/office/functions
-COPY --chown=node:node services/office/firebase.json services/office/firestore.rules services/office/
-COPY --chown=node:node services/office/with-test-keyring.sh services/office/with-test-keyring.sh
+COPY --chown=node:node typescript/apps/office apps/office
+COPY --chown=node:node contracts/office /workspace/contracts/office
+COPY --chown=node:node typescript/test/e2e test/e2e
+COPY --chown=node:node typescript/test/support test/support
+COPY --chown=node:node typescript/services/office/functions services/office/functions
+COPY --chown=node:node typescript/services/office/firebase.json typescript/services/office/firestore.rules services/office/
+COPY --chown=node:node typescript/services/office/with-test-keyring.sh services/office/with-test-keyring.sh
 RUN --network=none pnpm --filter @tmt/office-service check \
   && pnpm --filter @tmt/office-service test && pnpm --filter @tmt/office-service build
 RUN --network=none pnpm office:check && pnpm office:test \
@@ -66,7 +66,7 @@ RUN cd rust && cargo +1.97.0 build --locked --workspace --release --features tmt
 FROM browser-tests-base AS browser-tests
 COPY --from=native-office --chown=node:node /workspace/rust/target/release/tmt /workspace/rust/target/debug/tmt
 COPY --from=native-office --chown=node:node /workspace/rust/target/release/tmt-office /workspace/rust/target/debug/tmt-office
-CMD ["sh", "/workspace/services/office/with-test-keyring.sh", "firebase", "emulators:exec", "--only", "auth,firestore,functions", "--project", "demo-tmt-office", "--config", "/workspace/services/office/firebase.json", "--non-interactive", "pnpm --filter @tmt/office test:browser"]
+CMD ["sh", "/workspace/typescript/services/office/with-test-keyring.sh", "firebase", "emulators:exec", "--only", "auth,firestore,functions", "--project", "demo-tmt-office", "--config", "/workspace/typescript/services/office/firebase.json", "--non-interactive", "pnpm --filter @tmt/office test:browser"]
 
 # Keep the existing default build and compose behavior lightweight.
 FROM emulators AS default

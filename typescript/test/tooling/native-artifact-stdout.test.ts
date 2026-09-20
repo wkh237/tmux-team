@@ -23,13 +23,14 @@ describe('native artifact stdout', () => {
     mkdirSync(bin);
     mkdirSync(path.join(root, 'scripts'));
     mkdirSync(path.join(root, 'rust'));
+    mkdirSync(path.join(root, 'typescript'));
     const script = path.join(root, 'scripts/build-native-artifact.sh');
-    copyFileSync(path.resolve('scripts/build-native-artifact.sh'), script);
+    copyFileSync(path.resolve('../scripts/build-native-artifact.sh'), script);
     tool(
       bin,
-      'pnpm',
-      `mkdir -p target/office-spa
-printf 'SPA license notice\\n' > target/office-spa/THIRD-PARTY-NOTICES.txt
+      'corepack',
+      `mkdir -p ../target/office-spa
+printf 'SPA license notice\\n' > ../target/office-spa/THIRD-PARTY-NOTICES.txt
 printf 'vite diagnostics\\n'`
     );
     tool(bin, 'rustup', `printf '1.97.0-aarch64-apple-darwin (default)\\n'`);

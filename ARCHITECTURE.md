@@ -1,10 +1,12 @@
 # Architecture
 
 The shipped CLI runtime is the Rust workspace in `rust/`. An optional Office
-SPA foundation lives in `apps/office`; it is not a CLI fallback or a shipped
-connector. The root Node package is private developer tooling. It may host Vitest,
-fixture and release-verification helpers, but it is not a second CLI runtime,
-an npm product, or a source-install fallback. A native source checkout selects
+SPA foundation lives in `typescript/apps/office`; it is not a CLI fallback or a
+shipped connector. The nested `typescript` pnpm workspace owns Vitest, fixture
+and release-verification tooling; the repository root has no Node package. Nx
+orchestrates explicit Rust and TypeScript targets through the pinned non-JavaScript
+wrapper, with caching disabled. Neither Nx nor the pnpm workspace is a second CLI
+runtime, an npm product, or a source-install fallback. A native source checkout selects
 `rust/target/debug/tmt` (or an explicitly supplied native executable); a missing
 native build is an error. No test, script, or installer may silently execute an
 installed host `tmt` or a retired TypeScript product implementation. Node may
@@ -21,11 +23,14 @@ Any retained `better-sqlite3` use belongs to private developer tooling as an
 independent oracle. It is not a Rust runtime dependency or an alternate owner
 of native schema and application state.
 
-## Office workspace boundary
+## TypeScript workspace boundary
 
-The pnpm workspace has one lockfile, the `@tmt/office` SPA and the
-`@tmt/office-service` trusted pairing service. Existing
-Rust, test, release script and canonical skill paths remain stable. Read
+The `typescript` pnpm workspace has one lockfile, retained Node tooling and tests,
+the `@tmt/office` SPA, and the `@tmt/office-service` trusted pairing service.
+Rust, root shell launchers, shared contracts and canonical skills remain outside
+that boundary. The Nx task graph orders only the Office SPA producer, embedded
+native companion and installed-browser acceptance chain; ordinary CLI targets
+remain independent. Read
 [Office architecture](docs/office/architecture.md) for current SPA ownership,
 the chosen React/Vite/TanStack/Jotai stack and the
 [Office design](docs/office/design.md) for planned trust/lifecycle semantics.
@@ -477,7 +482,7 @@ The detailed lifecycle and verification map lives only in
 [Office architecture](docs/office/architecture.md); exact persisted data belongs
 in [Office contracts](contracts/office/README.md).
 
-`services/office` owns isolated emulator infrastructure, Rules and the trusted
+`typescript/services/office` owns isolated emulator infrastructure, Rules and the trusted
 pairing issuer under `functions/`, not a deployed backend. Admin operations
 bypass Rules: the issuer explicitly checks verified human authentication, live
 admission, ownership and grant authority in its transaction owner. Signing stays
@@ -498,7 +503,7 @@ or consume retained-pack quotas; custom catalog revisions remain storage-owned.
 Community exchange and exploration remain a [sandbox plan](docs/office/sandbox.md), not a
 runtime SDK, identity registry or alternate exchange engine.
 
-`scripts/ci-scope.mjs` owns conservative affected-area selection and final gate
+`typescript/scripts/ci-scope.mjs` owns conservative affected-area selection and final gate
 validation. Office-only source/docs avoid native matrices; native source/skill
 changes avoid Office. Shared or unknown paths (including lockfiles, security,
 contracts, workflows and test tooling) fan out. Empty diffs fail closed to both.
@@ -749,7 +754,7 @@ Migrations preserve recorded names and historical retention backfills. Schema 9
 promotes existing identities to saved without changing UUIDs; unsupported custom
 identity-table definitions are rejected rather than silently rebuilt. Old
 schema-8 writers cannot share the migrated database. Frozen inputs retain their
-own provenance in `test/fixtures/storage-history`, not in this architecture map.
+own provenance in `typescript/test/fixtures/storage-history`, not in this architecture map.
 Schema 10 adds identity hook subscriptions and terminal delivery receipts;
 registration after retirement queues immediately, and delivered subscriptions
 cannot be resurrected by registration retries.
@@ -936,17 +941,17 @@ second target catalog, archive parser, package manager, or production manifest.
 
 ## Testing and evidence boundaries
 
-Retained tests are organized under `test/native/`, `test/e2e/`,
-`test/tooling/` and `test/support/`, with Rust unit/integration tests beside
+Retained tests are organized under `typescript/test/native/`, `typescript/test/e2e/`,
+`typescript/test/tooling/` and `typescript/test/support/`, with Rust unit/integration tests beside
 their owners. They use independent SQL/schema oracles for SQLite behavior and
-frozen fixtures from `test/fixtures/storage-history/`; implementation reads
+frozen fixtures from `typescript/test/fixtures/storage-history/`; implementation reads
 must not generate their own expected results. Native process tests use absolute
 task-owned executables, bounded subprocesses and cleanup that stops, reaps and
 only then removes fixture state. Signals are sent only to task-owned child
 processes. No host tmux server, provider installation or global environment
 mutation is test evidence.
 
-`test/support/cli-process.ts` owns each native sandbox's active child runs;
+`typescript/test/support/cli-process.ts` owns each native sandbox's active child runs;
 descriptor clones share that lifetime. Direct-child exit starts same-group
 cleanup even when descendants retain output pipes. Success requires direct
 close and confirmed group absence; cleanup failure is bounded and retains
@@ -967,9 +972,9 @@ Within Docker E2E, `cli-assertions.ts` owns the repeated strict success envelope
 execution. Scenario-specific payload projections and assertions stay local;
 sharing a type must not turn required fields into optional ones. A different
 stderr or parsing contract is not an interchangeable helper. The native-process
-assertions in `test/support/cli-process.ts` retain their own process-result shape.
+assertions in `typescript/test/support/cli-process.ts` retain their own process-result shape.
 
-All public-command E2E scenarios use `test/support/cli-executable.mjs` through
+All public-command E2E scenarios use `typescript/test/support/cli-executable.mjs` through
 the harness. There is no separate product-only native selector; explicit
 `TMT_TEST_CLI`/peer descriptors still exercise override and nested-reply behavior.
 `tmux-adapter` and `transport-adapter` deliberately select the test-only tmux
@@ -994,8 +999,8 @@ zero-file success.
 ## Release boundary
 
 `dist-workspace.toml`, `scripts/build-native-artifact.sh`,
-`scripts/native-cargo.sh`, `scripts/native-artifact-policy.mjs` and
-`scripts/verify-native-artifact.mjs` are developer/release tooling. The
+`scripts/native-cargo.sh`, `typescript/scripts/native-artifact-policy.mjs` and
+`typescript/scripts/verify-native-artifact.mjs` are developer/release tooling. The
 workflow builds the four supported cargo-dist targets, creates target-filtered
 third-party notices (including Vite's bundled frontend inventory for Office), and verifies runtime bytes, linkage, checksums, archive
 inventory and executable behavior on matching hosts. CLI runs additionally
@@ -1009,8 +1014,8 @@ Only the CLI bundle owns the generated `tmt-installer.sh` and managed-skill
 bootstrap proof. Archives, their product-specific manifest/checksums and notices,
 plus the CLI bootstrap where applicable, are verified before any public
 publication. Raw PR executables do not prove cargo-dist archive correctness.
-The runtime/linkage proof is shared through `scripts/native-runtime-proof.mjs`
-and `scripts/verify-native-runtime.mjs`; do not reintroduce a second archive
+The runtime/linkage proof is shared through `typescript/scripts/native-runtime-proof.mjs`
+and `typescript/scripts/verify-native-runtime.mjs`; do not reintroduce a second archive
 builder or proof implementation.
 
 ## Maintenance contract

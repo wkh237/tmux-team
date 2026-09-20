@@ -72,7 +72,10 @@ export async function generateNativeBootstrap(manifestFile, archiveDirectory, pl
     readBoundedFile(manifestFile, 4 * 1024 * 1024).equals(bytes),
     'Manifest changed during generation'
   );
-  const template = fs.readFileSync(new URL('./native-bootstrap.sh', import.meta.url), 'utf8');
+  const template = fs.readFileSync(
+    new URL('../../scripts/native-bootstrap.sh', import.meta.url),
+    'utf8'
+  );
   const replacements = {
     VERSION: version,
     CHANNEL: version.split('+')[0].includes('-') ? 'alpha' : 'stable',

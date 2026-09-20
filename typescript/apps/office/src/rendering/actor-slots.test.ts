@@ -3,7 +3,7 @@ import { officeWorldFixture, WORLD_LOBBY_ID } from '../../../../test/support/off
 import { worldGeometry, intersects, wallProjection } from './world-geometry.js';
 import { footprint } from '../blocks/block-contract.js';
 import { AREA_ACTOR_PREVIEW_LIMIT, areaActorSlots } from './actor-slots.js';
-import central from '../../../../contracts/office/modules-central-grid-vectors.json';
+import central from '../../../../../contracts/office/modules-central-grid-vectors.json';
 import { decodeModuleMap } from '../world-map/module-contract.js';
 
 it('prefers a clear view over the area center without changing full-height wall geometry', () => {

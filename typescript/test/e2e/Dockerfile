@@ -15,19 +15,16 @@ RUN cargo build --locked --example tmux-probe \
     -exec cp {} /native-artifacts/adapter-tests \;
 
 FROM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5
-
 ARG TMUX_VERSION=3.3a-3
 ARG PROCPS_VERSION=2:4.0.2-3
 RUN apt-get update \
   && apt-get install --no-install-recommends -y "tmux=${TMUX_VERSION}" "procps=${PROCPS_VERSION}" python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
-
 RUN npm install --global pnpm@10.33.0
-
 WORKDIR /workspace
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
-COPY apps/office/package.json apps/office/package.json
-RUN pnpm --filter tmux-team install --frozen-lockfile \
+COPY typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml typescript/
+COPY typescript/apps/office/package.json typescript/apps/office/package.json
+RUN cd typescript && pnpm --filter tmux-team install --frozen-lockfile \
   && test ! -e apps/office/node_modules/react
 COPY . .
 COPY --from=native-tests /native-artifacts/tmux-probe /opt/tmt-tests/tmux-probe
@@ -36,7 +33,6 @@ COPY --from=native-tests /native-artifacts/adapter-tests /opt/tmt-tests/adapter-
 # The selected dev/release profile changes bytes, not this fixture location.
 COPY --from=native-tests /native-artifacts/tmt /workspace/rust/target/debug/tmt
 ENV TMT_TEST_TMUX_PROBE='{"executable":"/opt/tmt-tests/tmux-probe","args":[]}'
-
 # Run process lifecycle tests under the wrapper's --init, not a build-stage
 # shell that may retain orphan zombies. Both suites share network isolation.
-CMD ["sh", "-c", "/opt/tmt-tests/adapter-tests && exec pnpm exec vitest run --config test/e2e/vitest.config.ts"]
+CMD ["sh", "-c", "/opt/tmt-tests/adapter-tests && cd /workspace/typescript && exec pnpm exec vitest run --config test/e2e/vitest.config.ts"]

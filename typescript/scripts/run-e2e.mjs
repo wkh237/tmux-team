@@ -5,9 +5,9 @@ import process from 'node:process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const image = `tmux-team-e2e:${process.pid}-${Date.now().toString(36)}`;
-const dockerfile = path.join(repoRoot, 'test', 'e2e', 'Dockerfile');
+const dockerfile = path.join(repoRoot, 'typescript', 'test', 'e2e', 'Dockerfile');
 let activeChild;
 let interrupted = false;
 

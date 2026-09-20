@@ -4,8 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { imports } from '../support/source-imports.js';
 
-const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url));
-const sourceRoot = path.join(repositoryRoot, 'src');
+const workspaceRoot = fileURLToPath(new URL('../../', import.meta.url));
+const repositoryRoot = fileURLToPath(new URL('../../../', import.meta.url));
+const sourceRoot = path.join(workspaceRoot, 'src');
 
 function retainedTestFiles(directory: string): string[] {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -27,13 +28,15 @@ function legacyTestImports(file: string, text: string): string[] {
 describe('retained developer tooling boundaries', () => {
   it('has one native product runtime and a private developer-only Node package', () => {
     const packageMetadata = JSON.parse(
-      fs.readFileSync(path.join(repositoryRoot, 'package.json'), 'utf8')
+      fs.readFileSync(path.join(workspaceRoot, 'package.json'), 'utf8')
     );
     expect(packageMetadata.private).toBe(true);
     expect(packageMetadata.bin).toBeUndefined();
     expect(packageMetadata.files).toBeUndefined();
     expect(packageMetadata.dependencies).toBeUndefined();
     expect(fs.existsSync(sourceRoot)).toBe(false);
+    expect(fs.existsSync(path.join(repositoryRoot, 'src'))).toBe(false);
+    expect(fs.existsSync(path.join(workspaceRoot, 'bin', 'tmux-team'))).toBe(false);
     expect(fs.existsSync(path.join(repositoryRoot, 'bin', 'tmux-team'))).toBe(false);
     expect(
       fs.existsSync(path.join(repositoryRoot, 'rust', 'crates', 'tmt-cli', 'src', 'main.rs'))

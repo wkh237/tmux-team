@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const defaultNativeExecutable = fileURLToPath(
-  new URL('../../rust/target/debug/tmt', import.meta.url)
+  new URL('../../../rust/target/debug/tmt', import.meta.url)
 );
 
 // Test infrastructure only. Production commands never inspect these selectors.

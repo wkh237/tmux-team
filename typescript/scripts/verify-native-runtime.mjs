@@ -20,11 +20,11 @@ for (const name of ['executable', 'target', 'version', 'skill']) {
 const executable = path.resolve(values.executable);
 const skill = fs.readFileSync(values.skill, 'utf8');
 const inboxSkill = fs.readFileSync(
-  new URL('../skills/tmt-inbox/SKILL.md', import.meta.url),
+  new URL('../../skills/tmt-inbox/SKILL.md', import.meta.url),
   'utf8'
 );
 const officeSkill = fs.readFileSync(
-  new URL('../skills/tmt-office/SKILL.md', import.meta.url),
+  new URL('../../skills/tmt-office/SKILL.md', import.meta.url),
   'utf8'
 );
 await verifyNativeRuntime({

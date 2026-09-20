@@ -10,8 +10,8 @@ product=${2:-cli}
 case "$product" in cli|office) ;; *) printf '%s\n' 'Unknown native product.' >&2; exit 2 ;; esac
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
 if [ "$product" = office ]; then
-  cd "$repo"
-  pnpm office:build:local 1>&2
+  cd "$repo/typescript"
+  corepack pnpm office:build:local 1>&2
   TMT_OFFICE_SPA_DIR="$repo/target/office-spa"
   export TMT_OFFICE_SPA_DIR
 fi

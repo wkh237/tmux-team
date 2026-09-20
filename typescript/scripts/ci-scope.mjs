@@ -7,7 +7,11 @@ export function selectCiAreas(paths) {
   const selected = { native: false, office: false };
   if (paths.length === 0) return { native: true, office: true };
   for (const path of paths) {
-    if (path.startsWith('apps/office/') || path.startsWith('docs/office/')) {
+    if (
+      path.startsWith('apps/office/') ||
+      path.startsWith('typescript/apps/office/') ||
+      path.startsWith('docs/office/')
+    ) {
       selected.office = true;
     } else if (path.startsWith('rust/') || path.startsWith('skills/')) {
       selected.native = true;
@@ -53,7 +57,7 @@ function main(args) {
   const areas = readChangedCiAreas(
     args[0],
     args[1],
-    fileURLToPath(new URL('../', import.meta.url))
+    fileURLToPath(new URL('../../', import.meta.url))
   );
   process.stdout.write(`native=${areas.native}\noffice=${areas.office}\n`);
 }

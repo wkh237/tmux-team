@@ -35,15 +35,15 @@ function installPrefix(sandbox: Sandbox): string {
 }
 
 function officeSkill(): Buffer {
-  return readFileSync(path.resolve('skills/tmt-office/SKILL.md'));
+  return readFileSync(path.resolve('../skills/tmt-office/SKILL.md'));
 }
 
 function propCreateSkill(): Buffer {
-  return readFileSync(path.resolve('skills/tmt-prop-create/SKILL.md'));
+  return readFileSync(path.resolve('../skills/tmt-prop-create/SKILL.md'));
 }
 
 function avatarCreateSkill(): Buffer {
-  return readFileSync(path.resolve('skills/tmt-avatar-create/SKILL.md'));
+  return readFileSync(path.resolve('../skills/tmt-avatar-create/SKILL.md'));
 }
 
 async function install(
@@ -473,7 +473,7 @@ esac
         expect(readlinkSync(installed.executable)).toBe('../lib/tmt-office/current/tmt-office');
         expect(
           readFileSync(installed.executable).equals(
-            readFileSync(path.resolve('rust/target/debug/tmt-office'))
+            readFileSync(path.resolve('../rust/target/debug/tmt-office'))
           )
         ).toBe(true);
         const probe = await runCli(
