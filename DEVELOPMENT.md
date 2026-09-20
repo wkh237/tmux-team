@@ -813,18 +813,10 @@ errors distinct from crash recovery, and retain uncertainty, transaction,
 retention, acknowledgment, lifetime and cleanup evidence when changing those
 boundaries.
 
-## Test design rules
-
-- Prefer structured JSON/status assertions over terminal wording.
-- Read files from isolated roots and compare exact bytes; do not snapshot
-  symlink directories or enumerate large binaries byte-by-byte.
-- Keep positive controls for every negative guard and assert the causal error,
-  not an arbitrary nonzero exit.
-- Do not mock `console.log`; use structured output or a focused formatter test.
-- Add no global process state, host installation, network endpoint, tmux server,
-  memory/MCP behavior or new release catalog to make a test convenient.
-
-Update [ARCHITECTURE.md](ARCHITECTURE.md) in the same change when an owner,
-trust boundary, resource lifecycle, public command, storage schema, test gate or
-release procedure changes. Historical TypeScript source maps and npm-pack
-runtime probes are retired evidence, not maintained commands.
+Test design and causal positive/negative controls belong to
+[CONVENTIONS](CONVENTIONS.md#tests-and-review); isolation and evidence ownership
+belong to [ARCHITECTURE](ARCHITECTURE.md#testing-and-evidence-boundaries).
+Compare exact file bytes, not symlink-directory snapshots or enumerated binary
+objects. Use structured output or a focused formatter test, not mocked
+`console.log`. Apply the [architecture maintenance contract](ARCHITECTURE.md#maintenance-contract)
+when changing an owner, boundary or verification procedure.

@@ -54,14 +54,16 @@ Read the relevant files before changing behavior:
   `typescript/test/support/cli-executable.mjs`; never add a hard-coded Node launcher or
   silent TS fallback. Prove selection reaches nested replies and real descendants
   with causal results. Historical TypeScript worker/pack tests are retired;
-  their retained native guarantees are mapped in RUST-REWRITE.md.
+  use [scenario ownership](../../../DEVELOPMENT.md#scenario-ownership) and
+  [evidence boundaries](../../../ARCHITECTURE.md#testing-and-evidence-boundaries)
+  to choose the maintained native coverage.
 - Keep retained native/E2E helpers under `typescript/test/support/`, independent of the old
   TypeScript product. Historical SQLite migration inputs and reference results
   live in `typescript/test/fixtures/storage-history/`; preserve their provenance, integrity
   checks and independent SQL assertions. Never use the native implementation to
   regenerate its own expected migration results. Keep stopped-schema public reply
   coverage on schema 8 rather than substituting an already-current database.
-- [`PERFORMANCE-BASELINE.md`](../../../PERFORMANCE-BASELINE.md) for optional runtime
+- [Runtime performance](../../../docs/performance.md) for optional runtime
   measurements. Use the same isolated fixture and causal assertions; keep timing
   samples out of ordinary CI thresholds and distinguish measured from unavailable
   process resources. A skipped benchmark is not native parity evidence.

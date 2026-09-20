@@ -11,7 +11,8 @@ WORKDIR /workspace
 COPY rust/ rust/
 COPY skills/ skills/
 COPY scripts/native-cargo.sh scripts/build-native-artifact.sh scripts/
-COPY dist-workspace.toml LICENSE NATIVE-INSTALL.md ./
+COPY dist-workspace.toml LICENSE ./
+COPY docs/NATIVE-INSTALL.md docs/NATIVE-INSTALL.md
 COPY typescript/package.json typescript/pnpm-lock.yaml typescript/pnpm-workspace.yaml typescript/
 COPY typescript/apps/office/package.json typescript/apps/office/package.json
 COPY typescript/apps/office/ typescript/apps/office/

@@ -54,27 +54,15 @@ definition lint also checks API versions, action schemas and binding compatibili
 Lint cannot grant capabilities or certify visual quality. Preview and visual
 reference review remain required for furniture and robot appearance.
 
-## Wall-mounted objects (proposed)
+## Retained wall-mounted objects
 
-Walls should support decorative and functional objects through the existing prop
-and placed-instance model, not a parallel wall-decoration catalog. A future
-versioned placement contract distinguishes floor placement from a named wall
-surface with surface-local coordinates. Validate the supported surface, bounds
-and door/window exclusions before saving; painting, picking and editing must
-share its projection. Current strict pack and layout formats do not admit these
-fields yet.
-
-Separate plain architectural material from mounted windows, lamps, shelves,
-pictures and boards before exposing customization. The current bundled back-wall
-image includes its window and lamps; it is not an editable wall inventory.
-Existing rooms must keep their appearance until an explicit migration defines
-equivalent default mounted objects. A mounted discussion board or whiteboard
-uses the same resource binding and host action as its freestanding counterpart;
-moving or removing it must not remove the underlying content.
-
-First-surface scope, occlusion while editing, collision rules and migration remain
-to be specified before implementation. Wall-height/material refinement alone does
-not deliver a wall editor or change saved floor furniture.
+The [platform contract](rooms-and-walls.md) owns current authoring and explicit
+conversion of historical mounted placements. Wall-mounted data is retained for
+existing layouts, not a second authoring mode or a new decoration catalog.
+Mounted and freestanding functional objects share their resource bindings and
+host actions; moving, converting or removing a placement never removes its
+underlying content. Admission and projection remain with the existing placement
+owners, not the artwork pack.
 
 ## Interaction affordance
 
