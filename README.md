@@ -17,13 +17,13 @@ sh tmt-installer.sh
 ```
 
 Installs into `~/.local/bin` and sets up the agent skill non-interactively.
-If `tmt` is not found, complete the [one-time PATH setup](NATIVE-INSTALL.md#one-time-path-setup).
+If `tmt` is not found, complete the [one-time PATH setup](docs/NATIVE-INSTALL.md#one-time-path-setup).
 Reload your agent's skills. For an update, run `tmt upgrade --channel alpha`
 followed by `tmt install`, then reload the agent; no binary reinstall or repeated
 PATH setup is needed.
 
 Prefer curl, a custom location, or replacing an older installation? See
-[installation options](NATIVE-INSTALL.md). The installer never uninstalls old
+[installation options](docs/NATIVE-INSTALL.md). The installer never uninstalls old
 packages or deletes application data.
 
 Office is optional. After installing the CLI, install and start the independently
