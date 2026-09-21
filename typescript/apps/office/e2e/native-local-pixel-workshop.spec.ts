@@ -230,7 +230,7 @@ test('draw, retry a lost native receipt, cancel placement, discover after restar
       await page.screenshot({ path: info.outputPath('pixel-artwork-mounted.png') });
       await openKeyboardSelection(page);
       await page.getByRole('combobox', { name: 'Object', exact: true }).selectOption(artwork.id);
-      await page.getByRole('button', { name: 'Remove placement', exact: true }).click();
+      await page.getByRole('button', { name: 'Delete', exact: true }).click();
       await expect(
         page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
       ).toHaveText('All changes applied');

@@ -373,8 +373,24 @@ history. Props drag directly after a screen-space movement threshold; floor and
 background drags pan. Ordinary wheel/two-finger scrolling and Shift/middle drag pan. Browser
 control-wheel pinch zooms around the gesture anchor; camera limits remain shared
 with the zoom buttons. Object library cards reuse the admitted indexed-art renderer
-and mount previews only while the library is open. Choosing art closes the library
-and selects the new placement. The inspector shows room settings or the selected
+and mount previews only while the library is open. Legacy pixel basics are collapsed
+after the current art collections; catalog search retains access and existing prop
+digests remain valid. Selected furniture exposes Delete, guarded Delete/Backspace
+shortcuts, and corner-drag rotation for artwork with distinct directional views.
+Repeated-frame artwork is explicitly static. The scene previews snapped quarter
+turns and validates placement before one editor transaction on release; Escape,
+capture loss, and blur discard the preview. A precision rotation action remains
+available for keyboard users. Room settings belong to floor selection, not the
+furniture inspector. `use-catalog-drag` owns transient
+catalog pointer capture and cancellation; the canvas lends a `CatalogPlacement`
+projection port, not a layout writer. The scene uses its existing camera inverse,
+object projection and placement validator for an artwork/footprint ghost. Drops
+over UI overlays are rejected by hit-testing the canvas, and cancelled gestures
+release capture and preview textures without history or writes. A valid release
+is revalidated against the current draft and enters the existing world history
+once. Touch scrolling and click-to-add remain available without a drag mode.
+Choosing or dropping art selects the new placement and closes the library.
+The inspector shows room settings or the selected
 object, not both forms together; its object preview uses the same admitted art.
 Library search filters existing pack/prop labels without another catalog or draft.
 Selection owns catalog visibility, including Pixel workshop additions. There

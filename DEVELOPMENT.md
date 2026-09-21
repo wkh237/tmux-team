@@ -383,6 +383,8 @@ offline-presence legibility. No cloud account or remote publication is part of t
 
 Direct-manipulation UI changes are covered by `local-office-direct-manipulation.spec.ts`
 (click/drag/cancel, auto-apply, persisted Undo and room properties),
+`native-local-catalog-drag.spec.ts` (catalog pointer previews, rejected/cancelled
+drops, one-change auto-apply, exact history and native restart persistence),
 `local-office-editor-hud.spec.ts` (desktop/narrow context controls) and
 `native-local-skybridges.spec.ts` (native auto-apply and canvas meeting creation).
 `world-yjs.test.ts` covers selective history, entity ordering, observation exclusion,

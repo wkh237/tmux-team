@@ -51,7 +51,7 @@ test('authors wall objects with pixel artwork, atomic coordinate input and auto-
       page.getByRole('button', { name: 'Place on a suitable wall in this area' })
     ).toBeHidden();
     await expect(page.getByRole('region', { name: 'Selected area', exact: true })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Rotate object', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
     await expect(page.locator('.world-object-preview > svg')).toBeVisible();
     await expect(page.getByRole('combobox', { name: 'Area', exact: true })).toHaveValue(area.id);
     if (name === 'Observatory window') {
@@ -59,11 +59,12 @@ test('authors wall objects with pixel artwork, atomic coordinate input and auto-
       const selected = await page
         .getByRole('combobox', { name: 'Object', exact: true })
         .inputValue();
-      await page.getByRole('button', { name: 'Remove placement', exact: true }).click();
+      await page.getByRole('button', { name: 'Delete', exact: true }).click();
       await expect(page.getByLabel('Area name', { exact: true })).toHaveValue('Studio');
       await page.getByRole('button', { name: 'Undo', exact: true }).click();
+      await openKeyboardSelection(page);
       await page.getByRole('combobox', { name: 'Object', exact: true }).selectOption(selected);
-      await page.getByRole('button', { name: 'Edit room settings', exact: true }).click();
+      await page.getByRole('combobox', { name: 'Area', exact: true }).selectOption(area.id);
       await expect(page.getByLabel('Area name', { exact: true })).toHaveValue('Studio');
     }
     if (name === 'Crew sign') {
@@ -229,7 +230,9 @@ test('pointer cancellation does not move objects and property changes auto-apply
     .dispatchEvent('pointercancel', { pointerId: 1, button: 0 });
   await page.mouse.up();
   expect(fixture.read().layout).toEqual(original);
-  await page.getByRole('button', { name: 'Edit room settings', exact: true }).click();
+  await page
+    .getByRole('combobox', { name: 'Area', exact: true })
+    .selectOption(original.map.primaryLobbyId);
   await page.getByLabel('Area name', { exact: true }).fill('Shared lobby');
   await expect(page.getByRole('region', { name: 'Layout changes' }).getByRole('status')).toHaveText(
     'All changes applied'

@@ -143,7 +143,7 @@ test('owner binds CLI notes, reads exact inert content, refreshes and restarts w
       await page
         .getByRole('combobox', { name: 'Object', exact: true })
         .selectOption(layout.objects[0]!.id);
-      await page.getByRole('button', { name: 'Remove placement', exact: true }).click();
+      await page.getByRole('button', { name: 'Delete', exact: true }).click();
       await expect(
         page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
       ).toHaveText('All changes applied');

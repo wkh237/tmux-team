@@ -408,7 +408,9 @@ test('directional workshop art previews exact pixels and saves upright views acr
       for (let rotation = 0; rotation < 4; rotation += 1) {
         if (rotation > 0) {
           await editPlacement(page);
-          await page.getByRole('button', { name: 'Rotate object', exact: true }).click();
+          if ((await page.locator('.world-placement-details').getAttribute('open')) === null)
+            await page.getByText('Precise placement', { exact: true }).click();
+          await page.getByRole('button', { name: 'Rotate 90° clockwise', exact: true }).click();
           expect(savedWorld(sandbox.database).revision).toBe(rotation);
           expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(
             worldLayout([{ ...object, rotation: rotation - 1 }])
@@ -471,7 +473,9 @@ test('directional workshop art previews exact pixels and saves upright views acr
       for (let rotation = 0; rotation < 4; rotation++) {
         if (rotation > 0) {
           await editPlacement(page);
-          await page.getByRole('button', { name: 'Rotate object', exact: true }).click();
+          if ((await page.locator('.world-placement-details').getAttribute('open')) === null)
+            await page.getByText('Precise placement', { exact: true }).click();
+          await page.getByRole('button', { name: 'Rotate 90° clockwise', exact: true }).click();
         }
         await saveLayout(page);
         expect(savedWorld(sandbox.database).revision).toBe(7 + rotation);
