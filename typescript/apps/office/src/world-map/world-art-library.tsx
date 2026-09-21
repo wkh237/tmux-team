@@ -1,14 +1,18 @@
 import { useState } from 'react';
 import type { CatalogPack } from '../props/prop-contract.js';
 import { PropThumbnail } from '../props/prop-thumbnail.js';
+import type { CatalogDragHandlers } from './use-catalog-drag.js';
+import { BUILTIN_DIGEST } from '../props/prop-contract.js';
 
 /** Browse the admitted catalog; choosing art still belongs to the world draft. */
 export function WorldArtLibrary({
   catalog,
   choose,
+  drag,
 }: {
   catalog: CatalogPack[];
   choose: (pack: CatalogPack, key: string) => void;
+  drag?: CatalogDragHandlers;
 }) {
   const [query, setQuery] = useState('');
   const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
@@ -20,7 +24,11 @@ export function WorldArtLibrary({
         return terms.every((term) => text.includes(term));
       }),
     }))
-    .filter((group) => group.props.length > 0);
+    .filter((group) => group.props.length > 0)
+    .sort(
+      (a, b) =>
+        Number(a.entry.digest === BUILTIN_DIGEST) - Number(b.entry.digest === BUILTIN_DIGEST)
+    );
   return (
     <>
       <label>
@@ -38,23 +46,41 @@ export function WorldArtLibrary({
           <button onClick={() => setQuery('')}>Clear search</button>
         </div>
       )}
-      {groups.map(({ entry, props }) => (
-        <div key={entry.digest}>
-          <h4>{entry.pack.label}</h4>
-          <div className="world-art-options">
-            {props.map((prop) => (
-              <button
-                key={prop.key}
-                className="world-art-option"
-                onClick={() => choose(entry, prop.key)}
-              >
-                <PropThumbnail pack={entry.pack} prop={prop} />
-                <span>{prop.label}</span>
-              </button>
-            ))}
+      {groups.map(({ entry, props }) => {
+        const legacy = entry.digest === BUILTIN_DIGEST;
+        const cards = (
+          <>
+            {legacy && <p>Early simplified pixel art. Existing placements are preserved.</p>}
+            <div className="world-art-options">
+              {props.map((prop) => (
+                <button
+                  key={prop.key}
+                  className="world-art-option"
+                  onPointerDown={(event) => drag?.start(event, entry, prop.key)}
+                  onDragStart={(event) => event.preventDefault()}
+                  onClick={(event) => {
+                    if (!drag?.consumeClick(event.detail)) choose(entry, prop.key);
+                  }}
+                >
+                  <PropThumbnail pack={entry.pack} prop={prop} />
+                  <span>{prop.label}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        );
+        return legacy ? (
+          <details key={`${entry.digest}:${terms.length > 0}`} open={terms.length > 0}>
+            <summary>Legacy pixel basics</summary>
+            {cards}
+          </details>
+        ) : (
+          <div key={entry.digest}>
+            <h4>{entry.pack.label}</h4>
+            {cards}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </>
   );
 }

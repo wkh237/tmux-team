@@ -96,12 +96,17 @@ test('one installation world is lazy, saves through the browser and retains an e
       await page.screenshot({ path: info.outputPath('native-world-edit-walls.png') });
       const areaPicker = page.getByRole('combobox', { name: 'Area', exact: true });
       await areaPicker.selectOption(areas.find((area) => area.name === 'Office 01')!.id);
-      await expect(
-        page.getByRole('combobox', { name: 'Object', exact: true }).locator('optgroup').first()
-      ).toHaveAttribute('label', /^Office 01 · Current room \(/);
+      await expect(page.getByLabel('Area name', { exact: true })).toHaveValue('Office 01');
+      await expect(page.getByText('Keyboard selection', { exact: true })).toBeHidden();
+      await expect(page.locator('.world-build-content optgroup').first()).toHaveAttribute(
+        'label',
+        /^Office 01 · Current room \(/
+      );
       await page.screenshot({ path: info.outputPath('native-world-edit-office-walls.png') });
       expect(observe()).toEqual(unmaterialized);
+      await openKeyboardSelection(page);
       await areaPicker.selectOption(initial.layout.map.primaryLobbyId);
+      await openKeyboardSelection(page);
       const sofa = initial.layout.objects.find(
         (object) => object.placement.prop.endsWith('/lounge-sofa') && object.placement.x === 8
       )!;
@@ -174,7 +179,8 @@ test('one installation world is lazy, saves through the browser and retains an e
       const objects = page.getByRole('combobox', { name: 'Object', exact: true });
       for (const [index, object] of initial.layout.objects.entries()) {
         await objects.selectOption(object.id);
-        await page.getByRole('button', { name: 'Remove placement', exact: true }).click();
+        await page.getByRole('button', { name: 'Delete', exact: true }).click();
+        await openKeyboardSelection(page);
         await expect(objects.locator('option')).toHaveCount(initial.layout.objects.length - index);
       }
       await expect(

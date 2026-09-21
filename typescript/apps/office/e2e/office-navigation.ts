@@ -13,6 +13,8 @@ export async function openMeetingRooms(page: Page): Promise<void> {
 export async function openKeyboardSelection(page: Page): Promise<void> {
   const summary = page.getByText('Keyboard selection', { exact: true });
   const details = summary.locator('..');
+  if (!(await summary.isVisible()))
+    await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
   if ((await details.getAttribute('open')) === null) await summary.click();
 }
 

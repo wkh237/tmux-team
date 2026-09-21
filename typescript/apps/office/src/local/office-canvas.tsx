@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { ReactNode } from 'react';
+import type { ReactNode, RefObject } from 'react';
+import type { CatalogPlacement } from '../rendering/catalog-placement.js';
 import { FurnitureToolbar } from './furniture-toolbar.js';
 import type { FurnitureActions } from '../blocks/block-scene.js';
 import { sameSelectionTarget } from '../rendering/selection-anchor.js';
@@ -29,6 +30,7 @@ export function OfficeCanvas({
   meetingOverlay,
   createMeeting,
   cameraHost,
+  placementRef,
 }: {
   model: OfficeSceneModel;
   selection?: OfficeSelection;
@@ -43,6 +45,7 @@ export function OfficeCanvas({
   meetingOverlay?(anchor?: SelectionTarget): ReactNode;
   createMeeting?(slot: MeetingSlot): void;
   cameraHost?: HTMLElement | null;
+  placementRef?: RefObject<CatalogPlacement | undefined>;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const scene = useRef<Scene | undefined>(undefined);
@@ -84,6 +87,7 @@ export function OfficeCanvas({
     function fail() {
       if (controller.signal.aborted) return;
       scene.current = undefined;
+      if (placementRef) placementRef.current = undefined;
       controller.abort();
       setReady(false);
       setError(true);
@@ -155,6 +159,7 @@ export function OfficeCanvas({
           return;
         }
         scene.current = created;
+        if (placementRef) placementRef.current = created.catalogPlacement;
         flush();
       })
       .catch(fail);
@@ -162,9 +167,10 @@ export function OfficeCanvas({
       synchronize.current = () => {};
       document.removeEventListener('visibilitychange', flush);
       controller.abort();
+      if (placementRef) placementRef.current = undefined;
       scene.current = undefined;
     };
-  }, []);
+  }, [placementRef]);
   const cameraControls = ready && (
     <div className="scene-camera" role="group" aria-label="Map view">
       <button aria-label="Zoom out" title="Zoom out" onClick={() => scene.current?.zoom(1 / 1.2)}>

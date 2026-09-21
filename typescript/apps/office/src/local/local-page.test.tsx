@@ -304,8 +304,13 @@ it('has no mode switch and selects room properties directly without writing', as
   expect(screen.getByRole('heading', { name: 'Furniture & devices' })).toBeDefined();
   act(() => canvas.select!({ kind: 'area', areaId: WORLD_LOBBY_ID }));
   expect(screen.getByLabelText('Area name')).toHaveProperty('value', 'Lobby');
+  expect(screen.getByText('Keyboard selection', { exact: true }).closest('details')).toHaveProperty(
+    'hidden',
+    true
+  );
+  expect(screen.queryByRole('heading', { name: /^Lobby$/ })).toBeNull();
+  await userEvent.click(screen.getByRole('button', { name: 'Clear selection' }));
   await userEvent.click(screen.getByText('Keyboard selection', { exact: true }));
-  expect(screen.getByRole('combobox', { name: 'Area' })).toHaveProperty('value', WORLD_LOBBY_ID);
   const object = canvas.model!.world.objects[0]!;
   await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Object' }), object.id);
   expect(canvas.editor!.selected).toBe(object.id);
@@ -605,7 +610,8 @@ it('unifies modular conversion and object changes into one draft with Undo, Redo
   const painted = canvas.model!.world;
   expect(painted.map.version).toBe(4);
   act(() => canvas.editor!.select!(painted.objects[0]!.id));
-  await userEvent.click(screen.getByRole('button', { name: 'Rotate object' }));
+  await userEvent.click(screen.getByText('Precise placement', { selector: 'summary' }));
+  await userEvent.click(screen.getByRole('button', { name: 'Rotate 90° clockwise' }));
   expect(canvas.model!.world.objects[0]!.placement.rotation).toBe(1);
   await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
   expect(canvas.model!.world).toEqual(painted);
@@ -632,7 +638,7 @@ it.each([false, true])(
     expect(screen.getByRole('heading', { name: /^Selected object: / }).textContent).toBe(
       missing ? 'Unavailable prop' : 'Desk'
     );
-    expect(screen.getByRole('button', { name: 'Remove placement' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Delete$/ })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Move object' })).toBeNull();
     expect(local.world.save).not.toHaveBeenCalled();
   }
@@ -645,9 +651,27 @@ it('shows the visual catalog by default and selects newly added objects without 
   expect(screen.getByRole('heading', { name: 'Furniture & devices' })).toBeDefined();
   expect(screen.queryByRole('toolbar', { name: 'Build tools' })).toBeNull();
   expect(local.world.save).not.toHaveBeenCalled();
+  await userEvent.click(screen.getByText('Legacy pixel basics', { selector: 'summary' }));
   await userEvent.click(screen.getByRole('button', { name: 'Desk' }));
   expect(canvas.model!.world.objects).toHaveLength(before.objects.length + 1);
   expect(canvas.editor!.selected).toBe(canvas.model!.world.objects.at(-1)!.id);
+  await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
+  expect(canvas.model!.world).toEqual(before);
+});
+
+it('deletes the selection with Delete, preserves text editing, and restores it with Undo', async () => {
+  const local = runtime();
+  await show(local);
+  const before = structuredClone(canvas.model!.world);
+  act(() => canvas.editor!.select!(before.objects[0]!.id));
+  expect(screen.queryByRole('button', { name: 'Edit room settings' })).toBeNull();
+  await userEvent.click(screen.getByText('Precise placement', { selector: 'summary' }));
+  await userEvent.click(screen.getByLabelText('X'));
+  await userEvent.keyboard('{Delete}');
+  expect(canvas.model!.world).toEqual(before);
+  screen.getByRole('heading', { name: 'Selected object: Desk' }).focus();
+  await userEvent.keyboard('{Delete}');
+  expect(canvas.model!.world.objects).toHaveLength(before.objects.length - 1);
   await userEvent.click(screen.getByRole('button', { name: 'Undo' }));
   expect(canvas.model!.world).toEqual(before);
 });

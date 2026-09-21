@@ -26,7 +26,7 @@ it('offers floor placement and actions without wall settings on platforms', () =
   expect(screen.queryByLabelText('Object kind')).toBeNull();
   expect(screen.queryByLabelText('Wall direction')).toBeNull();
   expect(screen.getByRole('form', { name: 'Object coordinates' })).toBeTruthy();
-  expect(screen.getByRole('button', { name: 'Rotate object' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Rotate 90° clockwise' })).toBeTruthy();
 });
 
 it('starts with precision settings collapsed while common actions remain available', async () => {
@@ -42,12 +42,12 @@ it('starts with precision settings collapsed while common actions remain availab
   expect(
     screen.getByRole('form', { name: 'Web link' }).closest('details')?.hasAttribute('open')
   ).toBe(false);
-  await user.click(screen.getByRole('button', { name: 'Rotate object' }));
+  await user.click(summary);
+  await user.click(screen.getByRole('button', { name: 'Rotate 90° clockwise' }));
   expect(change).toHaveBeenCalledExactlyOnceWith({
     ...object,
     placement: { ...object.placement, rotation: (object.placement.rotation + 1) % 4 },
   });
-  await user.click(summary);
   expect(summary.parentElement?.hasAttribute('open')).toBe(true);
   expect(screen.getByRole('form', { name: 'Object coordinates' })).toBeTruthy();
   await user.click(screen.getByText('Object action', { selector: 'summary' }));

@@ -155,8 +155,10 @@ test('reviewed workstation and wall art use real catalog placement, four chair v
         .getByRole('combobox', { name: 'Object', exact: true })
         .selectOption(additions[0]!.id);
       const frames = [await captureWorldScene(page, info, 'chair-south.png')];
+      if ((await page.locator('.world-placement-details').getAttribute('open')) === null)
+        await page.getByText('Precise placement', { exact: true }).click();
       for (const direction of ['west', 'north', 'east']) {
-        await page.getByRole('button', { name: 'Rotate object', exact: true }).click();
+        await page.getByRole('button', { name: 'Rotate 90° clockwise', exact: true }).click();
         frames.push(await captureWorldScene(page, info, `chair-${direction}.png`));
       }
       expect(new Set(frames.map((frame) => frame.toString('base64'))).size).toBe(4);

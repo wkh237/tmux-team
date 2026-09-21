@@ -1,7 +1,11 @@
 import { Container, Graphics, Sprite } from 'pixi.js';
 import type { SceneAvatar } from '../blocks/block-scene.js';
 import type { CatalogPack } from '../props/prop-contract.js';
-import type { WorldDocument } from '../world-map/world-contract.js';
+import type { WorldDocument, WorldObject } from '../world-map/world-contract.js';
+import { resolvePlacedProp } from '../props/prop-contract.js';
+import { hasRotationArt, rotatedObject } from '../world-map/object-rotation.js';
+import type { CatalogPlacement } from './catalog-placement.js';
+import { footprint } from '../blocks/block-contract.js';
 import { avatarArt } from '../profiles/avatar-art.js';
 import { AVATAR_LAYOUT, avatarMarkColor, avatarTopInset } from '../profiles/avatar-layout.js';
 import { createSceneApplication } from './scene-application.js';
@@ -62,6 +66,7 @@ export interface OfficeSceneEditor {
   selected?: string;
   select?: (id: string) => void;
   moveObject: (id: string, position: { x: number; y: number }) => void;
+  rotateObject?: (id: string, placement: WorldObject['placement']) => void;
 }
 
 export interface OfficeSceneEvents {
@@ -152,6 +157,8 @@ export async function createOfficeScene(
   }
   const preview = new Graphics(),
     highlight = new Graphics();
+  const catalogGhost = new Container();
+  const catalogTextures = createSceneTextures();
   const canvas = application.canvas;
   canvas.style.touchAction = 'none';
   canvas.tabIndex = -1;
@@ -193,6 +200,12 @@ export async function createOfficeScene(
       highlight
         .rect(rect.x, rect.y, rect.width, rect.height)
         .stroke({ color: '#ffe8a2', width: 0.25 });
+    for (const corner of rotationCorners()) {
+      highlight
+        .circle(corner.x, corner.y, 5 / camera.scale)
+        .fill({ color: '#102b35' })
+        .stroke({ color: '#9bffe3', width: 2 / camera.scale });
+    }
     selectedAnchor(
       rect
         ? selectionAnchor(rect, camera, { width: host.clientWidth, height: host.clientHeight })
@@ -283,7 +296,7 @@ export async function createOfficeScene(
     if (!model || !geometry || !materials) return;
     bridgePulse.setLights([]);
     bridgeLights = [];
-    root.removeChild(preview, highlight);
+    root.removeChild(preview, highlight, catalogGhost);
     for (const child of root.removeChildren()) child.destroy({ children: true });
     textures.begin();
     nameplates = [];
@@ -509,7 +522,7 @@ export async function createOfficeScene(
     // occlusion and object affordances rather than painted into the floor.
     root.addChild(actorLabels);
     for (const plate of nameplates) plate.zoom(camera.scale);
-    root.addChild(highlight, preview);
+    root.addChild(highlight, preview, catalogGhost);
     textures.end();
     selection(selected);
     refreshBridgeLights();
@@ -591,6 +604,80 @@ export async function createOfficeScene(
     const bounds = canvas.getBoundingClientRect();
     return scenePoint(camera, event.clientX - bounds.left, event.clientY - bounds.top);
   }
+  const catalogPlacement: CatalogPlacement = {
+    clear() {
+      for (const child of catalogGhost.removeChildren()) child.destroy({ children: true });
+      catalogTextures.dispose();
+      delete canvas.dataset.catalogDropValidity;
+      invalidate();
+    },
+    preview(object, point) {
+      // Pointer capture stays with the catalog card. Hit-testing the actual
+      // document prevents a drop through an inspector/dialog into the canvas.
+      if (
+        disposed ||
+        !model ||
+        !geometry ||
+        document.elementFromPoint(point.clientX, point.clientY) !== canvas
+      ) {
+        catalogPlacement.clear();
+        return;
+      }
+      const bounds = canvas.getBoundingClientRect();
+      const target = scenePoint(camera, point.clientX - bounds.left, point.clientY - bounds.top);
+      const size = footprint(object.placement);
+      const position = geometry.objectPosition(object, {
+        x: target.x - size.width / 2,
+        y: target.y - size.height / 2,
+      });
+      const candidate = { ...object, placement: { ...object.placement, ...position } };
+      const problem = placementProblem(geometry.map, candidate, model.world.objects);
+      const rect = geometry.objectRect(candidate);
+      const floor = geometry.projection.projectGroundRect({ ...position, ...size });
+      for (const child of catalogGhost.removeChildren()) child.destroy({ children: true });
+      catalogTextures.begin();
+      const art = new Container();
+      art.alpha = problem ? 0.45 : 0.85;
+      art.position.set(rect.x, rect.y);
+      drawSceneProp(art, { ...candidate.placement, x: 0, y: 0 }, model.catalog, catalogTextures);
+      catalogGhost.addChild(art);
+      catalogGhost.addChild(
+        new Graphics()
+          .rect(floor.x, floor.y, floor.width, floor.height)
+          .fill({ color: problem ? '#ff525e' : '#70ddc6', alpha: 0.16 })
+          .stroke({ color: problem ? '#ff8790' : '#9bffe3', width: 2 / camera.scale })
+      );
+      catalogTextures.end();
+      canvas.dataset.catalogDropValidity = problem ? 'invalid' : 'valid';
+      invalidate();
+      return { object: candidate, problem };
+    },
+  };
+  function rotationCorners() {
+    const object = model?.world.objects.find((item) => item.id === editor?.selected);
+    const resolved = object && resolvePlacedProp(model!.catalog, object.placement);
+    if (
+      !object ||
+      !geometry ||
+      !editor?.rotateObject ||
+      !resolved ||
+      !hasRotationArt(resolved.definition) ||
+      object.surface.type !== 'floor'
+    )
+      return [];
+    const rect = geometry.objectRect(object);
+    return [
+      { x: rect.x, y: rect.y },
+      { x: rect.x + rect.width, y: rect.y },
+      { x: rect.x + rect.width, y: rect.y + rect.height },
+      { x: rect.x, y: rect.y + rect.height },
+    ];
+  }
+  function rotationAt(point: { x: number; y: number }) {
+    return rotationCorners().some(
+      (corner) => Math.hypot(point.x - corner.x, point.y - corner.y) <= 9 / camera.scale
+    );
+  }
   let hoveredOffice: OfficeSlot | undefined;
   let hoveredMeeting = false;
   let pointer:
@@ -604,6 +691,7 @@ export async function createOfficeScene(
         objectId?: string;
         selecting: boolean;
         moved: boolean;
+        rotating?: WorldObject;
       }
     | undefined;
   function objectAt(point: { x: number; y: number }) {
@@ -664,6 +752,17 @@ export async function createOfficeScene(
       }),
     };
   }
+  function rotatedAt(point: { x: number; y: number }) {
+    const original = pointer?.rotating;
+    if (!original || !geometry || !pointer) return;
+    const rect = geometry.objectRect(original);
+    const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+    const angle =
+      Math.atan2(point.y - center.y, point.x - center.x) -
+      Math.atan2(pointer.start.y - center.y, pointer.start.x - center.x);
+    const object = rotatedObject(original, Math.round(angle / (Math.PI / 2)));
+    return { object, problem: placementProblem(geometry.map, object, model!.world.objects) };
+  }
   const down = (event: PointerEvent) => {
     if (pointer || (event.button !== 0 && event.button !== 1)) return;
     const point = at(event);
@@ -675,6 +774,10 @@ export async function createOfficeScene(
       originY: camera.y,
       start: point,
       moved: false,
+      rotating:
+        event.button === 0 && !event.shiftKey && rotationAt(point)
+          ? model?.world.objects.find((item) => item.id === editor?.selected)
+          : undefined,
       selecting: event.button === 0 && !event.shiftKey,
       objectId:
         editor && event.button === 0 && !event.shiftKey && !actorAt(point)
@@ -693,11 +796,13 @@ export async function createOfficeScene(
       const changed = office !== hoveredOffice || meeting !== hoveredMeeting;
       hoveredOffice = office;
       hoveredMeeting = meeting;
-      canvas.style.cursor = objectAt(point)
-        ? 'grab'
-        : office || meeting || hovered || actorAt(point)
-          ? 'pointer'
-          : 'grab';
+      canvas.style.cursor = rotationAt(point)
+        ? 'crosshair'
+        : objectAt(point)
+          ? 'grab'
+          : office || meeting || hovered || actorAt(point)
+            ? 'pointer'
+            : 'grab';
       if (changed) draw();
       interaction(focused);
       return;
@@ -707,6 +812,28 @@ export async function createOfficeScene(
       y = event.clientY - pointer.y;
     if (Math.hypot(x, y) > 5) pointer.moved = true;
     if (!pointer.moved) return;
+    if (pointer.rotating) {
+      const candidate = rotatedAt(point);
+      if (!candidate || !geometry) return;
+      const { object, problem } = candidate;
+      const rect = geometry.objectRect(object);
+      for (const child of catalogGhost.removeChildren()) child.destroy({ children: true });
+      catalogTextures.begin();
+      const art = new Container();
+      art.position.set(rect.x, rect.y);
+      art.alpha = 0.8;
+      drawSceneProp(art, { ...object.placement, x: 0, y: 0 }, model!.catalog, catalogTextures);
+      catalogGhost.addChild(art);
+      catalogTextures.end();
+      preview
+        .clear()
+        .rect(rect.x, rect.y, rect.width, rect.height)
+        .stroke({ color: problem ? '#ff525e' : '#9bffe3', width: 2 / camera.scale });
+      canvas.dataset.dropValidity = problem ? 'invalid' : 'valid';
+      canvas.style.cursor = problem ? 'not-allowed' : 'crosshair';
+      invalidate();
+      return;
+    }
     if (pointer.objectId) {
       const moved = movedObject(point);
       if (!moved) return;
@@ -728,7 +855,15 @@ export async function createOfficeScene(
     if (!pointer || pointer.id !== event.pointerId) return;
     const point = at(event);
     if (event.type !== 'pointercancel') {
-      if (pointer.moved && pointer.objectId) {
+      if (pointer.rotating) {
+        const candidate = pointer.moved && rotatedAt(point);
+        if (
+          candidate &&
+          !candidate.problem &&
+          candidate.object.placement.rotation !== pointer.rotating.placement.rotation
+        )
+          editor?.rotateObject?.(candidate.object.id, candidate.object.placement);
+      } else if (pointer.moved && pointer.objectId) {
         const moved = movedObject(point);
         if (moved && !moved.problem) {
           editor?.select?.(moved.id);
@@ -755,6 +890,7 @@ export async function createOfficeScene(
       }
     }
     preview.clear();
+    catalogPlacement.clear();
     delete canvas.dataset.dropValidity;
     canvas.style.cursor = 'grab';
     invalidate();
@@ -769,11 +905,20 @@ export async function createOfficeScene(
       draw();
     }
   };
+  const lostGesture = () => {
+    const current = pointer;
+    pointer = undefined;
+    if (current && canvas.hasPointerCapture(current.id)) canvas.releasePointerCapture(current.id);
+    preview.clear();
+    catalogPlacement.clear();
+    delete canvas.dataset.dropValidity;
+  };
   const cancelGesture = (event: KeyboardEvent) => {
     if (event.key !== 'Escape') return;
     if (pointer && canvas.hasPointerCapture(pointer.id)) canvas.releasePointerCapture(pointer.id);
     pointer = undefined;
     preview.clear();
+    catalogPlacement.clear();
     delete canvas.dataset.dropValidity;
     canvas.style.cursor = 'grab';
     hoveredOffice = undefined;
@@ -817,6 +962,8 @@ export async function createOfficeScene(
   canvas.addEventListener('keydown', cancelGesture);
   canvas.addEventListener('pointerup', up);
   canvas.addEventListener('pointercancel', up);
+  canvas.addEventListener('lostpointercapture', lostGesture);
+  window.addEventListener('blur', lostGesture);
   canvas.addEventListener('wheel', wheel, { passive: false });
   application.renderer.on('resize', resize);
   function dispose() {
@@ -829,14 +976,27 @@ export async function createOfficeScene(
     canvas.removeEventListener('keydown', cancelGesture);
     canvas.removeEventListener('pointerup', up);
     canvas.removeEventListener('pointercancel', up);
+    canvas.removeEventListener('lostpointercapture', lostGesture);
+    window.removeEventListener('blur', lostGesture);
     canvas.removeEventListener('wheel', wheel);
     if (application.renderer) application.renderer.off('resize', resize);
     bridgePulse.dispose();
+    catalogTextures.dispose();
     disposeApplication();
     textures.dispose();
     materials?.dispose();
     platformArt?.dispose();
   }
   signal.addEventListener('abort', dispose, { once: true });
-  return { update, selection, interaction, editing, anchorActor, fit, zoom, dispose };
+  return {
+    update,
+    selection,
+    interaction,
+    editing,
+    anchorActor,
+    fit,
+    zoom,
+    catalogPlacement,
+    dispose,
+  };
 }

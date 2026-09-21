@@ -33,6 +33,7 @@ it('offers a local search reset with no placement or catalog mutation', async ()
   expect(empty.textContent).toContain('No matching objects.');
   await user.click(within(empty).getByRole('button', { name: 'Clear search' }));
   expect(screen.getByRole('searchbox')).toHaveProperty('value', '');
+  await user.click(screen.getByText('Legacy pixel basics', { selector: 'summary' }));
   expect(screen.getAllByRole('button')).toHaveLength(BUILTIN_PACK.props.length);
   expect(choose).not.toHaveBeenCalled();
 });

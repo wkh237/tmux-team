@@ -88,7 +88,7 @@ test('a persisted web object stays inert through restart and review until an exp
         .selectOption(layout.objects[0]!.id);
       const action = page.locator('details.world-object-binding');
       await expect(action).not.toHaveAttribute('open');
-      await expect(page.getByRole('button', { name: 'Rotate object', exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
       await expect(action.getByLabel('Web destination', { exact: true })).toBeHidden();
       await page.getByText('Object action', { exact: true }).click();
       await expect(action.getByLabel('Web destination', { exact: true })).toHaveValue(destination);

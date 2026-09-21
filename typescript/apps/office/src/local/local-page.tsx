@@ -27,7 +27,10 @@ import { addMeetingModule, nextMeetingSlot } from '../world-map/meeting-module.j
 import { addOfficeModule, officeExpansionSlots } from '../world-map/module-authoring.js';
 import { officeSlotKey } from '../world-map/module-contract.js';
 import type { MeetingSlot, OfficeSlot } from '../world-map/module-contract.js';
-import { createCatalogObject } from '../world-map/world-object-placement.js';
+import { createCatalogObject, placementProblem } from '../world-map/world-object-placement.js';
+import { projectMap } from '../world-map/map-geometry.js';
+import { useCatalogDrag } from '../world-map/use-catalog-drag.js';
+import { removeWorldObject } from '../world-map/world-draft.js';
 import { objectArea } from '../world-map/object-area.js';
 import { indexFloor } from '../world-map/floor-index.js';
 import { PixelWorkshop } from '../props/pixel-workshop.js';
@@ -215,6 +218,20 @@ function ReadyOffice({
     propObserved(pack);
     selectObject(id);
   }
+  const catalogDrag = useCatalogDrag({
+    disabled: editor.busy,
+    commit: (object, pack) => {
+      const changed = editor.change((current) => {
+        const problem = placementProblem(projectMap(current.map), object, current.objects);
+        if (problem) throw new Error(problem);
+        return { ...current, objects: [...current.objects, object] };
+      });
+      if (!changed)
+        throw new Error('This object could not be added. Check the layout validation message.');
+      propObserved(pack);
+      selectObject(object.id);
+    },
+  });
   const workshop = useExtensionPanel(
     'Pixel workshop',
     <PixelWorkshop port={load.runtime.propCatalog} canAdd={!editor.busy} add={addArt} />
@@ -352,6 +369,14 @@ function ReadyOffice({
       if (!editor.busy) closePanel();
     },
     selected: selectedObject?.id,
+    rotateObject: (id, placement) =>
+      !editor.busy &&
+      editor.change((world) => ({
+        ...world,
+        objects: world.objects.map((object) =>
+          object.id === id ? { ...object, placement } : object
+        ),
+      })),
     select: (id) => {
       if (!editor.busy) selectObject(id);
     },
@@ -369,6 +394,20 @@ function ReadyOffice({
       className="office-overview"
       aria-label="Office overview"
       onKeyDown={(event) => {
+        const target = event.target as HTMLElement;
+        if (
+          (event.key === 'Delete' || event.key === 'Backspace') &&
+          selectedObject &&
+          !editor.busy &&
+          !event.defaultPrevented &&
+          !event.nativeEvent.isComposing &&
+          !target.closest('input, textarea, select, [contenteditable], dialog, [role="dialog"]')
+        ) {
+          event.preventDefault();
+          if (editor.change((world) => removeWorldObject(world, selectedObject.id)))
+            selectObject(undefined);
+          return;
+        }
         if (event.key === 'Escape' && !roomBusy) {
           event.stopPropagation();
           closePanel();
@@ -490,6 +529,7 @@ function ReadyOffice({
           rooms={load.rooms}
           catalog={load.props}
           addArt={addArt}
+          catalogDrag={catalogDrag.handlers}
           openWorkshop={workshop.open}
         />
         <aside
@@ -519,6 +559,7 @@ function ReadyOffice({
         </aside>
       </div>
       <OfficeCanvas
+        placementRef={catalogDrag.placement}
         cameraHost={cameraHost}
         model={sceneModel}
         select={(value) => {
@@ -585,6 +626,25 @@ function ReadyOffice({
             : undefined
         }
       />
+      {catalogDrag.feedback && (
+        <div
+          className="catalog-drag-feedback"
+          role="status"
+          data-valid={catalogDrag.feedback.valid}
+          style={{
+            left: Math.max(8, Math.min(catalogDrag.feedback.x + 18, window.innerWidth - 260)),
+            top: Math.max(8, Math.min(catalogDrag.feedback.y + 24, window.innerHeight - 64)),
+          }}
+        >
+          {catalogDrag.feedback.valid ? '✓ ' : '× '}
+          {catalogDrag.feedback.message}
+        </div>
+      )}
+      {catalogDrag.error && (
+        <p className="scene-status" role="alert">
+          {catalogDrag.error}
+        </p>
+      )}
       {extensions.panel}
       {workshop.panel}
       {meetingRooms.panel}

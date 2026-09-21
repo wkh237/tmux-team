@@ -23,6 +23,8 @@ import { upgradeModuleWorld, compactModuleWorld, platformModuleWorld } from './m
 import { PropThumbnail } from '../props/prop-thumbnail.js';
 import { WorldArtLibrary } from './world-art-library.js';
 import { WorldObjectPicker } from './world-object-picker.js';
+import type { CatalogDragHandlers } from './use-catalog-drag.js';
+import { hasRotationArt } from './object-rotation.js';
 
 type Editor = ReturnType<typeof useWorldEditor>;
 interface Props {
@@ -39,6 +41,7 @@ interface Props {
   rooms: MeetingRoom[];
   catalog: CatalogPack[];
   addArt: (pack: CatalogPack, key: string) => void;
+  catalogDrag?: CatalogDragHandlers;
   openWorkshop: () => void;
 }
 export function WorldTools({
@@ -55,6 +58,7 @@ export function WorldTools({
   rooms,
   catalog,
   addArt,
+  catalogDrag,
   openWorkshop,
 }: Props) {
   const [replacement, setReplacement] = useState('');
@@ -181,7 +185,7 @@ export function WorldTools({
               </section>
             )}
           <fieldset disabled={editor.busy}>
-            <details>
+            <details hidden={!library && !object && Boolean(area)}>
               <summary>Keyboard selection</summary>
               <label>
                 Area
@@ -212,12 +216,13 @@ export function WorldTools({
                 </button>
               </div>
               <p className="world-art-hint">
-                Click a picture to add it to the last selected room. Drag objects directly on the
-                map.
+                Drag a picture onto the floor. Or click to add it to the last selected room, then
+                adjust its position.
               </p>
               {library && (
                 <WorldArtLibrary
                   catalog={catalog}
+                  drag={catalogDrag}
                   choose={(pack, key) => {
                     try {
                       addArt(pack, key);
@@ -234,19 +239,6 @@ export function WorldTools({
             {placementError && <p role="alert">{placementError}</p>}
             {!library && !object && area && (
               <section aria-label="Selected area">
-                <h3>{area.name}</h3>
-                {world.map.version !== 1 && (
-                  <RoomMaterialChoices
-                    platform={world.map.version >= 6}
-                    value={
-                      world.map.modules.find((module) => module.area.id === area.id)?.material ??
-                      'workshop'
-                    }
-                    change={(material) =>
-                      editor.change((world) => setModuleMaterial(world, area.id, material))
-                    }
-                  />
-                )}
                 <label>
                   Area name
                   <input
@@ -263,6 +255,18 @@ export function WorldTools({
                     }}
                   />
                 </label>
+                {world.map.version !== 1 && (
+                  <RoomMaterialChoices
+                    platform={world.map.version >= 6}
+                    value={
+                      world.map.modules.find((module) => module.area.id === area.id)?.material ??
+                      'workshop'
+                    }
+                    change={(material) =>
+                      editor.change((world) => setModuleMaterial(world, area.id, material))
+                    }
+                  />
+                )}
                 {meetingRoomId !== undefined && (
                   <>
                     <details>
@@ -416,15 +420,9 @@ export function WorldTools({
                     {appearance?.definition.label ?? 'Unavailable prop'}
                   </h3>
                 </div>
-                <button
-                  onClick={() => {
-                    selectArea(areaId ?? world.map.primaryLobbyId);
-                  }}
-                >
-                  Edit room settings
-                </button>
                 <WorldObjectTools
                   object={object}
+                  canRotate={Boolean(appearance && hasRotationArt(appearance.definition))}
                   wallEditing={world.map.version < 6}
                   identities={[...population.identities.values()]}
                   change={setObject}

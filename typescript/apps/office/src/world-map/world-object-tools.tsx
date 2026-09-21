@@ -13,6 +13,7 @@ export function WorldObjectTools({
   identities,
   mountOnWall,
   wallEditing = true,
+  canRotate = true,
 }: {
   object: WorldObject;
   change: (object: WorldObject) => void;
@@ -20,6 +21,7 @@ export function WorldObjectTools({
   identities: ProfileProjection[];
   mountOnWall?: () => void;
   wallEditing?: boolean;
+  canRotate?: boolean;
 }) {
   const { surface } = object;
   const existingUrl =
@@ -33,20 +35,27 @@ export function WorldObjectTools({
   return (
     <section aria-label="Selected object">
       <div className="world-object-actions">
-        <button
-          onClick={() =>
-            change({
-              ...object,
-              placement: { ...object.placement, rotation: (object.placement.rotation + 1) % 4 },
-            })
-          }
-        >
-          Rotate object
-        </button>
-        <button onClick={remove}>Remove placement</button>
+        <button onClick={remove}>Delete</button>
       </div>
+      <p>
+        {canRotate
+          ? 'Drag a corner handle to rotate. Delete removes the selected object.'
+          : 'This artwork has one view; directional rotation is unavailable.'}
+      </p>
       <details className="world-placement-details">
         <summary>Precise placement</summary>
+        {canRotate && (
+          <button
+            onClick={() =>
+              change({
+                ...object,
+                placement: { ...object.placement, rotation: (object.placement.rotation + 1) % 4 },
+              })
+            }
+          >
+            Rotate 90° clockwise
+          </button>
+        )}
         {mountOnWall && (
           <button onClick={mountOnWall}>Place on a suitable wall in this area</button>
         )}
