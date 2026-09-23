@@ -243,7 +243,7 @@ jobs:
           CARGO_PROFILE_DEV_DEBUG: 0
         run: |
           cargo build --locked -p tmt-office
-          cargo build --locked -p tmt-cli
+          cargo build --locked --release -p tmt-cli
       - name: Set up Node.js test tooling
         uses: actions/setup-node@v4
         with:
@@ -272,7 +272,7 @@ jobs:
       - name: Verify native process and shared parser contracts
         working-directory: typescript
         env:
-          TMT_TEST_CLI: '{"executable":"${{ github.workspace }}/rust/target/debug/tmt","args":[]}'
+          TMT_TEST_CLI: '{"executable":"${{ github.workspace }}/rust/target/release/tmt","args":[]}'
           TMT_TEST_STORAGE_PROBE: '{"executable":"${{ github.workspace }}/rust/target/debug/examples/storage-probe","args":[]}'
         run: |
           pnpm test:native --reporter=verbose
