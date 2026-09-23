@@ -73,6 +73,22 @@ pub const MODULAR_RECEPTION_BYTES: &[u8] =
     include_bytes!("../../../../contracts/office/modular-reception-v2.tmtprop.json");
 
 const DIGEST_DOMAIN: &[u8] = b"TMT-OFFICE-PROP-PACK-V1\0";
+pub const DIRECTIONAL_WORKSTATION_DIGEST: &str =
+    "sha256:510f5c18585f9c626260ca7d851c10df9ee1f6858e2dedb494aff8dc7ad82003";
+pub const DIRECTIONAL_WORKSTATION_BYTES: &[u8] =
+    include_bytes!("../../../../contracts/office/directional-workstation-v2.tmtprop.json");
+pub const DIRECTIONAL_LOUNGE_DIGEST: &str =
+    "sha256:79b890d1e7f7a9139e856a45efdbfb111052dd4b9414050367f8290f677ea802";
+pub const DIRECTIONAL_LOUNGE_BYTES: &[u8] =
+    include_bytes!("../../../../contracts/office/directional-lounge-v2.tmtprop.json");
+pub const DIRECTIONAL_RECEPTION_DIGEST: &str =
+    "sha256:bbd2099aec2ebef001386e84bc28c7ff119cdecb2cb566665b51b1fabb99a93b";
+pub const DIRECTIONAL_RECEPTION_BYTES: &[u8] =
+    include_bytes!("../../../../contracts/office/directional-reception-v2.tmtprop.json");
+pub const DIRECTIONAL_FACILITIES_DIGEST: &str =
+    "sha256:206562d849112c6ad6bfe2099bd1dc62fcdb82c73f58c3ff7e6062dd9fcf924f";
+pub const DIRECTIONAL_FACILITIES_BYTES: &[u8] =
+    include_bytes!("../../../../contracts/office/directional-facilities-v2.tmtprop.json");
 const DIRECTIONAL_DIGEST_DOMAIN: &[u8] = b"TMT-OFFICE-PROP-PACK-V2\0";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -272,6 +288,13 @@ pub fn builtin_packs() -> &'static [ValidatedPropPack] {
             (MODULAR_LOUNGE_DIGEST, MODULAR_LOUNGE_BYTES),
             (MODULAR_FACILITIES_DIGEST, MODULAR_FACILITIES_BYTES),
             (MODULAR_RECEPTION_DIGEST, MODULAR_RECEPTION_BYTES),
+            (
+                DIRECTIONAL_WORKSTATION_DIGEST,
+                DIRECTIONAL_WORKSTATION_BYTES,
+            ),
+            (DIRECTIONAL_LOUNGE_DIGEST, DIRECTIONAL_LOUNGE_BYTES),
+            (DIRECTIONAL_RECEPTION_DIGEST, DIRECTIONAL_RECEPTION_BYTES),
+            (DIRECTIONAL_FACILITIES_DIGEST, DIRECTIONAL_FACILITIES_BYTES),
         ]
         .into_iter()
         .map(|(digest, bytes)| {
@@ -581,6 +604,34 @@ mod tests {
                 .unwrap()
                 .contains("00100101")
         );
+    }
+
+    #[test]
+    fn directional_furniture_preserves_legacy_identity_and_footprints() {
+        for (old_digest, new_digest) in [
+            (MODULAR_WORKSTATION_DIGEST, DIRECTIONAL_WORKSTATION_DIGEST),
+            (MODULAR_LOUNGE_DIGEST, DIRECTIONAL_LOUNGE_DIGEST),
+            (MODULAR_RECEPTION_DIGEST, DIRECTIONAL_RECEPTION_DIGEST),
+            (MODULAR_FACILITIES_DIGEST, DIRECTIONAL_FACILITIES_DIGEST),
+        ] {
+            let old = builtin_by_digest(old_digest).unwrap();
+            let new = builtin_by_digest(new_digest).unwrap();
+            for prop in &new.pack().props {
+                let retained = old.pack().props.iter().find(|p| p.key == prop.key).unwrap();
+                assert_eq!(prop.footprint, retained.footprint);
+                let frames = prop.frames.as_ref().unwrap();
+                let unique: HashSet<_> = frames.iter().collect();
+                assert_eq!(unique.len(), 4, "{}", prop.key);
+                assert!(
+                    retained
+                        .frames
+                        .as_ref()
+                        .unwrap()
+                        .windows(2)
+                        .all(|pair| pair[0] == pair[1])
+                );
+            }
+        }
     }
 
     #[test]

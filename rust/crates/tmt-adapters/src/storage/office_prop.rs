@@ -1032,7 +1032,11 @@ mod tests {
                 MODULAR_MOUNTED_DIGEST,
                 MODULAR_LOUNGE_DIGEST,
                 crate::office_prop::MODULAR_FACILITIES_DIGEST,
-                crate::office_prop::MODULAR_RECEPTION_DIGEST
+                crate::office_prop::MODULAR_RECEPTION_DIGEST,
+                crate::office_prop::DIRECTIONAL_WORKSTATION_DIGEST,
+                crate::office_prop::DIRECTIONAL_LOUNGE_DIGEST,
+                crate::office_prop::DIRECTIONAL_RECEPTION_DIGEST,
+                crate::office_prop::DIRECTIONAL_FACILITIES_DIGEST,
             ]
         );
         assert!(list.packs.is_empty());

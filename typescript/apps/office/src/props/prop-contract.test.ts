@@ -19,6 +19,10 @@ import {
   MODULAR_LOUNGE_DIGEST,
   MODULAR_FACILITIES_DIGEST,
   MODULAR_RECEPTION_DIGEST,
+  DIRECTIONAL_WORKSTATION_DIGEST,
+  DIRECTIONAL_LOUNGE_DIGEST,
+  DIRECTIONAL_RECEPTION_DIGEST,
+  DIRECTIONAL_FACILITIES_DIGEST,
   decodePropPack,
   indexedProp,
 } from './prop-contract.js';
@@ -145,6 +149,30 @@ describe('data-only prop pack contract', () => {
       index: 5,
       keys: ['oak-bookcase', 'reading-lamp', 'desktop-terminal'],
     },
+    {
+      file: 'directional-workstation-v2.tmtprop.json',
+      digest: DIRECTIONAL_WORKSTATION_DIGEST,
+      index: 12,
+      keys: ['workstation-desk', 'workstation-terminal', 'workstation-bookcase'],
+    },
+    {
+      file: 'directional-lounge-v2.tmtprop.json',
+      digest: DIRECTIONAL_LOUNGE_DIGEST,
+      index: 13,
+      keys: ['lounge-sofa', 'lounge-armchair', 'lounge-table', 'lounge-plant'],
+    },
+    {
+      file: 'directional-reception-v2.tmtprop.json',
+      digest: DIRECTIONAL_RECEPTION_DIGEST,
+      index: 14,
+      keys: ['reception-armchair', 'reception-table'],
+    },
+    {
+      file: 'directional-facilities-v2.tmtprop.json',
+      digest: DIRECTIONAL_FACILITIES_DIGEST,
+      index: 15,
+      keys: ['lobby-whiteboard', 'lobby-discussion-board', 'lobby-radio'],
+    },
   ])('admits $file with its frozen v2 identity without replacing existing art', (fixture) => {
     const bytes = readFileSync(
       path.resolve(process.cwd(), '../../../contracts/office', fixture.file)
@@ -170,6 +198,10 @@ describe('data-only prop pack contract', () => {
       MODULAR_LOUNGE_DIGEST,
       MODULAR_FACILITIES_DIGEST,
       MODULAR_RECEPTION_DIGEST,
+      DIRECTIONAL_WORKSTATION_DIGEST,
+      DIRECTIONAL_LOUNGE_DIGEST,
+      DIRECTIONAL_RECEPTION_DIGEST,
+      DIRECTIONAL_FACILITIES_DIGEST,
     ]);
     const pack = BUILTIN_CATALOG[fixture.index]!.pack;
     expect(pack).toEqual(decodePropPack(JSON.parse(bytes.toString('utf8'))));

@@ -273,6 +273,18 @@ test('corner rotation is transient and durable once; Delete respects text fields
           .getByRole('heading', { name: 'Lobby', exact: true })
       ).toHaveCount(0);
       await page.screenshot({ path: info.outputPath('area-inspector.png') });
+      for (const width of [1536, 390]) {
+        await page.setViewportSize({ width, height: 1024 });
+        const material = page.getByRole('group', { name: 'Platform finish' });
+        const removal = page.getByRole('button', { name: 'Review module removal' });
+        const materialBounds = (await material.boundingBox())!;
+        const removalBounds = (await removal.boundingBox())!;
+        expect(removalBounds.y - materialBounds.y - materialBounds.height).toBeGreaterThanOrEqual(
+          16
+        );
+        await removal.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: info.outputPath(`area-removal-spacing-${width}.png`) });
+      }
     } finally {
       await office(['stop']);
     }

@@ -447,6 +447,11 @@ from every installed pack. Keep pixel probes clear of architectural occlusion.
 real catalog placement, authored chair views and native Save/reopen. Offline art
 encoding and its source-review gates are documented in the
 [modular visual package](docs/office/references/rooms-and-walls/modular-v1/README.md).
+`native-local-furniture-rotation.spec.ts` verifies retained static furniture's
+directional successor through corner gestures, precision rotation, exact
+Undo/Redo and restart. Its runtime gallery captures all four views of the
+[directional furniture](docs/office/references/furniture-rotation/README.md);
+review those images as well as the state assertions when changing this art.
 `native-local-room-materials.spec.ts` checks exact world-pixel Undo/Redo, retained
 content and bounded finish textures. `captureWorldScene` excludes HUD presentation
 for pixel comparisons; separate unmodified screenshots verify the visible HUD.

@@ -448,7 +448,7 @@ Fixed architectural materials share one decoded source per mount with bounded,
 lazy finish variants owned by `scene-materials`; they do not enter the editable
 prop catalog or occupy saved floor tiles. Module source selects the finish through
 the existing world draft, without changing geometry or resource bindings.
-The in-progress directional prop format extends the existing catalog and raster
+The directional prop format extends the existing catalog and raster
 projection, not the scene state owner; see the versioned
 [prop contract](contracts/office/prop-pack-v2.md). Prop-specific byte budgets and
 schema 18 do not change avatar admission or unrelated command envelopes.
@@ -456,6 +456,13 @@ Reviewed modular source art is encoded offline into the same immutable v2 prop
 packs; both native and browser registries admit those exact contract bytes.
 The optional `scripts/art` authoring tool is not a runtime decoder or validator.
 Its source-hashed crop manifest and derivative policy live with the visual package.
+`props/furniture-upgrades` maps reviewed static furniture to compatible directional
+successors only during authoring. It is not a render-time alias: retained digests
+resolve unchanged, and loading a layout never rewrites art. A completed rotation
+changes the art reference and placement in one existing Yjs/CAS edit, so Undo
+restores both. Native admission still validates the exact successor pack and
+footprint. The library suppresses a superseded card only when its compatible
+successor is present in the observed catalog.
 `world-object-placement` owns bundled wall-authoring hints used by both library
 grouping and initial kind/mount selection. These hints grant no capability or
 placement authority; arbitrary admitted artwork still uses the same world validation.

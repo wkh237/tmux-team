@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 export async function openOfficeMenu(page: Page): Promise<void> {
   const menu = page.getByRole('button', { name: 'Office menu', exact: true });
@@ -11,6 +11,9 @@ export async function openMeetingRooms(page: Page): Promise<void> {
 }
 
 export async function openKeyboardSelection(page: Page): Promise<void> {
+  // An initializing page has neither picker nor Clear selection. Wait for the
+  // mounted world before deciding whether the current inspector must be closed.
+  await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
   const summary = page.getByText('Keyboard selection', { exact: true });
   const details = summary.locator('..');
   if (!(await summary.isVisible()))

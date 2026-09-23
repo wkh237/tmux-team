@@ -4,6 +4,7 @@ import { externalLink } from '../extensions/external-link.js';
 import { WorldObjectCoordinates } from './world-object-coordinates.js';
 import { NotebookAttachment } from '../notebooks/notebook-attachment.js';
 import type { ProfileProjection } from '../profiles/profile-contract.js';
+import { rotatedObject } from './object-rotation.js';
 
 /** Edits one placement inside the parent's whole-world draft, never its resource. */
 export function WorldObjectTools({
@@ -14,6 +15,8 @@ export function WorldObjectTools({
   mountOnWall,
   wallEditing = true,
   canRotate = true,
+  rotate,
+  rotationProblem,
 }: {
   object: WorldObject;
   change: (object: WorldObject) => void;
@@ -22,6 +25,8 @@ export function WorldObjectTools({
   mountOnWall?: () => void;
   wallEditing?: boolean;
   canRotate?: boolean;
+  rotate?: () => void;
+  rotationProblem?: string;
 }) {
   const { surface } = object;
   const existingUrl =
@@ -44,18 +49,14 @@ export function WorldObjectTools({
       </p>
       <details className="world-placement-details">
         <summary>Precise placement</summary>
-        {canRotate && (
-          <button
-            onClick={() =>
-              change({
-                ...object,
-                placement: { ...object.placement, rotation: (object.placement.rotation + 1) % 4 },
-              })
-            }
-          >
-            Rotate 90° clockwise
-          </button>
-        )}
+        <button
+          disabled={!canRotate || Boolean(rotationProblem)}
+          title={rotationProblem ?? (!canRotate ? 'Directional artwork is unavailable' : undefined)}
+          onClick={() => (rotate ? rotate() : change(rotatedObject(object, 1)))}
+        >
+          Rotate 90° clockwise
+        </button>
+        {rotationProblem && <p role="status">{rotationProblem}</p>}
         {mountOnWall && (
           <button onClick={mountOnWall}>Place on a suitable wall in this area</button>
         )}

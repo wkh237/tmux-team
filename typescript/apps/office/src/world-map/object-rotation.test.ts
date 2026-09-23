@@ -33,3 +33,15 @@ it('rotates a rectangular footprint about its center, without changing identity 
   expect(rotatedObject(rotated, -1)).toEqual(object);
   expect(rotatedObject(object, 4)).toEqual(object);
 });
+
+it('does not drift when odd-sized furniture completes four turns or reverses a turn', () => {
+  const source = officeWorldFixture().layout.objects[0]!;
+  const object = {
+    ...source,
+    placement: { ...source.placement, footprint: { width: 3, height: 2 } },
+  };
+  let current = object;
+  for (let turn = 0; turn < 4; turn++) current = rotatedObject(current, 1);
+  expect(current).toEqual(object);
+  expect(rotatedObject(rotatedObject(object, 1), -1)).toEqual(object);
+});

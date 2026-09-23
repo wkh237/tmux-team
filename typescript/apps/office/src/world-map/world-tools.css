@@ -150,6 +150,9 @@
   flex-wrap: wrap;
   gap: 6px;
 }
+.world-area-removal {
+  margin-block-start: 16px;
+}
 .world-build-inspector summary {
   min-height: 44px;
   align-content: center;

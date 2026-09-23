@@ -377,10 +377,18 @@ and mount previews only while the library is open. Legacy pixel basics are colla
 after the current art collections; catalog search retains access and existing prop
 digests remain valid. Selected furniture exposes Delete, guarded Delete/Backspace
 shortcuts, and corner-drag rotation for artwork with distinct directional views.
-Repeated-frame artwork is explicitly static. The scene previews snapped quarter
+Reviewed static furniture has immutable directional successors selected by
+`props/furniture-upgrades`; a completed turn writes the successor reference with
+the rotation in one history entry. Reading, selecting and cancelling never
+replace saved art. Unsupported repeated-frame artwork retains an explanatory,
+disabled precision control. The scene previews snapped quarter
 turns and validates placement before one editor transaction on release; Escape,
-capture loss, and blur discard the preview. A precision rotation action remains
-available for keyboard users. Room settings belong to floor selection, not the
+capture loss, and blur discard the preview. The held rotation replaces the source
+object visually; cancellation restores its original layer without a world edit.
+A precision rotation action remains
+available for keyboard users and uses the same centered rotation and placement
+validator. Grid rounding is relative to the canonical footprint, so odd-sized
+objects do not drift after four turns. Room settings belong to floor selection, not the
 furniture inspector. `use-catalog-drag` owns transient
 catalog pointer capture and cancellation; the canvas lends a `CatalogPlacement`
 projection port, not a layout writer. The scene uses its existing camera inverse,

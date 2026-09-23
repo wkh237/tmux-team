@@ -29,6 +29,45 @@ it('offers floor placement and actions without wall settings on platforms', () =
   expect(screen.getByRole('button', { name: 'Rotate 90° clockwise' })).toBeTruthy();
 });
 
+it('keeps the precision rotation control discoverable when art is unavailable', async () => {
+  const change = vi.fn();
+  render(
+    <WorldObjectTools
+      identities={[]}
+      object={officeWorldFixture().layout.objects[0]!}
+      change={change}
+      remove={vi.fn()}
+      canRotate={false}
+    />
+  );
+  const button = screen.getByRole('button', { name: 'Rotate 90° clockwise' });
+  expect(button).toHaveProperty('disabled', true);
+  expect(button.getAttribute('title')).toBe('Directional artwork is unavailable');
+  await userEvent.click(button);
+  expect(change).not.toHaveBeenCalled();
+});
+
+it('does not dispatch a rotation rejected by the shared placement validator', async () => {
+  const rotate = vi.fn();
+  const change = vi.fn();
+  render(
+    <WorldObjectTools
+      identities={[]}
+      object={officeWorldFixture().layout.objects[0]!}
+      change={change}
+      remove={vi.fn()}
+      rotate={rotate}
+      rotationProblem="Keep the entire object on the platform"
+    />
+  );
+  const button = screen.getByRole('button', { name: 'Rotate 90° clockwise' });
+  expect(button).toHaveProperty('disabled', true);
+  expect(screen.getByRole('status').textContent).toBe('Keep the entire object on the platform');
+  await userEvent.click(button);
+  expect(rotate).not.toHaveBeenCalled();
+  expect(change).not.toHaveBeenCalled();
+});
+
 it('starts with precision settings collapsed while common actions remain available', async () => {
   const user = userEvent.setup();
   const object = officeWorldFixture().layout.objects[0]!;
@@ -46,7 +85,12 @@ it('starts with precision settings collapsed while common actions remain availab
   await user.click(screen.getByRole('button', { name: 'Rotate 90° clockwise' }));
   expect(change).toHaveBeenCalledExactlyOnceWith({
     ...object,
-    placement: { ...object.placement, rotation: (object.placement.rotation + 1) % 4 },
+    placement: {
+      ...object.placement,
+      x: object.placement.x + 1,
+      y: object.placement.y - 1,
+      rotation: (object.placement.rotation + 1) % 4,
+    },
   });
   expect(summary.parentElement?.hasAttribute('open')).toBe(true);
   expect(screen.getByRole('form', { name: 'Object coordinates' })).toBeTruthy();
