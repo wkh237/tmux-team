@@ -112,6 +112,30 @@ test('bookcase upper artwork stays clickable above a shallow supported base thro
         ],
       };
       expect((await office(['layout', 'show'])).layout).toEqual(expected);
+      // The opaque lower shelf crosses the north rim. A zero-turn rotation
+      // preview paints this same artwork above architecture, providing an
+      // independent pixel comparison against its committed layer.
+      const rimStart = point(63, 0);
+      const rimEnd = point(68, 0.75);
+      const rimClip = {
+        x: Math.ceil(rimStart.x),
+        y: Math.ceil(rimStart.y),
+        width: Math.floor(rimEnd.x) - Math.ceil(rimStart.x),
+        height: Math.floor(rimEnd.y) - Math.ceil(rimStart.y),
+      };
+      const committedShelf = await page.screenshot({ clip: rimClip, scale: 'css' });
+      // Artwork bounds: (60,-8.375)..(71,2.625). Move radially outward from
+      // the bottom-right handle without changing the angle or saved rotation.
+      const corner = point(71, 2.625);
+      const radial = point(74, 5.625);
+      await page.mouse.move(corner.x, corner.y);
+      await page.mouse.down();
+      await page.mouse.move(radial.x, radial.y, { steps: 4 });
+      await expect(canvas).toHaveAttribute('data-drop-validity', 'valid');
+      expect(await page.screenshot({ clip: rimClip, scale: 'css' })).toEqual(committedShelf);
+      await page.mouse.up();
+      expect(writes).toHaveLength(1);
+      expect((await office(['layout', 'show'])).layout).toEqual(expected);
       await page.screenshot({ path: info.outputPath('bookcase-supported-overhang.png') });
       // Upper art is now outside the platform and far above its y=0..3 base.
       await page.keyboard.press('Escape');

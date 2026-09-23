@@ -258,6 +258,9 @@ It owns no persisted layout or placement state.
 V6 removes the wall reserve: rooms and bridges share one projected floor plane.
 Closed boundaries paint thin platform trim and downward front-edge thickness;
 open boundaries have no door art. Flat construction ghosts use the same projection.
+The v6 platform shell paints beneath upright content, allowing supported furniture
+art to overhang a rim without being sliced by it. Content retains its existing
+depth and saved stacking order; physical base admission is independent of paint.
 The following cutaway wall rendering rules apply to retained pre-v6 layouts.
 `world-map/floor-index` provides sparse row ownership queries for both boundary
 projection and extension discovery; it does not allocate a second per-tile map or

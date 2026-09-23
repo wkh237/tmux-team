@@ -99,12 +99,42 @@ test('retained sofa gains genuine corner rotation with atomic art Undo, Redo and
       await expect(page.getByRole('button', { name: 'Rotate 90° clockwise' })).toBeDisabled();
       const invalidCorner = installationWorldPoint(view, 60, -1);
       const invalidEnd = installationWorldPoint(view, 60, 7);
+      const originalHandle = installationWorldPoint(view, 48, 7);
+      // Centered 12x8 -> 8x12 turn: origin (50,-2), projected bottom y=8.75.
+      const candidateHandle = installationWorldPoint(view, 50, 8.75);
+      async function handlePixels() {
+        const image = await page.screenshot({ scale: 'css' });
+        return page.evaluate(
+          async ({ bytes, points }) => {
+            const bitmap = await createImageBitmap(
+              new Blob([new Uint8Array(bytes)], { type: 'image/png' })
+            );
+            const surface = document.createElement('canvas');
+            surface.width = bitmap.width;
+            surface.height = bitmap.height;
+            const context = surface.getContext('2d')!;
+            context.drawImage(bitmap, 0, 0);
+            bitmap.close();
+            // Sample inside the circular handle but outside the rectangle stroke.
+            return points.map(({ x, y }) =>
+              Array.from(context.getImageData(Math.round(x + 2), Math.round(y + 2), 1, 1).data)
+            );
+          },
+          { bytes: [...image], points: [originalHandle, candidateHandle] }
+        );
+      }
+      const handleFill = [16, 43, 53, 255];
+      expect((await handlePixels())[0]).toEqual(handleFill);
       await page.mouse.move(invalidCorner.x, invalidCorner.y);
       await page.mouse.down();
       await page.mouse.move(invalidEnd.x, invalidEnd.y, { steps: 8 });
       await expect(canvas).toHaveAttribute('data-drop-validity', 'invalid');
+      const heldHandles = await handlePixels();
+      expect(heldHandles[0]).not.toEqual(handleFill);
+      expect(heldHandles[1]).toEqual(handleFill);
       await page.screenshot({ path: info.outputPath('rotation-invalid.png') });
       await page.mouse.up();
+      expect((await handlePixels())[0]).toEqual(handleFill);
       expect(writes).toHaveLength(0);
       expect((await office(['layout', 'show'])).layout).toEqual(layout);
       await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();

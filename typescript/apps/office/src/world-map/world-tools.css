@@ -150,8 +150,15 @@
   flex-wrap: wrap;
   gap: 6px;
 }
+.world-area-properties {
+  display: grid;
+  gap: 16px;
+}
+.world-build-inspector .world-area-properties > label {
+  margin: 0;
+}
 .world-area-removal {
-  margin-block-start: 16px;
+  justify-self: start;
 }
 .world-build-inspector summary {
   min-height: 44px;
@@ -475,6 +482,10 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+}
+.room-material-choices legend {
+  padding: 0;
+  margin-bottom: 8px;
 }
 .room-material-choices label {
   position: relative;

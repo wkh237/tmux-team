@@ -196,13 +196,14 @@ export async function createOfficeScene(
         highlight
           .rect(floor.x, floor.y, floor.width, floor.height)
           .fill({ color: '#70ddc6', alpha: 0.12 });
-    const object = model.world.objects.find((item) => item.id === editor?.selected);
+    const object =
+      pointer?.rotationPreview ?? model.world.objects.find((item) => item.id === editor?.selected);
     const rect = object && geometry.objectRect(object);
     if (rect)
       highlight
         .rect(rect.x, rect.y, rect.width, rect.height)
         .stroke({ color: '#ffe8a2', width: 0.25 });
-    for (const corner of rotationCorners()) {
+    for (const corner of rotationCorners(object)) {
       highlight
         .circle(corner.x, corner.y, 5 / camera.scale)
         .fill({ color: '#102b35' })
@@ -351,6 +352,14 @@ export async function createOfficeScene(
       }
     }
     const layers: { depth: number; node: Container; frontFace?: boolean }[] = [];
+    function paintLayers() {
+      // A front face owns shared corner silhouettes within the architectural pass.
+      for (const { node } of layers.sort(
+        (a, b) => a.depth - b.depth || Number(!!a.frontFace) - Number(!!b.frontFace)
+      ))
+        root.addChild(node);
+      layers.length = 0;
+    }
     for (const wall of part.walls) {
       const node = new Container();
       if (model.world.map.version >= 6) {
@@ -373,6 +382,9 @@ export async function createOfficeScene(
       );
       layers.push({ depth, node, frontFace: wall.axis === 'horizontal' });
     }
+    // Platforms support upright content; their thin rims are not occluding walls.
+    // Retained cutaway maps still interleave their walls with objects and actors.
+    if (model.world.map.version >= 6) paintLayers();
     const components = new Map(model.components.map((component) => [component.id, component]));
     const functional: SceneComponent[] = [];
     for (const index of part.objects) {
@@ -500,12 +512,7 @@ export async function createOfficeScene(
       );
       layers.push({ depth: bounds.y + bounds.height, node });
     }
-    // At a shared ground edge the front face owns the corner silhouette; a side
-    // body must not paint over its terminal post merely because it was added last.
-    for (const { node } of layers.sort(
-      (a, b) => a.depth - b.depth || Number(!!a.frontFace) - Number(!!b.frontFace)
-    ))
-      root.addChild(node);
+    paintLayers();
     for (const area of areas) {
       const anchor = geometry.nameplate(area.id);
       if (anchor && intersects(renderedView, { ...anchor, width: 1, height: 1 }))
@@ -661,8 +668,9 @@ export async function createOfficeScene(
       return { object: candidate, problem };
     },
   };
-  function rotationCorners() {
-    const object = model?.world.objects.find((item) => item.id === editor?.selected);
+  function rotationCorners(
+    object = model?.world.objects.find((item) => item.id === editor?.selected)
+  ) {
     const resolved = object && resolvePlacedProp(model!.catalog, object.placement);
     if (
       !object ||
@@ -700,6 +708,7 @@ export async function createOfficeScene(
         selecting: boolean;
         moved: boolean;
         rotating?: WorldObject;
+        rotationPreview?: WorldObject;
       }
     | undefined;
   function objectAt(point: { x: number; y: number }) {
@@ -822,6 +831,8 @@ export async function createOfficeScene(
       const candidate = rotatedAt(point);
       if (!candidate || !geometry) return;
       const { object, problem } = candidate;
+      pointer.rotationPreview = object;
+      selection(selected);
       const rect = geometry.objectRect(object);
       const originalLayer = objectLayers.get(pointer.rotating.id);
       if (originalLayer) originalLayer.visible = false;
@@ -904,6 +915,7 @@ export async function createOfficeScene(
     invalidate();
     if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
     pointer = undefined;
+    selection(selected);
   };
   const leave = () => {
     if (pointer) return;
@@ -921,6 +933,8 @@ export async function createOfficeScene(
     preview.clear();
     catalogPlacement.clear();
     delete canvas.dataset.dropValidity;
+    selection(selected);
+    invalidate();
   };
   const cancelGesture = (event: KeyboardEvent) => {
     if (event.key !== 'Escape') return;
