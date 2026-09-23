@@ -352,6 +352,14 @@ export async function createOfficeScene(
       }
     }
     const layers: { depth: number; node: Container; frontFace?: boolean }[] = [];
+    function paintLayers() {
+      // A front face owns shared corner silhouettes within the architectural pass.
+      for (const { node } of layers.sort(
+        (a, b) => a.depth - b.depth || Number(!!a.frontFace) - Number(!!b.frontFace)
+      ))
+        root.addChild(node);
+      layers.length = 0;
+    }
     for (const wall of part.walls) {
       const node = new Container();
       if (model.world.map.version >= 6) {
@@ -374,6 +382,9 @@ export async function createOfficeScene(
       );
       layers.push({ depth, node, frontFace: wall.axis === 'horizontal' });
     }
+    // Platforms support upright content; their thin rims are not occluding walls.
+    // Retained cutaway maps still interleave their walls with objects and actors.
+    if (model.world.map.version >= 6) paintLayers();
     const components = new Map(model.components.map((component) => [component.id, component]));
     const functional: SceneComponent[] = [];
     for (const index of part.objects) {
@@ -501,12 +512,7 @@ export async function createOfficeScene(
       );
       layers.push({ depth: bounds.y + bounds.height, node });
     }
-    // At a shared ground edge the front face owns the corner silhouette; a side
-    // body must not paint over its terminal post merely because it was added last.
-    for (const { node } of layers.sort(
-      (a, b) => a.depth - b.depth || Number(!!a.frontFace) - Number(!!b.frontFace)
-    ))
-      root.addChild(node);
+    paintLayers();
     for (const area of areas) {
       const anchor = geometry.nameplate(area.id);
       if (anchor && intersects(renderedView, { ...anchor, width: 1, height: 1 }))

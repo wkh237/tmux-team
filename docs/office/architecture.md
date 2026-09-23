@@ -320,7 +320,10 @@ V6 mechanical edges use `platform-art`'s explicitly reviewed source frames and
 silhouette clips, decoded once into nearest-neighbor textures. `scene-platform`
 repeats straight sections and fixed-scale lights/brackets over the same derived
 boundary runs; Lobby size never scales up the hardware. The metal kit is shared
-across rooms while floor finishes remain independent. Selection uses a beveled
+across rooms while floor finishes remain independent. `office-scene` paints the
+v6 shell before upright furniture and actors, retaining depth order within each
+pass; thin platform rims never occlude supported overhanging art. Pre-v6 cutaway
+walls remain interleaved with content. Selection uses a beveled
 floor contour, not filled floor-run rectangles. No per-frame image processing,
 blur filters, interactive sprite nodes or additional stored geometry are added.
 Module passage descriptors come from `world-map/module-geometry`, shared with
