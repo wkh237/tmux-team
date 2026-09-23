@@ -18,6 +18,7 @@ export function WorldArtLibrary({
   const [query, setQuery] = useState('');
   const terms = query.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean);
   const groups = catalog
+    .filter((entry) => entry.digest !== BUILTIN_DIGEST)
     .map((entry) => ({
       entry,
       props: entry.pack.props.filter((prop) => {
@@ -33,11 +34,7 @@ export function WorldArtLibrary({
         return terms.every((term) => text.includes(term));
       }),
     }))
-    .filter((group) => group.props.length > 0)
-    .sort(
-      (a, b) =>
-        Number(a.entry.digest === BUILTIN_DIGEST) - Number(b.entry.digest === BUILTIN_DIGEST)
-    );
+    .filter((group) => group.props.length > 0);
   return (
     <>
       <label>
@@ -55,41 +52,27 @@ export function WorldArtLibrary({
           <button onClick={() => setQuery('')}>Clear search</button>
         </div>
       )}
-      {groups.map(({ entry, props }) => {
-        const legacy = entry.digest === BUILTIN_DIGEST;
-        const cards = (
-          <>
-            {legacy && <p>Early simplified pixel art. Existing placements are preserved.</p>}
-            <div className="world-art-options">
-              {props.map((prop) => (
-                <button
-                  key={prop.key}
-                  className="world-art-option"
-                  onPointerDown={(event) => drag?.start(event, entry, prop.key)}
-                  onDragStart={(event) => event.preventDefault()}
-                  onClick={(event) => {
-                    if (!drag?.consumeClick(event.detail)) choose(entry, prop.key);
-                  }}
-                >
-                  <PropThumbnail pack={entry.pack} prop={prop} />
-                  <span>{prop.label}</span>
-                </button>
-              ))}
-            </div>
-          </>
-        );
-        return legacy ? (
-          <details key={`${entry.digest}:${terms.length > 0}`} open={terms.length > 0}>
-            <summary>Legacy pixel basics</summary>
-            {cards}
-          </details>
-        ) : (
-          <div key={entry.digest}>
-            <h4>{entry.pack.label}</h4>
-            {cards}
+      {groups.map(({ entry, props }) => (
+        <div key={entry.digest}>
+          <h4>{entry.pack.label}</h4>
+          <div className="world-art-options">
+            {props.map((prop) => (
+              <button
+                key={prop.key}
+                className="world-art-option"
+                onPointerDown={(event) => drag?.start(event, entry, prop.key)}
+                onDragStart={(event) => event.preventDefault()}
+                onClick={(event) => {
+                  if (!drag?.consumeClick(event.detail)) choose(entry, prop.key);
+                }}
+              >
+                <PropThumbnail pack={entry.pack} prop={prop} />
+                <span>{prop.label}</span>
+              </button>
+            ))}
           </div>
-        );
-      })}
+        </div>
+      ))}
     </>
   );
 }

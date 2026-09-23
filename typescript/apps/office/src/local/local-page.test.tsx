@@ -656,8 +656,8 @@ it('shows the visual catalog by default and selects newly added objects without 
   expect(screen.getByRole('heading', { name: 'Furniture & devices' })).toBeDefined();
   expect(screen.queryByRole('toolbar', { name: 'Build tools' })).toBeNull();
   expect(local.world.save).not.toHaveBeenCalled();
-  await userEvent.click(screen.getByText('Legacy pixel basics', { selector: 'summary' }));
-  await userEvent.click(screen.getByRole('button', { name: 'Desk' }));
+  expect(screen.queryByText('Legacy pixel basics')).toBeNull();
+  await userEvent.click(screen.getByRole('button', { name: 'Workshop writing desk' }));
   expect(canvas.model!.world.objects).toHaveLength(before.objects.length + 1);
   expect(canvas.editor!.selected).toBe(canvas.model!.world.objects.at(-1)!.id);
   await userEvent.click(screen.getByRole('button', { name: 'Undo' }));

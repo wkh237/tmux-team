@@ -466,6 +466,9 @@ changes the art reference and placement in one existing Yjs/CAS edit, so Undo
 restores both. Native admission still validates the exact successor pack and
 footprint. The library suppresses a superseded card only when its compatible
 successor is present in the observed catalog.
+The library excludes the retired `Legacy pixel basics` pack from authoring and
+search. Its immutable resolver remains available for saved placements; opening
+the library never migrates, deletes or replaces objects in a world.
 World floor surfaces may carry a bounded physical `base` inside the unrotated
 artwork envelope. Core world admission and browser `world-map/object-base` own
 its quarter-turn geometry; `furniture-base` supplies authoring recipes only on

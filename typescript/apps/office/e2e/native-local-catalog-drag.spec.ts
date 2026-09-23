@@ -55,9 +55,13 @@ test('catalog drag previews without a write, commits once, and retains exact Und
       const canvas = page.locator('.office-canvas canvas');
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
       const view = (await canvas.boundingBox())!;
-      // Independent v6 projection: a 4x2 desk at [30,40] has center [32,35.875].
-      const target = installationWorldPoint(view, 32, 35.875);
-      await startDrag(page, 'Desk', target);
+      await expect(page.getByText('Legacy pixel basics', { exact: true })).toHaveCount(0);
+      const search = page.getByRole('searchbox', { name: 'Search objects' });
+      await search.fill('Office built-ins');
+      await expect(page.getByText('No matching objects.', { exact: true })).toBeVisible();
+      // Independent v6 projection: a 16x16 desk at [30,40] has center [38,41].
+      const target = installationWorldPoint(view, 38, 41);
+      await startDrag(page, 'Workshop writing desk', target);
       await expect(canvas).toHaveAttribute('data-catalog-drop-validity', 'valid');
       await expect(
         page.getByText('✓ Release to place · Esc to cancel', { exact: true })
@@ -73,10 +77,10 @@ test('catalog drag previews without a write, commits once, and retains exact Und
       expect(saved.layout.objects.slice(0, -1)).toEqual(initial.layout.objects);
       expect(saved.layout.objects.at(-1)).toMatchObject({
         placement: { x: 30, y: 40 },
-        surface: { type: 'floor' },
+        surface: { type: 'floor', base: { x: 1, y: 8, width: 14, height: 8 } },
       });
       await expect(
-        page.getByRole('heading', { name: 'Selected object: Desk', exact: true })
+        page.getByRole('heading', { name: 'Selected object: Workshop writing desk', exact: true })
       ).toBeVisible();
       await expect(canvas).not.toHaveAttribute('data-catalog-drop-validity');
       await page.getByRole('button', { name: 'Undo', exact: true }).click();
@@ -125,24 +129,24 @@ test('invalid, cancelled and panel drops never save; another device drag still w
       const view = (await canvas.boundingBox())!;
       const valid = installationWorldPoint(view, 32, 35.875);
       const invalid = installationWorldPoint(view, -12, 35.875);
-      await startDrag(page, 'Desk', invalid);
+      await startDrag(page, 'Workshop writing desk', invalid);
       await expect(canvas).toHaveAttribute('data-catalog-drop-validity', 'invalid');
       await expect(
-        page.getByText('× Keep the entire object on the platform', { exact: true })
+        page.getByText('× Keep the entire base on the platform', { exact: true })
       ).toBeVisible();
       await page.screenshot({ path: info.outputPath('catalog-drag-invalid.png') });
       await page.mouse.up();
       for (const cancel of ['escape', 'pointercancel', 'panel']) {
-        await startDrag(page, 'Desk', valid);
+        await startDrag(page, 'Workshop writing desk', valid);
         await expect(canvas).toHaveAttribute('data-catalog-drop-validity', 'valid');
         if (cancel === 'escape') await page.keyboard.press('Escape');
         else if (cancel === 'pointercancel')
           await page
-            .getByRole('button', { name: 'Desk', exact: true })
+            .getByRole('button', { name: 'Workshop writing desk', exact: true })
             .dispatchEvent('pointercancel', { pointerId: 1 });
         else {
           const card = (await page
-            .getByRole('button', { name: 'Desk', exact: true })
+            .getByRole('button', { name: 'Workshop writing desk', exact: true })
             .boundingBox())!;
           await page.mouse.move(card.x + 15, card.y + 15);
         }
@@ -181,6 +185,8 @@ test('invalid, cancelled and panel drops never save; another device drag still w
       await page.setViewportSize({ width: 390, height: 844 });
       await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
       await expect(page.getByRole('heading', { name: 'Furniture & devices' })).toBeVisible();
+      await expect(page.getByText('Legacy pixel basics', { exact: true })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Desk', exact: true })).toHaveCount(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
         390
       );
