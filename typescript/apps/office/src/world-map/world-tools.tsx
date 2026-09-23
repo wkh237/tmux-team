@@ -249,7 +249,7 @@ export function WorldTools({
             </section>
             {placementError && <p role="alert">{placementError}</p>}
             {!library && !object && area && (
-              <section aria-label="Selected area">
+              <section className="world-area-properties" aria-label="Selected area">
                 <label>
                   Area name
                   <input

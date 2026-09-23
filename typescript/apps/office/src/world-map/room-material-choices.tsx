@@ -98,7 +98,7 @@ export function RoomMaterialChoices({
   }, [platform]);
   return (
     <fieldset className="room-material-choices">
-      <legend>{platform ? 'Platform finish' : 'Room style'}</legend>
+      <legend>{platform ? 'Floor & frame' : 'Room style'}</legend>
       <div>
         {finishes.map((finish) => (
           <label key={finish.value}>
