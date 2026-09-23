@@ -160,7 +160,7 @@ fn build(blocks: &[Block]) -> Result<WorldLayout, WorldStoreError> {
             objects.push(WorldObject {
                 id: placement_id(&block.id, index as u64),
                 placement,
-                surface: Surface::Floor,
+                surface: Surface::Floor { base: None },
                 kind: ObjectKind::Decoration,
                 extension: None,
             });

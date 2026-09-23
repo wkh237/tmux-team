@@ -25,12 +25,26 @@ pub(super) fn validate(
     let (width, height) = prop.dimensions();
     let geometry = map.geometry();
     match object.surface {
-        Surface::Floor => {
+        Surface::Floor { base } => {
             if object.kind != ObjectKind::Decoration {
                 return Err(PlacementError::InvalidSurface);
             }
-            for y in prop.y..prop.y + i32::from(height) {
-                for x in prop.x..prop.x + i32::from(width) {
+            let (left, top, width, height) = if let Some(base) = base {
+                if !base.fits(prop) {
+                    return Err(PlacementError::InvalidSurface);
+                }
+                let base = base.rotated(prop);
+                (
+                    prop.x + i32::from(base.x),
+                    prop.y + i32::from(base.y),
+                    base.width,
+                    base.height,
+                )
+            } else {
+                (prop.x, prop.y, width, height)
+            };
+            for y in top..top + i32::from(height) {
+                for x in left..left + i32::from(width) {
                     if !geometry.contains(Tile { x, y }) {
                         return Err(PlacementError::OutsideFloor);
                     }
@@ -40,7 +54,7 @@ pub(super) fn validate(
                     {
                         return Err(PlacementError::BlocksDoor);
                     }
-                    if (x > prop.x
+                    if (x > left
                         && geometry
                             .boundary(Edge {
                                 x,
@@ -48,7 +62,7 @@ pub(super) fn validate(
                                 axis: Axis::Vertical,
                             })
                             .is_some())
-                        || (y > prop.y
+                        || (y > top
                             && geometry
                                 .boundary(Edge {
                                     x,

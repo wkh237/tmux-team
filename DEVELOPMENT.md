@@ -452,6 +452,10 @@ directional successor through corner gestures, precision rotation, exact
 Undo/Redo and restart. Its runtime gallery captures all four views of the
 [directional furniture](docs/office/references/furniture-rotation/README.md);
 review those images as well as the state assertions when changing this art.
+`native-local-furniture-base.spec.ts` owns full-art upper hit testing and frontmost
+selection independently of shallow physical support. Its real drags distinguish
+supported overhang from unsupported bases, retain atomic Undo/Redo and restart,
+and exercise all directions plus the narrow-screen rotation control.
 `native-local-room-materials.spec.ts` checks exact world-pixel Undo/Redo, retained
 content and bounded finish textures. `captureWorldScene` excludes HUD presentation
 for pixel comparisons; separate unmodified screenshots verify the visible HUD.

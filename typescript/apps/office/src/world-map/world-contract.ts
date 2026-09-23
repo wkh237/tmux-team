@@ -5,6 +5,8 @@ import { decodeExtensionAttachment } from '../extensions/extension-contract.js';
 import type { ExtensionAttachment } from '../extensions/extension-contract.js';
 import { decodeMapSource, canonicalMapSource } from './map-source.js';
 import type { MapSource } from './map-source.js';
+import { decodeFloorBase } from './object-base.js';
+import type { FloorBase } from './object-base.js';
 
 export const WORLD_LIMITS = {
   objects: 4096,
@@ -12,7 +14,7 @@ export const WORLD_LIMITS = {
   wallHeight: 16,
 } as const;
 export type ObjectSurface =
-  | { readonly type: 'floor' }
+  | { readonly type: 'floor'; readonly base?: FloorBase }
   | {
       readonly type: 'wall';
       readonly axis: 'horizontal' | 'vertical';
@@ -53,11 +55,12 @@ export function sameWorld(left: WorldDocument, right: WorldDocument): boolean {
   );
 }
 
-function surface(value: unknown): ObjectSurface {
+function surface(value: unknown, placement: Furniture): ObjectSurface {
   const type = (value as { type?: unknown } | null)?.type;
   if (type === 'floor') {
-    exactRecord(value, ['type'], 'floor surface');
-    return { type };
+    const hasBase = Object.hasOwn(value as object, 'base');
+    const data = exactRecord(value, hasBase ? ['type', 'base'] : ['type'], 'floor surface');
+    return hasBase ? { type, base: decodeFloorBase(data.base, placement) } : { type };
   }
   const data = exactRecord(value, ['type', 'axis', 'face', 'elevation'], 'wall surface');
   if (
@@ -106,7 +109,7 @@ export function decodeWorldDocument(value: unknown): WorldDocument {
           footprint: { ...placement.footprint },
           ...(placement.customization ? { customization: { ...placement.customization } } : {}),
         },
-        surface: surface(object.surface),
+        surface: surface(object.surface, placement),
         extension: object.extension === null ? null : decodeExtensionAttachment(object.extension),
       };
     }),

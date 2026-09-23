@@ -258,6 +258,9 @@ It owns no persisted layout or placement state.
 V6 removes the wall reserve: rooms and bridges share one projected floor plane.
 Closed boundaries paint thin platform trim and downward front-edge thickness;
 open boundaries have no door art. Flat construction ghosts use the same projection.
+The v6 platform shell paints beneath upright content, allowing supported furniture
+art to overhang a rim without being sliced by it. Content retains its existing
+depth and saved stacking order; physical base admission is independent of paint.
 The following cutaway wall rendering rules apply to retained pre-v6 layouts.
 `world-map/floor-index` provides sparse row ownership queries for both boundary
 projection and extension discovery; it does not allocate a second per-tile map or
@@ -463,6 +466,14 @@ changes the art reference and placement in one existing Yjs/CAS edit, so Undo
 restores both. Native admission still validates the exact successor pack and
 footprint. The library suppresses a superseded card only when its compatible
 successor is present in the observed catalog.
+World floor surfaces may carry a bounded physical `base` inside the unrotated
+artwork envelope. Core world admission and browser `world-map/object-base` own
+its quarter-turn geometry; `furniture-base` supplies authoring recipes only on
+explicit edits. This is world placement data, not a rewrite of immutable art.
+Scene projection, culling and picking keep the full artwork bounds. The scene
+passes one complete placement candidate to the existing world editor so base,
+position and rotation cannot commit as separate history entries. See the
+[world contract](contracts/office/world-v1.md) for support and compatibility rules.
 `world-object-placement` owns bundled wall-authoring hints used by both library
 grouping and initial kind/mount selection. These hints grant no capability or
 placement authority; arbitrary admitted artwork still uses the same world validation.

@@ -117,7 +117,7 @@ it('renders camera-projected controls with current callbacks and hides them offs
     tool: 'select' as const,
     selected: 'object',
     areaId: 'lobby',
-    moveObject: vi.fn(),
+    placeObject: vi.fn(),
   };
   const view = render(
     <OfficeCanvas

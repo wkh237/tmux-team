@@ -86,7 +86,7 @@ fn fresh_world_has_furnished_central_lobby_and_four_unassigned_offices_without_w
     let value = world_value(&initial.layout);
     assert_eq!(value["map"]["version"], 6);
     assert!(initial.layout.objects().iter().all(|object| {
-        object.surface == tmt_core::office_world::Surface::Floor
+        object.surface == tmt_core::office_world::Surface::Floor { base: None }
             && object.kind == tmt_core::office_world::ObjectKind::Decoration
     }));
     let modules = value["map"]["modules"].as_array().unwrap();
@@ -235,7 +235,8 @@ fn fresh_world_has_furnished_central_lobby_and_four_unassigned_offices_without_w
     // flanks both centerline passages instead of occupying circulation.
     for object in initial.layout.objects() {
         let placement = &object.placement;
-        if !matches!(object.surface, Surface::Floor) || placement.y < 0 || placement.y >= 88 {
+        if !matches!(object.surface, Surface::Floor { .. }) || placement.y < 0 || placement.y >= 88
+        {
             continue;
         }
         let right = placement.x + i32::from(placement.footprint_width);

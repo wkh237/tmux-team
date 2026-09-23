@@ -229,6 +229,10 @@ test('corner rotation is transient and durable once; Delete respects text fields
       await saved;
       const before = await office(['layout', 'show']);
       const chair = before.layout.objects.at(-1);
+      expect(chair.surface).toEqual({
+        type: 'floor',
+        base: { x: 2, y: 4, width: 4, height: 4 },
+      });
       const { x, y } = chair.placement;
       const corner = installationWorldPoint(view, x + 8, (y * 7) / 8 - 1);
       const next = installationWorldPoint(view, x + 8, (y * 7) / 8 + 7);
@@ -245,7 +249,12 @@ test('corner rotation is transient and durable once; Delete respects text fields
       const rotated = await office(['layout', 'show']);
       expect(rotated.layout.objects.at(-1)).toEqual({
         ...chair,
-        placement: { ...chair.placement, rotation: 1 },
+        placement: {
+          ...chair.placement,
+          x: chair.placement.x + 2,
+          y: chair.placement.y + 2,
+          rotation: 1,
+        },
       });
       expect(writes).toHaveLength(2);
       await expect(page.getByRole('button', { name: 'Edit room settings' })).toHaveCount(0);

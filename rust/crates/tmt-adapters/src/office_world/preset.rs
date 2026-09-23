@@ -40,7 +40,7 @@ pub(crate) fn lobby_objects(area_id: &str) -> Vec<WorldObject> {
             WorldObject {
                 id: placement_id(&format!("{area_id}:{}", instance.id), 0),
                 placement,
-                surface: Surface::Floor,
+                surface: Surface::Floor { base: None },
                 kind: ObjectKind::Decoration,
                 extension: Some(ExtensionAttachment {
                     definition: instance.definition.clone(),

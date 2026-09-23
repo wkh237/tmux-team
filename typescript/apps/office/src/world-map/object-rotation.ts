@@ -3,6 +3,8 @@ import type { CatalogPack, PropDefinition } from '../props/prop-contract.js';
 import { resolvePlacedProp } from '../props/prop-contract.js';
 import { directionalFurniture } from '../props/furniture-upgrades.js';
 import type { WorldObject } from './world-contract.js';
+import { withFurnitureBase } from './furniture-base.js';
+import { floorObjectBounds } from './object-base.js';
 
 /** Repeated directional frames are static artwork, not four authored views. */
 export function hasRotationArt(prop: PropDefinition): boolean {
@@ -22,7 +24,8 @@ export function canRotateObject(object: WorldObject, catalog: readonly CatalogPa
 export function rotatedObject(
   object: WorldObject,
   turns: number,
-  catalog?: readonly CatalogPack[]
+  catalog?: readonly CatalogPack[],
+  mapVersion = 1
 ): WorldObject {
   const before = footprint(object.placement);
   const rotation = (((object.placement.rotation + turns) % 4) + 4) % 4;
@@ -32,6 +35,26 @@ export function rotatedObject(
       ? directionalFurniture(object.placement, catalog)
       : object.placement;
   const placement = { ...source, rotation };
+  const supported = withFurnitureBase({ ...object, placement: source }, mapVersion);
+  if (supported.surface.type === 'floor' && supported.surface.base) {
+    const beforeBase = floorObjectBounds(supported);
+    const candidate = { ...supported, placement: { ...supported.placement, rotation } };
+    const afterBase = floorObjectBounds(candidate);
+    return {
+      ...candidate,
+      placement: {
+        ...candidate.placement,
+        x:
+          candidate.placement.x +
+          Math.floor(beforeBase.x + beforeBase.width / 2) -
+          Math.floor(afterBase.x + afterBase.width / 2),
+        y:
+          candidate.placement.y +
+          Math.floor(beforeBase.y + beforeBase.height / 2) -
+          Math.floor(afterBase.y + afterBase.height / 2),
+      },
+    };
+  }
   const after = footprint(placement);
   return {
     ...object,

@@ -8,6 +8,8 @@ import { MAP_LIMITS } from './map-contract.js';
 import { mapGeometry } from './map-source.js';
 import { WORLD_LIMITS } from './world-contract.js';
 import type { WorldDocument, WorldObject } from './world-contract.js';
+import { floorObjectBounds } from './object-base.js';
+import { withFurnitureBase } from './furniture-base.js';
 
 /** Authoring hints only: library grouping and default kind share one owner.
  * Artwork cannot grant placement authority; native Save still validates mounts.
@@ -36,15 +38,19 @@ export function placementProblem(
   const size = footprint(p);
   if (object.surface.type === 'floor') {
     if (object.kind !== 'decoration') return 'This object requires a wall';
-    for (let y = p.y; y < p.y + size.height; y++) {
-      for (let x = p.x; x < p.x + size.width; x++) {
-        if (geometry.areaAt(x, y) === undefined) return 'Keep the entire object on the platform';
+    const base = floorObjectBounds(object);
+    for (let y = base.y; y < base.y + base.height; y++) {
+      for (let x = base.x; x < base.x + base.width; x++) {
+        if (geometry.areaAt(x, y) === undefined)
+          return object.surface.base
+            ? 'Keep the entire base on the platform'
+            : 'Keep the entire object on the platform';
         const left = geometry.boundaryAt({ x, y, axis: 'vertical' });
         const top = geometry.boundaryAt({ x, y, axis: 'horizontal' });
         const right = geometry.boundaryAt({ x: x + 1, y, axis: 'vertical' });
         const bottom = geometry.boundaryAt({ x, y: y + 1, axis: 'horizontal' });
         if ([left, top, right, bottom].some((edge) => edge?.open)) return 'Keep the entrance clear';
-        if ((x > p.x && left) || (y > p.y && top)) return 'Cannot cross a room boundary';
+        if ((x > base.x && left) || (y > base.y && top)) return 'Cannot cross a room boundary';
       }
     }
     return;
@@ -97,8 +103,9 @@ function supportsWallSegment(
 export function hasObjectSupport(geometry: MapGeometry, object: WorldObject): boolean {
   const size = footprint(object.placement);
   if (object.surface.type === 'floor') {
-    for (let y = object.placement.y; y < object.placement.y + size.height; y++)
-      for (let x = object.placement.x; x < object.placement.x + size.width; x++)
+    const base = floorObjectBounds(object);
+    for (let y = base.y; y < base.y + base.height; y++)
+      for (let x = base.x; x < base.x + base.width; x++)
         if (geometry.areaAt(x, y) === undefined) return false;
     return true;
   }
@@ -193,5 +200,5 @@ export function createCatalogObject(
   // choose its kind and mount; no executable or geometry fields enter prop packs.
   return world.map.version < 6 && isWallCatalog(pack.digest)
     ? suggestWallPlacement(world, object, areaId)
-    : object;
+    : withFurnitureBase(object, world.map.version);
 }

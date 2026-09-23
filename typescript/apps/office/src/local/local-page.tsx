@@ -369,25 +369,15 @@ function ReadyOffice({
       if (!editor.busy) closePanel();
     },
     selected: selectedObject?.id,
-    rotateObject: (id, placement) =>
+    placeObject: (candidate) =>
       !editor.busy &&
       editor.change((world) => ({
         ...world,
-        objects: world.objects.map((object) =>
-          object.id === id ? { ...object, placement } : object
-        ),
+        objects: world.objects.map((object) => (object.id === candidate.id ? candidate : object)),
       })),
     select: (id) => {
       if (!editor.busy) selectObject(id);
     },
-    moveObject: (id, position) =>
-      !editor.busy &&
-      editor.change((world) => ({
-        ...world,
-        objects: world.objects.map((object) =>
-          object.id === id ? { ...object, placement: { ...object.placement, ...position } } : object
-        ),
-      })),
   };
   return (
     <section

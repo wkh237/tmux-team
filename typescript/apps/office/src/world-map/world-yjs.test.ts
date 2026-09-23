@@ -25,6 +25,30 @@ function moved(world: WorldDocument, x: number): WorldDocument {
   };
 }
 
+it('commits physical support and placement as one undoable object without changing artwork', () => {
+  const { world, session } = fixture();
+  const source = world.objects[0]!;
+  const candidate: WorldDocument = {
+    ...world,
+    objects: [
+      {
+        ...source,
+        placement: { ...source.placement, x: 8, y: 4, rotation: 1 },
+        surface: { type: 'floor', base: { x: 0, y: 0, width: 1, height: 1 } },
+      },
+      ...world.objects.slice(1),
+    ],
+  };
+  session.change(candidate);
+  expect(session.world).toEqual(candidate);
+  session.undo();
+  expect(session.world).toEqual(world);
+  expect(session.canUndo).toBe(false);
+  session.redo();
+  expect(session.world).toEqual(candidate);
+  expect(session.world.objects[0]!.placement.prop).toBe(source.placement.prop);
+});
+
 it('records each completed gesture separately, excluding bootstrap and no-op changes', () => {
   const { world, session } = fixture();
   expect(session.canUndo).toBe(false);

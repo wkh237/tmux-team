@@ -64,11 +64,14 @@ it('upgrades only a completed rotation, preserving identity, bindings and the ol
   expect(canRotateObject(object, BUILTIN_CATALOG)).toBe(true);
   expect(rotatedObject(object, 0, BUILTIN_CATALOG)).toBe(object);
   expect(rotatedObject(object, 4, BUILTIN_CATALOG)).toBe(object);
-  const rotated = rotatedObject(object, 1, BUILTIN_CATALOG);
+  const rotated = rotatedObject(object, 1, BUILTIN_CATALOG, 6);
   expect(rotated).toEqual({
     ...object,
+    surface: { type: 'floor', base: { x: 1, y: 10, width: 14, height: 6 } },
     placement: {
       ...object.placement,
+      x: object.placement.x + 5,
+      y: object.placement.y + 5,
       prop: directionalFurniture(object.placement, BUILTIN_CATALOG).prop,
       rotation: (object.placement.rotation + 1) % 4,
     },

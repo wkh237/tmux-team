@@ -144,12 +144,15 @@ test('retained sofa gains genuine corner rotation with atomic art Undo, Redo and
       const origin = installationWorldPoint(view, 48, 33);
       const corner = installationWorldPoint(view, 64, 33);
       const end = installationWorldPoint(view, 64, 49);
-      // Compare the actual furniture pixels, excluding selection/preview strokes.
+      // The rotated shallow base keeps its center but moves the upright envelope
+      // down to y=36.5. Compare the common interior of both envelopes, excluding
+      // both old selection handles and the candidate/committed outline.
+      const rotatedOrigin = installationWorldPoint(view, 48, 36.5);
       const clip = {
         x: origin.x + 8,
-        y: origin.y + 8,
+        y: rotatedOrigin.y + 8,
         width: end.x - origin.x - 16,
-        height: end.y - origin.y - 16,
+        height: end.y - rotatedOrigin.y - 16,
       };
       const originalImage = await page.screenshot({ clip });
       async function dragCorner() {
@@ -170,14 +173,17 @@ test('retained sofa gains genuine corner rotation with atomic art Undo, Redo and
       expect(writes).toHaveLength(0);
       expect((await office(['layout', 'show'])).layout).toEqual(layout);
       await page.screenshot({ path: info.outputPath('retained-sofa-rotation-preview.png') });
-      const previewImage = await page.screenshot({ clip });
+      const previewImage = await page.screenshot({ clip, path: info.outputPath('held-art.png') });
       expect(previewImage.equals(originalImage)).toBe(false);
       let saved = acknowledgement();
       await page.mouse.up();
       await saved;
       // The held preview is the eventual object, not a translucent second copy
       // superimposed over the original orientation.
-      expect(await page.screenshot({ clip })).toEqual(previewImage);
+      expect(await page.screenshot({ clip, path: info.outputPath('committed-art.png') })).toEqual(
+        previewImage
+      );
+      await page.screenshot({ path: info.outputPath('retained-sofa-rotation-committed.png') });
       const rotated = await office(['layout', 'show']);
       const expected = {
         ...layout,
@@ -185,10 +191,13 @@ test('retained sofa gains genuine corner rotation with atomic art Undo, Redo and
           ...retained,
           {
             ...sofa,
+            surface: { type: 'floor', base: { x: 1, y: 10, width: 14, height: 6 } },
             placement: {
               ...sofa.placement,
               prop: `${DIRECTIONAL_LOUNGE_DIGEST}/lounge-sofa`,
               rotation: 1,
+              x: 53,
+              y: 45,
             },
           },
         ],
@@ -205,11 +214,17 @@ test('retained sofa gains genuine corner rotation with atomic art Undo, Redo and
       await saved;
       expect((await office(['layout', 'show'])).layout).toEqual(expected);
       await page.getByText('Precise placement', { exact: true }).click();
-      for (const rotation of [2, 3, 0]) {
+      for (const [rotation, x, y] of [
+        [2, 48, 50],
+        [3, 43, 45],
+        [0, 48, 40],
+      ] as const) {
         saved = acknowledgement();
         await page.getByRole('button', { name: 'Rotate 90° clockwise' }).click();
         await saved;
         expected.objects.at(-1)!.placement.rotation = rotation;
+        expected.objects.at(-1)!.placement.x = x;
+        expected.objects.at(-1)!.placement.y = y;
         expect((await office(['layout', 'show'])).layout).toEqual(expected);
         await page.screenshot({ path: info.outputPath(`sofa-direction-${rotation}.png`) });
       }
