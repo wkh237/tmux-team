@@ -463,6 +463,14 @@ changes the art reference and placement in one existing Yjs/CAS edit, so Undo
 restores both. Native admission still validates the exact successor pack and
 footprint. The library suppresses a superseded card only when its compatible
 successor is present in the observed catalog.
+World floor surfaces may carry a bounded physical `base` inside the unrotated
+artwork envelope. Core world admission and browser `world-map/object-base` own
+its quarter-turn geometry; `furniture-base` supplies authoring recipes only on
+explicit edits. This is world placement data, not a rewrite of immutable art.
+Scene projection, culling and picking keep the full artwork bounds. The scene
+passes one complete placement candidate to the existing world editor so base,
+position and rotation cannot commit as separate history entries. See the
+[world contract](contracts/office/world-v1.md) for support and compatibility rules.
 `world-object-placement` owns bundled wall-authoring hints used by both library
 grouping and initial kind/mount selection. These hints grant no capability or
 placement authority; arbitrary admitted artwork still uses the same world validation.

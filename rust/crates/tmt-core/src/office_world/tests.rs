@@ -62,7 +62,7 @@ fn object(index: u32) -> WorldObject {
                 text: Some("Studio".into()),
             }),
         },
-        surface: Surface::Floor,
+        surface: Surface::Floor { base: None },
         kind: ObjectKind::Decoration,
         extension: None,
     }
@@ -85,6 +85,64 @@ fn issues(map: OfficeMap, objects: Vec<WorldObject>) -> Vec<PlacementIssue> {
         WorldError::Placements(issues) => issues,
         other => panic!("expected affected objects, got {other:?}"),
     }
+}
+
+#[test]
+fn shallow_floor_base_allows_art_overhang_but_rejects_unsupported_or_invalid_bases() {
+    let mut item = object(1);
+    item.placement.footprint_width = 8;
+    item.placement.footprint_height = 8;
+    item.placement.x = -2;
+    item.placement.y = -2;
+    let base = FloorBase {
+        x: 2,
+        y: 2,
+        width: 4,
+        height: 2,
+    };
+    assert_eq!(
+        issues(map(), vec![item.clone()])[0].reason,
+        PlacementError::OutsideFloor
+    );
+    item.surface = Surface::Floor { base: Some(base) };
+    let expected = [(2, 2, 4, 2), (4, 2, 2, 4), (2, 4, 4, 2), (2, 2, 2, 4)];
+    for (rotation, (x, y, width, height)) in expected.into_iter().enumerate() {
+        item.placement.rotation = rotation as u8;
+        assert_eq!(
+            base.rotated(&item.placement),
+            FloorBase {
+                x,
+                y,
+                width,
+                height
+            }
+        );
+        assert_eq!(
+            WorldLayout::new(map(), vec![item.clone()])
+                .unwrap()
+                .objects(),
+            &[item.clone()]
+        );
+    }
+    item.placement.x = -3;
+    assert_eq!(
+        issues(map(), vec![item.clone()])[0].reason,
+        PlacementError::OutsideFloor
+    );
+    item.surface = Surface::Floor {
+        base: Some(FloorBase { width: 9, ..base }),
+    };
+    assert_eq!(
+        issues(map(), vec![item.clone()])[0].reason,
+        PlacementError::InvalidSurface
+    );
+    item.surface = Surface::Floor {
+        base: Some(FloorBase { height: 0, ..base }),
+    };
+    assert_eq!(
+        issues(map(), vec![item])[0].reason,
+        PlacementError::InvalidSurface
+    );
 }
 
 #[test]

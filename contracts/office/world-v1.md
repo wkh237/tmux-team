@@ -3,9 +3,8 @@
 Status: native value, SQLite and authenticated HTTP with a production whole-world
 browser editor and renderer. Full wall tools, CLI cutover and visual/native E2E
 acceptance remain in progress; this is not a release-completion claim.
-This is the current value contract. The [modular visual target](rooms-and-walls.md)
-has not yet replaced it; material skins and module slots below that target must
-not be advertised as fields accepted by this v1 decoder.
+This is the current world envelope. Module slots and platform finishes belong to
+the versioned map inside it, not additional fields on this envelope.
 The [user-built Office goal](rooms-and-walls.md) owns behavior and visual references.
 The [map contract](map-v1.md) owns topology. This envelope combines that map with
 ordered placements so persistence can validate and commit one candidate world.
@@ -29,14 +28,32 @@ Each object contains exactly:
   signed integer `x`/`y`, quarter-turn `rotation`, and optional existing
   `customization`. Artwork, footprint and customization admission reuse the prop
   owner. Catalog existence and permitted customization remain repository checks.
-- `surface`: exactly `{type: "floor"}` or
+- `surface`: `{type: "floor"}` with optional `base: {x, y, width, height}`, or exactly
   `{type: "wall", axis: "horizontal" | "vertical", face: "positive" | "negative", elevation}`.
 - `extension`: explicit `null` for decoration, or `{definition, binding}` using
   the existing [extension resource bindings](extension-v1.md). It stores no
   content, grants, executable code or dispatch instructions. Missing definitions
   remain inert references; a known definition cannot bind another resource kind.
 
-For floor objects, x/y is the occupied rectangle's upper-left cell. For wall
+For floor objects, placement x/y is the artwork envelope's upper-left lattice
+cell. Without a base, that entire envelope is occupied as before. An explicit
+base is a positive-sized integer rectangle inside the unrotated envelope;
+its nonnegative x/y offsets and dimensions must fit the placement footprint.
+Quarter turns rotate this rectangle with the placement. Unknown/duplicate base
+fields, null, fractional values and out-of-envelope rectangles reject.
+The base controls physical floor support, not art size, culling or picking.
+Complete visible artwork remains clickable and can overhang a supported base.
+Stored object order remains paint and frontmost-pick order.
+
+The base belongs to the floor surface, not to immutable raster content. Bundled
+authoring recipes supply it during explicit placement, movement or rotation on
+platform maps (v6 and later); earlier map projections do not automatically adopt
+these recipes. Existing reads never add one. Custom bases are retained. Native and browser
+validation share the same bounds and rotation semantics. It persists with the
+object even if its art is missing, and changes atomically with placement through
+the existing world revision/history owner. No prop pack bytes or digests change.
+
+For wall
 objects, x/y is the starting lattice edge corner, using the map's edge spelling.
 The rotated footprint width extends east on horizontal walls and south on vertical
 walls; height occupies wall-local elevation units. Positive faces are south/east
@@ -45,7 +62,7 @@ Wall height is 16 local units, independent of screen scale or apparent wall thic
 
 ## Whole-candidate validity
 
-- Floor props require every footprint tile, not merely the bounding rectangle,
+- Floor props require every base tile (the whole footprint when base is absent),
   to exist. They cannot straddle partitions or occupy either cell beside a door.
   Overlap between ordinary furniture remains intentional; paint order is retained.
 - Wall props require a continuous, closed boundary on the selected indoor face,

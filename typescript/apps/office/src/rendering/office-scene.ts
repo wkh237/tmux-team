@@ -4,6 +4,8 @@ import type { CatalogPack } from '../props/prop-contract.js';
 import type { WorldDocument, WorldObject } from '../world-map/world-contract.js';
 import { resolvePlacedProp } from '../props/prop-contract.js';
 import { canRotateObject, rotatedObject } from '../world-map/object-rotation.js';
+import { withFurnitureBase } from '../world-map/furniture-base.js';
+import { floorObjectBounds } from '../world-map/object-base.js';
 import type { CatalogPlacement } from './catalog-placement.js';
 import { footprint } from '../blocks/block-contract.js';
 import { avatarArt } from '../profiles/avatar-art.js';
@@ -65,8 +67,7 @@ export interface OfficeSceneEditor {
   chooseOffice?: (slot: OfficeSlot) => void;
   selected?: string;
   select?: (id: string) => void;
-  moveObject: (id: string, position: { x: number; y: number }) => void;
-  rotateObject?: (id: string, placement: WorldObject['placement']) => void;
+  placeObject: (object: WorldObject) => void;
 }
 
 export interface OfficeSceneEvents {
@@ -634,10 +635,13 @@ export async function createOfficeScene(
         x: target.x - size.width / 2,
         y: target.y - size.height / 2,
       });
-      const candidate = { ...object, placement: { ...object.placement, ...position } };
+      const candidate = withFurnitureBase(
+        { ...object, placement: { ...object.placement, ...position } },
+        model.world.map.version
+      );
       const problem = placementProblem(geometry.map, candidate, model.world.objects);
       const rect = geometry.objectRect(candidate);
-      const floor = geometry.projection.projectGroundRect({ ...position, ...size });
+      const floor = geometry.projection.projectGroundRect(floorObjectBounds(candidate));
       for (const child of catalogGhost.removeChildren()) child.destroy({ children: true });
       catalogTextures.begin();
       const art = new Container();
@@ -663,7 +667,7 @@ export async function createOfficeScene(
     if (
       !object ||
       !geometry ||
-      !editor?.rotateObject ||
+      !editor?.placeObject ||
       !resolved ||
       !canRotateObject(object, model!.catalog) ||
       object.surface.type !== 'floor'
@@ -739,21 +743,14 @@ export async function createOfficeScene(
       x: rect.x + point.x - pointer.start.x,
       y: rect.y + point.y - pointer.start.y,
     });
+    const candidate = withFurnitureBase(
+      { ...object, placement: { ...object.placement, ...position } },
+      model!.world.map.version
+    );
     return {
-      id: object.id,
-      position,
-      problem: placementProblem(
-        geometry.map,
-        {
-          ...object,
-          placement: { ...object.placement, ...position },
-        },
-        model!.world.objects
-      ),
-      rect: geometry.objectRect({
-        ...object,
-        placement: { ...object.placement, ...position },
-      }),
+      object: candidate,
+      problem: placementProblem(geometry.map, candidate, model!.world.objects),
+      rect: geometry.objectRect(candidate),
     };
   }
   function rotatedAt(point: { x: number; y: number }) {
@@ -764,7 +761,12 @@ export async function createOfficeScene(
     const angle =
       Math.atan2(point.y - center.y, point.x - center.x) -
       Math.atan2(pointer.start.y - center.y, pointer.start.x - center.x);
-    const object = rotatedObject(original, Math.round(angle / (Math.PI / 2)), model!.catalog);
+    const object = rotatedObject(
+      original,
+      Math.round(angle / (Math.PI / 2)),
+      model!.catalog,
+      model!.world.map.version
+    );
     return { object, problem: placementProblem(geometry.map, object, model!.world.objects) };
   }
   const down = (event: PointerEvent) => {
@@ -868,12 +870,12 @@ export async function createOfficeScene(
           !candidate.problem &&
           candidate.object.placement.rotation !== pointer.rotating.placement.rotation
         )
-          editor?.rotateObject?.(candidate.object.id, candidate.object.placement);
+          editor?.placeObject(candidate.object);
       } else if (pointer.moved && pointer.objectId) {
         const moved = movedObject(point);
         if (moved && !moved.problem) {
-          editor?.select?.(moved.id);
-          editor?.moveObject(moved.id, moved.position);
+          editor?.select?.(moved.object.id);
+          editor?.placeObject(moved.object);
         }
       } else if (!pointer.moved && pointer.selecting) {
         const actor = actorAt(point);

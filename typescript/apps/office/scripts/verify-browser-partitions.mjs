@@ -43,7 +43,7 @@ const partitions = new Map([
 ]);
 const capacity = listedTests(['--config', 'playwright.capacity.config.ts']);
 
-assert.equal(complete.length, 126, 'Update the reviewed standard browser inventory.');
+assert.equal(complete.length, 127, 'Update the reviewed standard browser inventory.');
 const partitioned = [...partitions.values()].flat();
 assert.equal(new Set(partitioned).size, partitioned.length, 'Browser partitions overlap.');
 assert.deepEqual(partitioned.sort(), complete, 'Browser partitions omit or add listed tests.');

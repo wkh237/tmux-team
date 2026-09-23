@@ -37,7 +37,7 @@ fn prop(seed: &str, ordinal: usize, digest: &str, key: &str, x: i32, y: i32) -> 
         id: placement_id(seed, ordinal as u64),
         placement: appearance(digest, key, x, y),
         kind: ObjectKind::Decoration,
-        surface: Surface::Floor,
+        surface: Surface::Floor { base: None },
         extension: None,
     }
 }

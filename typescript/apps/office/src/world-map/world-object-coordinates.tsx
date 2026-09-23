@@ -67,7 +67,7 @@ export function WorldObjectCoordinates({
         </label>
       )}
       <button type="submit">Apply coordinates</button>
-      <p>Apply coordinates to preview them, then Save layout to keep the whole draft.</p>
+      <p>Apply coordinates to update this object. Changes are saved automatically.</p>
     </form>
   );
 }

@@ -26,6 +26,7 @@ import { WorldArtLibrary } from './world-art-library.js';
 import { WorldObjectPicker } from './world-object-picker.js';
 import type { CatalogDragHandlers } from './use-catalog-drag.js';
 import { canRotateObject, rotatedObject } from './object-rotation.js';
+import { withFurnitureBase } from './furniture-base.js';
 
 type Editor = ReturnType<typeof useWorldEditor>;
 interface Props {
@@ -83,11 +84,16 @@ export function WorldTools({
   const meetingRoomId = area?.binding.type === 'meeting' ? area.binding.roomId : undefined;
   const object = world.objects.find((value) => value.id === objectId);
   const appearance = object ? resolvePlacedProp(catalog, object.placement) : undefined;
-  const nextRotation = object ? rotatedObject(object, 1, catalog) : undefined;
+  const nextRotation = object ? rotatedObject(object, 1, catalog, world.map.version) : undefined;
   const rotationProblem = nextRotation
     ? placementProblem(projectMap(map), nextRotation, world.objects)
     : undefined;
   function setObject(next: WorldObject) {
+    if (
+      object &&
+      (next.placement.x !== object.placement.x || next.placement.y !== object.placement.y)
+    )
+      next = withFurnitureBase(next, world.map.version);
     editor.change((world) => ({
       ...world,
       objects: world.objects.map((item) => (item.id === next.id ? next : item)),

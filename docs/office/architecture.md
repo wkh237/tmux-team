@@ -385,6 +385,12 @@ disabled precision control. The scene previews snapped quarter
 turns and validates placement before one editor transaction on release; Escape,
 capture loss, and blur discard the preview. The held rotation replaces the source
 object visually; cancellation restores its original layer without a world edit.
+Floor support can use an explicit shallow base while art projection and picking
+retain the complete upright envelope. The art's feet anchor at the base front;
+rotations preserve its physical center. Authoring recipes adopt a base only on
+an explicit placement, move or turn on v6+ platform maps, never while reading a
+world or editing an earlier map projection. The
+[world contract](../../contracts/office/world-v1.md) owns its bounds and admission.
 A precision rotation action remains
 available for keyboard users and uses the same centered rotation and placement
 validator. Grid rounding is relative to the canonical footprint, so odd-sized

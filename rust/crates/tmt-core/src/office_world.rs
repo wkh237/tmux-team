@@ -24,12 +24,67 @@ pub enum WallFace {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Surface {
-    Floor,
+    Floor {
+        base: Option<FloorBase>,
+    },
     Wall {
         axis: Axis,
         face: WallFace,
         elevation: u8,
     },
+}
+
+/// Physical support inside the unrotated artwork envelope. Artwork and picking
+/// retain the complete envelope; only floor support uses this smaller rectangle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FloorBase {
+    pub x: u8,
+    pub y: u8,
+    pub width: u8,
+    pub height: u8,
+}
+
+impl FloorBase {
+    pub fn fits(self, placement: &PropPlacement) -> bool {
+        self.width > 0
+            && self.height > 0
+            && u16::from(self.x) + u16::from(self.width) <= u16::from(placement.footprint_width)
+            && u16::from(self.y) + u16::from(self.height) <= u16::from(placement.footprint_height)
+    }
+
+    /// Rotate support in the same clockwise coordinate system as placement.
+    /// Call only after `fits`; no raster or catalog is needed after art removal.
+    pub fn rotated(self, placement: &PropPlacement) -> Self {
+        let Self {
+            x,
+            y,
+            width,
+            height,
+        } = self;
+        let w = placement.footprint_width;
+        let h = placement.footprint_height;
+        match placement.rotation {
+            1 => Self {
+                x: h - y - height,
+                y: x,
+                width: height,
+                height: width,
+            },
+            2 => Self {
+                x: w - x - width,
+                y: h - y - height,
+                width,
+                height,
+            },
+            3 => Self {
+                x: y,
+                y: w - x - width,
+                width: height,
+                height: width,
+            },
+            _ => self,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

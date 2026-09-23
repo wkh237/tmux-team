@@ -16,7 +16,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tmt_core::office_extension::ExtensionAttachment;
 use tmt_core::office_map::Axis;
-use tmt_core::office_world::{ObjectKind, Surface, WallFace, WorldError, WorldLayout, WorldObject};
+use tmt_core::office_world::{
+    FloorBase, ObjectKind, Surface, WallFace, WorldError, WorldLayout, WorldObject,
+};
 
 pub const WORLD_DOCUMENT_LIMIT: usize = 4 * 1024 * 1024;
 pub const WORLD_ENVELOPE_LIMIT: usize = WORLD_DOCUMENT_LIMIT + 512;
@@ -158,13 +160,35 @@ enum Kind {
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", deny_unknown_fields)]
 enum SurfaceDocument {
-    Floor {},
+    Floor {
+        #[serde(default, deserialize_with = "present_base")]
+        base: Option<FloorBaseDocument>,
+    },
     Wall {
         axis: WallAxis,
         face: Face,
         #[serde(deserialize_with = "whole")]
         elevation: u8,
     },
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FloorBaseDocument {
+    #[serde(deserialize_with = "whole")]
+    x: u8,
+    #[serde(deserialize_with = "whole")]
+    y: u8,
+    #[serde(deserialize_with = "whole")]
+    width: u8,
+    #[serde(deserialize_with = "whole")]
+    height: u8,
+}
+
+fn present_base<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<FloorBaseDocument>, D::Error> {
+    FloorBaseDocument::deserialize(deserializer).map(Some)
 }
 
 #[derive(Deserialize)]
@@ -218,7 +242,14 @@ fn admit_world(document: WorldDocument) -> Result<WorldLayout, WorldCodecError> 
                 },
                 placement: object.placement.into_placement(),
                 surface: match object.surface {
-                    SurfaceDocument::Floor {} => Surface::Floor,
+                    SurfaceDocument::Floor { base } => Surface::Floor {
+                        base: base.map(|base| FloorBase {
+                            x: base.x,
+                            y: base.y,
+                            width: base.width,
+                            height: base.height,
+                        }),
+                    },
                     SurfaceDocument::Wall {
                         axis,
                         face,
@@ -254,7 +285,12 @@ pub fn world_value(world: &WorldLayout) -> Value {
             "kind": match object.kind { ObjectKind::Decoration => "decoration", ObjectKind::Window => "window", ObjectKind::WallLight => "wallLight" },
             "placement": placement_value(&object.placement),
             "surface": match object.surface {
-                Surface::Floor => json!({"type": "floor"}),
+                Surface::Floor { base } => match base {
+                    None => json!({"type": "floor"}),
+                    Some(base) => json!({"type": "floor", "base": {
+                        "x": base.x, "y": base.y, "width": base.width, "height": base.height,
+                    }}),
+                },
                 Surface::Wall { axis, face, elevation } => json!({
                     "type": "wall",
                     "axis": match axis { Axis::Horizontal => "horizontal", Axis::Vertical => "vertical" },

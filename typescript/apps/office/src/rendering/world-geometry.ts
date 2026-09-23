@@ -5,6 +5,7 @@ import { mapGeometry } from '../world-map/map-source.js';
 import { moduleBounds, moduleConnections } from '../world-map/module-geometry.js';
 import { meetingExpansionPassages, nextMeetingSlot } from '../world-map/meeting-module.js';
 import type { WorldDocument, WorldObject } from '../world-map/world-contract.js';
+import { floorObjectBounds } from '../world-map/object-base.js';
 import type { SceneRect } from './office-geometry.js';
 import { areaActorSlots } from './actor-slots.js';
 import {
@@ -122,7 +123,15 @@ export function intersects(a: SceneRect, b: SceneRect): boolean {
 export function worldObjectRect(object: WorldObject, projection = flatProjection): SceneRect {
   const { x, y } = object.placement;
   const size = footprint(object.placement);
-  if (object.surface.type === 'floor') return projection.projectUpright({ x, y, ...size });
+  if (object.surface.type === 'floor') {
+    if (!object.surface.base) return projection.projectUpright({ x, y, ...size });
+    const base = floorObjectBounds(object);
+    const anchor = projection.projectGround({
+      x: base.x + base.width / 2,
+      y: base.y + base.height,
+    });
+    return { x: anchor.x - size.width / 2, y: anchor.y - size.height, ...size };
+  }
   const ground = projection.projectWallGround({ x, y }, object.surface.axis, object.surface.face);
   const elevation = object.surface.elevation;
   return object.surface.axis === 'horizontal'
@@ -146,10 +155,14 @@ export function worldObjectPosition(
     object.surface.type === 'floor'
       ? projection.uprightAnchorOffset(footprint(object.placement).height)
       : 0;
-  const point = {
-    x: object.placement.x,
-    y: object.placement.y + offset,
-  };
+  const base =
+    object.surface.type === 'floor' && object.surface.base ? floorObjectBounds(object) : undefined;
+  const point = base
+    ? { x: base.x + base.width / 2, y: base.y + base.height }
+    : {
+        x: object.placement.x,
+        y: object.placement.y + offset,
+      };
   const anchor =
     object.surface.type === 'floor'
       ? projection.projectGround(point)
@@ -163,8 +176,8 @@ export function worldObjectPosition(
       ? projection.unprojectGround(moved)
       : projection.unprojectWallGround(moved, object.surface.axis, object.surface.face);
   return {
-    x: Math.round(next.x),
-    y: Math.round(next.y - offset),
+    x: Math.round(next.x - (point.x - object.placement.x)),
+    y: Math.round(next.y - (point.y - object.placement.y)),
   };
 }
 
@@ -390,7 +403,8 @@ export function worldGeometry(world: WorldDocument) {
         // Stored object order is the furniture stack (rug, desk, equipment).
         // Keep it in front of its reserved rear face, but behind foreground
         // walls. Sorting individual footprints would paint rugs over desks.
-        const owner = map.areaAt(object.placement.x, object.placement.y);
+        const base = floorObjectBounds(object);
+        const owner = map.areaAt(base.x, base.y);
         const room =
           source.version >= 4 && typeof owner === 'string' ? roomBounds.get(owner) : undefined;
         return [

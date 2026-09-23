@@ -25,6 +25,44 @@ fn decode(value: &Value) -> Result<WorldLayout, WorldCodecError> {
 }
 
 #[test]
+fn floor_base_roundtrips_without_rewriting_legacy_or_accepting_hostile_geometry() {
+    let legacy = fixture();
+    assert_eq!(world_value(&decode(&legacy).unwrap()), legacy);
+    let mut value = legacy.clone();
+    value["objects"][0]["surface"]["base"] = json!({"x": 0, "y": 0, "width": 1, "height": 1});
+    assert_eq!(world_value(&decode(&value).unwrap()), value);
+    for base in [
+        json!(null),
+        json!({}),
+        json!({"x": 0, "y": 0, "width": 1, "height": 1, "extra": true}),
+        json!({"x": 0.5, "y": 0, "width": 1, "height": 1}),
+        json!({"x": -1, "y": 0, "width": 1, "height": 1}),
+    ] {
+        let mut invalid = value.clone();
+        invalid["objects"][0]["surface"]["base"] = base;
+        assert_eq!(decode(&invalid).unwrap_err(), WorldCodecError::InvalidJson);
+    }
+    for base in [
+        json!({"x": 0, "y": 0, "width": 0, "height": 1}),
+        json!({"x": 0, "y": 0, "width": 3, "height": 1}),
+    ] {
+        let mut invalid = value.clone();
+        invalid["objects"][0]["surface"]["base"] = base;
+        assert!(matches!(
+            decode(&invalid),
+            Err(WorldCodecError::Placement(_))
+        ));
+    }
+    let text = serde_json::to_string(&value).unwrap();
+    let duplicate = text.replace("\"base\":{", "\"base\":{\"x\":9,");
+    assert_ne!(text, duplicate);
+    assert_eq!(
+        decode_world(duplicate.as_bytes()).unwrap_err(),
+        WorldCodecError::InvalidJson
+    );
+}
+
+#[test]
 fn old_corridors_retain_readable_windows_until_explicit_validated_upgrade() {
     let mut old = fixture();
     old["map"] = serde_json::from_str::<Value>(include_str!(

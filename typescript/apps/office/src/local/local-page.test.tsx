@@ -324,7 +324,12 @@ it('handles layout history keys from body without intercepting native input hist
   const local = runtime();
   const view = await show(local);
   const before = canvas.model!.world;
-  act(() => canvas.editor!.moveObject(before.objects[0]!.id, { x: 8, y: 4 }));
+  act(() =>
+    canvas.editor!.placeObject({
+      ...before.objects[0]!,
+      placement: { ...before.objects[0]!.placement, x: 8, y: 4 },
+    })
+  );
   expect(canvas.model!.world.objects[0]!.placement.x).toBe(8);
   fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true });
   expect(canvas.model!.world).toEqual(before);
@@ -753,7 +758,13 @@ it('preserves an invalid object draft and its resource binding when native admis
     ])
   );
   await show(local);
-  act(() => canvas.editor!.moveObject(id, { x: -100, y: -100 }));
+  const original = canvas.model!.world.objects.find((object) => object.id === id)!;
+  act(() =>
+    canvas.editor!.placeObject({
+      ...original,
+      placement: { ...original.placement, x: -100, y: -100 },
+    })
+  );
   const invalid = canvas.model!.world;
   await waitFor(() => expect(local.world.save).toHaveBeenCalled());
   expect(await screen.findByRole('alert')).toHaveProperty(
@@ -883,7 +894,10 @@ it('disables refresh and concurrent mutation while Save is pending and aborts on
       })
   );
   const view = await show(local);
-  act(() => canvas.editor!.moveObject(canvas.model!.world.objects[0]!.id, { x: 10, y: 10 }));
+  const original = canvas.model!.world.objects[0]!;
+  act(() =>
+    canvas.editor!.placeObject({ ...original, placement: { ...original.placement, x: 10, y: 10 } })
+  );
   await waitFor(() => expect(local.world.save).toHaveBeenCalled());
   expect(screen.getByRole('button', { name: 'Undo' })).toHaveProperty('disabled', false);
   expect(screen.getByRole('button', { name: 'Refresh office' })).toHaveProperty('disabled', true);
