@@ -447,6 +447,11 @@ from every installed pack. Keep pixel probes clear of architectural occlusion.
 real catalog placement, authored chair views and native Save/reopen. Offline art
 encoding and its source-review gates are documented in the
 [modular visual package](docs/office/references/rooms-and-walls/modular-v1/README.md).
+`native-local-furniture-rotation.spec.ts` verifies retained static furniture's
+directional successor through corner gestures, precision rotation, exact
+Undo/Redo and restart. Its runtime gallery captures all four views of the
+[directional furniture](docs/office/references/furniture-rotation/README.md);
+review those images as well as the state assertions when changing this art.
 `native-local-room-materials.spec.ts` checks exact world-pixel Undo/Redo, retained
 content and bounded finish textures. `captureWorldScene` excludes HUD presentation
 for pixel comparisons; separate unmodified screenshots verify the visible HUD.
@@ -611,6 +616,13 @@ The maintained JavaScript suites live under `typescript/test/native/`, `typescri
 descriptor may select another absolute native executable; it must be
 executable, and neither an installed host command nor Node is an allowed
 fallback. Paths and argv are passed as data, never through shell fragments.
+
+Native Rust CI explicitly selects the same-checkout release CLI for process
+contracts, so installed-companion integrity checks run with production compiler
+optimization rather than debug hashing cost. The independent Office companion
+and storage probe remain debug fixtures. Rust debug tests, Clippy, MSRV builds
+and embedded service tests remain separate required checks; process deadlines
+and assertions are unchanged. Local selection still defaults to the debug CLI.
 
 Build first, then explicitly select the test-only storage probe. The product CLI
 uses its repository-native default; the probe is never an installed SQL command:

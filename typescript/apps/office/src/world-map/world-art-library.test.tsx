@@ -1,10 +1,29 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
-import { BUILTIN_DIGEST, BUILTIN_PACK } from '../props/prop-contract.js';
+import {
+  BUILTIN_DIGEST,
+  BUILTIN_PACK,
+  BUILTIN_CATALOG,
+  MODULAR_LOUNGE_DIGEST,
+  DIRECTIONAL_LOUNGE_DIGEST,
+} from '../props/prop-contract.js';
 import { WorldArtLibrary } from './world-art-library.js';
 
 const catalog = [{ digest: BUILTIN_DIGEST, pack: BUILTIN_PACK }];
+
+it('offers one directional sofa while keeping the legacy choice when its successor is absent', async () => {
+  const user = userEvent.setup();
+  const choose = vi.fn();
+  const oldPack = BUILTIN_CATALOG.find((pack) => pack.digest === MODULAR_LOUNGE_DIGEST)!;
+  const newPack = BUILTIN_CATALOG.find((pack) => pack.digest === DIRECTIONAL_LOUNGE_DIGEST)!;
+  const view = render(<WorldArtLibrary catalog={[oldPack, newPack]} choose={choose} />);
+  await user.click(screen.getByRole('button', { name: 'Workshop velvet sofa' }));
+  expect(choose).toHaveBeenLastCalledWith(newPack, 'lounge-sofa');
+  view.rerender(<WorldArtLibrary catalog={[oldPack]} choose={choose} />);
+  await user.click(screen.getByRole('button', { name: 'Workshop velvet sofa' }));
+  expect(choose).toHaveBeenLastCalledWith(oldPack, 'lounge-sofa');
+});
 
 it('searches human names and pack names without changing the draft until a picture is chosen', async () => {
   const user = userEvent.setup();

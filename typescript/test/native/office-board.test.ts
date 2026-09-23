@@ -10,12 +10,20 @@ it(
   async () => {
     await withSandbox(async (sandbox) => {
       const prefix = path.join(sandbox.root, 'isolated office');
-      const cli = async (args: string[]) => {
-        const result = await runCli(sandbox, [...args, '--json']);
+      const cli = async (operation: string, args: string[]) => {
+        const result = await runCli(sandbox, [...args, '--json']).catch((cause: unknown) => {
+          throw new Error(`Room discussion scenario failed during ${operation}.`, { cause });
+        });
         expect(result.status, result.stdout + result.stderr).toBe(0);
         return parseWholeStdout(result);
       };
-      const office = (args: string[]) => cli(['office', '--prefix', prefix, ...args]);
+      const office = (args: string[]) =>
+        cli(`office ${args[0] === 'board' ? `board ${args[1]}` : args[0]}`, [
+          'office',
+          '--prefix',
+          prefix,
+          ...args,
+        ]);
       const artifact = await createArtifact(sandbox, '0.1.0-alpha.4', new Uint8Array(), 'office');
       await office([
         'install',
@@ -25,8 +33,12 @@ it(
         '--manifest',
         artifact.manifest,
       ]);
-      const design = (await cli(['room', 'create', 'Design'])).room as { id: string };
-      const planning = (await cli(['room', 'create', 'Planning'])).room as { id: string };
+      const design = (await cli('room create', ['room', 'create', 'Design'])).room as {
+        id: string;
+      };
+      const planning = (await cli('room create', ['room', 'create', 'Planning'])).room as {
+        id: string;
+      };
       const operation = '44444444-4444-4444-8444-444444444444';
       const post = [
         'board',
@@ -73,7 +85,7 @@ it(
         }),
       ]);
 
-      await cli(['room', 'create', 'Design']);
+      await cli('room create', ['room', 'create', 'Design']);
       expectError(
         await runCli(sandbox, [
           'office',

@@ -22,6 +22,10 @@ import {
   MODULAR_LOUNGE_DIGEST,
   MODULAR_FACILITIES_DIGEST,
   MODULAR_RECEPTION_DIGEST,
+  DIRECTIONAL_WORKSTATION_DIGEST,
+  DIRECTIONAL_LOUNGE_DIGEST,
+  DIRECTIONAL_RECEPTION_DIGEST,
+  DIRECTIONAL_FACILITIES_DIGEST,
 } from '../src/props/prop-contract.js';
 import { PROP_DIRECTIONS } from '../src/props/prop-contract.js';
 import { installNativeOffice, unusedLoopbackPort } from './native-office-fixture.js';
@@ -177,7 +181,9 @@ function propState(databasePath: string, digest: string) {
 
 /** Sample fixed authored rug pixels, independently of the renderer's tint code. */
 async function rugChannelSamples(page: Page, rotation: number) {
-  const screenshot = await page.locator('.office-canvas canvas').screenshot();
+  const screenshot = await page.locator('.office-canvas canvas').screenshot({
+    path: test.info().outputPath(`rug-pixel-probe-${rotation}.png`),
+  });
   return page.evaluate(
     async ({ base64, rotation }) => {
       const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
@@ -202,17 +208,20 @@ async function rugChannelSamples(page: Page, rotation: number) {
             ).data
           );
         // Each authored frame contains palette entry 89 (#304730ff) at these
-        // positions. Art is eight source pixels per tile in every direction.
+        // positions. The side-view probes stay below the rear wall's shadow
+        // after centered rotation. Art is eight source pixels per tile.
         const [x, y] = [
           [8, 11],
-          [50, 6],
+          [37, 30],
           [63, 12],
-          [14, 6],
+          [25, 36],
         ][rotation]!;
         return {
           customized: sample(
-            4 + (x! + 0.5) / 8,
-            ((10 + (rotation % 2 ? 16 : 12)) * 5) / 8 - (rotation % 2 ? 16 : 12) + (y! + 0.5) / 8
+            (rotation % 2 ? 6 : 4) + (x! + 0.5) / 8,
+            (((rotation % 2 ? 8 : 10) + (rotation % 2 ? 16 : 12)) * 5) / 8 -
+              (rotation % 2 ? 16 : 12) +
+              (y! + 0.5) / 8
           ),
           original: sample(20 + 8.5 / 8, (18 * 5) / 8 - 12 + 11.5 / 8),
         };
@@ -282,6 +291,10 @@ test('directional workshop art previews exact pixels and saves upright views acr
         { digest: MODULAR_LOUNGE_DIGEST, formatVersion: 2, builtin: true },
         { digest: MODULAR_FACILITIES_DIGEST, formatVersion: 2, builtin: true },
         { digest: MODULAR_RECEPTION_DIGEST, formatVersion: 2, builtin: true },
+        { digest: DIRECTIONAL_WORKSTATION_DIGEST, formatVersion: 2, builtin: true },
+        { digest: DIRECTIONAL_LOUNGE_DIGEST, formatVersion: 2, builtin: true },
+        { digest: DIRECTIONAL_RECEPTION_DIGEST, formatVersion: 2, builtin: true },
+        { digest: DIRECTIONAL_FACILITIES_DIGEST, formatVersion: 2, builtin: true },
       ],
       packs: [],
       nextCursor: null,
@@ -405,6 +418,13 @@ test('directional workshop art previews exact pixels and saves upright views acr
       });
       await page.setViewportSize({ width: 1440, height: 1000 });
       await page.goto(started.url);
+      // A 12x8 desk turns around its fixed ground center, not its top-left.
+      const deskAt = (rotation: number) => ({
+        ...object,
+        rotation,
+        x: object.x + (rotation % 2 ? 2 : 0),
+        y: object.y - (rotation % 2 ? 2 : 0),
+      });
       for (let rotation = 0; rotation < 4; rotation += 1) {
         if (rotation > 0) {
           await editPlacement(page);
@@ -413,13 +433,13 @@ test('directional workshop art previews exact pixels and saves upright views acr
           await page.getByRole('button', { name: 'Rotate 90° clockwise', exact: true }).click();
           expect(savedWorld(sandbox.database).revision).toBe(rotation);
           expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(
-            worldLayout([{ ...object, rotation: rotation - 1 }])
+            worldLayout([deskAt(rotation - 1)])
           );
           await saveLayout(page);
         }
         expect(savedWorld(sandbox.database).revision).toBe(rotation + 1);
         expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(
-          worldLayout([{ ...object, rotation }])
+          worldLayout([deskAt(rotation)])
         );
         await page.screenshot({ path: testInfo.outputPath(`workshop-desk-${rotation}.png`) });
       }
@@ -461,6 +481,13 @@ test('directional workshop art previews exact pixels and saves upright views acr
       // crown or the full-height foreground wall. Wall editing
       // and occlusion are exercised separately by local-office-composition.
       const rugs = [placed('woven-rug', 4, 10), placed('woven-rug', 20, 6)];
+      // This 16x12 rug keeps the same ground center after each quarter turn.
+      const rugAt = (rotation: number) => ({
+        ...rugs[0]!,
+        rotation,
+        x: rotation % 2 ? 6 : 4,
+        y: rotation % 2 ? 8 : 10,
+      });
       writeFileSync(layoutFile, JSON.stringify(worldLayout(rugs)));
       await office(['layout', 'apply', '--file', layoutFile, '--if-revision', '5']);
       await refreshWorld(page);
@@ -481,7 +508,7 @@ test('directional workshop art previews exact pixels and saves upright views acr
         expect(savedWorld(sandbox.database).revision).toBe(7 + rotation);
         expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(
           worldLayout([
-            { ...rugs[0]!, rotation, customization: { tint: '#ff0080', text: 'STUDIO' } },
+            { ...rugAt(rotation), customization: { tint: '#ff0080', text: 'STUDIO' } },
             rugs[1]!,
           ])
         );
@@ -511,7 +538,7 @@ test('directional workshop art previews exact pixels and saves upright views acr
       await saveLayout(page);
       expect(savedWorld(sandbox.database).revision).toBe(11);
       expect(JSON.parse(savedWorld(sandbox.database).layout)).toEqual(
-        worldLayout([{ ...rugs[0]!, rotation: 3 }, rugs[1]!])
+        worldLayout([rugAt(3), rugs[1]!])
       );
     } finally {
       await office(['stop']);
@@ -610,6 +637,10 @@ test('data-only prop reaches catalog, preview, world renderer and placeholder li
         { digest: MODULAR_LOUNGE_DIGEST, builtin: true },
         { digest: MODULAR_FACILITIES_DIGEST, builtin: true },
         { digest: MODULAR_RECEPTION_DIGEST, builtin: true },
+        { digest: DIRECTIONAL_WORKSTATION_DIGEST, builtin: true },
+        { digest: DIRECTIONAL_LOUNGE_DIGEST, builtin: true },
+        { digest: DIRECTIONAL_RECEPTION_DIGEST, builtin: true },
+        { digest: DIRECTIONAL_FACILITIES_DIGEST, builtin: true },
       ],
       packs: [{ digest, builtin: false }],
     });

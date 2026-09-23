@@ -10,11 +10,12 @@ import type { useWorldEditor } from './use-world-editor.js';
 import type { MapArea } from './map-contract.js';
 import type { WorldObject } from './world-contract.js';
 import { WorldObjectTools } from './world-object-tools.js';
-import { suggestWallPlacement } from './world-object-placement.js';
+import { placementProblem, suggestWallPlacement } from './world-object-placement.js';
 import { resolvePlacedProp } from '../props/prop-contract.js';
 import { WorldObjectAppearance } from './world-object-appearance.js';
 import { addMeetingPreset } from './meeting-preset.js';
 import { mapGeometry } from './map-source.js';
+import { projectMap } from './map-geometry.js';
 import { removeModule, setModuleMaterial } from './module-authoring.js';
 import { RoomMaterialChoices } from './room-material-choices.js';
 import { ModuleRemovalDialog } from './module-removal-dialog.js';
@@ -24,7 +25,7 @@ import { PropThumbnail } from '../props/prop-thumbnail.js';
 import { WorldArtLibrary } from './world-art-library.js';
 import { WorldObjectPicker } from './world-object-picker.js';
 import type { CatalogDragHandlers } from './use-catalog-drag.js';
-import { hasRotationArt } from './object-rotation.js';
+import { canRotateObject, rotatedObject } from './object-rotation.js';
 
 type Editor = ReturnType<typeof useWorldEditor>;
 interface Props {
@@ -82,6 +83,10 @@ export function WorldTools({
   const meetingRoomId = area?.binding.type === 'meeting' ? area.binding.roomId : undefined;
   const object = world.objects.find((value) => value.id === objectId);
   const appearance = object ? resolvePlacedProp(catalog, object.placement) : undefined;
+  const nextRotation = object ? rotatedObject(object, 1, catalog) : undefined;
+  const rotationProblem = nextRotation
+    ? placementProblem(projectMap(map), nextRotation, world.objects)
+    : undefined;
   function setObject(next: WorldObject) {
     editor.change((world) => ({
       ...world,
@@ -238,7 +243,7 @@ export function WorldTools({
             </section>
             {placementError && <p role="alert">{placementError}</p>}
             {!library && !object && area && (
-              <section aria-label="Selected area">
+              <section className="world-area-properties" aria-label="Selected area">
                 <label>
                   Area name
                   <input
@@ -346,7 +351,11 @@ export function WorldTools({
                 )}
                 {world.map.version !== 1 ? (
                   <>
-                    <button disabled={editor.busy} onClick={() => setRemovingId(area.id)}>
+                    <button
+                      className="world-area-removal"
+                      disabled={editor.busy}
+                      onClick={() => setRemovingId(area.id)}
+                    >
                       Review module removal
                     </button>
                     {removingId === area.id && (
@@ -422,7 +431,11 @@ export function WorldTools({
                 </div>
                 <WorldObjectTools
                   object={object}
-                  canRotate={Boolean(appearance && hasRotationArt(appearance.definition))}
+                  canRotate={canRotateObject(object, catalog)}
+                  rotationProblem={rotationProblem}
+                  rotate={() => {
+                    if (nextRotation && !rotationProblem) setObject(nextRotation);
+                  }}
                   wallEditing={world.map.version < 6}
                   identities={[...population.identities.values()]}
                   change={setObject}

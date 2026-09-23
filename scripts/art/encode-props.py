@@ -15,31 +15,46 @@ from PIL import Image
 
 def encode(manifest_path: Path) -> tuple[Path, bytes]:
     spec = json.loads(manifest_path.read_text())
-    source_path = manifest_path.parent / spec["source"]
-    if hashlib.sha256(source_path.read_bytes()).hexdigest() != spec["sha256"]:
-        raise ValueError("Source changed; review crop bounds before regenerating.")
-    source = Image.open(source_path).convert("RGBA")
-    if list(source.size) != spec["size"]:
-        raise ValueError("Source dimensions do not match the reviewed sheet.")
+
+    def reviewed_source(description):
+        source_path = manifest_path.parent / description["source"]
+        if hashlib.sha256(source_path.read_bytes()).hexdigest() != description["sha256"]:
+            raise ValueError("Source changed; review crop bounds before regenerating.")
+        source = Image.open(source_path).convert("RGBA")
+        if list(source.size) != description["size"]:
+            raise ValueError("Source dimensions do not match the reviewed sheet.")
+        return source
+
+    source = reviewed_source(spec)
     frames_by_prop = []
     avatar = "avatars" in spec
     entries = spec["avatars" if avatar else "props"]
     for prop in entries:
+        sheet = reviewed_source(prop["sheet"]) if "sheet" in prop else source
         side = prop.get("side", 32)
         if not avatar and (not 1 <= side <= 128 or side % 8):
             raise ValueError("Frame side must fit the v2 bound at eight pixels per tile.")
         if len(prop["crops"]) not in ((1,) if avatar else (1, 4)):
             raise ValueError("Provide one static view or four authored orientations.")
         frame_width, frame_height = (32, 48) if avatar else (side, side)
-        frames = []
+        sprites = []
         for crop in prop["crops"]:
             x, y, right, bottom = crop
-            if not (0 <= x < right <= source.width and 0 <= y < bottom <= source.height):
+            if not (0 <= x < right <= sheet.width and 0 <= y < bottom <= sheet.height):
                 raise ValueError("Crop is outside the reviewed source.")
-            sprite = source.crop(crop)
+            sprites.append(sheet.crop(crop))
+        scale = min((frame_width - 2) / max(s.width for s in sprites),
+                    (frame_height - 2) / max(s.height for s in sprites))
+        frames = []
+        for sprite in sprites:
             # Preserve aspect ratio and a transparent guard pixel. The square
             # footprint keeps static billboards undistorted across rotations.
-            sprite.thumbnail((frame_width - 2, frame_height - 2), Image.Resampling.LANCZOS)
+            if prop.get("sharedScale", False):
+                sprite = sprite.resize((max(1, round(sprite.width * scale)),
+                                        max(1, round(sprite.height * scale))),
+                                       Image.Resampling.LANCZOS)
+            else:
+                sprite.thumbnail((frame_width - 2, frame_height - 2), Image.Resampling.LANCZOS)
             frame = Image.new("RGBA", (frame_width, frame_height))
             frame.paste(sprite, ((frame_width - sprite.width) // 2, frame_height - sprite.height - 1))
             frames.append(frame)
@@ -63,7 +78,7 @@ def encode(manifest_path: Path) -> tuple[Path, bytes]:
     document = {
         "formatVersion": 2,
         "label": spec["label"],
-        "credit": "TMT · generated modular-v1 source artwork",
+        "credit": spec.get("credit", "TMT · generated modular-v1 source artwork"),
         "license": "MIT",
         "palette": ["#00000000"] + [
             "#" + bytes(palette[i:i + 3]).hex() + "ff" for i in range(0, len(palette), 3)

@@ -3,7 +3,7 @@ import type { SceneAvatar } from '../blocks/block-scene.js';
 import type { CatalogPack } from '../props/prop-contract.js';
 import type { WorldDocument, WorldObject } from '../world-map/world-contract.js';
 import { resolvePlacedProp } from '../props/prop-contract.js';
-import { hasRotationArt, rotatedObject } from '../world-map/object-rotation.js';
+import { canRotateObject, rotatedObject } from '../world-map/object-rotation.js';
 import type { CatalogPlacement } from './catalog-placement.js';
 import { footprint } from '../blocks/block-contract.js';
 import { avatarArt } from '../profiles/avatar-art.js';
@@ -147,6 +147,7 @@ export async function createOfficeScene(
   let nameplates: ReturnType<typeof sceneNameplate>[] = [];
   let actors: { actor: OfficeActor; bounds: SceneRect }[] = [];
   let renderedView: SceneRect | undefined;
+  const objectLayers = new Map<string, Container>();
   const bridgePulse = createBridgePulse(invalidate);
   let bridgeLights: { light: Graphics; bounds: SceneRect }[] = [];
   function refreshBridgeLights() {
@@ -194,13 +195,14 @@ export async function createOfficeScene(
         highlight
           .rect(floor.x, floor.y, floor.width, floor.height)
           .fill({ color: '#70ddc6', alpha: 0.12 });
-    const object = model.world.objects.find((item) => item.id === editor?.selected);
+    const object =
+      pointer?.rotationPreview ?? model.world.objects.find((item) => item.id === editor?.selected);
     const rect = object && geometry.objectRect(object);
     if (rect)
       highlight
         .rect(rect.x, rect.y, rect.width, rect.height)
         .stroke({ color: '#ffe8a2', width: 0.25 });
-    for (const corner of rotationCorners()) {
+    for (const corner of rotationCorners(object)) {
       highlight
         .circle(corner.x, corner.y, 5 / camera.scale)
         .fill({ color: '#102b35' })
@@ -298,6 +300,7 @@ export async function createOfficeScene(
     bridgeLights = [];
     root.removeChild(preview, highlight, catalogGhost);
     for (const child of root.removeChildren()) child.destroy({ children: true });
+    objectLayers.clear();
     textures.begin();
     nameplates = [];
     actors = [];
@@ -381,6 +384,8 @@ export async function createOfficeScene(
       }
       const group = new Container();
       const layer = new Container();
+      objectLayers.set(object.id, layer);
+      layer.visible = !(pointer?.moved && pointer.rotating?.id === object.id);
       if (object.kind === 'wallLight') {
         // Nested low-opacity halos fade toward the edge without a blur filter,
         // render texture or animation loop. Keep light local to its fixture.
@@ -653,15 +658,16 @@ export async function createOfficeScene(
       return { object: candidate, problem };
     },
   };
-  function rotationCorners() {
-    const object = model?.world.objects.find((item) => item.id === editor?.selected);
+  function rotationCorners(
+    object = model?.world.objects.find((item) => item.id === editor?.selected)
+  ) {
     const resolved = object && resolvePlacedProp(model!.catalog, object.placement);
     if (
       !object ||
       !geometry ||
       !editor?.rotateObject ||
       !resolved ||
-      !hasRotationArt(resolved.definition) ||
+      !canRotateObject(object, model!.catalog) ||
       object.surface.type !== 'floor'
     )
       return [];
@@ -692,6 +698,7 @@ export async function createOfficeScene(
         selecting: boolean;
         moved: boolean;
         rotating?: WorldObject;
+        rotationPreview?: WorldObject;
       }
     | undefined;
   function objectAt(point: { x: number; y: number }) {
@@ -760,7 +767,7 @@ export async function createOfficeScene(
     const angle =
       Math.atan2(point.y - center.y, point.x - center.x) -
       Math.atan2(pointer.start.y - center.y, pointer.start.x - center.x);
-    const object = rotatedObject(original, Math.round(angle / (Math.PI / 2)));
+    const object = rotatedObject(original, Math.round(angle / (Math.PI / 2)), model!.catalog);
     return { object, problem: placementProblem(geometry.map, object, model!.world.objects) };
   }
   const down = (event: PointerEvent) => {
@@ -816,12 +823,15 @@ export async function createOfficeScene(
       const candidate = rotatedAt(point);
       if (!candidate || !geometry) return;
       const { object, problem } = candidate;
+      pointer.rotationPreview = object;
+      selection(selected);
       const rect = geometry.objectRect(object);
+      const originalLayer = objectLayers.get(pointer.rotating.id);
+      if (originalLayer) originalLayer.visible = false;
       for (const child of catalogGhost.removeChildren()) child.destroy({ children: true });
       catalogTextures.begin();
       const art = new Container();
       art.position.set(rect.x, rect.y);
-      art.alpha = 0.8;
       drawSceneProp(art, { ...object.placement, x: 0, y: 0 }, model!.catalog, catalogTextures);
       catalogGhost.addChild(art);
       catalogTextures.end();
@@ -853,6 +863,7 @@ export async function createOfficeScene(
   };
   const up = (event: PointerEvent) => {
     if (!pointer || pointer.id !== event.pointerId) return;
+    restoreRotationSource();
     const point = at(event);
     if (event.type !== 'pointercancel') {
       if (pointer.rotating) {
@@ -896,6 +907,7 @@ export async function createOfficeScene(
     invalidate();
     if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
     pointer = undefined;
+    selection(selected);
   };
   const leave = () => {
     if (pointer) return;
@@ -906,15 +918,19 @@ export async function createOfficeScene(
     }
   };
   const lostGesture = () => {
+    restoreRotationSource();
     const current = pointer;
     pointer = undefined;
     if (current && canvas.hasPointerCapture(current.id)) canvas.releasePointerCapture(current.id);
     preview.clear();
     catalogPlacement.clear();
     delete canvas.dataset.dropValidity;
+    selection(selected);
+    invalidate();
   };
   const cancelGesture = (event: KeyboardEvent) => {
     if (event.key !== 'Escape') return;
+    restoreRotationSource();
     if (pointer && canvas.hasPointerCapture(pointer.id)) canvas.releasePointerCapture(pointer.id);
     pointer = undefined;
     preview.clear();
@@ -927,6 +943,10 @@ export async function createOfficeScene(
     draw();
     event.stopPropagation();
   };
+  function restoreRotationSource() {
+    const layer = pointer?.rotating && objectLayers.get(pointer.rotating.id);
+    if (layer) layer.visible = true;
+  }
   function zoom(factor: number, x = host.clientWidth / 2, y = host.clientHeight / 2) {
     if (!geometry) return;
     const fitted = fitOfficeCamera(geometry.bounds, cameraFrame());
@@ -982,6 +1002,7 @@ export async function createOfficeScene(
     if (application.renderer) application.renderer.off('resize', resize);
     bridgePulse.dispose();
     catalogTextures.dispose();
+    objectLayers.clear();
     disposeApplication();
     textures.dispose();
     materials?.dispose();

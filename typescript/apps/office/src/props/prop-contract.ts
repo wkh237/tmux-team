@@ -1,4 +1,8 @@
 import builtinDocument from '../../../../../contracts/office/builtin-props-v1.tmtprop.json' with { type: 'json' };
+import directionalWORKSTATIONDocument from '../../../../../contracts/office/directional-workstation-v2.tmtprop.json' with { type: 'json' };
+import directionalLOUNGEDocument from '../../../../../contracts/office/directional-lounge-v2.tmtprop.json' with { type: 'json' };
+import directionalRECEPTIONDocument from '../../../../../contracts/office/directional-reception-v2.tmtprop.json' with { type: 'json' };
+import directionalFACILITIESDocument from '../../../../../contracts/office/directional-facilities-v2.tmtprop.json' with { type: 'json' };
 import workshopDocument from '../../../../../contracts/office/workshop-furniture-v2.tmtprop.json' with { type: 'json' };
 import commonsDocument from '../../../../../contracts/office/commons-props-v2.tmtprop.json' with { type: 'json' };
 import whiteboardDocument from '../../../../../contracts/office/whiteboard-props-v2.tmtprop.json' with { type: 'json' };
@@ -37,6 +41,14 @@ export const STUDY_DIGEST =
 export const WALL_DIGEST =
   'sha256:5303fe9a3e5bf8a22c9958faeef1922a3cc21cfefb95a7b701a6a86213ac4415';
 export const PROP_FOOTPRINT_LIMIT = 16;
+export const DIRECTIONAL_WORKSTATION_DIGEST =
+  'sha256:510f5c18585f9c626260ca7d851c10df9ee1f6858e2dedb494aff8dc7ad82003';
+export const DIRECTIONAL_LOUNGE_DIGEST =
+  'sha256:79b890d1e7f7a9139e856a45efdbfb111052dd4b9414050367f8290f677ea802';
+export const DIRECTIONAL_RECEPTION_DIGEST =
+  'sha256:bbd2099aec2ebef001386e84bc28c7ff119cdecb2cb566665b51b1fabb99a93b';
+export const DIRECTIONAL_FACILITIES_DIGEST =
+  'sha256:206562d849112c6ad6bfe2099bd1dc62fcdb82c73f58c3ff7e6062dd9fcf924f';
 export const MODULAR_WORKSTATION_DIGEST =
   'sha256:10dc14a38d1cb0c92148c084b5e6239a54ee401348070444ae65fe8f6d815755';
 export const MODULAR_MOUNTED_DIGEST =
@@ -209,6 +221,10 @@ export const BUILTIN_CATALOG: readonly CatalogPack[] = [
   { digest: MODULAR_LOUNGE_DIGEST, pack: decodePropPack(loungeDocument) },
   { digest: MODULAR_FACILITIES_DIGEST, pack: decodePropPack(facilitiesDocument) },
   { digest: MODULAR_RECEPTION_DIGEST, pack: decodePropPack(receptionDocument) },
+  { digest: DIRECTIONAL_WORKSTATION_DIGEST, pack: decodePropPack(directionalWORKSTATIONDocument) },
+  { digest: DIRECTIONAL_LOUNGE_DIGEST, pack: decodePropPack(directionalLOUNGEDocument) },
+  { digest: DIRECTIONAL_RECEPTION_DIGEST, pack: decodePropPack(directionalRECEPTIONDocument) },
+  { digest: DIRECTIONAL_FACILITIES_DIGEST, pack: decodePropPack(directionalFACILITIESDocument) },
 ];
 
 /** Select admitted art once; both canvas and SVG consume this projection. */

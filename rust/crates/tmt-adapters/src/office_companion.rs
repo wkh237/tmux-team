@@ -1379,6 +1379,30 @@ mod pairing_tests {
                 "props":[{"key":"reception-armchair","label":"Reception armchair","footprint":{"width":12,"height":12},
                     "frames":[{"width":96,"height":96},{"width":96,"height":96},{"width":96,"height":96},{"width":96,"height":96}]}],
                 "builtin":true, "catalogRevision":0, "installedAtMs":null
+            }, {
+                "digest":crate::office_prop::DIRECTIONAL_WORKSTATION_DIGEST, "formatVersion":2, "label":"Directional workstation",
+                "credit":"TMT", "license":"MIT", "fileBytes":512, "pixelCount":4,
+                "props":[{"key":"workstation-desk","label":"Furniture","footprint":{"width":16,"height":16},
+                    "frames":[{"width":128,"height":128},{"width":128,"height":128},{"width":128,"height":128},{"width":128,"height":128}]}],
+                "builtin":true, "catalogRevision":0, "installedAtMs":null
+            }, {
+                "digest":crate::office_prop::DIRECTIONAL_LOUNGE_DIGEST, "formatVersion":2, "label":"Directional lounge",
+                "credit":"TMT", "license":"MIT", "fileBytes":512, "pixelCount":4,
+                "props":[{"key":"lounge-sofa","label":"Furniture","footprint":{"width":16,"height":16},
+                    "frames":[{"width":128,"height":128},{"width":128,"height":128},{"width":128,"height":128},{"width":128,"height":128}]}],
+                "builtin":true, "catalogRevision":0, "installedAtMs":null
+            }, {
+                "digest":crate::office_prop::DIRECTIONAL_RECEPTION_DIGEST, "formatVersion":2, "label":"Directional reception",
+                "credit":"TMT", "license":"MIT", "fileBytes":512, "pixelCount":4,
+                "props":[{"key":"reception-armchair","label":"Furniture","footprint":{"width":12,"height":12},
+                    "frames":[{"width":96,"height":96},{"width":96,"height":96},{"width":96,"height":96},{"width":96,"height":96}]}],
+                "builtin":true, "catalogRevision":0, "installedAtMs":null
+            }, {
+                "digest":crate::office_prop::DIRECTIONAL_FACILITIES_DIGEST, "formatVersion":2, "label":"Directional facilities",
+                "credit":"TMT", "license":"MIT", "fileBytes":512, "pixelCount":4,
+                "props":[{"key":"lobby-radio","label":"Furniture","footprint":{"width":8,"height":8},
+                    "frames":[{"width":64,"height":64},{"width":64,"height":64},{"width":64,"height":64},{"width":64,"height":64}]}],
+                "builtin":true, "catalogRevision":0, "installedAtMs":null
             }],
             "packs":[], "excluded":[], "nextCursor":null
         });
@@ -1386,7 +1410,7 @@ mod pairing_tests {
             OfficeInvocation::LocalPropList,
             &list
         ));
-        for count in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13] {
+        for count in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17] {
             let mut invalid = list.clone();
             invalid["builtins"] = serde_json::json!(vec![list["builtins"][0].clone(); count]);
             assert!(!valid_local_prop_reply(

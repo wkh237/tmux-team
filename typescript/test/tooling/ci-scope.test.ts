@@ -177,6 +177,23 @@ describe('required CI gate', () => {
     expect(ciGatePasses('', ['skipped', 'skipped', 'skipped', 'skipped', 'skipped'])).toBe(false);
   });
 
+  it('builds the selected release CLI without replacing debug Rust verification', () => {
+    const workflow = readFileSync(
+      fileURLToPath(new URL('../../../.github/workflows/ci.yml', import.meta.url)),
+      'utf8'
+    );
+    const start = workflow.indexOf('\n  native-rust:\n');
+    const native = workflow.slice(start, workflow.indexOf('\n  unit-tests:\n', start));
+    expect(native).toContain('cargo build --locked --release -p tmt-cli');
+    expect(native).toContain('rust/target/release/tmt');
+    expect(native).toContain('cargo test --locked');
+    expect(native).toContain('cargo clippy --locked --all-targets -- -D warnings');
+    expect(native).toContain('cargo +1.88.0 build --locked');
+    expect(native).toContain('cargo build --locked -p tmt-office');
+    expect(native).toContain('rust/target/debug/examples/storage-probe');
+    expect(native).toContain('pnpm test:native --reporter=verbose');
+  });
+
   it('keeps browser diagnostics outside required aggregates while required results fail closed', () => {
     const workflow = readFileSync(
       fileURLToPath(new URL('../../../.github/workflows/ci.yml', import.meta.url)),

@@ -8,7 +8,11 @@ import { legacyLobbyObjects } from '../../../test/support/office-world.js';
 import { captureWorldScene, installDrawObserver, observeIdleScene } from './scene-observation.js';
 import vectors from '../../../../contracts/office/modules-central-grid-vectors.json' with { type: 'json' };
 import { decodeModuleMap } from '../src/world-map/module-contract.js';
-import { MODULAR_WORKSTATION_DIGEST, MODULAR_MOUNTED_DIGEST } from '../src/props/prop-contract.js';
+import {
+  MODULAR_WORKSTATION_DIGEST,
+  MODULAR_MOUNTED_DIGEST,
+  DIRECTIONAL_WORKSTATION_DIGEST,
+} from '../src/props/prop-contract.js';
 import type { WorldSnapshot } from '../src/world-map/world-port.js';
 import { openKeyboardSelection } from './office-navigation.js';
 
@@ -114,7 +118,10 @@ test('reviewed workstation and wall art use real catalog placement, four chair v
           'workstation-desk',
           'workstation-terminal',
           'workstation-bookcase',
-        ].map((key) => `${MODULAR_WORKSTATION_DIGEST}/${key}`)
+        ].map(
+          (key) =>
+            `${key === 'workstation-chair' ? MODULAR_WORKSTATION_DIGEST : DIRECTIONAL_WORKSTATION_DIGEST}/${key}`
+        )
       );
       expect(
         additions.slice(4).map((object) => ({

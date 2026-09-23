@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test';
 import { runCli, withSandbox } from '../../../test/support/cli-process.js';
 import { installNativeOffice, unusedLoopbackPort } from './native-office-fixture.js';
 import { installationWorldPoint } from './native-world-geometry.js';
+import { openKeyboardSelection } from './office-navigation.js';
 import type { WorldSnapshot } from '../src/world-map/world-port.js';
 
 async function startDrag(page: Page, label: string, target: { x: number; y: number }) {
@@ -273,6 +274,36 @@ test('corner rotation is transient and durable once; Delete respects text fields
           .getByRole('heading', { name: 'Lobby', exact: true })
       ).toHaveCount(0);
       await page.screenshot({ path: info.outputPath('area-inspector.png') });
+      for (const width of [1536, 390]) {
+        await page.setViewportSize({ width, height: 1024 });
+        const material = page.getByRole('group', { name: 'Floor & frame' });
+        const removal = page.getByRole('button', { name: 'Review module removal' });
+        const materialBounds = (await material.boundingBox())!;
+        const removalBounds = (await removal.boundingBox())!;
+        expect(removalBounds.y - materialBounds.y - materialBounds.height).toBeGreaterThanOrEqual(
+          16
+        );
+        await removal.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: info.outputPath(`area-removal-spacing-${width}.png`) });
+      }
+      await openKeyboardSelection(page);
+      await page.getByRole('combobox', { name: 'Area', exact: true }).selectOption({
+        label: 'Office 03',
+      });
+      for (const width of [1536, 390]) {
+        await page.setViewportSize({ width, height: 1024 });
+        const material = (await page.getByRole('group', { name: 'Floor & frame' }).boundingBox())!;
+        const resident = (await page
+          .getByRole('combobox', { name: 'Resident', exact: true })
+          .locator('..')
+          .boundingBox())!;
+        const removal = (await page
+          .getByRole('button', { name: 'Review module removal' })
+          .boundingBox())!;
+        expect(resident.y - material.y - material.height).toBeCloseTo(16, 1);
+        expect(removal.y - resident.y - resident.height).toBeCloseTo(16, 1);
+        await page.screenshot({ path: info.outputPath(`office-field-spacing-${width}.png`) });
+      }
     } finally {
       await office(['stop']);
     }

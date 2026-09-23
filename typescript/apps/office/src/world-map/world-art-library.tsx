@@ -3,6 +3,7 @@ import type { CatalogPack } from '../props/prop-contract.js';
 import { PropThumbnail } from '../props/prop-thumbnail.js';
 import type { CatalogDragHandlers } from './use-catalog-drag.js';
 import { BUILTIN_DIGEST } from '../props/prop-contract.js';
+import { directionalFurniture } from '../props/furniture-upgrades.js';
 
 /** Browse the admitted catalog; choosing art still belongs to the world draft. */
 export function WorldArtLibrary({
@@ -20,6 +21,14 @@ export function WorldArtLibrary({
     .map((entry) => ({
       entry,
       props: entry.pack.props.filter((prop) => {
+        const placement = {
+          prop: `${entry.digest}/${prop.key}`,
+          footprint: prop.footprint,
+          x: 0,
+          y: 0,
+          rotation: 0,
+        };
+        if (directionalFurniture(placement, catalog).prop !== placement.prop) return false;
         const text = `${entry.pack.label} ${prop.label}`.toLocaleLowerCase();
         return terms.every((term) => text.includes(term));
       }),
