@@ -617,6 +617,13 @@ descriptor may select another absolute native executable; it must be
 executable, and neither an installed host command nor Node is an allowed
 fallback. Paths and argv are passed as data, never through shell fragments.
 
+Native Rust CI explicitly selects the same-checkout release CLI for process
+contracts, so installed-companion integrity checks run with production compiler
+optimization rather than debug hashing cost. The independent Office companion
+and storage probe remain debug fixtures. Rust debug tests, Clippy, MSRV builds
+and embedded service tests remain separate required checks; process deadlines
+and assertions are unchanged. Local selection still defaults to the debug CLI.
+
 Build first, then explicitly select the test-only storage probe. The product CLI
 uses its repository-native default; the probe is never an installed SQL command:
 
