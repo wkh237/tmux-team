@@ -84,7 +84,7 @@ fn fresh_world_has_furnished_central_lobby_and_four_unassigned_offices_without_w
     identity(&storage, TEMP, "temporary");
     let initial = storage.show_local_world().unwrap();
     let value = world_value(&initial.layout);
-    assert_eq!(value["map"]["version"], 6);
+    assert_eq!(value["map"]["version"], 8);
     assert!(initial.layout.objects().iter().all(|object| {
         object.surface == tmt_core::office_world::Surface::Floor { base: None }
             && object.kind == tmt_core::office_world::ObjectKind::Decoration

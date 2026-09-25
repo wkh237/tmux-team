@@ -68,7 +68,7 @@ export function AreaRemovalPreview({
       {removal?.reason && <p role="status">{removal.reason}</p>}
       <p>
         {removal
-          ? 'Removal applies automatically after confirmation. Remaining rooms must stay connected. No placement or linked content is removed automatically.'
+          ? 'Removal applies automatically after confirmation. Required access paths must remain valid. No placement or linked content is removed automatically.'
           : 'Changes apply automatically. Invalid wall placements must be resolved; nothing is removed automatically.'}
       </p>
     </section>

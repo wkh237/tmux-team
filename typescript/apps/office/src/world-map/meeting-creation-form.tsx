@@ -16,6 +16,8 @@ export function MeetingCreationForm({
   roomSaved,
   place,
   close,
+  embedded = false,
+  linking = false,
 }: {
   port: RoomPort;
   rooms: readonly MeetingRoom[];
@@ -26,6 +28,8 @@ export function MeetingCreationForm({
   roomSaved(room: MeetingRoom): void;
   place(room: MeetingRoom, areaId: string): boolean;
   close(): void;
+  embedded?: boolean;
+  linking?: boolean;
 }) {
   const panel = useAnchoredPanel<HTMLElement>(anchor, obstacles);
   const [areaId] = useState(() => crypto.randomUUID());
@@ -43,8 +47,8 @@ export function MeetingCreationForm({
   return (
     <section
       ref={panel.ref}
-      style={panel.style}
-      className="office-expansion-card meeting-expansion-card"
+      style={embedded ? undefined : panel.style}
+      className={embedded ? 'meeting-link-form' : 'office-expansion-card meeting-expansion-card'}
       aria-label="Create meeting space"
       onKeyDown={(event) => {
         if (event.key === 'Escape' && !busy) {
@@ -56,7 +60,7 @@ export function MeetingCreationForm({
       {created ? (
         <>
           <h2>{created.name}</h2>
-          <p role="status">The room is saved. Its space has not been added to this layout.</p>
+          <p role="status">The room is saved. Its area link has not been applied.</p>
           <p>
             Retry placement or close and place this existing room later. No duplicate room will be
             created.
@@ -79,10 +83,17 @@ export function MeetingCreationForm({
             close={close}
             onBusyChange={onBusyChange}
           />
-          <p>
-            The room is saved first, then its furnished space applies automatically. Undoing the
-            placement keeps the room and its history available.
-          </p>
+          {linking ? (
+            <p>
+              Only this area's use changes. Position, furniture and existing resource links stay
+              unchanged. Undo keeps the canonical room available.
+            </p>
+          ) : (
+            <p>
+              The room is saved first, then its furnished space applies automatically. Undoing the
+              placement keeps the room and its history available.
+            </p>
+          )}
           {rooms.length > 0 && (
             <details>
               <summary>Place an existing room</summary>

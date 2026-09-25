@@ -246,7 +246,7 @@ derives circulation and boundaries from fixed slots, replacing freeform authorin
 without independently editable module/floor graphs.
 Native [versioned modular topology](../../contracts/office/modules-v2.md) projects module
 slots into the same map validator and preserves the source in the world codec.
-Browser `world-map/map-source` owns the v1–v6 source union and read-only projection
+Browser `world-map/map-source` owns the v1–v8 source union and read-only projection
 cache. Rendering, population and object discovery consume that geometry; world
 history and Save keep the source, including material changes. Modular area/object
 edits share those owners and reject direct floor writes. `module-authoring`
@@ -271,14 +271,32 @@ is unchanged. `module-upgrade` offers an explicit compact draft preview and move
 room-owned floor and wall objects through the shared relocation function. It
 rejects ambiguous support rather than dropping objects. Undo restore the
 source, and native whole-world Save remains the admission authority.
-V6 previews short bridges for immediate Lobby neighbors and retains public spine
-access for more distant offices. Meeting pods have a gap from their public spine
+V6 connects cardinal office/Lobby neighbors with centered bridges; distant
+offices require intervening platforms rather than a perimeter bypass.
+Meeting pods have a gap from their public spine
 and separate entrance branches; missing slots do not add branches. The existing
 native module projection and browser counterpart own openings and floor together.
 The explicit platform preview reuses the same object relocation and draft history;
 it never silently reinterprets or overwrites a stored v4/v5 layout.
-New installations receive the native furnished v6 platform preset described in
-[root architecture](../../ARCHITECTURE.md#office-workspace-boundary). Existing-world
+V7 retains v6 personal-office paths and fixed meeting positions, but omits the
+meeting spine, branches and openings. The native modular admission permits only
+these meeting components to be independent; ordinary Office connectivity remains
+required. This retained format is readable but is no longer a conversion target.
+Reading old worlds never performs conversion.
+The reserved meeting wing uses fixed visual slots with the standard 24-unit
+inter-platform gap. Empty slots retain their space; adding or removing a meeting
+does not change the main campus projection or move another meeting's scene anchor.
+V8 is the unified-area layout: all non-Lobby slots use one grid and their binding
+selects Office or Meeting room use without altering bounds or bridges. The fixed
+display lattice is independent of occupied rows/columns. Meeting lamps share the
+existing mechanical housing and only recolor its inset; a nameplate icon provides
+a non-color cue. `AreaCreationForm` owns the use choice for a shared prospective
+slot. `MeetingCreationForm` retains the canonical room receipt if attachment fails;
+the same form links a selected existing area without replacing furniture or
+retargeting any resource. Clearing an area binding never deletes an identity or
+canonical room. Yjs still owns only the layout change, not canonical-room creation.
+New installations receive the native furnished v8 platform preset described in
+[root architecture](../../ARCHITECTURE.md#typescript-workspace-boundary). Existing-world
 conversion uses the explicit module-upgrade preview described in root architecture;
 retained layouts keep object editing and explicit area removal to repair rejected inputs.
 A new preset never replaces saved content.

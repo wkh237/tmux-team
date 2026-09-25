@@ -49,10 +49,10 @@ test('new Lobby facility artwork retains the three real resource entry points wi
       await page.screenshot({ path: info.outputPath('new-lobby-facilities.png') });
       // Independent v6 whiteboard body and expanded action label, not the production picker.
       const bounds = (await page.locator('.office-canvas canvas').boundingBox())!;
-      const body = installationWorldPoint(bounds, 90, 21.75);
+      const body = installationWorldPoint(bounds, 106, 21.75);
       await page.mouse.move(body.x, body.y);
       await expect(page.locator('.office-canvas canvas')).toHaveCSS('cursor', 'grab');
-      const action = installationWorldPoint(bounds, 90, 12.75);
+      const action = installationWorldPoint(bounds, 106, 12.75);
       await page.mouse.move(action.x, action.y);
       await expect(page.locator('.office-canvas canvas')).toHaveCSS('cursor', 'pointer');
       await page.screenshot({ path: info.outputPath('whiteboard-hover-control.png') });

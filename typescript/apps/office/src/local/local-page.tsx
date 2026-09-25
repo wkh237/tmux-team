@@ -22,9 +22,14 @@ import { useWorldExtensions } from './use-world-extensions.js';
 import { useWorldEditor } from '../world-map/use-world-editor.js';
 import { WorldTools } from '../world-map/world-tools.js';
 import { OfficeExpansionForm } from '../world-map/office-expansion-form.js';
+import { AreaCreationForm } from '../world-map/area-creation-form.js';
 import { MeetingCreationForm } from '../world-map/meeting-creation-form.js';
 import { addMeetingModule, nextMeetingSlot } from '../world-map/meeting-module.js';
-import { addOfficeModule, officeExpansionSlots } from '../world-map/module-authoring.js';
+import {
+  addOfficeModule,
+  addGridMeetingModule,
+  officeExpansionSlots,
+} from '../world-map/module-authoring.js';
 import { officeSlotKey } from '../world-map/module-contract.js';
 import type { MeetingSlot, OfficeSlot } from '../world-map/module-contract.js';
 import { createCatalogObject, placementProblem } from '../world-map/world-object-placement.js';
@@ -472,6 +477,9 @@ function ReadyOffice({
           <div className="world-camera-dock" ref={setCameraHost} />
         </div>
         <WorldTools
+          roomPort={load.runtime.rooms}
+          roomSaved={roomChanged}
+          onRoomBusyChange={setRoomBusy}
           obstacles={panelObstacles}
           creatingMeeting={Boolean(meetingDraft)}
           editor={editor}
@@ -539,7 +547,7 @@ function ReadyOffice({
                   setOfficeSlot(slot);
                 }}
               >
-                Office · column {slot.column}, row {slot.row}
+                {world.map.version === 8 ? 'Area' : 'Office'} · column {slot.column}, row {slot.row}
               </button>
             ))}
             {meetingSlot && (
@@ -591,28 +599,70 @@ function ReadyOffice({
         }
         officeOverlay={
           selectedOffice
-            ? (anchor) => (
-                <OfficeExpansionForm
-                  key={selectedOffice ? officeSlotKey(selectedOffice) : 'choose'}
-                  selected={selectedOffice}
-                  anchor={anchor}
-                  obstacles={panelObstacles}
-                  busy={editor.busy}
-                  cancel={() => {
-                    setOfficeSlot(undefined);
-                  }}
-                  create={(name) => {
-                    if (!selectedOffice) return;
-                    const id = crypto.randomUUID();
-                    if (
-                      editor.change((world) => addOfficeModule(world, selectedOffice, name, id))
-                    ) {
+            ? (anchor) =>
+                world.map.version === 8 ? (
+                  <AreaCreationForm
+                    key={officeSlotKey(selectedOffice)}
+                    selected={selectedOffice}
+                    anchor={anchor}
+                    obstacles={panelObstacles}
+                    busy={editor.busy || roomBusy}
+                    port={load.runtime.rooms}
+                    onBusyChange={setRoomBusy}
+                    roomSaved={roomChanged}
+                    rooms={load.rooms.filter(
+                      (room) =>
+                        !map.areas.some(
+                          (area) =>
+                            area.binding.type === 'meeting' && area.binding.roomId === room.id
+                        )
+                    )}
+                    close={() => setOfficeSlot(undefined)}
+                    createOffice={(name) => {
+                      const id = crypto.randomUUID();
+                      if (
+                        editor.change((current) =>
+                          addOfficeModule(current, selectedOffice, name, id)
+                        )
+                      ) {
+                        selectArea(id);
+                        setOfficeSlot(undefined);
+                      }
+                    }}
+                    createMeeting={(room, id) => {
+                      if (
+                        !editor.change((current) =>
+                          addGridMeetingModule(current, selectedOffice, room, id)
+                        )
+                      )
+                        return false;
                       selectArea(id);
                       setOfficeSlot(undefined);
-                    }
-                  }}
-                />
-              )
+                      return true;
+                    }}
+                  />
+                ) : (
+                  <OfficeExpansionForm
+                    key={selectedOffice ? officeSlotKey(selectedOffice) : 'choose'}
+                    selected={selectedOffice}
+                    anchor={anchor}
+                    obstacles={panelObstacles}
+                    busy={editor.busy}
+                    cancel={() => {
+                      setOfficeSlot(undefined);
+                    }}
+                    create={(name) => {
+                      if (!selectedOffice) return;
+                      const id = crypto.randomUUID();
+                      if (
+                        editor.change((world) => addOfficeModule(world, selectedOffice, name, id))
+                      ) {
+                        selectArea(id);
+                        setOfficeSlot(undefined);
+                      }
+                    }}
+                  />
+                )
             : undefined
         }
       />

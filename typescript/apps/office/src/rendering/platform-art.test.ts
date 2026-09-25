@@ -39,6 +39,10 @@ it('decodes once, clips silhouettes once, and disposes textures once', async () 
     clip: vi.fn(),
     drawImage: vi.fn(),
     fillRect: vi.fn(),
+    getImageData: vi.fn(() => ({
+      data: new Uint8ClampedArray([200, 240, 230, 255, 20, 45, 55, 255]),
+    })),
+    putImageData: vi.fn(),
   };
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
     context as unknown as ReturnType<HTMLCanvasElement['getContext']>
@@ -49,8 +53,21 @@ it('decodes once, clips silhouettes once, and disposes textures once', async () 
   expect(context.drawImage).toHaveBeenCalledTimes(count);
   // Four alloy panels, paired rivets, a service grille and restrained wear.
   expect(context.fillRect).toHaveBeenCalledTimes(36);
-  // Lamp, bracket, corner and the brass docking threshold have silhouettes.
-  expect(context.clip).toHaveBeenCalledTimes(4);
+  // Both lamp uses share the housing; only the bright inset pixels change.
+  expect(context.clip).toHaveBeenCalledTimes(6);
+  expect(context.getImageData).toHaveBeenCalledTimes(2);
+  expect(context.getImageData).toHaveBeenCalledWith(39, 51, 81, 25);
+  expect(context.getImageData).toHaveBeenCalledWith(57, 51, 81, 25);
+  expect(context.putImageData).toHaveBeenCalledWith(
+    { data: new Uint8ClampedArray([211, 144, 240, 255, 20, 45, 55, 255]) },
+    39,
+    51
+  );
+  expect(context.putImageData).toHaveBeenCalledWith(
+    { data: new Uint8ClampedArray([211, 144, 240, 255, 20, 45, 55, 255]) },
+    57,
+    51
+  );
   expect(Object.keys(art.textures)).toHaveLength(count);
   art.dispose();
   art.dispose();

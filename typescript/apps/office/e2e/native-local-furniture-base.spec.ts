@@ -82,16 +82,17 @@ test('bookcase upper artwork stays clickable above a shallow supported base thro
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
       const view = (await canvas.boundingBox())!;
       const point = (x: number, y: number) => installationWorldPoint(view, x, y);
-      // Independent v6 projection: an 11-unit upright starts at 7/8*y - 11/8.
+      // V8's second column adds 16 display units to x. The base's bottom
+      // remains inside the first Y cell, with an unchanged rigid art height.
       // Both objects cover this point; the last painted bookcase must win.
-      const upper = point(65, 18);
+      const upper = point(81, 18);
       await page.mouse.click(upper.x, upper.y);
       await expect(
         page.getByRole('heading', { name: 'Selected object: Workshop bookcase' })
       ).toBeVisible();
       expect(writes).toHaveLength(0);
       expect((await office(['layout', 'show'])).layout).toEqual(layout);
-      const edge = point(65, -6.5);
+      const edge = point(81, -6.5);
       await page.mouse.move(upper.x, upper.y);
       await page.mouse.down();
       await page.mouse.move(edge.x, edge.y, { steps: 8 });
@@ -115,8 +116,8 @@ test('bookcase upper artwork stays clickable above a shallow supported base thro
       // The opaque lower shelf crosses the north rim. A zero-turn rotation
       // preview paints this same artwork above architecture, providing an
       // independent pixel comparison against its committed layer.
-      const rimStart = point(63, 0);
-      const rimEnd = point(68, 0.75);
+      const rimStart = point(79, 0);
+      const rimEnd = point(84, 0.75);
       const rimClip = {
         x: Math.ceil(rimStart.x),
         y: Math.ceil(rimStart.y),
@@ -124,10 +125,10 @@ test('bookcase upper artwork stays clickable above a shallow supported base thro
         height: Math.floor(rimEnd.y) - Math.ceil(rimStart.y),
       };
       const committedShelf = await page.screenshot({ clip: rimClip, scale: 'css' });
-      // Artwork bounds: (60,-8.375)..(71,2.625). Move radially outward from
+      // Artwork bounds: (76,-8.375)..(87,2.625). Move radially outward from
       // the bottom-right handle without changing the angle or saved rotation.
-      const corner = point(71, 2.625);
-      const radial = point(74, 5.625);
+      const corner = point(87, 2.625);
+      const radial = point(90, 5.625);
       await page.mouse.move(corner.x, corner.y);
       await page.mouse.down();
       await page.mouse.move(radial.x, radial.y, { steps: 4 });
@@ -143,12 +144,12 @@ test('bookcase upper artwork stays clickable above a shallow supported base thro
       await expect(
         page.getByRole('heading', { name: 'Selected object: Workshop bookcase' })
       ).toBeVisible();
-      const invalid = point(65, -7.375);
+      const invalid = point(81, -7.375);
       await page.mouse.move(edge.x, edge.y);
       await page.mouse.down();
       await page.mouse.move(invalid.x, invalid.y, { steps: 4 });
       // One tile is less than the gesture threshold at Fit; move two tiles instead.
-      const unsupported = point(65, -8.25);
+      const unsupported = point(81, -8.25);
       await page.mouse.move(unsupported.x, unsupported.y, { steps: 4 });
       await expect(canvas).toHaveAttribute('data-drop-validity', 'invalid');
       await page.screenshot({ path: info.outputPath('bookcase-unsupported-base.png') });

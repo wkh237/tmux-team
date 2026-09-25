@@ -11,6 +11,8 @@ import {
 import type { WorldDocument } from './world-contract.js';
 import { projectMap } from './map-geometry.js';
 import { hasObjectSupport } from './world-object-placement.js';
+import type { MeetingRoom } from '../local/room-contract.js';
+import { addMeetingPreset } from './meeting-preset.js';
 
 /** A finish edits the module source only; all spatial/content values remain owned elsewhere. */
 export function setModuleMaterial(
@@ -111,6 +113,42 @@ export function addOfficeModule(
       ],
     },
   };
+}
+
+/** Meeting use shares the exact prospective grid slot and ordinary area creation. */
+export function addGridMeetingModule(
+  world: WorldDocument,
+  slot: OfficeSlot,
+  room: MeetingRoom,
+  id: string
+): WorldDocument {
+  if (world.map.version !== 8) throw new Error('Convert to unified areas first.');
+  if (room.retired) throw new Error('A retired room cannot be placed.');
+  if (
+    world.map.modules.some(
+      ({ area }) => area.binding.type === 'meeting' && area.binding.roomId === room.id
+    )
+  )
+    throw new Error('This meeting room already has a space in this layout.');
+  const added = addOfficeModule(world, slot, room.name, id);
+  if (added.map.version === 1) throw new Error('A modular layout is required.');
+  return addMeetingPreset(
+    {
+      ...added,
+      map: {
+        ...added.map,
+        modules: added.map.modules.map((module) =>
+          module.area.id === id
+            ? {
+                ...module,
+                area: { ...module.area, binding: { type: 'meeting' as const, roomId: room.id } },
+              }
+            : module
+        ),
+      },
+    },
+    id
+  );
 }
 
 /** A source-only removal candidate; contents and canonical room membership stay intact. */

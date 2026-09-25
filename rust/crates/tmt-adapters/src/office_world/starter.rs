@@ -67,7 +67,7 @@ pub(crate) fn new_world(seed: &str) -> WorldLayout {
     let map = OfficeMap::from_modules(ModuleDraft {
         primary_lobby_id: lobby_id.clone(),
         modules,
-        layout: ModuleLayout::Skybridges,
+        layout: ModuleLayout::UnifiedAreas,
     })
     .expect("starter modules have connected cardinal circulation");
 

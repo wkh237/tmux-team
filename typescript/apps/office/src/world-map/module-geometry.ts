@@ -24,7 +24,12 @@ export function moduleBounds(
   version: ModuleMapDocument['version']
 ): ModuleRect {
   const purpose = { lobby: 'lobby', office: 'personal', meeting: 'meeting' }[module.slot.type];
-  if (module.area.binding.type !== purpose)
+  const unified =
+    version === 8 && module.slot.type === 'office' && module.area.binding.type === 'meeting';
+  if (
+    (version === 8 && module.slot.type === 'meeting') ||
+    (!unified && module.area.binding.type !== purpose)
+  )
     throw new Error('Office module slot does not match its purpose.');
   return moduleSlotBounds(module.slot, version);
 }
@@ -65,6 +70,7 @@ export function moduleSlotBounds(slot: ModuleSlot, version: number): ModuleRect 
 }
 
 export function meetsReservedWing(rect: ModuleRect, version = 4): boolean {
+  if (version === 8) return false;
   const m = MODULE_METRICS;
   return modulesOverlap(rect, {
     x: m.meetingX - m.passageWidth,
@@ -83,12 +89,13 @@ export interface ModuleConnection {
 /** One connection definition supplies physical openings and their visual assembly. */
 export function moduleConnections(
   modules: readonly Pick<OfficeModule, 'slot'>[],
-  grid = false
+  grid = false,
+  version = grid ? 3 : 2
 ): ModuleConnection[] {
   const size = MODULE_METRICS.passageWidth;
   const bounds = modules
     .filter((module) => module.slot.type !== 'meeting')
-    .map(({ slot }) => moduleSlotBounds(slot, grid ? 3 : 2));
+    .map(({ slot }) => moduleSlotBounds(slot, version));
   const result: ModuleConnection[] = [];
   for (const [index, a] of bounds.entries()) {
     for (const b of bounds.slice(0, index)) {
@@ -217,8 +224,8 @@ function centralGridCirculation(rooms: readonly ModuleRect[], compact = false, b
 /** Unsaved circulation preview derived from the same geometry as the accepted room. */
 export function officeExpansionPassages(source: ModuleMapDocument, slot: OfficeSlot): ModuleRect[] {
   const room = moduleSlotBounds(slot, source.version);
-  if (source.version < 4)
-    return moduleConnections([...source.modules, { slot }], source.version === 3)
+  if (source.version < 4 || source.version === 8)
+    return moduleConnections([...source.modules, { slot }], source.version === 3, source.version)
       .filter(({ openings }) =>
         openings.some((edge) =>
           edge.axis === 'vertical'
@@ -259,6 +266,8 @@ export function officeExpansionPassages(source: ModuleMapDocument, slot: OfficeS
 
 /** The stable meeting spine is shared by saved geometry and construction previews. */
 export function meetingCirculation(slots: readonly ModuleSlot[], version: number) {
+  // Independent islands retain their fixed slots but have no common floor or portals.
+  if (version >= 7) return { passages: [] as ModuleRect[], openings: [] as MapEdge[] };
   const m = MODULE_METRICS;
   const meetings = slots
     .filter((slot) => slot.type === 'meeting')
@@ -333,7 +342,12 @@ export function projectModules(source: ModuleMapDocument): MapDocument {
     for (let y = rect.y; y < bottom(rect); y++)
       floor.push({ y, start: rect.x, end: right(rect), areaId: module.area.id });
   }
-  if (source.version >= 4) {
+  if (source.version === 8) {
+    for (const connection of moduleConnections(source.modules, false, 8)) {
+      passage(connection.passage);
+      for (const edge of connection.openings) door(edge.x, edge.y, edge.axis);
+    }
+  } else if (source.version >= 4) {
     const main = bounds.filter((_, index) => source.modules[index]!.slot.type !== 'meeting');
     const grid = centralGridCirculation(main, source.version >= 5, source.version >= 6);
     for (const rect of grid.passages) passage(rect);

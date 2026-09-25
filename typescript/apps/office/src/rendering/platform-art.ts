@@ -3,16 +3,27 @@ import sourceUrl from './assets/mechanical-platform-v1.png';
 
 /** Source-pixel contours exclude the study sheet's opaque background. These are
  * authored sprite silhouettes, not color-key guesses or per-frame GPU masks. */
+const LAMP_FRAME = {
+  x: 439,
+  y: 565,
+  width: 153,
+  height: 111,
+  outline: [0, 0, 151, 0, 153, 69, 128, 96, 99, 96, 96, 110, 74, 110, 66, 97, 23, 96, 0, 75],
+} as const;
+const CORNER_FRAME = {
+  x: 797,
+  y: 559,
+  width: 143,
+  height: 127,
+  outline: [
+    13, 0, 42, 8, 142, 8, 142, 98, 115, 99, 106, 122, 86, 122, 75, 99, 40, 91, 29, 55, 0, 27, 0, 9,
+  ],
+} as const;
 export const PLATFORM_FRAMES = {
   rim: { x: 115, y: 66, width: 65, height: 12 },
   face: { x: 172, y: 582, width: 102, height: 61 },
-  lamp: {
-    x: 439,
-    y: 565,
-    width: 153,
-    height: 111,
-    outline: [0, 0, 151, 0, 153, 69, 128, 96, 99, 96, 96, 110, 74, 110, 66, 97, 23, 96, 0, 75],
-  },
+  lamp: LAMP_FRAME,
+  meetingLamp: LAMP_FRAME,
   bracket: {
     x: 633,
     y: 557,
@@ -23,16 +34,8 @@ export const PLATFORM_FRAMES = {
       106, 14, 40, 0, 27, 0, 14,
     ],
   },
-  corner: {
-    x: 797,
-    y: 559,
-    width: 143,
-    height: 127,
-    outline: [
-      13, 0, 42, 8, 142, 8, 142, 98, 115, 99, 106, 122, 86, 122, 75, 99, 40, 91, 29, 55, 0, 27, 0,
-      9,
-    ],
-  },
+  corner: CORNER_FRAME,
+  meetingCorner: CORNER_FRAME,
   // Interior only: repeating the authored side seams creates an off-center rail.
   deck: { x: 857, y: 780, width: 46, height: 128 },
   bridgeRail: { x: 823, y: 780, width: 20, height: 120 },
@@ -91,6 +94,23 @@ export async function createPlatformArt(signal: AbortSignal) {
         frame.width,
         frame.height
       );
+      if (key === 'meetingLamp' || key === 'meetingCorner') {
+        // Only the authored light inset changes hue. The mechanical housing,
+        // silhouette and pixel luminance are shared with ordinary platforms.
+        const insetX = key === 'meetingLamp' ? 39 : 57;
+        const pixels = context.getImageData(insetX, 51, 81, 25);
+        for (let i = 0; i < pixels.data.length; i += 4) {
+          const r = pixels.data[i]!,
+            g = pixels.data[i + 1]!,
+            b = pixels.data[i + 2]!;
+          if (g >= 130 && g >= r && b >= r) {
+            pixels.data[i] = Math.round(g * 0.88);
+            pixels.data[i + 1] = Math.round(g * 0.6);
+            pixels.data[i + 2] = g;
+          }
+        }
+        context.putImageData(pixels, insetX, 51);
+      }
       if (key === 'deck') {
         // Bake a deterministic alloy/service-panel mix once into the shared
         // texture. No per-floor objects, random noise or extra runtime filters.

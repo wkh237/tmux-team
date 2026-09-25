@@ -109,7 +109,7 @@ function centralProjection(rooms: ProjectionRooms, version: number) {
 export function createWorldProjection(version: number, rooms?: ProjectionRooms) {
   if (version >= 4) {
     if (!rooms) throw new Error('Central-grid projection requires admitted module ownership.');
-    if (version >= 6) return platformProjection(rooms.bounds.values(), 7 / 8);
+    if (version >= 6) return platformProjection(rooms.bounds.values(), 7 / 8, version);
     return centralProjection(rooms, version);
   }
   const { roomHeight, rowStep, passageWidth } = MODULE_METRICS;

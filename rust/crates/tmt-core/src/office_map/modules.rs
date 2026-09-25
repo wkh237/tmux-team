@@ -53,13 +53,26 @@ pub enum ModuleLayout {
     CentralGrid,
     CompactGrid,
     Skybridges,
+    IndependentMeetings,
+    UnifiedAreas,
 }
 
 impl ModuleLayout {
     fn central(self) -> bool {
         matches!(
             self,
-            Self::CentralGrid | Self::CompactGrid | Self::Skybridges
+            Self::CentralGrid
+                | Self::CompactGrid
+                | Self::Skybridges
+                | Self::IndependentMeetings
+                | Self::UnifiedAreas
+        )
+    }
+
+    fn platforms(self) -> bool {
+        matches!(
+            self,
+            Self::Skybridges | Self::IndependentMeetings | Self::UnifiedAreas
         )
     }
 }
@@ -101,6 +114,9 @@ impl ModuleRect {
 impl Module {
     pub fn bounds(&self, layout: ModuleLayout) -> Result<ModuleRect, MapError> {
         let invalid = || MapError::InvalidModule;
+        if layout == ModuleLayout::UnifiedAreas && matches!(self.slot, Slot::Meeting { .. }) {
+            return Err(MapError::InvalidModule);
+        }
         let (x, y, width) = match (&self.area.kind, self.slot) {
             (AreaKind::Lobby, Slot::Lobby) => (0, 0, LOBBY_WIDTH),
             (AreaKind::Personal { .. }, Slot::Office { column, row }) => (
@@ -108,9 +124,18 @@ impl Module {
                 row.checked_mul(ROW_STEP).ok_or_else(invalid)?,
                 ROOM_WIDTH,
             ),
+            (AreaKind::Meeting { .. }, Slot::Office { column, row })
+                if layout == ModuleLayout::UnifiedAreas =>
+            {
+                (
+                    column.checked_mul(COLUMN_STEP).ok_or_else(invalid)?,
+                    row.checked_mul(ROW_STEP).ok_or_else(invalid)?,
+                    ROOM_WIDTH,
+                )
+            }
             (AreaKind::Meeting { .. }, Slot::Meeting { index }) => (
                 MEETING_X
-                    + if layout == ModuleLayout::Skybridges {
+                    + if layout.platforms() {
                         2 * PASSAGE_WIDTH
                     } else {
                         0
@@ -172,7 +197,7 @@ impl ModuleDraft {
             y: 0,
             width: ROOM_WIDTH
                 + PASSAGE_WIDTH
-                + if self.layout == ModuleLayout::Skybridges {
+                + if self.layout.platforms() {
                     2 * PASSAGE_WIDTH
                 } else {
                     0
@@ -180,7 +205,10 @@ impl ModuleDraft {
             height: COORDINATE_LIMIT,
         };
         for (index, module) in self.modules.iter().enumerate() {
-            if matches!(module.slot, Slot::Office { .. }) && bounds[index].overlaps(reserved) {
+            if self.layout != ModuleLayout::UnifiedAreas
+                && matches!(module.slot, Slot::Office { .. })
+                && bounds[index].overlaps(reserved)
+            {
                 return Err(MapError::ModuleCollision);
             }
             if bounds[..index]
@@ -211,7 +239,13 @@ impl ModuleDraft {
                 }
             }
         }
-        if self.layout.central() {
+        if self.layout == ModuleLayout::UnifiedAreas {
+            for (index, rect) in bounds.iter().enumerate() {
+                for other in &bounds[..index] {
+                    circulation.connect(*rect, *other, self.layout);
+                }
+            }
+        } else if self.layout.central() {
             let main = self
                 .modules
                 .iter()
@@ -225,9 +259,11 @@ impl ModuleDraft {
                 reserved,
                 matches!(
                     self.layout,
-                    ModuleLayout::CompactGrid | ModuleLayout::Skybridges
+                    ModuleLayout::CompactGrid
+                        | ModuleLayout::Skybridges
+                        | ModuleLayout::IndependentMeetings
                 ),
-                self.layout == ModuleLayout::Skybridges,
+                self.layout.platforms(),
             )?;
         }
         if self.layout == ModuleLayout::Grid {
@@ -247,7 +283,9 @@ impl ModuleDraft {
             .filter(|(module, _)| matches!(module.slot, Slot::Meeting { .. }))
             .map(|(_, rect)| *rect)
             .collect::<Vec<_>>();
-        if let Some(last) = meetings.iter().map(|rect| rect.y).max() {
+        if let Some(last) = meetings.iter().map(|rect| rect.y).max()
+            && self.layout != ModuleLayout::IndependentMeetings
+        {
             let room_door_y = (ROOM_HEIGHT - PASSAGE_WIDTH) / 2;
             let start_y = if self.layout.central() {
                 (LOBBY_HEIGHT - PASSAGE_WIDTH) / 2

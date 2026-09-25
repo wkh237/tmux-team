@@ -1,6 +1,6 @@
 //! Derived edges and structural reachability; never a second persisted wall model.
 
-use super::{Axis, COORDINATE_LIMIT, Edge, MAX_TILES, MapDraft, MapError, Tile};
+use super::{AreaKind, Axis, COORDINATE_LIMIT, Edge, MAX_TILES, MapDraft, MapError, Tile};
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -23,8 +23,14 @@ pub struct Geometry {
     boundaries: BTreeMap<Edge, Boundary>,
 }
 
+pub(super) enum Connectivity {
+    Lobby,
+    Meetings,
+    Areas,
+}
+
 impl Geometry {
-    pub(super) fn build(draft: &MapDraft) -> Result<Self, MapError> {
+    pub(super) fn build(draft: &MapDraft, connectivity: Connectivity) -> Result<Self, MapError> {
         let areas: BTreeSet<&str> = draft.areas.iter().map(|area| area.id.as_str()).collect();
         let mut tiles = BTreeMap::new();
         let mut area_tiles: BTreeMap<&str, Vec<Tile>> = BTreeMap::new();
@@ -70,7 +76,22 @@ impl Geometry {
             }
         }
         let origin = area_tiles[draft.primary_lobby_id.as_str()][0];
-        if flood(origin, |_, next, _| tiles.contains_key(&next)) != tiles.len() {
+        // Only versioned module projectors may supply separate platforms. Every
+        // common tile must still be reachable from a real, connected area floor.
+        let mut origins = vec![origin];
+        if !matches!(connectivity, Connectivity::Lobby) {
+            origins.extend(
+                draft
+                    .areas
+                    .iter()
+                    .filter(|area| {
+                        matches!(connectivity, Connectivity::Areas)
+                            || matches!(area.kind, AreaKind::Meeting { .. })
+                    })
+                    .map(|area| area_tiles[area.id.as_str()][0]),
+            );
+        }
+        if flood_from(&origins, |_, next, _| tiles.contains_key(&next)) != tiles.len() {
             return Err(MapError::DisconnectedFloor);
         }
         let mut boundaries = BTreeMap::new();
@@ -101,7 +122,7 @@ impl Geometry {
             }
             boundary.open = true;
         }
-        if flood(origin, |_, next, edge| {
+        if flood_from(&origins, |_, next, edge| {
             tiles.contains_key(&next) && boundaries.get(&edge).is_none_or(|b| b.open)
         }) != tiles.len()
         {
@@ -179,9 +200,13 @@ fn neighbors(tile: Tile) -> [(Tile, Edge); 4] {
     ]
 }
 
-fn flood(origin: Tile, mut can_enter: impl FnMut(Tile, Tile, Edge) -> bool) -> usize {
-    let mut seen = HashSet::from([origin]);
-    let mut pending = VecDeque::from([origin]);
+fn flood(origin: Tile, can_enter: impl FnMut(Tile, Tile, Edge) -> bool) -> usize {
+    flood_from(&[origin], can_enter)
+}
+
+fn flood_from(origins: &[Tile], mut can_enter: impl FnMut(Tile, Tile, Edge) -> bool) -> usize {
+    let mut seen: HashSet<_> = origins.iter().copied().collect();
+    let mut pending: VecDeque<_> = seen.iter().copied().collect();
     while let Some(tile) = pending.pop_front() {
         for (next, edge) in neighbors(tile) {
             if !seen.contains(&next) && can_enter(tile, next, edge) {

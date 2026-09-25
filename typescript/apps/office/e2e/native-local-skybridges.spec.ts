@@ -17,7 +17,7 @@ test('auto-applies platform conversion and creates meeting space through direct 
       return JSON.parse(result.stdout) as T;
     }
     const fresh = await office<WorldSnapshot>(['layout', 'show']);
-    expect(fresh.layout.map.version).toBe(6);
+    expect(fresh.layout.map.version).toBe(8);
     expect(fresh.layout.objects.every((object) => object.surface.type === 'floor')).toBe(true);
     if (fresh.layout.map.version === 1) throw new Error('Expected modular starter');
     const mountedId = fresh.layout.objects.find((object) => !object.extension)!.id;

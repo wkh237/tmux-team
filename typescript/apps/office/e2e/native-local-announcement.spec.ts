@@ -42,10 +42,10 @@ test('Office announcements reuse the real inbox without offering a reply or chan
       const canvas = page.locator('.office-canvas canvas');
       const bounds = (await canvas.boundingBox())!;
       // Radio footprint [76,51,8,8] projects upright to [76,43.625,8,8].
-      const station = installationWorldPoint(bounds, 80, 47.625);
+      const station = installationWorldPoint(bounds, 96, 61.625);
       await page.mouse.move(station.x, station.y);
       await expect(canvas).toHaveCSS('cursor', 'grab');
-      const action = installationWorldPoint(bounds, 80, 42.5);
+      const action = installationWorldPoint(bounds, 96, 56.5);
       await page.mouse.move(action.x, action.y);
       await expect(canvas).toHaveCSS('cursor', 'pointer');
       await page.screenshot({ path: testInfo.outputPath('broadcaster-lobby-desktop.png') });
