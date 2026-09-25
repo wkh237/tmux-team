@@ -17,6 +17,7 @@
     "src",
     "vite.config.ts",
     "playwright.config.ts",
+    "playwright.visual.config.ts",
     "playwright.all.config.ts",
     "playwright.capacity.config.ts",
     "playwright.emulator.config.ts",

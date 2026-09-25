@@ -42,6 +42,7 @@ const partitions = new Map([
   }),
 ]);
 const capacity = listedTests(['--config', 'playwright.capacity.config.ts']);
+const visual = listedTests(['--config', 'playwright.visual.config.ts']);
 
 assert.equal(complete.length, 129, 'Update the reviewed standard browser inventory.');
 const partitioned = [...partitions.values()].flat();
@@ -59,6 +60,13 @@ assert.deepEqual(
   listedTests(['--config', 'playwright.all.config.ts']),
   'Required and opt-in inventories must retain full browser coverage.'
 );
+assert.equal(visual.length, 2, 'Update the reviewed opt-in visual inventory.');
+assert.equal(new Set(visual).size, visual.length, 'Visual identities overlap.');
+assert.equal(
+  visual.filter((identity) => [...complete, ...capacity].includes(identity)).length,
+  0,
+  'Opt-in pixel baselines must not enter the standard or capacity suites.'
+);
 
 const decoration = [...partitions.entries()]
   .filter(([, tests]) =>
@@ -70,3 +78,4 @@ assert.deepEqual(decoration, ['emulator'], 'Native decoration must stay emulator
 for (const [name, tests] of partitions) process.stdout.write(`${name}: ${tests.length}\n`);
 process.stdout.write(`complete: ${complete.length}\n`);
 process.stdout.write(`capacity opt-in: ${capacity.length}\n`);
+process.stdout.write(`visual opt-in: ${visual.length}\n`);

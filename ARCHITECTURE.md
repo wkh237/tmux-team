@@ -998,6 +998,14 @@ second target catalog, archive parser, package manager, or production manifest.
 
 ## Testing and evidence boundaries
 
+Office's opt-in `playwright.visual.config.ts` reuses the local HTTP fixture and
+real browser renderer for reviewed platform/furniture/HUD pixel baselines. Its
+scenario-local read-only world is not a native admission or persistence oracle.
+The browser partition verifier keeps these tests separate from standard CI and
+capacity diagnostics; [Development](DEVELOPMENT.md#personal-office-milestone-acceptance)
+owns execution, platform-specific baselines and explicit visual-review updates.
+Geometry, gesture history and native durability retain their existing test owners.
+
 Retained tests are organized under `typescript/test/native/`, `typescript/test/e2e/`,
 `typescript/test/tooling/` and `typescript/test/support/`, with Rust unit/integration tests beside
 their owners. They use independent SQL/schema oracles for SQLite behavior and
