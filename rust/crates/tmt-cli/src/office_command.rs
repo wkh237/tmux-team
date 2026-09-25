@@ -381,6 +381,15 @@ fn run(
                 mode,
             )
             .map_err(|error| failure("OFFICE_IO_ERROR", error))
+            .inspect(|_| {
+                if started.changed {
+                    crate::skill_reminder::present(
+                        crate::skill_reminder::Outcome::OfficeStarted,
+                        mode,
+                        false,
+                    );
+                }
+            })
         }
         OfficeOperation::Stop => {
             let paths = ConfigPaths::discover()
@@ -457,29 +466,7 @@ fn run(
         }
         OfficeOperation::Status | OfficeOperation::Open => {
             if !installed(&executable)? {
-                if matches!(operation, OfficeOperation::Status)
-                    || mode.json
-                    || !io::stdin().is_terminal()
-                    || !io::stderr().is_terminal()
-                {
-                    return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
-                }
-                if !consent(
-                    false,
-                    mode,
-                    "Install the verified optional Office companion",
-                )? {
-                    return Ok(0);
-                }
-                let installation = install(&prefix, None, None, Channel::Alpha)?;
-                if let Err(guidance) = install_guidance(false, &installation.version) {
-                    return report_partial(
-                        json!({"installed":true,"changed":installation.changed,"version":installation.version,"executable":installation.executable}),
-                        guidance,
-                        "Office installed; optional agent guidance needs attention.",
-                        mode,
-                    );
-                }
+                return Err(Failure::new("OFFICE_NOT_INSTALLED", INSTALL_HINT, 1));
             }
             let interrupt = tmt_adapters::interrupt::Interrupt::install()
                 .map_err(|e| failure("OFFICE_IO_ERROR", e))?;
@@ -492,13 +479,6 @@ fn run(
                 ));
             }
             let version = result.map_err(|e| failure("OFFICE_INCOMPATIBLE", e))?;
-            if matches!(operation, OfficeOperation::Open) {
-                return Err(Failure::new(
-                    "OFFICE_NOT_PAIRED",
-                    "Office is installed. World pairing and opening are not available in this build.",
-                    1,
-                ));
-            }
             let paths = ConfigPaths::discover()
                 .map_err(|error| failure("OFFICE_LOCATION_INVALID", error))?;
             let service =
@@ -527,6 +507,13 @@ fn run(
                 )
             } else {
                 format!("Office {version} is installed and compatible. Local service is stopped.")
+            };
+            let human = if matches!(operation, OfficeOperation::Open) {
+                format!(
+                    "{human} Use `tmt office start` to get the local browser URL, or `tmt learn --skill tmt-office` for Office guidance."
+                )
+            } else {
+                human
             };
             report(json!({"installed": true, "version": version, "protocolVersion": tmt_core::office_protocol::OFFICE_PROTOCOL_VERSION, "executable": executable, "service":service_value}), &human, mode).map_err(|e| failure("OFFICE_IO_ERROR", e))
         }

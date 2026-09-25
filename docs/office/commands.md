@@ -36,11 +36,16 @@ JSON partial results retain the successful companion fields, a bounded `skills`
 report, an `error`, and `skills.pendingBackup` when publication failed after a
 forced backup. Office uninstall retains managed guidance.
 
+Bare `tmt office` is an inspection-only human entry point. It reports the
+installed companion and local service, then names explicit `start` and Office
+skill guidance actions; it never installs, starts, pairs or opens a browser.
+Its JSON document is identical to `office status --json`.
+
 `status --json` returns `installed`, `version`, `protocolVersion`, `executable`
 and token-free local service status after local ownership/integrity and handshake
 verification. It never checks cloud
-availability. Plain `tmt office` currently reports `OFFICE_NOT_PAIRED` after a
-successful probe; automatic world opening is not implemented. Uninstall
+availability. `office start` returns a private local browser URL for the
+current service start; open it locally and do not disclose the token. Uninstall
 requires explicit consent and removes verified activation links only. Release
 files and unrelated data remain. A partial removal reports an invalid
 installation; repeat explicit uninstall to finish before reinstalling.

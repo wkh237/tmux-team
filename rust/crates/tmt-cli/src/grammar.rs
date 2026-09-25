@@ -574,7 +574,10 @@ fn office_commands() -> Command {
             true,
         ))
         .subcommand(office_scope(
-            office("status", "Inspect installation or local pairing state"),
+            office(
+                "status",
+                "Inspect the installed companion and local service",
+            ),
             false,
         ))
         .subcommand(

@@ -56,7 +56,16 @@ fn main() -> ExitCode {
 }
 
 fn execute(parsed: invocation::Parsed) -> io::Result<u8> {
-    skill_reminder::emit(&parsed);
+    let inspect_drift = skill_reminder::eligible_for_drift(&parsed);
+    let mode = parsed.mode;
+    let code = dispatch(parsed)?;
+    if code == 0 && inspect_drift {
+        skill_reminder::present(skill_reminder::Outcome::None, mode, true);
+    }
+    Ok(code)
+}
+
+fn dispatch(parsed: invocation::Parsed) -> io::Result<u8> {
     let mut stdout = io::stdout().lock();
     match parsed.invocation {
         Invocation::Help(path) => {

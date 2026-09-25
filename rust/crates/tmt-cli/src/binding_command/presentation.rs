@@ -44,9 +44,9 @@ fn presence_document(row: &IdentityPresence) -> Value {
 
 pub(super) fn document(report: &Report) -> Value {
     match report {
-        Report::Bound(row) => bound_document(
-            &row.identity,
-            &row.pane.as_ref().expect("verified binding").id,
+        Report::Bound(result) => bound_document(
+            &result.presence.identity,
+            &result.presence.pane.as_ref().expect("verified binding").id,
         ),
         Report::Caller { pane, identity } => identity.as_ref().map_or_else(
             || json!({"bound": false, "pane": pane}),
@@ -92,12 +92,12 @@ fn identity_row(identity: &Identity, status: &str, pane: Option<&PaneObservation
 
 pub(super) fn text(output: &mut impl Write, report: &Report) -> io::Result<()> {
     match report {
-        Report::Bound(row) => writeln!(
+        Report::Bound(result) => writeln!(
             output,
             "Bound {} identity '{}' on pane {}.",
-            row.identity.lifetime.as_str(),
-            row.identity.name,
-            row.pane.as_ref().expect("verified binding").id
+            result.presence.identity.lifetime.as_str(),
+            result.presence.identity.name,
+            result.presence.pane.as_ref().expect("verified binding").id
         ),
         Report::Caller {
             pane,
