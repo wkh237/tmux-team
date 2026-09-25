@@ -9,7 +9,10 @@ mod evidence_tests;
 pub use observation::{
     current_name_presence, evaluate_binding, list_presence, name_presence, pane_presence,
 };
-pub use operations::{bind_identity, bind_identity_at, remove_identity, unbind_identity};
+pub use operations::{
+    bind_identity, bind_identity_at, bind_identity_with_creation, bind_identity_with_creation_at,
+    remove_identity, unbind_identity,
+};
 
 use crate::{
     endpoint::{BindingMarker, EndpointProbe, EndpointSnapshot, PaneObservation, ServerEvidence},
@@ -90,6 +93,12 @@ pub struct IdentityPresence {
     pub presence: Presence,
     pub pane: Option<PaneObservation>,
     pub binding: Option<Binding>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoundIdentity {
+    pub presence: IdentityPresence,
+    pub created: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

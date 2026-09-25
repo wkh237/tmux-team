@@ -584,6 +584,9 @@ checks only the installed companion and local service; ordinary TMT commands do
 not probe or install it. Install only after explicit user consent with
 `tmt office install --yes`. Use `tmt office upgrade` for an explicit update and
 `tmt office uninstall --yes` for recoverable deactivation.
+Bare `tmt office` inspects the same local status and names explicit next steps;
+it does not install, start, pair or open the browser. `tmt office start` returns
+a private local browser URL for that service start. Do not disclose its token.
 
 Office install and upgrade manage the separate optional `tmt-office` skill. Core
 `tmt install` continues to install only `tmux-team` and `tmt-inbox`. Existing

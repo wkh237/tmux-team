@@ -32,7 +32,22 @@ pub(super) fn prepare(
     let observed = if input.options.inbox {
         None
     } else {
-        Some(target::resolve(storage, tmux, &input.target)?)
+        Some(target::resolve(storage, tmux, &input.target).map_err(|error| {
+            if error.code == "NAME_NOT_FOUND"
+                && tmt_core::identity::find_by_name(storage, &input.target)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|identity| {
+                        identity.lifetime == tmt_core::identity::Lifetime::Saved
+                    })
+            {
+                error.suggestion(
+                    "For a saved identity without an active pane, use `tmt talk <identity> <message> --inbox` for durable delivery.".into(),
+                )
+            } else {
+                error
+            }
+        })?)
     };
     let (originator, sender) =
         identity_context::optional(storage, tmux, input.originator.as_deref())?.map_or(

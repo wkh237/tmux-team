@@ -141,11 +141,26 @@ companion and the optional `tmt-office` and `tmt-prop-create` skills. Core
 `tmt install` continues to manage only `tmux-team` and `tmt-inbox`.
 
 ```bash
+tmt office
 tmt office status --json
 tmt office install --yes
 tmt learn --skill tmt-office
 tmt learn --skill tmt-prop-create
 ```
+
+Bare `tmt office` inspects the installed companion and local service. It does
+not install, start, pair or open a browser. Explicit `tmt office start` returns
+a local browser URL; open it on the same machine and treat its access token as
+private. The link belongs to that service start. A later start may return a new
+link. Published Office support depends on the installed CLI/companion pair, so
+check their reported versions before relying on source-only features.
+
+After a real identity creation or local Office start, human commands may print
+one short next-step hint on stderr, including when output is redirected. A
+repeat that changes nothing does not repeat the hint. Set `TMT_HINTS=off` to
+disable optional discovery. JSON and raw stdout remain unchanged; error
+recovery guidance and terminal-only managed-skill drift still appear when
+applicable.
 
 Office setup uses the same provider roots and includes custom roots that still
 contain an owned core skill. It preserves unmanaged `tmt-office` or

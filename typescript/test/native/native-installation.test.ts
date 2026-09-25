@@ -191,8 +191,15 @@ describe('native installation process contract', () => {
           installed: true,
           protocolVersion: '1',
           version: '0.1.0-alpha.4',
+          service: { running: false },
         });
-        expectError(await office([]), 'OFFICE_NOT_PAIRED');
+        expect(parseWholeStdout(await office([]))).toEqual(parseWholeStdout(status));
+        const bareHuman = await runCli(sandbox, ['office', '--prefix', prefix]);
+        expect(bareHuman.status, bareHuman.stdout + bareHuman.stderr).toBe(0);
+        expect(bareHuman.stderr).toBe('');
+        expect(bareHuman.stdout).toContain('Local service is stopped.');
+        expect(bareHuman.stdout).toContain('tmt office start');
+        expect(bareHuman.stdout).toContain('tmt learn --skill tmt-office');
         const emptySync = await office(['sync']);
         expect(emptySync.status, emptySync.stdout).toBe(0);
         expect(emptySync.stderr).toBe('');

@@ -15,7 +15,9 @@ use tmt_adapters::{
     tmux::{BindingSession, CallerEnvironment, OperationOptions, Tmux},
 };
 use tmt_core::{
-    binding::{self, BindingEntry, BindingTargetEvidence, IdentityPresence, UnboundIdentity},
+    binding::{
+        self, BindingEntry, BindingTargetEvidence, BoundIdentity, IdentityPresence, UnboundIdentity,
+    },
     endpoint::PaneObservation,
     identity::Identity,
     names::is_pane_target,
@@ -28,7 +30,7 @@ struct ResolvedPane {
 }
 
 enum Report {
-    Bound(IdentityPresence),
+    Bound(BoundIdentity),
     Caller {
         pane: String,
         identity: Option<Identity>,
@@ -151,8 +153,8 @@ fn run(request: Invocation) -> Result<Report, Failure> {
             // Presentation follows successful durable effects, never decides
             // them. The adapter preserves user themes and changed endpoints.
             let update = match &report {
-                Report::Bound(row) => row.binding.as_ref().map(|binding|
-                    (binding, (badge == PaneBadge::On).then_some(row.identity.name.as_str()))),
+                Report::Bound(result) => result.presence.binding.as_ref().map(|binding|
+                    (binding, (badge == PaneBadge::On).then_some(result.presence.identity.name.as_str()))),
                 Report::Unbound { result, .. } => result.binding.as_ref().map(|binding| (binding, None)),
                 Report::Removed(entry) => entry.binding.as_ref().map(|binding| (binding, None)),
                 _ => None,
@@ -174,7 +176,7 @@ fn operation(
     current_socket: Option<&str>,
 ) -> Result<Report, Failure> {
     match request {
-        Invocation::Bind { name, save, .. } => binding::bind_identity(
+        Invocation::Bind { name, save, .. } => binding::bind_identity_with_creation(
             storage,
             endpoint,
             &pane.as_ref().expect("binding preflight").id,
@@ -185,7 +187,7 @@ fn operation(
         .map_err(binding_failure),
         Invocation::BindMarked { name, save } => {
             let pane = pane.as_ref().expect("marked binding preflight");
-            binding::bind_identity_at(
+            binding::bind_identity_with_creation_at(
                 storage,
                 endpoint,
                 &pane.id,
@@ -268,5 +270,18 @@ pub fn execute(request: Invocation, mode: OutputMode) -> io::Result<u8> {
     } else {
         presentation::text(&mut stdout, &report)?;
     }
+    drop(stdout);
+    use crate::skill_reminder::Outcome;
+    let outcome = match &report {
+        Report::Bound(result) if result.created => {
+            if result.presence.identity.lifetime == tmt_core::identity::Lifetime::Temporary {
+                Outcome::TemporaryIdentityCreated
+            } else {
+                Outcome::SavedIdentityCreated
+            }
+        }
+        _ => Outcome::None,
+    };
+    crate::skill_reminder::present(outcome, mode, true);
     Ok(0)
 }

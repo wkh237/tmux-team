@@ -42,7 +42,7 @@ pub fn execute(skill: Option<&str>) -> io::Result<u8> {
         )?;
         writeln!(
             output,
-            "Outside tmux, use an existing --identity for attributed talk or x.\nCreate saved identities with tmt identity create <name>. Use talk --inbox for\na durable non-pane request and x listen for one bounded incoming wait. Reads\nnever ack, and Office is not required.\n"
+            "Outside tmux, use an existing --identity for attributed talk or x.\nCreate saved identities with tmt identity create <name>. Use talk --inbox for\na durable non-pane request and x listen for one bounded incoming wait. Reads\nnever ack.\n\nOptional local Office: inspect with tmt office. With a compatible installed\ncompanion, explicitly use tmt office start for a browser URL. Read\ntmt learn --skill tmt-office for guidance; terminal collaboration needs no Office.\n"
         )?;
         writeln!(
             output,

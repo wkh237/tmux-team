@@ -1,15 +1,50 @@
-//! Best-effort human guidance, never part of command success or machine output.
+//! Best-effort outcome-aware human guidance, never part of command success.
 
-use crate::invocation::{Invocation, Parsed};
+use crate::invocation::{Invocation, OutputMode, Parsed};
 use std::io::{self, IsTerminal, Write};
 use tmt_adapters::{
     config::ConfigPaths,
     skill_installation::{ProviderEnvironment, inspect_local_drift},
 };
 
-fn eligible(parsed: &Parsed, interactive: bool) -> bool {
-    interactive
-        && !parsed.mode.json
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    None,
+    TemporaryIdentityCreated,
+    SavedIdentityCreated,
+    OfficeStarted,
+}
+
+fn optional_hint(outcome: Outcome, mode: OutputMode, enabled: bool) -> Option<&'static str> {
+    if mode.json || !enabled {
+        return None;
+    }
+    match outcome {
+        Outcome::None => None,
+        Outcome::TemporaryIdentityCreated => Some(
+            "Hint: This temporary identity ends with its pane. Use `tmt identity create <name>` to keep it.",
+        ),
+        Outcome::SavedIdentityCreated => Some(
+            "Hint: To receive work for this saved identity, run `tmt x listen --identity <name>`.",
+        ),
+        Outcome::OfficeStarted => Some(
+            "Hint: Open the URL above in your local browser. Its private link belongs to the running service; use `tmt office start` to retrieve it later.",
+        ),
+    }
+}
+
+fn hints_enabled() -> bool {
+    !std::env::var("TMT_HINTS").is_ok_and(|value| value.eq_ignore_ascii_case("off"))
+}
+
+fn write_hint(output: &mut impl Write, hint: &str) {
+    // Discovery is optional; a broken stderr must not change a successful
+    // command result or cause a second output attempt.
+    let _ = writeln!(output, "{hint}");
+}
+
+pub fn eligible_for_drift(parsed: &Parsed) -> bool {
+    !parsed.mode.json
         && !matches!(
             parsed.invocation,
             Invocation::Help(_)
@@ -22,14 +57,28 @@ fn eligible(parsed: &Parsed, interactive: bool) -> bool {
                 | Invocation::NativeInstall { .. }
                 | Invocation::NativeRefreshSkills
                 | Invocation::Office { .. }
+                | Invocation::Identity(_)
+                | Invocation::Bind { .. }
+                | Invocation::BindMarked { .. }
+                | Invocation::Whoami
+                | Invocation::Unbind
+                | Invocation::Remove { .. }
+                | Invocation::List { .. }
         )
 }
 
-pub fn emit(parsed: &Parsed) {
-    if !eligible(
-        parsed,
-        io::stdin().is_terminal() && io::stderr().is_terminal(),
-    ) {
+/// Exactly one line follows a successful human result. Outcome transitions
+/// take precedence; passive drift is inspected only on a terminal and only
+/// when no outcome hint was selected. Inspection never mutates guidance.
+pub fn present(outcome: Outcome, mode: OutputMode, inspect_drift: bool) {
+    if mode.json {
+        return;
+    }
+    if let Some(hint) = optional_hint(outcome, mode, hints_enabled()) {
+        write_hint(&mut io::stderr().lock(), hint);
+        return;
+    }
+    if !inspect_drift || !io::stdin().is_terminal() || !io::stderr().is_terminal() {
         return;
     }
     let Ok(env) = ProviderEnvironment::capture() else {
@@ -54,18 +103,33 @@ pub fn emit(parsed: &Parsed) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::invocation::OutputMode;
 
     #[test]
-    fn machine_and_setup_commands_never_trigger_passive_inspection() {
+    fn hints_require_real_transitions_and_human_output() {
+        let human = OutputMode::default();
+        assert!(optional_hint(Outcome::None, human, true).is_none());
+        for transition in [
+            Outcome::TemporaryIdentityCreated,
+            Outcome::SavedIdentityCreated,
+            Outcome::OfficeStarted,
+        ] {
+            assert!(optional_hint(transition, human, true).is_some());
+            assert!(optional_hint(transition, human, false).is_none());
+            assert!(optional_hint(transition, OutputMode { json: true }, true).is_none());
+        }
+    }
+
+    #[test]
+    fn machine_setup_and_transition_owners_skip_passive_inspection() {
         let mut parsed = Parsed {
             invocation: Invocation::Whoami,
             mode: OutputMode::default(),
         };
-        assert!(eligible(&parsed, true));
-        assert!(!eligible(&parsed, false));
+        assert!(!eligible_for_drift(&parsed));
+        parsed.invocation = Invocation::Config(crate::invocation::ConfigRequest::Show);
+        assert!(eligible_for_drift(&parsed));
         parsed.mode.json = true;
-        assert!(!eligible(&parsed, true));
+        assert!(!eligible_for_drift(&parsed));
         parsed.mode.json = false;
         for invocation in [
             Invocation::Help(Vec::new()),
@@ -97,7 +161,21 @@ mod tests {
             },
         ] {
             parsed.invocation = invocation;
-            assert!(!eligible(&parsed, true));
+            assert!(!eligible_for_drift(&parsed));
         }
+    }
+
+    #[test]
+    fn broken_hint_stream_is_best_effort() {
+        struct Broken;
+        impl Write for Broken {
+            fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+                Err(io::Error::other("closed stderr"))
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        write_hint(&mut Broken, "Hint: optional");
     }
 }

@@ -207,6 +207,12 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
         Ok(report) => report,
         Err(error) => return error.publish(mode),
     };
+    let outcome = match &report {
+        Report::Created(result) if result.created => {
+            crate::skill_reminder::Outcome::SavedIdentityCreated
+        }
+        _ => crate::skill_reminder::Outcome::None,
+    };
     let mut stdout = io::stdout().lock();
     if mode.json {
         let document = match report {
@@ -313,5 +319,7 @@ pub fn execute(request: IdentityRequest, mode: OutputMode) -> io::Result<u8> {
             }
         }
     }
+    drop(stdout);
+    crate::skill_reminder::present(outcome, mode, true);
     Ok(0)
 }

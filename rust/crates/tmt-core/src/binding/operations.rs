@@ -17,7 +17,8 @@ pub fn bind_identity<R: BindingRepository, O: BindingEndpoint>(
     name: &str,
     save: bool,
 ) -> Result<IdentityPresence, BindingError<R::Error, O::Error>> {
-    bind_identity_at(repository, endpoint, pane_id, None, name, save)
+    bind_identity_with_creation(repository, endpoint, pane_id, name, save)
+        .map(|result| result.presence)
 }
 
 pub fn bind_identity_at<R: BindingRepository, O: BindingEndpoint>(
@@ -28,6 +29,28 @@ pub fn bind_identity_at<R: BindingRepository, O: BindingEndpoint>(
     name: &str,
     save: bool,
 ) -> Result<IdentityPresence, BindingError<R::Error, O::Error>> {
+    bind_identity_with_creation_at(repository, endpoint, pane_id, target, name, save)
+        .map(|result| result.presence)
+}
+
+pub fn bind_identity_with_creation<R: BindingRepository, O: BindingEndpoint>(
+    repository: &mut R,
+    endpoint: &mut O,
+    pane_id: &str,
+    name: &str,
+    save: bool,
+) -> Result<BoundIdentity, BindingError<R::Error, O::Error>> {
+    bind_identity_with_creation_at(repository, endpoint, pane_id, None, name, save)
+}
+
+pub fn bind_identity_with_creation_at<R: BindingRepository, O: BindingEndpoint>(
+    repository: &mut R,
+    endpoint: &mut O,
+    pane_id: &str,
+    target: Option<&BindingTargetEvidence>,
+    name: &str,
+    save: bool,
+) -> Result<BoundIdentity, BindingError<R::Error, O::Error>> {
     endpoint.begin_coordination();
     let preflight = endpoint
         .current_snapshot(&[pane_id.into()])
@@ -148,11 +171,14 @@ pub fn bind_identity_at<R: BindingRepository, O: BindingEndpoint>(
         };
         records.touch_binding(&binding.id)?;
         deadline(endpoint)?;
-        Ok(IdentityPresence {
-            identity: selected.identity,
-            presence: Presence::Active,
-            pane: Some(*pane),
-            binding: Some(binding),
+        Ok(BoundIdentity {
+            presence: IdentityPresence {
+                identity: selected.identity,
+                presence: Presence::Active,
+                pane: Some(*pane),
+                binding: Some(binding),
+            },
+            created: created.created,
         })
     })
 }

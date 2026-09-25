@@ -650,7 +650,8 @@ The maintained public surface is:
   verified release tooling;
 - optional `office`, `office install|upgrade|status|uninstall`, local layout and
   local discussion-board operations. Installation
-  requires consent; noninteractive root/status never download or prompt.
+  requires consent; bare `office` and `office status` inspect the installed
+  companion and service without downloading, starting or pairing.
 
 The grammar owns option placement and rejection. Handlers do not search raw
 argv, create competing option parsers, or reinterpret payload text as flags.
@@ -658,6 +659,15 @@ JSON and human output use the same typed result and status contracts.
 `OutputMode` contains only the supported JSON selection. Unsupported
 `--verbose`/`-v` and `--debug` flags are absent from the grammar and fail with
 `USAGE_ERROR` before effects; literal message/option-value text is unchanged.
+
+`skill_reminder` presents at most one best-effort human stderr line after a
+successful typed result: a newly created temporary or saved identity, a newly
+started local Office, or terminal-only managed-skill drift. Repeated no-op
+commands do not create a discovery transition; `TMT_HINTS=off` disables optional
+transition hints without hiding error recovery or managed-skill drift. This
+owner does not add fields to JSON, alter raw stdout, persist cooldown state or
+scan tmux for discovery. Saved inactive target recovery remains a targeted
+`NAME_NOT_FOUND` suggestion in the existing error presenter.
 
 `output::table` is the single plain human-table renderer for binding, identity,
 exchange and configuration reports. Callers own columns and typed projections;

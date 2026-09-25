@@ -26,6 +26,53 @@ test('missing Office installation fails without creating runtime or storage', as
   });
 });
 
+test('human Office start gives one private browser hint while reuse and JSON preserve their output contracts', async () => {
+  await withSandbox(async (sandbox) => {
+    delete sandbox.env.TMT_HINTS;
+    const prefix = await installNativeOffice(sandbox);
+    const office = (args: string[]) =>
+      runCli(sandbox, ['office', '--prefix', prefix, ...args], { deadlineMs: 30_000 });
+    const receiptPath = path.join(sandbox.globalDir, 'office', 'runtime', 'service-v1.json');
+    try {
+      const first = await office(['start', '--port', String(await unusedLoopbackPort())]);
+      expect(first.status, first.stdout + first.stderr).toBe(0);
+      const urlText = first.stdout.trimEnd();
+      expect(first.stdout).toBe(`${urlText}\n`);
+      const url = new URL(urlText);
+      expect(url.origin).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+      expect(url.pathname).toBe('/local');
+      const token = new URLSearchParams(url.hash.slice(1)).get('token') ?? '';
+      expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(first.stderr).toBe(
+        'Hint: Open the URL above in your local browser. Its private link belongs to the running service; use `tmt office start` to retrieve it later.\n'
+      );
+      expect(first.stderr).not.toContain(urlText);
+      expect(first.stderr).not.toContain(token);
+
+      const reused = await office(['start']);
+      expect(reused.status, reused.stdout + reused.stderr).toBe(0);
+      expect(reused.stdout).toBe(first.stdout);
+      expect(reused.stderr).toBe('');
+
+      const machine = await office(['start', '--json']);
+      expect(machine.status, machine.stdout + machine.stderr).toBe(0);
+      expect(machine.stderr).toBe('');
+      expect(JSON.parse(machine.stdout)).toMatchObject({
+        running: true,
+        url: urlText,
+        changed: false,
+        reused: true,
+        version: NATIVE_OFFICE_FIXTURE_VERSION,
+      });
+    } finally {
+      const stopped = await office(['stop', '--json']);
+      expect(stopped.status, stopped.stdout + stopped.stderr).toBe(0);
+      expect(JSON.parse(stopped.stdout)).toMatchObject({ running: false });
+      expect(existsSync(receiptPath)).toBe(false);
+    }
+  });
+});
+
 test('installed service reuses its session, isolates control authority and stops with an incomplete write', async () => {
   await withSandbox(async (sandbox) => {
     const prefix = await installNativeOffice(sandbox);
