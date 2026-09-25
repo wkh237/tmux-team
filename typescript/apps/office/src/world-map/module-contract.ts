@@ -20,7 +20,7 @@ export interface OfficeModule {
   readonly material: ModuleMaterial;
 }
 export interface ModuleMapDocument {
-  readonly version: 2 | 3 | 4 | 5 | 6;
+  readonly version: 2 | 3 | 4 | 5 | 6 | 7 | 8;
   readonly primaryLobbyId: string;
   readonly modules: readonly OfficeModule[];
 }
@@ -60,7 +60,9 @@ export function decodeModuleMap(value: unknown): ModuleMapDocument {
       data.version !== 3 &&
       data.version !== 4 &&
       data.version !== 5 &&
-      data.version !== 6) ||
+      data.version !== 6 &&
+      data.version !== 7 &&
+      data.version !== 8) ||
     !Array.isArray(data.modules) ||
     data.modules.length > MAP_LIMITS.areas
   )

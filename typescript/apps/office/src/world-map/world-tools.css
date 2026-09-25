@@ -154,6 +154,25 @@
   display: grid;
   gap: 16px;
 }
+
+.area-use-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.area-use-choices legend {
+  margin-bottom: 0.65rem;
+}
+.area-use-choices button {
+  flex: 1;
+}
+.area-use-choices button[aria-pressed='true'] {
+  border-color: #83f4d7;
+  background: #20444b;
+}
 .world-build-inspector .world-area-properties > label {
   margin: 0;
 }
@@ -361,6 +380,19 @@
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+}
+.area-creation-card,
+.area-creation-card > form > fieldset,
+.area-creation-card .meeting-link-form,
+.area-creation-card .meeting-link-form > form {
+  display: grid;
+  gap: 16px;
+}
+.area-creation-card :is(h4, p, label, details) {
+  margin: 0;
+}
+.area-creation-card label {
+  gap: 8px;
 }
 
 .world-removal-dialog {

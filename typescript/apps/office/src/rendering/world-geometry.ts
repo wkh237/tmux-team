@@ -224,6 +224,7 @@ export function worldGeometry(world: WorldDocument) {
     })
   );
   const chunks = new Map<string, Chunk>();
+  const projectedFloor = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
   function chunk(x: number, y: number) {
     const key = `${x},${y}`;
     let value = chunks.get(key);
@@ -238,6 +239,10 @@ export function worldGeometry(world: WorldDocument) {
       { x: span.start, y: span.y, width: span.end - span.start, height: 1 },
       span.areaId
     );
+    projectedFloor.left = Math.min(projectedFloor.left, rect.x);
+    projectedFloor.top = Math.min(projectedFloor.top, rect.y);
+    projectedFloor.right = Math.max(projectedFloor.right, rect.x + rect.width);
+    projectedFloor.bottom = Math.max(projectedFloor.bottom, rect.y + rect.height);
     // Index display chunks after projection, including expanded bridge bands.
     // Split once at chunk edges so floor coverage never duplicates or disappears.
     for (let cx = Math.floor(rect.x / CHUNK); cx * CHUNK < rect.x + rect.width; cx++) {
@@ -373,10 +378,17 @@ export function worldGeometry(world: WorldDocument) {
   world.objects.forEach((object, index) =>
     visit(objectRect(object), (part) => part.objects.add(index))
   );
-  const raw = projection.projectGroundRect(
-    map.bounds ?? { x: 0, y: 0, width: 36, height: 36 },
-    null
-  );
+  // Independent lanes have different Y transforms. Projecting opposite corners
+  // of the whole source rectangle can clip the farther lane out of Fit.
+  const raw =
+    source.version >= 7
+      ? {
+          x: projectedFloor.left,
+          y: projectedFloor.top,
+          width: projectedFloor.right - projectedFloor.left,
+          height: projectedFloor.bottom - projectedFloor.top,
+        }
+      : projection.projectGroundRect(map.bounds ?? { x: 0, y: 0, width: 36, height: 36 }, null);
   const extents = world.objects.map(objectRect);
   const left = Math.min(raw.x, ...extents.map((rect) => rect.x));
   const top = Math.min(

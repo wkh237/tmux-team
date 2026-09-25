@@ -64,14 +64,14 @@ test('module form keyboard actions and object repair share history and native pe
       await expect(button('Add floor')).toHaveCount(0);
       await openOfficeDirectory(page);
       await page.getByText('Available spaces', { exact: true }).click();
-      await activate(button('Office · column -1, row 0'));
-      const form = page.getByRole('form', { name: 'New office' });
-      await expect(form.getByRole('button', { name: 'Add office' })).toBeDisabled();
+      await activate(button('Area · column -1, row 0'));
+      const form = page.getByRole('region', { name: 'New area' });
+      await expect(form.getByRole('button', { name: 'Add area' })).toBeDisabled();
       await expect(form.getByText('Column -1, row 0', { exact: true })).toBeVisible();
-      await type(form.getByRole('textbox', { name: 'Name', exact: true }), 'Keyboard studio');
+      await type(form.getByRole('textbox', { name: 'Area name', exact: true }), 'Keyboard studio');
       expect(savedWorld(sandbox.database)).toEqual(before);
       const addedWrite = nextWorldWrite();
-      await activate(form.getByRole('button', { name: 'Add office' }));
+      await activate(form.getByRole('button', { name: 'Add area' }));
       expect((await addedWrite).status()).toBe(200);
       await expect(
         page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
@@ -100,7 +100,7 @@ test('module form keyboard actions and object repair share history and native pe
       const layout: WorldSnapshot['layout'] = JSON.parse(saved.layout);
       expect(saved.revision).toBe(undone.revision + 1);
       expect(saved.layout).toBe(added.layout);
-      expect(layout.map.version).toBe(6);
+      expect(layout.map.version).toBe(8);
       if (layout.map.version === 1 || initial.layout.map.version === 1)
         throw new Error('Expected modules');
       expect(layout.map.modules).toHaveLength(6);

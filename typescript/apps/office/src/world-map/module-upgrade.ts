@@ -8,6 +8,7 @@ import { indexFloor } from './floor-index.js';
 import { mapGeometry } from './map-source.js';
 import type { ModuleMapDocument } from './module-contract.js';
 import type { ModuleRect } from './module-geometry.js';
+import { floorObjectBounds } from './object-base.js';
 
 /** Explicit draft conversion. Resource contents and stored snapshots are untouched. */
 export function upgradeModuleWorld(world: WorldDocument): WorldDocument {
@@ -56,7 +57,7 @@ export function compactModuleWorld(world: WorldDocument): WorldDocument {
 
 /** A reversible preview, never an implicit reinterpretation of a saved layout. */
 export function skybridgeModuleWorld(world: WorldDocument): WorldDocument {
-  if (world.map.version === 6) return world;
+  if (world.map.version >= 6) return world;
   const prepared = upgradeModuleWorld(world);
   const source = prepared.map;
   if (source.version === 1) throw new Error('A modular layout is required.');
@@ -103,6 +104,31 @@ export function platformModuleWorld(world: WorldDocument): WorldDocument {
   return decodeWorldDocument({ ...prepared, objects });
 }
 
+/** One explicit alignment of retained wing slots; later use changes only edit
+ * the binding. Canonical rooms, resources and object-relative bases are retained. */
+export function unifiedAreaWorld(world: WorldDocument): WorldDocument {
+  if (world.map.version === 8) return world;
+  const prepared = platformModuleWorld(world);
+  const source = prepared.map;
+  if (source.version === 1) throw new Error('A modular layout is required.');
+  const modules = source.modules.map((module) => ({
+    ...module,
+    slot:
+      module.slot.type === 'meeting'
+        ? { type: 'office' as const, column: 2, row: module.slot.index }
+        : module.slot,
+  }));
+  const map: ModuleMapDocument = { ...source, version: 8, modules };
+  return relocateModuleObjects(prepared, {
+    map,
+    moves: source.modules.map((module, index) => ({
+      areaId: module.area.id,
+      before: moduleBounds(module, source.version),
+      after: moduleBounds(modules[index]!, 8),
+    })),
+  });
+}
+
 function relocateModuleObjects(
   world: WorldDocument,
   plan: {
@@ -116,7 +142,7 @@ function relocateModuleObjects(
     const size = footprint(placement);
     const support =
       surface.type === 'floor'
-        ? { x: placement.x, y: placement.y, ...size }
+        ? floorObjectBounds(object)
         : {
             ...wallInteriorTile({ ...placement, axis: surface.axis }, surface.face),
             width: surface.axis === 'horizontal' ? size.width : 1,

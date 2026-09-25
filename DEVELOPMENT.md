@@ -418,8 +418,17 @@ retains profile and world bytes.
 `native-local-meeting-modules.spec.ts` exercises the V4 in-world name entry,
 independent canonical-room creation, layout Undo/Redo/Cancel, existing-room
 reattachment, furnished Save, targeted membership and blocked spatial removal.
-Independent SQLite reads distinguish room writes from layout writes. Inspect its
-1536×1024 DPR-1 and narrow screenshots; `native-local-central-grid.spec.ts` adds
+Independent SQLite reads distinguish room writes from layout writes.
+`native-local-unified-areas.spec.ts` covers explicit legacy-to-v8 alignment,
+acknowledged Undo/Redo, use changes at a stable floor pointer position, spatial
+removal, canonical-room retention, a shared creation ghost and service restart.
+Inspect its desktop and narrow screenshots for lamp/icon differentiation and
+unchanged platform materials. Shared unified-area vectors prove Rust/TypeScript
+floor and opening parity; projection tests cover occupancy-independent spacing
+and inverse picking. Retained island vectors and strict freeform connectivity
+remain separate compatibility tests.
+The retained V4 scenario supplies 1536×1024 DPR-1 and narrow screenshots;
+`native-local-central-grid.spec.ts` adds
 sparse circulation, wall mounts and DPR-2 idle evidence. These fixtures do not
 prove default-world conversion or final visual fidelity.
 `native-local-agent-meeting.spec.ts` verifies agent Info → room selection → member

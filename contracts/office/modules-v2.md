@@ -1,7 +1,7 @@
 # Versioned modular topology
 
 Status: native projection, strict codec/storage, browser rendering and
-source-preserving edits are implemented locally. New installations use v6
+source-preserving edits are implemented locally. New installations use v8
 platforms. Older versions retain their geometry until explicit draft conversion.
 Module removal uses placement-impact review and the native Save gate. Retained
 editing tools support conversion-blocker repair. This is not visual sign-off.
@@ -41,6 +41,9 @@ personal assignment per saved identity, one spatial area per canonical room,
 and explicit `identityId: null` for an unassigned personal office. Identity
 eligibility and room state are checked by the existing commit owner.
 
+Versions 2–7 use the following slot/binding pairs; v8 generalizes the grid slot
+as described below.
+
 | Slot      | Binding    | Fields                                               |
 | --------- | ---------- | ---------------------------------------------------- |
 | `lobby`   | `lobby`    | No coordinates; exactly one primary Lobby.           |
@@ -49,7 +52,7 @@ eligibility and room state are checked by the existing commit owner.
 
 Materials are `workshop`, `moonlight` and `copper`. Changing material does not
 change geometry, UUIDs, assignments or resource bindings. The renderer's material
-implementations remain pending; accepting the value is not a shipped skin claim.
+implementations are presentation only; they cannot change topology or admission.
 
 ## Projection
 
@@ -121,7 +124,7 @@ remains authoritative for remaining-room connectivity and full layout validity.
 
 `tmt-core::office_map::modules` is the pure projection owner. An admitted
 `OfficeMap` retains the immutable module source and its derived geometry.
-`tmt-adapters::office_map` retains source version 2 through 6, never the derivative
+`tmt-adapters::office_map` retains source version 2 through 8, never the derivative
 as another editable input. The world codec and storage path reuse this map codec.
 
 Browser `world-map/map-source` decodes the source union and supplies a cached,
@@ -150,7 +153,7 @@ floor and doors are not persisted alongside them.
 ## Version 5: compact circulation
 
 Version 5 preserves the v4 104 × 88 central Lobby and 48 × 40 office cells.
-New, uninitialized offices use this layout; saved worlds retain their version.
+Saved v5 worlds retain this layout until explicit conversion.
 Only occupied offices generate public branches: an eight-unit horizontal route
 from the room's entrance to the central vertical spine, then a spine connection
 to the Lobby centerline. Routes are merged and clipped against the Lobby and
@@ -182,7 +185,7 @@ as architectural walls. Construction ghosts show the floor slab, not a tall box.
 Existing mounted content requires an explicit draft conversion before removal
 of its historical admission path. Functional object IDs and resource bindings
 must survive; conversion must not delete a board, whiteboard or broadcaster.
-The current implementation is transitional until this conversion is verified.
+The explicit conversion uses the same retained-layout admission and history path.
 
 V6 retains the central Lobby and office bounds. Every immediately adjacent
 cardinal pair has one eight-unit-wide bridge centered in its shared side overlap,
@@ -200,8 +203,69 @@ extends through x=184. Missing indices keep spine access but add no branch.
 [Skybridge vectors](modules-skybridge-vectors.json) supply independent samples
 shared by native and browser tests.
 
-**Preview platforms** uses the existing relocation owner and draft history.
+**Convert to platforms** uses the existing relocation owner and draft history.
 Room-owned contents move with their room and keep IDs, order and bindings;
 ambiguous corridor objects block conversion. Save remains the only durable
 transition. Mounted objects become floor decorations without replacing their
 IDs or linked resources. This conversion is not a visual sign-off.
+
+## Version 7: independent meeting platforms
+
+V7 preserves v6 room bounds, materials, personal Office/Lobby connections and
+platform artwork. Meeting index `i` still occupies `(136, i*48, 48, 40)`;
+there is no meeting spine, Lobby connector, meeting branch or meeting opening.
+The reserved wing remains excluded from personal-office expansion. Removing
+a meeting does not repack survivors. Expansion offers the next index after the
+highest occupied meeting slot, and its wireframe has no passage preview.
+The reserved wing projects these slots with fixed visible gaps, including vacant
+indices; see [rendering ownership](../../docs/office/architecture.md).
+[Island vectors](modules-island-vectors.json) specify independent native/browser
+floor samples, dimensions and budgets.
+
+Only this versioned module projection admits independent meeting components.
+Each meeting area must still be internally connected. All personal offices and
+common floor must remain connected and accessible from the primary Lobby;
+freeform maps and versions 2–6 retain their original connectivity rules. This
+exception grants no access, membership or resource authority.
+
+Retained v7 worlds remain readable but are no longer a conversion target. Reading
+a saved world never removes floor or moves content. The explicit v8 alignment
+below supersedes the island preview; physical bases, not artwork envelopes,
+determine ownership. Removing a spatial module never deletes a canonical room or
+resource.
+
+## Version 8: unified area uses
+
+The primary Lobby remains `(0, 0, 104, 88)`. Every other area occupies
+`{type: "office", column, row}` at `(column*56, row*48, 48, 40)` and can bind
+either `personal` or `meeting`. The retained wire tag identifies a grid slot,
+not the area's use. Legacy `meeting` slots are invalid in v8, and the reserved
+wing restriction no longer applies. Overlap, coordinate and budget limits remain.
+
+Every adjacent cardinal pair gets one centered eight-unit-wide bridge; missing
+neighbors generate no bypass, spine or branch. Separate platform components are
+valid for either use. The private modular admission still verifies internal area
+connectivity and accessibility of all generated common floor. Freeform admission
+is unchanged. [Unified vectors](modules-unified-vectors.json) are shared by native
+and browser tests. Slots, not binding types, own bounds and openings.
+
+**Use unified areas** is an explicit, undoable alignment: legacy meeting index `i`
+becomes grid column `2`, row `i`; other slots are unchanged. The shared relocation
+owner retains furniture order, IDs, bases and resource attachments. Physical
+support, including shallow bases beneath overhanging art, determines ownership.
+Ambiguous corridor content blocks conversion without dropping any object. The
+complete candidate must pass native admission before its durable acknowledgement.
+
+After alignment, changing an area's use edits only its binding. The primary Lobby
+cannot change use. Selecting Meeting room links a saved canonical room; room
+creation and layout attachment keep their existing separate acknowledgement and
+retry owners. Switching to Office clears the area assignment, not the former
+canonical room or members. Undo restores the former binding. Furniture and linked
+whiteboard/discussion resources are not automatically replaced or retargeted.
+
+V8 display spacing uses a fixed lattice of 72 horizontal and 64 vertical units
+before depth projection. The Lobby covers two cells, including their internal
+bands. One-cell platform interiors stay 48 by 40; empty slots reserve the same
+display space. Changing occupied rows, columns or use cannot shift survivors.
+Meeting use adds violet inset lamps and a nameplate icon; the teal mechanical
+housing, floor finishes and mint selection perimeter are shared.

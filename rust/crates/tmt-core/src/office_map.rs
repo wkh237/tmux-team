@@ -130,9 +130,13 @@ pub struct OfficeMap {
 }
 
 impl OfficeMap {
-    pub fn new(mut draft: MapDraft) -> Result<Self, MapError> {
+    pub fn new(draft: MapDraft) -> Result<Self, MapError> {
+        Self::admit(draft, geometry::Connectivity::Lobby)
+    }
+
+    fn admit(mut draft: MapDraft, connectivity: geometry::Connectivity) -> Result<Self, MapError> {
         validate_areas(&draft)?;
-        let geometry = Geometry::build(&draft)?;
+        let geometry = Geometry::build(&draft, connectivity)?;
         // Input order is not paint order. Canonical runs make equality independent
         // of brush gesture subdivision; object paint order belongs to placements.
         draft.areas.sort_by(|left, right| left.id.cmp(&right.id));
@@ -160,7 +164,14 @@ impl OfficeMap {
 
     /// The module draft is authoritative; floor and openings are derived once.
     pub fn from_modules(mut modules: modules::ModuleDraft) -> Result<Self, MapError> {
-        let mut map = Self::new(modules.project()?)?;
+        let mut map = Self::admit(
+            modules.project()?,
+            match modules.layout {
+                modules::ModuleLayout::IndependentMeetings => geometry::Connectivity::Meetings,
+                modules::ModuleLayout::UnifiedAreas => geometry::Connectivity::Areas,
+                _ => geometry::Connectivity::Lobby,
+            },
+        )?;
         modules
             .modules
             .sort_by(|left, right| left.area.id.cmp(&right.area.id));

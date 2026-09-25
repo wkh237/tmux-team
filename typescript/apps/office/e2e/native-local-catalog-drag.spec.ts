@@ -59,8 +59,8 @@ test('catalog drag previews without a write, commits once, and retains exact Und
       const search = page.getByRole('searchbox', { name: 'Search objects' });
       await search.fill('Office built-ins');
       await expect(page.getByText('No matching objects.', { exact: true })).toBeVisible();
-      // Independent v6 projection: a 16x16 desk at [30,40] has center [38,41].
-      const target = installationWorldPoint(view, 38, 41);
+      // V8: source base bottom y=56 projects to 63; rigid 16x16 art centers at 55.
+      const target = installationWorldPoint(view, 38, 55);
       await startDrag(page, 'Workshop writing desk', target);
       await expect(canvas).toHaveAttribute('data-catalog-drop-validity', 'valid');
       await expect(
@@ -221,8 +221,9 @@ test('corner rotation is transient and durable once; Delete respects text fields
       await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
       const canvas = page.locator('.office-canvas canvas');
       const view = (await canvas.boundingBox())!;
-      // 8x8 chair: upright origin is (x, 7/8*y - 1), center offset is (4,4).
-      await startDrag(page, 'Workshop rolling chair', installationWorldPoint(view, 32, 38));
+      // Keep this rotation fixture within one lattice cell: source (28,24),
+      // physical bottom y=32 projects to 28; the rigid 8x8 art centers at (32,24).
+      await startDrag(page, 'Workshop rolling chair', installationWorldPoint(view, 32, 24));
       const waitWrite = () =>
         page.waitForResponse(
           (r) =>
@@ -240,6 +241,7 @@ test('corner rotation is transient and durable once; Delete respects text fields
         base: { x: 2, y: 4, width: 4, height: 4 },
       });
       const { x, y } = chair.placement;
+      expect({ x, y }).toEqual({ x: 28, y: 24 });
       const corner = installationWorldPoint(view, x + 8, (y * 7) / 8 - 1);
       const next = installationWorldPoint(view, x + 8, (y * 7) / 8 + 7);
       await page.mouse.move(corner.x, corner.y);

@@ -15,7 +15,7 @@ fn fixture() -> Value {
 #[test]
 fn skybridge_source_round_trips_without_reinterpreting_old_versions() {
     let mut source = fixture();
-    for version in [4, 5, 6] {
+    for version in [4, 5, 6, 7] {
         source["version"] = json!(version);
         let admitted = decode_map(&serde_json::to_vec(&source).unwrap()).unwrap();
         assert_eq!(map_value(&admitted), source);
@@ -26,6 +26,40 @@ fn skybridge_source_round_trips_without_reinterpreting_old_versions() {
             admitted.draft()
         );
     }
+}
+
+#[test]
+fn independent_meeting_projection_matches_shared_literal_vectors() {
+    use tmt_core::office_map::Tile;
+    let corpus: Value = serde_json::from_str(include_str!(
+        "../../../../../../contracts/office/modules-island-vectors.json"
+    ))
+    .unwrap();
+    let source = &corpus["map"];
+    let map = decode_map(&serde_json::to_vec(source).unwrap()).unwrap();
+    assert_eq!(map_value(&map), *source);
+    assert_eq!(
+        map.geometry().tile_count(),
+        corpus["floorTiles"].as_u64().unwrap() as usize
+    );
+    assert_eq!(
+        map.draft().doors.len(),
+        corpus["doorEdges"].as_u64().unwrap() as usize
+    );
+    for (key, expected) in [("publicSamples", Some(None)), ("emptySamples", None)] {
+        for sample in corpus[key].as_array().unwrap() {
+            let tile = Tile {
+                x: sample[0].as_i64().unwrap() as i32,
+                y: sample[1].as_i64().unwrap() as i32,
+            };
+            assert_eq!(map.geometry().area_at(tile), expected, "{key} at {tile:?}");
+        }
+    }
+    let mut legacy = source.clone();
+    legacy["version"] = json!(6);
+    let old = decode_map(&serde_json::to_vec(&legacy).unwrap()).unwrap();
+    assert!(old.geometry().tile_count() > map.geometry().tile_count());
+    assert_eq!(map_value(&old), legacy);
 }
 
 #[test]
@@ -191,6 +225,46 @@ fn module_round_trip_does_not_persist_derived_floor_or_door_arrays() {
     let again = decode_map(&serde_json::to_vec(&saved).unwrap()).unwrap();
     assert_eq!(again.draft(), map.draft());
     assert_eq!(again.modules(), map.modules());
+}
+
+#[test]
+fn unified_area_vectors_match_browser_geometry_and_round_trip_without_derived_state() {
+    let vectors: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../../contracts/office/modules-unified-vectors.json"
+    ))
+    .unwrap();
+    let map = decode_map(&serde_json::to_vec(&vectors["map"]).unwrap()).unwrap();
+    assert_eq!(map_value(&map), vectors["map"]);
+    assert_eq!(
+        map.draft()
+            .floor
+            .iter()
+            .map(|span| (span.end - span.start) as u64)
+            .sum::<u64>(),
+        vectors["floorTiles"].as_u64().unwrap()
+    );
+    assert_eq!(
+        map.draft().doors.len() as u64,
+        vectors["doorEdges"].as_u64().unwrap()
+    );
+    for pair in vectors["publicSamples"].as_array().unwrap() {
+        assert_eq!(
+            map.geometry().area_at(tmt_core::office_map::Tile {
+                x: pair[0].as_i64().unwrap() as i32,
+                y: pair[1].as_i64().unwrap() as i32
+            }),
+            Some(None)
+        );
+    }
+    for pair in vectors["emptySamples"].as_array().unwrap() {
+        assert_eq!(
+            map.geometry().area_at(tmt_core::office_map::Tile {
+                x: pair[0].as_i64().unwrap() as i32,
+                y: pair[1].as_i64().unwrap() as i32
+            }),
+            None
+        );
+    }
 }
 
 #[test]

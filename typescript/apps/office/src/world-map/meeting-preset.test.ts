@@ -6,9 +6,47 @@ import { worldHistory, updateWorldMap } from './world-draft.js';
 import { removeArea } from './map-draft.js';
 import { footprint } from '../blocks/block-contract.js';
 import { platformModuleWorld } from './module-upgrade.js';
+import vectors from '../../../../../contracts/office/modules-unified-vectors.json';
+import { decodeModuleMap } from './module-contract.js';
+import { projectMap } from './map-geometry.js';
+import { placementProblem } from './world-object-placement.js';
 
 const roomId = '20000000-0000-4000-8000-000000000002';
 const areaId = '20000000-0000-4000-8000-000000000003';
+
+it('keeps all four cardinal entrances clear in a unified meeting area', () => {
+  const meeting = vectors.map.modules[2]!;
+  const map = decodeModuleMap({
+    ...vectors.map,
+    modules: [
+      vectors.map.modules[0],
+      { ...meeting, slot: { type: 'office', column: 2, row: 0 } },
+      ...[
+        [2, -1],
+        [3, 0],
+        [2, 1],
+      ].map(([column, row], index) => ({
+        ...vectors.map.modules[1],
+        area: {
+          id: `30000000-0000-4000-8000-00000000000${index}`,
+          name: `Neighbor ${index}`,
+          binding: { type: 'personal', identityId: null },
+        },
+        slot: { type: 'office', column, row },
+      })),
+    ],
+  });
+  const world = { version: 1 as const, map, objects: [] };
+  const geometry = projectMap(map);
+  // Four center connections plus the south neighbor's own Lobby connection.
+  expect(geometry.boundaries.filter((edge) => edge.open)).toHaveLength(80);
+  const candidate = addMeetingPreset(world, meeting.area.id);
+  expect(candidate.map).toEqual(map);
+  expect(candidate.objects).toHaveLength(9);
+  for (const object of candidate.objects)
+    expect(placementProblem(geometry, object, candidate.objects)).toBeUndefined();
+  expect(world.objects).toEqual([]);
+});
 function fixture() {
   const base = officeWorldFixture().layout;
   return {

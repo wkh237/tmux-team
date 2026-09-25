@@ -62,6 +62,63 @@ fn central_starter() -> ModuleDraft {
 }
 
 #[test]
+fn unified_area_uses_do_not_change_bounds_or_cardinal_connections() {
+    let mut plan = central_starter();
+    plan.layout = ModuleLayout::UnifiedAreas;
+    plan.modules.push(office(6, 2, 0));
+    plan.modules.push(office(7, 2, 3));
+    let before = OfficeMap::from_modules(plan.clone()).unwrap();
+    plan.modules[1].area.kind = AreaKind::Meeting { room_id: id(101) };
+    plan.modules[5].area.kind = AreaKind::Meeting { room_id: id(102) };
+    let after = OfficeMap::from_modules(plan.clone()).unwrap();
+    assert_eq!(before.draft().floor, after.draft().floor);
+    assert_eq!(before.draft().doors, after.draft().doors);
+    assert_eq!(
+        before
+            .modules()
+            .unwrap()
+            .modules
+            .iter()
+            .map(|module| module.bounds(plan.layout).unwrap())
+            .collect::<Vec<_>>(),
+        after
+            .modules()
+            .unwrap()
+            .modules
+            .iter()
+            .map(|module| module.bounds(plan.layout).unwrap())
+            .collect::<Vec<_>>()
+    );
+    // Every platform may stand alone; raw freeform maps retain their stricter contract.
+    assert_eq!(
+        OfficeMap::new(after.draft().clone()).unwrap_err(),
+        MapError::DisconnectedFloor
+    );
+    plan.modules.push(meeting(8, 4));
+    assert_eq!(
+        OfficeMap::from_modules(plan).unwrap_err(),
+        MapError::InvalidModule
+    );
+}
+
+#[test]
+fn unified_slots_still_reject_collision_and_invalid_primary_lobby() {
+    let mut plan = central_starter();
+    plan.layout = ModuleLayout::UnifiedAreas;
+    plan.modules.push(office(6, 0, -1));
+    assert_eq!(
+        OfficeMap::from_modules(plan.clone()).unwrap_err(),
+        MapError::ModuleCollision
+    );
+    plan.modules.pop();
+    plan.modules[0].area.kind = AreaKind::Personal { identity_id: None };
+    assert_eq!(
+        OfficeMap::from_modules(plan).unwrap_err(),
+        MapError::InvalidModule
+    );
+}
+
+#[test]
 fn skybridges_connect_neighbors_without_empty_slot_branches() {
     let mut source = central_starter();
     source.layout = ModuleLayout::Skybridges;
@@ -98,6 +155,80 @@ fn skybridge_meeting_spine_retains_access_across_an_empty_slot() {
     for (x, y) in skybridge_samples("meetingEmpty") {
         assert!(at(x, y).is_none());
     }
+}
+
+#[test]
+fn independent_meetings_keep_slots_without_spine_or_portals() {
+    let mut source = central_starter();
+    source.layout = ModuleLayout::Skybridges;
+    source.modules.extend([meeting(6, 0), meeting(7, 2)]);
+    let old = OfficeMap::from_modules(source.clone()).unwrap();
+    source.layout = ModuleLayout::IndependentMeetings;
+    let islands = OfficeMap::from_modules(source.clone()).unwrap();
+    let main = OfficeMap::from_modules(ModuleDraft {
+        modules: source.modules[..5].to_vec(),
+        ..source.clone()
+    })
+    .unwrap();
+    assert_eq!(islands.draft().doors, main.draft().doors);
+    assert_eq!(
+        islands
+            .draft()
+            .floor
+            .iter()
+            .filter(|row| row.area_id.is_none())
+            .collect::<Vec<_>>(),
+        main.draft()
+            .floor
+            .iter()
+            .filter(|row| row.area_id.is_none())
+            .collect::<Vec<_>>()
+    );
+    for area in [id(6), id(7)] {
+        assert_eq!(
+            islands
+                .draft()
+                .floor
+                .iter()
+                .filter(|row| row.area_id.as_ref() == Some(&area))
+                .collect::<Vec<_>>(),
+            old.draft()
+                .floor
+                .iter()
+                .filter(|row| row.area_id.as_ref() == Some(&area))
+                .collect::<Vec<_>>()
+        );
+    }
+    // Freeform input cannot use the modular exception to admit disconnected floor.
+    assert_eq!(
+        OfficeMap::new(islands.draft().clone()).unwrap_err(),
+        MapError::DisconnectedFloor
+    );
+    source.modules.retain(|module| module.area.id != id(6));
+    let removed = OfficeMap::from_modules(source).unwrap();
+    assert_eq!(
+        removed
+            .draft()
+            .floor
+            .iter()
+            .filter(|row| row.area_id.as_ref() == Some(&id(7)))
+            .collect::<Vec<_>>(),
+        islands
+            .draft()
+            .floor
+            .iter()
+            .filter(|row| row.area_id.as_ref() == Some(&id(7)))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn independent_meetings_do_not_allow_disconnected_personal_offices() {
+    let mut source = central_starter();
+    source.layout = ModuleLayout::IndependentMeetings;
+    source.modules.truncate(1);
+    source.modules.extend([meeting(6, 0), office(7, -2, 0)]);
+    assert!(OfficeMap::from_modules(source).is_err());
 }
 
 fn skybridge_samples(key: &str) -> Vec<(i32, i32)> {

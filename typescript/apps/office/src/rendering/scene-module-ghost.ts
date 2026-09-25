@@ -54,7 +54,11 @@ export function drawModuleGhost(
       .stroke({ color: ink, width: 1.5 / scale });
     sceneLabel(
       parent,
-      slot.type === 'meeting' ? 'Create meeting room' : 'Add office',
+      projection.version === 8
+        ? 'Add area'
+        : slot.type === 'meeting'
+          ? 'Create meeting room'
+          : 'Add office',
       cx,
       cy + 5,
       2.5,
@@ -118,7 +122,11 @@ export function drawModuleGhost(
   lines.stroke({ color: ink, alpha: 0.95, width: 1.5 / scale });
   sceneLabel(
     parent,
-    slot.type === 'meeting' ? 'Create meeting room' : 'Add office',
+    projection.version === 8
+      ? 'Add area'
+      : slot.type === 'meeting'
+        ? 'Create meeting room'
+        : 'Add office',
     cx,
     cy + 5,
     2.5,

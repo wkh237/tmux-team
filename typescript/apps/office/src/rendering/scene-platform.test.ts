@@ -58,6 +58,28 @@ it('extends Lobby repeats without stretching hardware or introducing interactive
     }
     expect(office.eventMode).toBe('none');
     expect(lobby.eventMode).toBe('none');
+    const meeting = drawPlatformEdge(
+      parent,
+      wall,
+      { x: 0, y: 0, width: 48, height: 6 },
+      textures,
+      undefined,
+      true
+    );
+    expect(
+      hardware(meeting).map((sprite) => ({ texture: sprite.texture, x: sprite.x, y: sprite.y }))
+    ).toEqual(
+      hardware(office).map((sprite) => ({
+        texture:
+          sprite.texture === textures.lamp
+            ? textures.meetingLamp
+            : sprite.texture === textures.corner
+              ? textures.meetingCorner
+              : sprite.texture,
+        x: sprite.x,
+        y: sprite.y,
+      }))
+    );
     const side = drawPlatformEdge(
       parent,
       { ...wall, axis: 'vertical' },

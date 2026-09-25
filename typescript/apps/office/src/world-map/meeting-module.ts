@@ -44,6 +44,7 @@ export function meetingExpansionPassages(
 
 /** Append below the last occupied slot. Removing another room never repacks it. */
 export function nextMeetingSlot(source: ModuleMapDocument): MeetingSlot | undefined {
+  if (source.version === 8) return;
   if (source.modules.length >= MAP_LIMITS.areas) return;
   const index =
     1 +

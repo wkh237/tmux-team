@@ -25,7 +25,8 @@ export function sceneNameplate(
   y: number,
   width: number,
   anchor: 'top-left' | 'bottom-center' = 'top-left',
-  tone: 'name' | 'status' = 'name'
+  tone: 'name' | 'status' = 'name',
+  meeting = false
 ) {
   const plate = new Graphics();
   parent.addChild(plate);
@@ -48,13 +49,18 @@ export function sceneNameplate(
       scale = next;
       const size = Math.max(1.05, 12 / next);
       const padding = Math.max(0.6, 5 / next);
+      const iconWidth = meeting ? size * 1.6 : 0;
       text.scale.set(size / 16);
-      text.text = fitNameplateText(value, Math.max(0, width - padding * 2), (candidate) => {
-        text.text = candidate;
-        return text.width;
-      });
+      text.text = fitNameplateText(
+        value,
+        Math.max(0, width - padding * 2 - iconWidth),
+        (candidate) => {
+          text.text = candidate;
+          return text.width;
+        }
+      );
       const centered = anchor === 'bottom-center';
-      const drawnWidth = Math.min(width, text.width + padding * 2);
+      const drawnWidth = Math.min(width, text.width + padding * 2 + iconWidth);
       const height = size * 1.4 + padding;
       const left = centered ? x - drawnWidth / 2 : x;
       const top = centered ? y - height : y;
@@ -68,6 +74,17 @@ export function sceneNameplate(
       plate.roundRect(left, top, drawnWidth, height, 0.6).fill(color);
       if (tone === 'name')
         plate.stroke({ color: '#a99972', alpha: 0.8, width: Math.max(0.12, 0.7 / next) });
+      if (meeting) {
+        const unit = size / 8;
+        const start = left + drawnWidth - padding - iconWidth + unit;
+        const mid = top + height / 2;
+        for (const offset of [0, 6]) {
+          plate
+            .rect(start + (offset + 1) * unit, mid - 3 * unit, 3 * unit, 3 * unit)
+            .rect(start + offset * unit, mid + unit, 5 * unit, 3 * unit)
+            .fill('#c999f2');
+        }
+      }
       if (tone === 'status')
         plate
           .poly([
