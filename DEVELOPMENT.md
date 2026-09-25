@@ -473,10 +473,28 @@ DPR and browser version: a Lobby with four offices, both bridge axes, meeting
 branches, selected objects, and valid/invalid drag previews. Geometry assertions
 lock the connector constant and inverse picking; behavior assertions lock no-write
 invalid/cancelled drops and one completed gesture per Undo/Redo step. Current
-skybridge/direct-manipulation tests produce review artifacts, not a persisted golden
-image gate. Establish that pixel baseline only after visual approval; never regenerate
-it merely to make a failing comparison pass. Baseline changes require reviewing the
-before/after images alongside the intended design change.
+skybridge/direct-manipulation tests retain native lifecycle evidence. The separate
+opt-in `playwright.visual.config.ts` owns two focused visual scenarios under
+`e2e/visual/*.visual.ts`, using the existing local HTTP fixture and real scene/HUD.
+They protect platform lighting, supported overhang, held rotation/selection, and
+desktop/narrow inspector and creation spacing. They do not prove native admission
+or persistence, and do not join the standard browser CI partitions.
+
+From `typescript`, run `pnpm --filter @tmt/office test:visual`. The config starts
+only the offline Vite server, uses the lockfile-pinned Playwright Chromium at DPR 1,
+fixed viewport/locale/color scheme and reduced decorative motion, and refuses to
+create missing baselines by default. Install the matching browser with
+`pnpm --filter @tmt/office exec playwright install chromium` when necessary.
+PNG names include the host platform; a missing platform baseline is not permission
+to copy another platform's pixels or claim cross-platform equivalence. Failed
+comparisons preserve expected/actual/diff images in Playwright's test-results.
+
+After an intentional design change, explicitly run
+`pnpm --filter @tmt/office test:visual --update-snapshots=all`, inspect every changed
+PNG against the previous baseline and the approved design, then rerun without the
+update flag. Never regenerate a baseline merely to make a failing comparison pass.
+Keep screenshot tolerances strict and verify representative defect sensitivity;
+portable geometry/behavior assertions remain with their existing unit/native owners.
 `native-local-world-capacity.spec.ts` exercises dense tile-budget and connected
 sparse worlds through native admission and the browser. `scene-observation.ts`
 observes actual WebGL submissions and texture lifetimes across zoom, pan, revisit
