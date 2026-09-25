@@ -452,6 +452,7 @@ describe('native durable identity process boundary', () => {
 
   it('keeps human output explicit for empty, create, show, and list cases', async () => {
     await withSandbox(async (sandbox) => {
+      delete sandbox.env.TMT_HINTS;
       const emptyHuman = await runCli(sandbox, ['identity', 'list']);
       expect(emptyHuman.status).toBe(0);
       expect(emptyHuman.stdout).toBe('No identities found.\n');
@@ -461,7 +462,9 @@ describe('native durable identity process boundary', () => {
       expect(human.status).toBe(0);
       expect(human.stdout).toContain("Created saved identity 'Human'");
       expect(human.stdout).toContain('saved');
-      expect(human.stderr).toBe('');
+      expect(human.stderr).toBe(
+        'Hint: To receive work for this saved identity, run `tmt x listen --identity <name>`.\n'
+      );
       const repeatedHuman = await runCli(sandbox, ['identity', 'create', 'human']);
       expect(repeatedHuman.status).toBe(0);
       expect(repeatedHuman.stdout).toContain("Already exists: saved identity 'Human'");
