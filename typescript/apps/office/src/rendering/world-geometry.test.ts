@@ -12,6 +12,42 @@ import { decodeModuleMap } from '../world-map/module-contract.js';
 import central from '../../../../../contracts/office/modules-central-grid-vectors.json';
 import { moduleGhostGeometry } from './scene-module-ghost.js';
 import { mapGeometry } from '../world-map/map-source.js';
+import islands from '../../../../../contracts/office/modules-island-vectors.json';
+
+it('includes the complete independent wing in Fit beside a wider northern campus', () => {
+  const source = decodeModuleMap(islands.map);
+  const office = source.modules.find((module) => module.slot.type === 'office')!;
+  const meeting = source.modules.find((module) => module.slot.type === 'meeting')!;
+  const geometry = worldGeometry({
+    version: 1,
+    objects: [],
+    map: {
+      ...source,
+      modules: [
+        ...source.modules,
+        ...[1, 2, 3, 4].map((column) => ({
+          ...office,
+          area: { ...office.area, id: `30000000-0000-4000-8000-00000000000${column}` },
+          slot: { type: 'office' as const, column, row: -1 },
+        })),
+        {
+          ...meeting,
+          area: {
+            ...meeting.area,
+            id: '30000000-0000-4000-8000-000000000005',
+            binding: { type: 'meeting', roomId: '40000000-0000-4000-8000-000000000005' },
+          },
+          slot: { type: 'meeting', index: 4 },
+        },
+      ],
+    },
+  });
+  expect(geometry.bounds.y + geometry.bounds.height).toBe(267);
+  const floor = geometry
+    .visible(geometry.bounds)
+    .floors.filter((rect) => rect.areaId === '30000000-0000-4000-8000-000000000005');
+  expect(Math.max(...floor.map((rect) => rect.y + rect.height))).toBe(259);
+});
 
 it('indexes visible platform thresholds on both axes without restoring tall walls', () => {
   const geometry = worldGeometry({

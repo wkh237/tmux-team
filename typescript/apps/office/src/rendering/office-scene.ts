@@ -364,9 +364,17 @@ export async function createOfficeScene(
       const node = new Container();
       if (model.world.map.version >= 6) {
         const { depth, bounds } = wallProjection(wall, geometry.projection);
-        drawPlatformEdge(node, wall, bounds, platformArt!.textures, (light) => {
-          bridgeLights.push({ light, bounds });
-        });
+        drawPlatformEdge(
+          node,
+          wall,
+          bounds,
+          platformArt!.textures,
+          (light) => {
+            bridgeLights.push({ light, bounds });
+          },
+          model.world.map.version === 8 &&
+            areas.some((area) => area.id === wall.areaId && area.binding.type === 'meeting')
+        );
         layers.push({ depth, node, frontFace: wall.axis === 'horizontal' });
         continue;
       }
@@ -523,7 +531,9 @@ export async function createOfficeScene(
             anchor.x,
             anchor.y,
             model.world.map.version === 1 ? 24 : 36,
-            'bottom-center'
+            'bottom-center',
+            'name',
+            model.world.map.version === 8 && area.binding.type === 'meeting'
           )
         );
     }

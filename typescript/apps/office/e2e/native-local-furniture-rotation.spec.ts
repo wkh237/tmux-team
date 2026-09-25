@@ -40,8 +40,8 @@ test('retained sofa gains genuine corner rotation with atomic art Undo, Redo and
       placement: {
         prop: `${MODULAR_LOUNGE_DIGEST}/lounge-sofa`,
         footprint: { width: 16, height: 16 },
-        x: 48,
-        y: 40,
+        x: 24,
+        y: 16,
         rotation: 0,
       },
     };
@@ -101,7 +101,7 @@ test('retained sofa gains genuine corner rotation with atomic art Undo, Redo and
       const invalidEnd = installationWorldPoint(view, 60, 7);
       const originalHandle = installationWorldPoint(view, 48, 7);
       // Centered 12x8 -> 8x12 turn: origin (50,-2), projected bottom y=8.75.
-      const candidateHandle = installationWorldPoint(view, 50, 8.75);
+      const candidateHandle = installationWorldPoint(view, 54, 8.75);
       async function handlePixels() {
         const image = await page.screenshot({ scale: 'css' });
         return page.evaluate(
@@ -140,14 +140,15 @@ test('retained sofa gains genuine corner rotation with atomic art Undo, Redo and
       await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
       await openKeyboardSelection(page);
       await page.getByRole('combobox', { name: 'Object', exact: true }).selectOption(sofa.id);
-      // Independent v6 upright projection for a 16x16 item at (48,40).
-      const origin = installationWorldPoint(view, 48, 33);
-      const corner = installationWorldPoint(view, 64, 33);
-      const end = installationWorldPoint(view, 64, 49);
+      // Keep the 16x16 pixel-comparison fixture inside one v8 lattice cell:
+      // source (24,16), bottom anchor (24,32), painted top (24,12).
+      const origin = installationWorldPoint(view, 24, 12);
+      const corner = installationWorldPoint(view, 40, 12);
+      const end = installationWorldPoint(view, 40, 28);
       // The rotated shallow base keeps its center but moves the upright envelope
-      // down to y=36.5. Compare the common interior of both envelopes, excluding
+      // down to y=15.5. Compare the common interior of both envelopes, excluding
       // both old selection handles and the candidate/committed outline.
-      const rotatedOrigin = installationWorldPoint(view, 48, 36.5);
+      const rotatedOrigin = installationWorldPoint(view, 24, 15.5);
       const clip = {
         x: origin.x + 8,
         y: rotatedOrigin.y + 8,
@@ -196,8 +197,8 @@ test('retained sofa gains genuine corner rotation with atomic art Undo, Redo and
               ...sofa.placement,
               prop: `${DIRECTIONAL_LOUNGE_DIGEST}/lounge-sofa`,
               rotation: 1,
-              x: 53,
-              y: 45,
+              x: 29,
+              y: 21,
             },
           },
         ],
@@ -215,9 +216,9 @@ test('retained sofa gains genuine corner rotation with atomic art Undo, Redo and
       expect((await office(['layout', 'show'])).layout).toEqual(expected);
       await page.getByText('Precise placement', { exact: true }).click();
       for (const [rotation, x, y] of [
-        [2, 48, 50],
-        [3, 43, 45],
-        [0, 48, 40],
+        [2, 24, 26],
+        [3, 19, 21],
+        [0, 24, 16],
       ] as const) {
         saved = acknowledgement();
         await page.getByRole('button', { name: 'Rotate 90° clockwise' }).click();

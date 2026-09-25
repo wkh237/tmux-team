@@ -35,7 +35,8 @@ export function drawPlatformEdge(
   wall: WallRun,
   bounds: SceneRect,
   art: PlatformTextures,
-  registerLight?: (light: Graphics) => void
+  registerLight?: (light: Graphics) => void,
+  meeting = false
 ) {
   const group = new Container();
   group.eventMode = 'none';
@@ -139,10 +140,11 @@ export function drawPlatformEdge(
   tile(art.face, length, 3.3, 0, 1.1);
   // Lamps and brackets are fixed-scale accents, centered within each repeat.
   for (let x = 4; x + 7 <= length; x += 16) {
-    detail(art.lamp, x, 0);
+    detail(meeting ? art.meetingLamp : art.lamp, x, 0);
     if (x + 14 <= length) detail(art.bracket, x + 8, -0.2);
   }
-  if (wall.frontCorners?.start) detail(art.corner, 0, -0.25);
-  if (wall.frontCorners?.end) detail(art.corner, length, -0.25, true);
+  const corner = meeting ? art.meetingCorner : art.corner;
+  if (wall.frontCorners?.start) detail(corner, 0, -0.25);
+  if (wall.frontCorners?.end) detail(corner, length, -0.25, true);
   return group;
 }

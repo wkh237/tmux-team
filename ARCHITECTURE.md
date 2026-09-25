@@ -183,10 +183,22 @@ the Lobby's south mounts follow its enlarged boundary, and meetings stay fixed.
 Area IDs, assignments, materials and resource attachments remain unchanged.
 Ambiguous corridor/exterior objects block conversion without mutation.
 V6 adds an explicit platform preview through the same relocation boundary:
-immediate Lobby neighbors use entrance-only links, remote offices retain public
-access, and separated meeting pods branch from an independent spine. Both native
+cardinal office/Lobby neighbors use centered links, with traversal through
+intermediate platforms rather than perimeter bypasses. Meeting pods branch from
+an independent spine. Both native
 and browser module projection own the topology; rendering does not invent paths.
 Stored v4/v5 geometry remains unchanged until explicit conversion.
+V7 retains v6 room positions and personal-office bridges but omits all meeting
+circulation. Only its module admission permits separate meeting components;
+personal/common floor still requires Lobby reachability, and freeform admission
+is unchanged. Explicit conversion checks retained placement support before the
+existing history/auto-apply write, preserving IDs, bindings and object order.
+V8 separates grid location from area use. Non-Lobby platforms share cardinal
+neighbor connections regardless of personal/meeting binding; disconnected
+platforms are allowed, but each area and its generated common floor remain
+internally accessible. The historical `office` slot tag denotes a grid coordinate,
+not a restriction to personal use. Explicit conversion aligns old meeting slots
+with their room-relative objects; subsequent use changes touch only the binding.
 The platform draft converts mounted objects into floor decorations while keeping
 their IDs, artwork and resource bindings. Ownerless or oversized objects reject
 the draft without mutating the source. Undo and Cancel retain the original value.
@@ -230,7 +242,7 @@ room membership remains with the targeted room manager. The agent Info panel's
 Add to meeting entry seeds that manager's existing `RoomEditor` draft with one
 candidate; it does not write or dispatch. Conditional roster Save retains other
 members, and an unsaved draft fences both room and candidate switching.
-The native `office_world::starter` supplies a furnished v6 platform Lobby and four
+The native `office_world::starter` supplies a furnished v8 platform Lobby and four
 unassigned offices only when neither a saved world layout nor retained blocks
 exist. Stable placement IDs and bundled resource bindings remain read-only until
 explicit Save; the existing revision-zero source fingerprint fences that Save.
@@ -410,7 +422,15 @@ Bridge decking uses a fixed metal-panel scale, not the room floor's wood repeat;
 `platform-projection` expands short empty bands to the single 24-unit connector
 span while preserving room interiors and the Lobby origin. The invertible display
 transform is shared by bounds, thresholds, ghosts, picking and dragging; it does
-not change stored topology. Longer routed circulation is not shortened. Blue-green
+not change stored topology. V7 meeting islands use a separate fixed-slot transform
+in their reserved wing: equal visible gaps include vacant slots, and adding or
+removing an island cannot alter the campus transform or another island's position.
+V8 replaces occupancy-dependent spacing with one fixed, invertible lattice for
+all uses and empty slots. The Lobby spans two cells on each axis; its continuous
+floor includes the intervening bands. Adding/removing a neighbor cannot shift
+existing scene coordinates. Meeting use selects a violet lamp-inset texture and
+a pixel nameplate icon, never a different platform geometry or selection color.
+Longer routed circulation is not shortened. Blue-green
 support bases paint below all bridge deck runs, before room floors and brass trim.
 Brass rails are centered on each edge; the deck repeat excludes authored side
 seams. Deterministic alloy tones, rivets and service grilles are baked into the

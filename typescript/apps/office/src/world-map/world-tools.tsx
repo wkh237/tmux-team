@@ -2,7 +2,8 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { OfficePopulation } from '../local/office-population.js';
 import { AreaRemovalPreview } from './area-removal-preview.js';
-import type { MeetingRoom } from '../local/room-contract.js';
+import type { MeetingRoom, RoomPort } from '../local/room-contract.js';
+import { MeetingCreationForm } from './meeting-creation-form.js';
 import type { CatalogPack } from '../props/prop-contract.js';
 import { removeArea } from './map-draft.js';
 import { removeWorldObject, updateWorldMap } from './world-draft.js';
@@ -20,7 +21,12 @@ import { removeModule, setModuleMaterial } from './module-authoring.js';
 import { RoomMaterialChoices } from './room-material-choices.js';
 import { ModuleRemovalDialog } from './module-removal-dialog.js';
 import type { PanelObstacles } from './use-anchored-panel.js';
-import { upgradeModuleWorld, compactModuleWorld, platformModuleWorld } from './module-upgrade.js';
+import {
+  upgradeModuleWorld,
+  compactModuleWorld,
+  platformModuleWorld,
+  unifiedAreaWorld,
+} from './module-upgrade.js';
 import { PropThumbnail } from '../props/prop-thumbnail.js';
 import { WorldArtLibrary } from './world-art-library.js';
 import { WorldObjectPicker } from './world-object-picker.js';
@@ -41,6 +47,9 @@ interface Props {
   selectObject: (id: string) => void;
   population: OfficePopulation;
   rooms: MeetingRoom[];
+  roomPort?: RoomPort;
+  roomSaved?: (room: MeetingRoom) => void;
+  onRoomBusyChange?: (busy: boolean) => void;
   catalog: CatalogPack[];
   addArt: (pack: CatalogPack, key: string) => void;
   catalogDrag?: CatalogDragHandlers;
@@ -58,6 +67,9 @@ export function WorldTools({
   selectObject,
   population,
   rooms,
+  roomPort,
+  roomSaved,
+  onRoomBusyChange,
   catalog,
   addArt,
   catalogDrag,
@@ -66,6 +78,7 @@ export function WorldTools({
   const [replacement, setReplacement] = useState('');
   const [removingId, setRemovingId] = useState<string>();
   const [placementError, setPlacementError] = useState<string>();
+  const [changingUse, setChangingUse] = useState<string>();
   const library = !areaId && !objectId;
   const libraryId = useId();
   const libraryHeading = useRef<HTMLHeadingElement>(null);
@@ -100,7 +113,7 @@ export function WorldTools({
     }));
   }
   function setArea(next: MapArea, historyGroup?: string) {
-    editor.change(
+    return editor.change(
       (world) =>
         world.map.version !== 1
           ? {
@@ -178,6 +191,21 @@ export function WorldTools({
           )}
         </div>
         <div hidden={creatingMeeting} className="world-build-content">
+          {!object && world.map.version >= 6 && world.map.version < 8 && (
+            <section aria-label="Unified area layout">
+              <p>
+                Use one grid for offices and meeting rooms. Existing meeting platforms align to the
+                grid with their furniture.
+              </p>
+              <button disabled={editor.busy} onClick={() => editor.change(unifiedAreaWorld)}>
+                Use unified areas
+              </button>
+              <p>
+                This changes the old meeting wing once. Undo restores the previous layout. Later use
+                changes never move a platform.
+              </p>
+            </section>
+          )}
           {!object &&
             (world.map.version < 6 ||
               world.objects.some((item) => item.surface.type === 'wall')) && (
@@ -266,6 +294,68 @@ export function WorldTools({
                     }}
                   />
                 </label>
+                {world.map.version === 8 && area.binding.type !== 'lobby' && (
+                  <>
+                    <fieldset disabled={editor.busy} className="area-use-choices">
+                      <legend>Use</legend>
+                      <button
+                        type="button"
+                        aria-pressed={area.binding.type === 'personal'}
+                        onClick={() => {
+                          setChangingUse(undefined);
+                          if (area.binding.type !== 'personal')
+                            setArea({ ...area, binding: { type: 'personal', identityId: null } });
+                        }}
+                      >
+                        Office
+                      </button>
+                      <button
+                        type="button"
+                        aria-pressed={area.binding.type === 'meeting'}
+                        disabled={!roomPort || editor.busy}
+                        onClick={() => {
+                          if (area.binding.type !== 'meeting') setChangingUse(area.id);
+                        }}
+                      >
+                        Meeting room
+                      </button>
+                    </fieldset>
+                    <p>
+                      Changing use keeps the platform, furniture and resource links in place.
+                      Resident and room assignments are not transferred; Undo restores the previous
+                      assignment.
+                    </p>
+                    {changingUse === area.id && roomPort && (
+                      <MeetingCreationForm
+                        key={area.id}
+                        embedded
+                        linking
+                        port={roomPort}
+                        rooms={rooms.filter(
+                          (room) =>
+                            !map.areas.some(
+                              (other) =>
+                                other.id !== area.id &&
+                                other.binding.type === 'meeting' &&
+                                other.binding.roomId === room.id
+                            )
+                        )}
+                        busy={editor.busy}
+                        onBusyChange={onRoomBusyChange ?? (() => {})}
+                        roomSaved={roomSaved ?? (() => {})}
+                        close={() => setChangingUse(undefined)}
+                        place={(room) => {
+                          const changed = setArea({
+                            ...area,
+                            binding: { type: 'meeting', roomId: room.id },
+                          });
+                          if (changed) setChangingUse(undefined);
+                          return changed;
+                        }}
+                      />
+                    )}
+                  </>
+                )}
                 {world.map.version !== 1 && (
                   <RoomMaterialChoices
                     platform={world.map.version >= 6}

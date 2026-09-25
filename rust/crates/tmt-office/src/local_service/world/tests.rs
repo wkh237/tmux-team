@@ -83,7 +83,7 @@ fn concurrent_world_candidates_have_one_winner_and_no_partial_merge() {
     let fixture = HttpFixture::new();
     let preview = response_value(&fixture.call(request("GET", Value::Null)));
     let first = response_value(&fixture.call(request("PUT", save(&preview))));
-    assert_eq!(first["layout"]["map"]["version"], 6);
+    assert_eq!(first["layout"]["map"]["version"], 8);
     let candidates = ["Design studio", "Operations studio"].map(|name| {
         let mut candidate = save(&first);
         candidate["layout"]["map"]["modules"][0]["area"]["name"] = json!(name);

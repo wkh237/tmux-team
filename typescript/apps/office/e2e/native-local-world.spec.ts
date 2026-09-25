@@ -42,7 +42,7 @@ test('one installation world is lazy, saves through the browser and retains an e
     const initial = await show();
     expect(initial).toMatchObject({ worldId: null, revision: 0, changed: false });
     expect(initial.legacyBasis).toMatch(/^[a-f0-9]{64}$/);
-    expect(initial.layout.map.version).toBe(6);
+    expect(initial.layout.map.version).toBe(8);
     const areas = mapGeometry(initial.layout.map).areas;
     expect(areas).toHaveLength(5);
     expect(areas.find((area) => area.id === initial.layout.map.primaryLobbyId)).toEqual({
@@ -125,7 +125,7 @@ test('one installation world is lazy, saves through the browser and retains an e
       expect(saveBar!.y + saveBar!.height).toBeLessThanOrEqual(inspector!.y);
       await page.screenshot({ path: info.outputPath('native-world-object-actions.png') });
       const canvasBounds = (await page.locator('.office-canvas canvas').boundingBox())!;
-      // Independent v6 projection: the 16x16 sofa at [8,8] paints at [8,5]..[24,21].
+      // Within v8's first lattice cell, the 16x16 sofa at [8,8] paints at [8,5]..[24,21].
       const start = installationWorldPoint(canvasBounds, 16, 13);
       const outside = installationWorldPoint(canvasBounds, -8, 13);
       const end = installationWorldPoint(canvasBounds, 20, 13);
@@ -164,9 +164,19 @@ test('one installation world is lazy, saves through the browser and retains an e
       await expect(
         page.getByRole('region', { name: 'Layout changes' }).getByRole('status')
       ).toHaveText('All changes applied');
-      const expectedLayout = structuredClone(initial.layout);
-      const expectedSofa = expectedLayout.objects.find((object) => object.id === sofa.id)!;
-      expectedSofa.placement.x = 12;
+      // Explicit movement adopts the shallow base; merely reading the starter does not.
+      const expectedLayout = {
+        ...initial.layout,
+        objects: initial.layout.objects.map((object) =>
+          object.id === sofa.id
+            ? {
+                ...object,
+                placement: { ...object.placement, x: 12 },
+                surface: { type: 'floor', base: { x: 1, y: 10, width: 14, height: 6 } },
+              }
+            : object
+        ),
+      };
       await page.screenshot({ path: info.outputPath('native-world-solid-walls.png') });
       const saved = await show();
       expect(saved).toMatchObject({ revision: 3, legacyBasis: null, layout: expectedLayout });

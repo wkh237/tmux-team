@@ -111,7 +111,7 @@ test('lobby discussions preserve the world and drafts, persist explicit posts, a
       const canvasBounds = await canvas.boundingBox();
       expect(canvasBounds).not.toBeNull();
       // Discussion footprint [64,18,12,12] projects upright to [64,14.25,12,12].
-      const boardPoint = installationWorldPoint(canvasBounds!, 70, 20.25);
+      const boardPoint = installationWorldPoint(canvasBounds!, 86, 20.25);
       await page.screenshot({ path: testInfo.outputPath('lobby-spatial-board.png') });
       await page.mouse.move(boardPoint.x, boardPoint.y);
       await expect(canvas).toHaveCSS('cursor', 'grab');
@@ -171,7 +171,17 @@ test('lobby discussions preserve the world and drafts, persist explicit posts, a
       const openBoard = page.getByRole('button', { name: 'Open discussion board', exact: true });
       // Keyboard focus intentionally lights only the selected object. Compare a neutral
       // canvas state across the modal lifecycle so the transient action label is excluded.
-      const roomStrip = { x: 750, y: 350, width: 200, height: 200 };
+      // A neutral Lobby interior, independently projected after the known pan.
+      // Fixed screen coordinates can accidentally cover the focused board when
+      // the starter's fitted bounds change.
+      const roomStart = installationWorldPoint(canvasBounds!, 8, 55);
+      const roomEnd = installationWorldPoint(canvasBounds!, 36, 77);
+      const roomStrip = {
+        x: Math.ceil(roomStart.x + 40),
+        y: Math.ceil(roomStart.y + 20),
+        width: Math.floor(roomEnd.x - roomStart.x),
+        height: Math.floor(roomEnd.y - roomStart.y),
+      };
       const beforeFocus = await page.screenshot({ clip: roomStrip });
       const beforeHighlight = await page.screenshot({ clip: worldStrip });
       await openBoard.focus();
@@ -207,7 +217,7 @@ test('lobby discussions preserve the world and drafts, persist explicit posts, a
       const pannedBoard = { x: boardPoint.x + 40, y: boardPoint.y + 20 };
       await page.mouse.move(pannedBoard.x, pannedBoard.y);
       await expect(canvas).toHaveCSS('cursor', 'grab');
-      const actionY = installationWorldPoint(canvasBounds!, 70, 13.25).y + 20;
+      const actionY = installationWorldPoint(canvasBounds!, 86, 13.25).y + 20;
       await page.mouse.move(pannedBoard.x, actionY);
       await expect(canvas).toHaveCSS('cursor', 'pointer');
       await page.mouse.click(pannedBoard.x, actionY);

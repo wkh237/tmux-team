@@ -60,13 +60,13 @@ test('the spatial and keyboard whiteboard entries share a lazy draft without dis
       const world = page.locator('.office-canvas canvas');
       const bounds = (await world.boundingBox())!;
       // Whiteboard footprint [82,18,16,16] projects upright to [82,13.75,16,16].
-      const point = installationWorldPoint(bounds, 90, 21.75);
+      const point = installationWorldPoint(bounds, 106, 21.75);
       await page.mouse.move(point.x, point.y);
       await expect(world).toHaveCSS('cursor', 'grab');
       await page.screenshot({ path: testInfo.outputPath('lobby-both-functional-boards.png') });
       // The expanded action label is above the artwork. Clicking it must keep
       // the same target through pointerdown/up rather than collapsing on press.
-      const actionY = installationWorldPoint(bounds, 90, 12.75).y;
+      const actionY = installationWorldPoint(bounds, 106, 12.75).y;
       await page.mouse.move(point.x, actionY);
       await expect(world).toHaveCSS('cursor', 'pointer');
       await page.mouse.click(point.x, actionY);

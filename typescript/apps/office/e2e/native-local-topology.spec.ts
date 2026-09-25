@@ -184,6 +184,7 @@ test('repairs retained personal and Lobby designations without deleting identity
       const restoredAssigned = await save();
       expect((await office(['layout', 'show'])).layout).toEqual(assigned.layout);
       expectStoredWorld(sandbox.database, restoredAssigned);
+      await begin();
       await area.selectOption(studioId);
       await remove.click();
       const detached = await save();
@@ -228,7 +229,6 @@ test('repairs retained personal and Lobby designations without deleting identity
       await begin();
       await area.selectOption(lobbyId);
       await expect(remove).toBeDisabled();
-      await area.selectOption(lobbyId);
       await page
         .getByRole('combobox', { name: 'Replacement Lobby', exact: true })
         .selectOption(replacementId);
@@ -270,9 +270,12 @@ test('repairs retained personal and Lobby designations without deleting identity
       expect(retainedIdentityState(sandbox.database)).toEqual(retained);
       expect(readFileSync(notes.path, 'utf8')).toBe(noteText);
     } finally {
-      await page.goto('about:blank');
-      await office(['stop']);
-      expect((await office(['status'])).service.running).toBe(false);
+      try {
+        if (!page.isClosed()) await page.goto('about:blank');
+      } finally {
+        await office(['stop']);
+        expect((await office(['status'])).service.running).toBe(false);
+      }
     }
   });
 });
@@ -318,7 +321,7 @@ test('a real external world write rejects stale browser auto-apply without rebas
       await page.setViewportSize({ width: 1440, height: 1000 });
       await page.goto(started.url);
       await openKeyboardSelection(page);
-      if (initial.layout.map.version !== 6) throw new Error('Expected platform modules');
+      if (initial.layout.map.version !== 8) throw new Error('Expected current platform modules');
       const modules = initial.layout.map.modules;
       const lobbyId = initial.layout.map.primaryLobbyId;
       await page.getByRole('combobox', { name: 'Area', exact: true }).selectOption(lobbyId);
@@ -354,10 +357,10 @@ test('a real external world write rejects stale browser auto-apply without rebas
       expect(writes).toHaveLength(1);
       expect(writes[0]).toMatchObject({
         expectedRevision: 1,
-        layout: { objects: initial.layout.objects, map: { version: 6, primaryLobbyId: lobbyId } },
+        layout: { objects: initial.layout.objects, map: { version: 8, primaryLobbyId: lobbyId } },
       });
       const draftMap = writes[0]!.layout.map;
-      if (draftMap.version !== 6) throw new Error('Browser lost platform source');
+      if (draftMap.version !== 8) throw new Error('Browser lost platform source');
       expect(draftMap.modules).toEqual(
         modules
           .map((module) =>
@@ -400,6 +403,7 @@ test('a real external world write rejects stale browser auto-apply without rebas
           ...viewport,
         });
         await page.getByRole('button', { name: 'Fit office', exact: true }).click();
+        await openKeyboardSelection(page);
         await page.getByRole('combobox', { name: 'Object', exact: true }).click();
         await page.keyboard.press('Escape');
         await page.getByRole('combobox', { name: 'Area', exact: true }).selectOption(lobbyId);
@@ -444,9 +448,12 @@ test('a real external world write rejects stale browser auto-apply without rebas
       expect(saved.layout.objects).toEqual(initial.layout.objects);
       expectStoredWorld(sandbox.database, saved);
     } finally {
-      await page.goto('about:blank');
-      await office(['stop']);
-      expect((await office(['status'])).service.running).toBe(false);
+      try {
+        if (!page.isClosed()) await page.goto('about:blank');
+      } finally {
+        await office(['stop']);
+        expect((await office(['status'])).service.running).toBe(false);
+      }
     }
   });
 });

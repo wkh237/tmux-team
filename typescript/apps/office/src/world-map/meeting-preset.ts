@@ -29,15 +29,27 @@ export function addMeetingPreset(
   const area = map.areas.find((area) => area.id === areaId);
   if (area?.binding.type !== 'meeting') throw new Error('Choose a meeting area first.');
   const { width, height } = MEETING_PRESET_SIZE;
+  const platform = world.map.version >= 6;
   const free = freeFloorRows(
     map.floor.filter((span) => span.areaId === areaId),
-    world.objects
-      .filter((object) => object.surface.type === 'floor')
-      .map((object) => ({
-        x: object.placement.x,
-        y: object.placement.y,
-        ...footprint(object.placement),
-      })),
+    [
+      ...world.objects
+        .filter((object) => object.surface.type === 'floor')
+        .map((object) => ({
+          x: object.placement.x,
+          y: object.placement.y,
+          ...footprint(object.placement),
+        })),
+      // Floor-mounted sets must leave both sides of every threshold clear.
+      // Unified areas can have neighbors on any of their four sides.
+      ...(platform
+        ? map.doors.map((edge) =>
+            edge.axis === 'horizontal'
+              ? { x: edge.x, y: edge.y - 1, width: 1, height: 2 }
+              : { x: edge.x - 1, y: edge.y, width: 2, height: 1 }
+          )
+        : []),
+    ],
     width
   );
   const y = [...free.keys()]
@@ -49,7 +61,6 @@ export function addMeetingPreset(
     );
   const origin = { x: floorRectangleIntervals(free, y, height, width)[0]!.start, y };
   const objects: WorldObject[] = [];
-  const platform = world.map.version >= 6;
   function resource(definition: ExtensionDefinition, binding: ResourceBinding) {
     const object: WorldObject = {
       id: newId(),
