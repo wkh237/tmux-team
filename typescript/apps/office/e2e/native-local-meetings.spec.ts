@@ -197,12 +197,15 @@ test('real private-tmux identities project into multiple meetings without moving
             await expect(
               page.getByText(`Room: ${meeting}. Only ${name} receives this message.`)
             ).toBeVisible();
-            await expect(page.locator('.agent-hud-host')).toHaveAttribute('data-anchored', 'true');
+            const inspector = page.getByRole('complementary', { name: 'Agent inspector' });
+            await expect(inspector.locator('.agent-hud-host')).toBeVisible();
             const conversation = page.getByRole('dialog', { name: 'Agent conversation' });
             const conversationBounds = (await conversation.boundingBox())!;
-            // An empty chat stays below the populated HUD's 440px height and
-            // keeps its composer on screen, including the room-context line.
-            expect(conversationBounds.height).toBeLessThan(440);
+            // Empty and populated chats share the full-height right inspector.
+            expect(conversationBounds.y + conversationBounds.height).toBeCloseTo(
+              page.viewportSize()!.height - 21,
+              0
+            );
             expect(conversationBounds.y).toBeGreaterThanOrEqual(0);
             expect(conversationBounds.y + conversationBounds.height).toBeLessThanOrEqual(
               page.viewportSize()!.height
@@ -210,11 +213,10 @@ test('real private-tmux identities project into multiple meetings without moving
             await expect(
               conversation.getByRole('button', { name: 'Send', exact: true })
             ).toBeInViewport();
-            const anchor = page.locator('.agent-hud-host');
-            const beforeZoom = await anchor.getAttribute('style');
+            const beforeZoom = await inspector.boundingBox();
             await page.getByRole('button', { name: 'Zoom in' }).click();
-            await expect.poll(() => anchor.getAttribute('style')).not.toBe(beforeZoom);
-            await page.screenshot({ path: info.outputPath(`agent-anchor-${x}.png`) });
+            await expect.poll(() => inspector.boundingBox()).toEqual(beforeZoom);
+            await page.screenshot({ path: info.outputPath(`agent-inspector-${x}.png`) });
             await page.getByRole('button', { name: 'Fit office' }).click();
             await page.getByRole('button', { name: 'Close agent conversation' }).click();
           }

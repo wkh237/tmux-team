@@ -60,7 +60,7 @@ assert.deepEqual(
   listedTests(['--config', 'playwright.all.config.ts']),
   'Required and opt-in inventories must retain full browser coverage.'
 );
-assert.equal(visual.length, 2, 'Update the reviewed opt-in visual inventory.');
+assert.equal(visual.length, 3, 'Update the reviewed opt-in visual inventory.');
 assert.equal(new Set(visual).size, visual.length, 'Visual identities overlap.');
 assert.equal(
   visual.filter((identity) => [...complete, ...capacity].includes(identity)).length,

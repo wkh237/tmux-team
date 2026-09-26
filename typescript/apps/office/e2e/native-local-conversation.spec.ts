@@ -113,16 +113,12 @@ test('Office conversation reaches a real inbox, renders its reply, and recovers 
       const exchange = (await cli(['x', 'show', requestId, '--incoming', '--identity', 'Alice']))
         .exchange;
       expect(exchange.prompt.message).toBe(message);
-      await panel.getByRole('button', { name: 'Minimize agent conversation' }).click();
-      await expect(page.getByRole('button', { name: 'Alice Awaiting reply' })).toBeVisible();
+      await panel.getByRole('button', { name: 'Close agent conversation' }).click();
+      await expect(page.getByRole('heading', { name: 'Furniture & devices' })).toBeVisible();
       await expect(panel).toBeHidden();
       const reply = 'The canonical request service owns retries.\nNo second chat store is needed.';
       await cli(['reply', requestId, '--receipt', exchange.reply.receipt, '--message', reply]);
-      await expect(page.getByRole('button', { name: 'Alice Reply ready' })).toBeVisible({
-        timeout: 10_000,
-      });
-      await page.screenshot({ path: testInfo.outputPath('conversation-reply-cue.png') });
-      await page.getByRole('button', { name: 'Alice Reply ready' }).click();
+      await openConversation();
       await expect(panel.locator('.conversation-reply')).toHaveText(reply, { timeout: 10_000 });
       await page.screenshot({ path: testInfo.outputPath('conversation-desktop.png') });
       await panel.getByRole('button', { name: 'Close agent conversation' }).click();

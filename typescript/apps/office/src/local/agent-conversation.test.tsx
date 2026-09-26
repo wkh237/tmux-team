@@ -46,6 +46,60 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it('keeps docked refresh out of the toolbar layout and preserves focused drafts and loaded messages', async () => {
+  const runtime = fixture();
+  const host = document.createElement('div');
+  document.body.append(host);
+  const view = render(
+    <AgentConversation target={target} runtime={runtime} active refreshHost={host} />
+  );
+  try {
+    await screen.findByText('Acknowledged');
+    const input = screen.getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'Keep this draft' } });
+    input.focus();
+    const toolbar = view.container.querySelector('.chat-toolbar') as HTMLElement;
+    expect(toolbar.hidden).toBe(true);
+    let finish!: (page: HistoryPage) => void;
+    runtime.requests.list.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
+    fireEvent.click(within(host).getByRole('button', { name: 'Refresh' }));
+    expect(
+      (within(host).getByRole('button', { name: 'Refresh' }) as HTMLButtonElement).disabled
+    ).toBe(true);
+    expect(toolbar.hidden).toBe(true);
+    expect(screen.queryByText('Updating…')).toBeNull();
+    expect(screen.getByText('Acknowledged')).toBeDefined();
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe('Keep this draft');
+    await act(async () =>
+      finish({
+        items: [{ ...detail, final: { status: 'not_submitted' }, preview: 'Question' }],
+        nextBefore: null,
+      })
+    );
+    await waitFor(() =>
+      expect(
+        (within(host).getByRole('button', { name: 'Refresh' }) as HTMLButtonElement).disabled
+      ).toBe(false)
+    );
+    expect(toolbar.hidden).toBe(true);
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe('Keep this draft');
+    runtime.requests.list.mockRejectedValueOnce(new Error('Offline'));
+    fireEvent.click(within(host).getByRole('button', { name: 'Refresh' }));
+    await screen.findByRole('alert');
+    expect(input.value).toBe('Keep this draft');
+  } finally {
+    view.unmount();
+    host.remove();
+  }
+});
+
 it('sends directly to one member and scopes history to the selected room without a fan-out preview', async () => {
   const runtime = fixture();
   runtime.requests.list.mockResolvedValue({ items: [], nextBefore: null });
@@ -180,9 +234,42 @@ it('sends from the chat input, keeps Shift+Enter for new lines and preserves ina
   expect(dirty).toHaveBeenLastCalledWith(false);
   expect(screen.queryByRole('button', { name: 'Review request' })).toBeNull();
   fireEvent.change(textbox, { target: { value: 'Do not lose this silently.' } });
+  expect(screen.queryByRole('button', { name: 'Discard draft' })).toBeNull();
+  expect(textbox.value).toBe('Do not lose this silently.');
+});
+
+it('retains explicit confirmed recovery discard after an uncertain send', async () => {
+  const runtime = fixture();
+  runtime.dispatch.send.mockRejectedValue(new Error('Response lost'));
+  render(<AgentConversation target={target} runtime={runtime} active />);
+  await screen.findByText('Acknowledged');
+  const textbox = screen.getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement;
+  fireEvent.change(textbox, { target: { value: 'Do not lose this silently.' } });
+  expect(screen.queryByRole('button', { name: 'Discard draft' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await screen.findByRole('button', { name: 'Retry' });
   fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }));
   expect(textbox.value).toBe('Do not lose this silently.');
   fireEvent.click(screen.getByRole('button', { name: 'Confirm discard' }));
+  expect(textbox.value).toBe('');
+});
+
+it('can release a frozen unsent message when browser journaling fails', async () => {
+  const runtime = fixture();
+  render(<AgentConversation target={target} runtime={runtime} active />);
+  await screen.findByText('Acknowledged');
+  vi.spyOn(Object.getPrototypeOf(sessionStorage) as Storage, 'setItem').mockImplementation(() => {
+    throw new DOMException('Full', 'QuotaExceededError');
+  });
+  const textbox = screen.getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement;
+  fireEvent.change(textbox, { target: { value: 'Not sent' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await screen.findByText(/Could not preserve this pending request/);
+  expect(runtime.dispatch.send).not.toHaveBeenCalled();
+  expect(textbox.readOnly).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm discard' }));
+  expect(textbox.readOnly).toBe(false);
   expect(textbox.value).toBe('');
 });
 

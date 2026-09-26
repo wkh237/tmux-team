@@ -1,11 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
-import type { SelectionAnchor } from '../rendering/selection-anchor.js';
-import type { OfficeSelection } from '../rendering/office-selection.js';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { LocalRuntime } from './local-runtime.js';
 import { AgentConversation } from './agent-conversation.js';
 import type { ConversationTarget } from './agent-conversation.js';
-import type { ConversationCue } from './conversation-cue.js';
 import './agent-hud.css';
 
 const targetKey = (target: ConversationTarget) => `${target.id}:${target.room?.id ?? ''}`;
@@ -16,37 +13,27 @@ interface Contents {
   closed(): void;
   suspended?: boolean;
   initial?: ConversationTarget;
+  refreshInfo?(): void;
+  refreshingInfo?: boolean;
 }
 
-/** A single retained non-modal session; minimization observes, closing pauses. */
+/** One retained inspector session; hiding pauses observation without discarding its draft. */
 export function useAgentConversation(
   runtime: Pick<LocalRuntime, 'dispatch' | 'requests'>,
   contents: Contents
 ) {
   const [target, setTarget] = useState<ConversationTarget | undefined>(contents.initial);
   const [nextTarget, setNextTarget] = useState<ConversationTarget>();
-  const [mode, setMode] = useState<'closed' | 'expanded' | 'minimized'>(
-    contents.initial ? 'expanded' : 'closed'
-  );
+  const [mode, setMode] = useState<'closed' | 'expanded'>(contents.initial ? 'expanded' : 'closed');
   const [tab, setTab] = useState<Tab>(contents.initial ? 'info' : 'chat');
   const [dirty, setDirty] = useState(false);
-  const [cue, setCue] = useState<ConversationCue>({ kind: 'idle', text: 'Open chat' });
   const heading = useRef<HTMLHeadingElement>(null);
-  const bubble = useRef<HTMLButtonElement>(null);
+  const [refreshHost, setRefreshHost] = useState<HTMLSpanElement | null>(null);
   const key = target && targetKey(target);
+  const visible = mode === 'expanded' && !contents.suspended;
   useEffect(() => {
-    if (mode === 'expanded') heading.current?.focus({ preventScroll: true });
-    if (mode === 'minimized') bubble.current?.focus({ preventScroll: true });
-  }, [mode, key]);
-  const updateCue = useCallback((next: ConversationCue) => {
-    setCue((previous) =>
-      previous.kind === next.kind &&
-      previous.text === next.text &&
-      previous.requestId === next.requestId
-        ? previous
-        : next
-    );
-  }, []);
+    if (visible) heading.current?.focus({ preventScroll: true });
+  }, [visible, key]);
   const open = useCallback(
     (identity: ConversationTarget, nextTab: Tab = 'chat') => {
       if (target && targetKey(target) !== targetKey(identity) && dirty) setNextTarget(identity);
@@ -59,33 +46,16 @@ export function useAgentConversation(
     },
     [dirty, target]
   );
-  const anchorTarget = useMemo<Extract<OfficeSelection, { kind: 'agent' }> | undefined>(
-    () =>
-      target && mode !== 'closed' && !contents.suspended
-        ? {
-            kind: 'agent',
-            identityId: target.id,
-            ...(target.areaId ? { areaId: target.areaId } : {}),
-          }
-        : undefined,
-    [target, mode, contents.suspended]
-  );
   function close() {
     setMode('closed');
     contents.closed();
   }
-  function render(anchor?: SelectionAnchor) {
+  function render() {
     if (!target) return null;
-    const style = anchor
-      ? ({ '--agent-x': `${anchor.x}px`, '--agent-y': `${anchor.y}px` } as CSSProperties)
-      : undefined;
     return (
       <div
         className="agent-hud-host"
-        style={style}
-        data-anchored={Boolean(anchor)}
-        data-mode={mode}
-        hidden={mode === 'closed' || contents.suspended}
+        hidden={!visible}
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
             event.stopPropagation();
@@ -93,20 +63,6 @@ export function useAgentConversation(
           }
         }}
       >
-        {mode === 'minimized' && (
-          <button
-            ref={bubble}
-            className="agent-reply-cue"
-            data-kind={cue.kind}
-            onClick={() => {
-              setMode('expanded');
-              setTab('chat');
-            }}
-          >
-            <span>{target.name}</span>
-            <strong>{cue.text}</strong>
-          </button>
-        )}
         <aside aria-label="Agent details" hidden={mode !== 'expanded'}>
           <section
             className="agent-hud"
@@ -116,16 +72,49 @@ export function useAgentConversation(
           >
             <header className="agent-hud-header">
               {contents.portrait(target)}
-              <div>
+              <div className="agent-hud-name">
                 <h2 ref={heading} tabIndex={-1}>
                   {target.name}
                 </h2>
                 <small>{target.room?.name ?? 'Direct conversation'}</small>
               </div>
-              <button aria-label="Minimize agent conversation" onClick={() => setMode('minimized')}>
-                −
-              </button>
-              <button aria-label="Close agent conversation" onClick={close}>
+              <div className="agent-hud-tabs" role="tablist" aria-label="Agent view">
+                <button
+                  role="tab"
+                  aria-label="Chat"
+                  title="Chat"
+                  aria-selected={tab === 'chat'}
+                  onClick={() => setTab('chat')}
+                >
+                  <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <path d="M5 4h14v12H10l-5 4Z" />
+                  </svg>
+                </button>
+                <button
+                  role="tab"
+                  aria-label="Info"
+                  title="Info"
+                  aria-selected={tab === 'info'}
+                  onClick={() => setTab('info')}
+                >
+                  <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 10v7m0-11v1" />
+                  </svg>
+                </button>
+              </div>
+              <span ref={setRefreshHost} hidden={tab !== 'chat' || Boolean(nextTarget)} />
+              {tab === 'info' && contents.refreshInfo && (
+                <button
+                  aria-label="Refresh agent information"
+                  title="Refresh agent information"
+                  disabled={contents.refreshingInfo}
+                  onClick={contents.refreshInfo}
+                >
+                  ↻
+                </button>
+              )}
+              <button aria-label="Close agent conversation" title="Close" onClick={close}>
                 ×
               </button>
             </header>
@@ -152,32 +141,16 @@ export function useAgentConversation(
                 <button onClick={() => setNextTarget(undefined)}>Keep this conversation</button>
               </section>
             )}
-            <div className="agent-hud-tabs" role="tablist" aria-label="Agent view">
-              <button role="tab" aria-selected={tab === 'chat'} onClick={() => setTab('chat')}>
-                Chat
-              </button>
-              <button role="tab" aria-selected={tab === 'info'} onClick={() => setTab('info')}>
-                Info
-              </button>
-            </div>
             <div role="tabpanel" aria-label="Chat" hidden={tab !== 'chat' || Boolean(nextTarget)}>
               <AgentConversation
                 key={targetKey(target)}
                 target={target}
                 runtime={runtime}
                 compact
-                active={
-                  mode !== 'closed' &&
-                  (tab === 'chat' || mode === 'minimized') &&
-                  !nextTarget &&
-                  !contents.suspended
-                }
-                reading={
-                  mode === 'expanded' && tab === 'chat' && !nextTarget && !contents.suspended
-                }
-                minimized={mode === 'minimized'}
+                refreshHost={refreshHost}
+                active={visible && tab === 'chat' && !nextTarget}
+                reading={visible && tab === 'chat' && !nextTarget}
                 onDirtyChange={setDirty}
-                onCueChange={updateCue}
               />
             </div>
             <div role="tabpanel" aria-label="Info" hidden={tab !== 'info' || Boolean(nextTarget)}>
@@ -191,5 +164,5 @@ export function useAgentConversation(
       </div>
     );
   }
-  return { open, render, anchorTarget };
+  return { open, render, visible, identityId: visible ? target?.id : undefined };
 }

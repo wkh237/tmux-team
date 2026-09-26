@@ -177,23 +177,16 @@ it('forwards component focus and the latest activation callback without replacin
   expect(scene.fit).not.toHaveBeenCalled();
 });
 
-it('anchors the retained agent HUD through the existing scene and keeps an offscreen fallback', async () => {
+it('forwards agent selection without owning a floating inspector or actor anchor', async () => {
   const model = officeSceneFixture();
   const select = vi.fn();
   const target = { kind: 'agent' as const, identityId: 'alice', areaId: 'lobby' };
-  const overlay = vi.fn((anchor?: { x: number; y: number }) => (
-    <p>{anchor ? `${anchor.x},${anchor.y}` : 'Fallback HUD'}</p>
-  ));
-  const view = render(
-    <OfficeCanvas model={model} select={select} agentTarget={target} agentOverlay={overlay} />
-  );
-  await waitFor(() => expect(scene.anchorActor).toHaveBeenCalledWith(target));
-  act(() => create.mock.calls[0]![2].actorAnchor({ x: 180, y: 210 }));
-  expect(screen.getByText('180,210')).toBeDefined();
-  act(() => create.mock.calls[0]![2].actorAnchor(undefined));
-  expect(screen.getByText('Fallback HUD')).toBeDefined();
-  view.rerender(<OfficeCanvas model={model} select={select} agentOverlay={overlay} />);
-  expect(scene.anchorActor).toHaveBeenLastCalledWith(undefined);
+  const view = render(<OfficeCanvas model={model} select={select} selection={target} />);
+  await waitFor(() => expect(scene.selection).toHaveBeenCalledWith(target));
+  expect(scene.anchorActor).not.toHaveBeenCalled();
+  expect(create.mock.calls[0]![2].actorAnchor).toBeUndefined();
+  view.rerender(<OfficeCanvas model={model} select={select} />);
+  expect(scene.selection).toHaveBeenLastCalledWith(undefined);
   expect(create).toHaveBeenCalledTimes(1);
   expect(scene.update).toHaveBeenCalledTimes(1);
   expect(select).not.toHaveBeenCalled();

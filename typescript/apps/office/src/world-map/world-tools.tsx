@@ -36,6 +36,8 @@ import { withFurnitureBase } from './furniture-base.js';
 
 type Editor = ReturnType<typeof useWorldEditor>;
 interface Props {
+  inspector?: ReactNode;
+  inspecting?: boolean;
   obstacles?: PanelObstacles;
   creatingMeeting?: boolean;
   editor: Editor;
@@ -56,6 +58,8 @@ interface Props {
   openWorkshop: () => void;
 }
 export function WorldTools({
+  inspector,
+  inspecting = false,
   obstacles,
   creatingMeeting,
   editor,
@@ -81,11 +85,7 @@ export function WorldTools({
   const [changingUse, setChangingUse] = useState<string>();
   const library = !areaId && !objectId;
   const libraryId = useId();
-  const libraryHeading = useRef<HTMLHeadingElement>(null);
   const objectHeading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    if (library) libraryHeading.current?.focus();
-  }, [library]);
   useEffect(() => {
     objectHeading.current?.focus();
   }, [objectId]);
@@ -134,7 +134,7 @@ export function WorldTools({
   }
   return (
     <div className="world-editor-hud" ref={obstacles?.viewport}>
-      <section className="world-save-bar" aria-label="Layout changes">
+      <section className="world-save-bar" aria-label="Layout changes" hidden={inspecting}>
         <div className="world-draft-history">
           <button disabled={!editor.canUndo || editor.busy} onClick={editor.undo}>
             Undo
@@ -182,15 +182,20 @@ export function WorldTools({
           </div>
         )}
       </section>
-      <aside className="world-build-inspector" aria-label="Layout tools">
-        <div ref={obstacles?.above} className="world-build-tools">
+      <aside
+        className="world-build-inspector"
+        data-agent={inspecting}
+        aria-label={inspecting ? 'Agent inspector' : 'Layout tools'}
+      >
+        {inspector}
+        <div ref={obstacles?.above} className="world-build-tools" hidden={inspecting}>
           {!library && (
             <button disabled={editor.busy} onClick={clearSelection} aria-label="Clear selection">
               ← Furniture & devices
             </button>
           )}
         </div>
-        <div hidden={creatingMeeting} className="world-build-content">
+        <div hidden={creatingMeeting || inspecting} className="world-build-content">
           {!object && world.map.version >= 6 && world.map.version < 8 && (
             <section aria-label="Unified area layout">
               <p>
@@ -247,9 +252,7 @@ export function WorldTools({
             </details>
             <section id={libraryId} hidden={!library} aria-label="Object library">
               <div className="world-art-heading">
-                <h3 ref={libraryHeading} tabIndex={-1}>
-                  Furniture & devices
-                </h3>
+                <h3 tabIndex={-1}>Furniture & devices</h3>
                 <button aria-label="Pixel workshop and art library" onClick={openWorkshop}>
                   Pixel workshop
                 </button>

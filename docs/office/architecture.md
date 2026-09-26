@@ -366,9 +366,17 @@ HUD panels overlay the entire camera viewport. Directory and canonical room
 management live in a collapsed Office menu; the scene retains meeting creation
 and area/member entry points. There is no layout editing mode or Save/Cancel bar.
 The right-side context panel shows room properties when its floor is selected,
-object properties when a placement is selected, and the visual catalog otherwise.
+object properties when a placement is selected, agent Info/Chat when an identity is
+selected, and the visual catalog otherwise. `WorldTools` owns the shared inspector
+slot; `useAgentConversation` retains the session, not its screen position.
+The agent inspector fills the available height below the shared header. Its compact
+header owns accessible Chat/Info icons and a context-specific refresh control;
+chat refresh is portaled from the retained conversation owner, not a second request
+controller. Info scrolls within the panel, while chat history uses the remaining
+space above its composer. Layout inspectors retain their content-driven height.
 Changes apply automatically; compact Undo/Redo and pending/error status remain
-visible. Escape or a background click clears selection. Room removal still uses
+visible for layout selection and hide during agent interaction. Escape or a
+background click clears selection. Room removal still uses
 an explicit impact confirmation.
 Expansion holograms, plus marks and labels belong to the canvas, not HTML hit
 overlays. Eligible slots reveal a hologram on hover; clicking pins the preview
@@ -385,8 +393,9 @@ directory's accessible slot list. Resize observation changes presentation only a
 the card unmounts; it does not schedule an idle rendering loop.
 The retained agent Chat/Info HUD is suspended while browsing the directory/area
 roster or inspecting an object; switching recipients/room contexts guards unsent drafts.
-Its position uses the renderer's existing selection projection, with a viewport
-fallback for absent/offscreen actors. Profile drafts and resource dialogs retain
+It occupies the same right-hand inspector as layout selection, without a floating
+window or minimized bubble. Its mounted session preserves a draft when switching
+to furniture/floor selection or clearing selection. Profile drafts and resource dialogs retain
 their existing owners. Refreshing the overview preserves these mounted owners,
 including on read failure, instead of discarding open work. The geometry
 editor commits a completed object drag once; pointer cancellation does not enter
@@ -432,6 +441,12 @@ Selection owns catalog visibility, including Pixel workshop additions. There
 is no separate placement tool; unavailable objects remain selectable repair targets.
 Modular room plaques anchor to the projected rear wall header; actor/floor anchors
 remain unchanged. The shared nameplate painter keeps text legible across zoom levels.
+Area and exact-instance agent selection is painted on the platform, below all upright
+props, actors and nameplates; object outlines and rotation handles retain their separate
+foreground layer. Area accents follow usage: teal personal offices, purple meeting
+spaces and warm gold lobbies. An agent's room context does not select its floor.
+Background conversation refresh preserves the feed/composer geometry: its existing
+header refresh control reports busy state without inserting a transient toolbar row.
 Object room context derives from `object-area`, shared with extension discovery;
 choosing a room clears object selection, and removing a placement returns to that room.
 Object coordinates and surface controls are collapsed under Precise placement;
@@ -565,9 +580,8 @@ three-second observation pauses after fifteen minutes or a list failure; refresh
 or reopening starts a new bounded window. The chat window holds ten exchanges
 and uses at most two concurrent detail reads. Full bodies are fetched on first
 display, explicit refresh or summary changes; changing pages releases old bodies.
-Minimized chat continues this bounded observation and presents a history-derived
-waiting/reply cue; closing, Info-only browsing, layout editing and document
-visibility pause reads without cancelling accepted work. Reopening the cue shows
+Closing, Info-only browsing, layout selection and document
+visibility pause reads without cancelling accepted work. Reopening the agent shows
 the same request history. A view-local seen marker is not an inbox acknowledgment.
 `dispatch-journal` stores only frozen unconfirmed intent in origin/tab
 session storage, with separate direct-recipient/context and room-roster scopes.

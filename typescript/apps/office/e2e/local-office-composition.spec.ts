@@ -132,6 +132,15 @@ test('renders saved terrain and real furniture beneath floating HUD on desktop a
   await openOfficeDirectory(page);
   await page.getByRole('button', { name: /Alice · Online/ }).click();
   await expect(page.getByRole('complementary', { name: 'Agent details' })).toBeVisible();
+  const inspector = page.getByRole('complementary', { name: 'Agent inspector' });
+  await expect(inspector.getByRole('heading', { name: 'Alice', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Layout changes' })).toBeHidden();
+  await expect(page.getByRole('heading', { name: 'Furniture & devices' })).toBeHidden();
+  const dock = (await inspector.boundingBox())!;
+  expect(dock.x + dock.width).toBe(1420);
+  expect(dock.y + dock.height).toBe(980);
+  await page.getByRole('button', { name: 'Zoom in' }).click();
+  expect(await inspector.boundingBox()).toEqual(dock);
   await expect(canvas).toHaveCount(1);
   expect(await canvas.boundingBox()).toEqual(bounds);
   const objectActions = page
@@ -162,7 +171,60 @@ test('renders saved terrain and real furniture beneath floating HUD on desktop a
   await page.screenshot({ path: info.outputPath('world-agent-hud.png') });
   await page.setViewportSize({ width: 390, height: 844 });
   await readableActions();
+  const narrow = (await inspector.boundingBox())!;
+  expect(narrow.x).toBeGreaterThanOrEqual(0);
+  expect(narrow.x + narrow.width).toBeLessThanOrEqual(390);
+  expect(narrow.y + narrow.height).toBe(836);
   await page.screenshot({ path: info.outputPath('world-agent-hud-narrow.png') });
+  // Synthetic history only; this scenario proves layout/draft retention, not native delivery.
+  await page.route('**/api/v1/local/requests/list', (route) =>
+    route.fulfill({ json: { items: [], nextBefore: null } })
+  );
+  await page.getByRole('button', { name: 'Message Alice', exact: true }).click();
+  const message = inspector.getByRole('textbox', { name: 'Message', exact: true });
+  await expect(
+    inspector.getByText('Start a conversation with Alice.', { exact: true })
+  ).toBeVisible();
+  const emptyComposer = await inspector.locator('.conversation-compose').boundingBox();
+  const emptyFeed = await inspector.getByRole('log').boundingBox();
+  await message.fill('Keep this draft while I inspect the room.');
+  await expect(inspector.getByRole('button', { name: 'Discard draft' })).toHaveCount(0);
+  expect(await inspector.locator('.conversation-compose').boundingBox()).toEqual(emptyComposer);
+  expect(await inspector.getByRole('log').boundingBox()).toEqual(emptyFeed);
+  await expect(message).toBeInViewport();
+  expect(await inspector.boundingBox()).toEqual(narrow);
+  const composer = (await inspector.locator('.conversation-compose').boundingBox())!;
+  expect(composer.y + composer.height).toBeCloseTo(narrow.y + narrow.height - 1, 0);
+  // Hold the next real background history poll, not a synthetic loading flag.
+  // Refresh must neither insert a toolbar row nor move the focused composer.
+  let releaseRefresh!: () => void;
+  const refreshGate = new Promise<void>((resolve) => {
+    releaseRefresh = resolve;
+  });
+  await page.route('**/api/v1/local/requests/list', async (route) => {
+    await refreshGate;
+    await route.fulfill({ json: { items: [], nextBefore: null } });
+  });
+  const feedBounds = await inspector.getByRole('log').boundingBox();
+  await page.waitForRequest('**/api/v1/local/requests/list');
+  await expect(inspector.getByRole('button', { name: 'Refresh', exact: true })).toBeDisabled();
+  expect(await inspector.boundingBox()).toEqual(narrow);
+  expect(await inspector.locator('.conversation-compose').boundingBox()).toEqual(composer);
+  expect(await inspector.getByRole('log').boundingBox()).toEqual(feedBounds);
+  await expect(message).toBeFocused();
+  await expect(message).toHaveValue('Keep this draft while I inspect the room.');
+  await expect(inspector.getByText('Updating…', { exact: true })).toHaveCount(0);
+  releaseRefresh();
+  await expect(inspector.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+  expect(await inspector.locator('.conversation-compose').boundingBox()).toEqual(composer);
+  await expect(message).toBeFocused();
+  await page.screenshot({ path: info.outputPath('world-agent-chat-narrow.png') });
+  await message.press('Escape');
+  await expect(page.getByRole('heading', { name: 'Furniture & devices' })).toBeVisible();
+  await openOfficeDirectory(page);
+  await page.getByRole('button', { name: /Alice · Online/ }).click();
+  await page.getByRole('button', { name: 'Message Alice', exact: true }).click();
+  await expect(message).toHaveValue('Keep this draft while I inspect the room.');
   await page.getByRole('button', { name: 'Close agent conversation' }).click();
   await page.getByRole('button', { name: 'Fit office' }).click();
   await page.screenshot({ path: info.outputPath('world-narrow.png') });

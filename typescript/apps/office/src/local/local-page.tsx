@@ -249,10 +249,12 @@ function ReadyOffice({
   const selectedArea =
     selection?.kind === 'area' ? population.areas.get(selection.areaId) : undefined;
   const conversation = useAgentConversation(load.runtime, {
+    refreshInfo: refresh,
+    refreshingInfo: load.refreshing || editor.busy || editor.dirty || editor.saving,
     initial: initialIdentityId
       ? targetFor({ kind: 'agent', identityId: initialIdentityId })
       : undefined,
-    suspended: panel !== null || Boolean(selectedObject),
+    suspended: selection?.kind !== 'agent' || panel !== null || Boolean(meetingDraft),
     closed: () => {
       setSelection(undefined);
       setPanel(null);
@@ -301,7 +303,7 @@ function ReadyOffice({
       );
     },
   });
-  const conversationIdentityId = conversation.anchorTarget?.identityId;
+  const conversationIdentityId = conversation.identityId;
   const sceneModel = useMemo(
     () =>
       officeSceneModel(
@@ -477,6 +479,8 @@ function ReadyOffice({
           <div className="world-camera-dock" ref={setCameraHost} />
         </div>
         <WorldTools
+          inspector={conversation.render()}
+          inspecting={conversation.visible}
           roomPort={load.runtime.rooms}
           roomSaved={roomChanged}
           onRoomBusyChange={setRoomBusy}
@@ -567,8 +571,6 @@ function ReadyOffice({
         editor={sceneEditor}
         activate={extensions.activate}
         focusedComponentId={extensions.focused}
-        agentTarget={conversation.anchorTarget}
-        agentOverlay={conversation.render}
         createMeeting={beginMeeting}
         meetingOverlay={(anchor) =>
           meetingDraft ? (

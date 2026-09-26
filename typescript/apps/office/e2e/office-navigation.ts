@@ -14,6 +14,8 @@ export async function openKeyboardSelection(page: Page): Promise<void> {
   // An initializing page has neither picker nor Clear selection. Wait for the
   // mounted world before deciding whether the current inspector must be closed.
   await expect(page.locator('.office-map')).toHaveAttribute('data-scene-ready', 'true');
+  const agentClose = page.getByRole('button', { name: 'Close agent conversation', exact: true });
+  if (await agentClose.isVisible()) await agentClose.click();
   const summary = page.getByText('Keyboard selection', { exact: true });
   const details = summary.locator('..');
   if (!(await summary.isVisible()))
