@@ -320,6 +320,48 @@ it('has no mode switch and selects room properties directly without writing', as
   expect(local.world.save).not.toHaveBeenCalled();
 });
 
+it('shares one right inspector across agent, object and floor selection without losing the chat draft', async () => {
+  const local = runtime();
+  local.requests.list = vi.fn(async () => ({ items: [], nextBefore: null }));
+  local.requests.receipt = vi.fn(async () => null);
+  await show(local);
+  act(() => canvas.select!({ kind: 'agent', identityId }));
+  const inspector = screen.getByRole('complementary', { name: 'Agent inspector' });
+  expect(within(inspector).getByRole('dialog', { name: 'Agent conversation' })).toBeDefined();
+  expect(screen.queryByRole('heading', { name: 'Furniture & devices' })).toBeNull();
+  expect(screen.queryByRole('region', { name: 'Layout changes' })).toBeNull();
+  const input = await screen.findByRole('textbox', { name: 'Message' });
+  fireEvent.change(input, { target: { value: 'A retained draft' } });
+  const header = inspector.querySelector('header')!;
+  const historyReads = vi.mocked(local.requests.list).mock.calls.length;
+  fireEvent.click(within(header).getByRole('button', { name: 'Refresh' }));
+  await waitFor(() => expect(local.requests.list).toHaveBeenCalledTimes(historyReads + 1));
+  fireEvent.click(within(header).getByRole('tab', { name: 'Info' }));
+  const worldReads = vi.mocked(local.world.show).mock.calls.length;
+  fireEvent.click(within(header).getByRole('button', { name: 'Refresh agent information' }));
+  await waitFor(() => expect(local.world.show).toHaveBeenCalledTimes(worldReads + 1));
+  fireEvent.click(within(header).getByRole('tab', { name: 'Chat' }));
+  expect(input).toHaveProperty('value', 'A retained draft');
+  const object = canvas.model!.world.objects[0]!;
+  act(() => canvas.editor!.select!(object.id));
+  expect(screen.queryByRole('dialog', { name: 'Agent conversation' })).toBeNull();
+  expect(screen.getByRole('heading', { name: /^Selected object:/ })).toBeDefined();
+  act(() => canvas.select!({ kind: 'agent', identityId }));
+  expect(screen.getByRole('textbox', { name: 'Message' })).toBe(input);
+  expect(input).toHaveProperty('value', 'A retained draft');
+  act(() => canvas.select!({ kind: 'area', areaId: WORLD_LOBBY_ID }));
+  expect(screen.getByLabelText('Area name')).toHaveProperty('value', 'Lobby');
+  expect(screen.queryByRole('dialog', { name: 'Agent conversation' })).toBeNull();
+  act(() => canvas.select!({ kind: 'agent', identityId }));
+  fireEvent.keyDown(input, { key: 'Escape' });
+  expect(screen.queryByRole('dialog', { name: 'Agent conversation' })).toBeNull();
+  expect(screen.getByRole('heading', { name: 'Furniture & devices' })).toBeDefined();
+  act(() => canvas.select!({ kind: 'agent', identityId }));
+  expect(input).toHaveProperty('value', 'A retained draft');
+  expect(local.world.save).not.toHaveBeenCalled();
+  expect(local.dispatch.send).not.toHaveBeenCalled();
+});
+
 it('handles layout history keys from body without intercepting native input history', async () => {
   const local = runtime();
   const view = await show(local);

@@ -74,7 +74,6 @@ export interface OfficeSceneEvents {
   select(selection: OfficeSelection): void;
   activate?(id: string): void;
   selectedAnchor?(anchor: SelectionAnchor | undefined): void;
-  actorAnchor?(anchor: SelectionAnchor | undefined): void;
   officeAnchor?(target: SelectionTarget | undefined): void;
   meetingAnchor?(target: SelectionTarget | undefined): void;
   createMeeting?(slot: MeetingSlot): void;
@@ -88,7 +87,6 @@ export async function createOfficeScene(
     select,
     activate = () => {},
     selectedAnchor = () => {},
-    actorAnchor = () => {},
     officeAnchor = () => {},
     meetingAnchor = () => {},
     createMeeting = () => {},
@@ -142,7 +140,6 @@ export async function createOfficeScene(
   let editor: OfficeSceneEditor | undefined;
   let objectPickOrder: OfficeSceneModel['world']['objects'] = [];
   let selected: OfficeSelection | undefined;
-  let anchoredActor: Extract<OfficeSelection, { kind: 'agent' }> | undefined;
   let focused: string | undefined, hovered: string | undefined;
   let componentLayer: ReturnType<typeof drawSceneComponents> | undefined;
   let nameplates: ReturnType<typeof sceneNameplate>[] = [];
@@ -214,16 +211,6 @@ export async function createOfficeScene(
         ? selectionAnchor(rect, camera, { width: host.clientWidth, height: host.clientHeight })
         : undefined
     );
-    const actorRect = actors.find(
-      ({ actor }) =>
-        actor.identityId === anchoredActor?.identityId &&
-        (!anchoredActor.areaId || actor.areaId === anchoredActor.areaId)
-    )?.bounds;
-    actorAnchor(
-      actorRect
-        ? selectionAnchor(actorRect, camera, { width: host.clientWidth, height: host.clientHeight })
-        : undefined
-    );
     officeAnchor(
       editor?.selectedOffice
         ? selectionTarget(
@@ -246,10 +233,6 @@ export async function createOfficeScene(
         : undefined
     );
     invalidate();
-  }
-  function anchorActor(value?: Extract<OfficeSelection, { kind: 'agent' }>) {
-    anchoredActor = value;
-    selection(selected);
   }
   function sky() {
     const width = Math.max(1, host.clientWidth),
@@ -1032,7 +1015,6 @@ export async function createOfficeScene(
     selection,
     interaction,
     editing,
-    anchorActor,
     fit,
     zoom,
     catalogPlacement,

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import type { IdentityChoice } from '../profiles/identity-choice.js';
 import type { LocalRuntime } from './local-runtime.js';
 import { createConversationState } from './conversation-state.js';
@@ -18,6 +19,7 @@ export interface ConversationTarget extends IdentityChoice {
 }
 
 interface Props {
+  refreshHost?: HTMLElement | null;
   target: ConversationTarget;
   runtime: Runtime;
   active: boolean;
@@ -116,6 +118,7 @@ function ConversationSession({
   reading = true,
   minimized = false,
   compact = false,
+  refreshHost,
   onCueChange,
   history,
   composer,
@@ -216,7 +219,15 @@ function ConversationSession({
           </p>
         )}
       </header>
-      <div className="chat-toolbar">
+      <div
+        className="chat-toolbar"
+        hidden={
+          Boolean(refreshHost) &&
+          !snapshot.page?.nextBefore &&
+          !snapshot.before &&
+          !snapshot.loading
+        }
+      >
         {snapshot.page?.nextBefore && (
           <button
             disabled={snapshot.loading}
@@ -238,9 +249,23 @@ function ConversationSession({
             Latest messages
           </button>
         )}
-        <button disabled={snapshot.loading} onClick={() => history.refresh()}>
-          Refresh
-        </button>
+        {refreshHost ? (
+          createPortal(
+            <button
+              aria-label="Refresh"
+              title="Refresh conversation"
+              disabled={snapshot.loading}
+              onClick={() => history.refresh()}
+            >
+              ↻
+            </button>,
+            refreshHost
+          )
+        ) : (
+          <button disabled={snapshot.loading} onClick={() => history.refresh()}>
+            Refresh
+          </button>
+        )}
         {snapshot.loading && <span role="status">Updating…</span>}
       </div>
       {snapshot.error && (

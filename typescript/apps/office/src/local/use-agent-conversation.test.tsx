@@ -36,15 +36,15 @@ function Harness({
     <>
       <button onClick={() => chat.open(alice)}>Open Alice</button>
       <button onClick={() => chat.open(bob)}>Open Bob</button>
-      {chat.render({ x: 180, y: 220 })}
+      {chat.render()}
     </>
   );
 }
 afterEach(() => sessionStorage.clear());
 
-it('opens initial Info without polling and keeps a draft through tabs, minimization and closing', async () => {
+it('opens initial Info without polling and keeps a draft through tabs, layout selection and closing', async () => {
   const runtime = fixture();
-  render(<Harness runtime={runtime} initial />);
+  const view = render(<Harness runtime={runtime} initial />);
   expect(screen.getByText('Alice information')).toBeDefined();
   expect(runtime.requests.list).not.toHaveBeenCalled();
   expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Alice' }));
@@ -52,11 +52,11 @@ it('opens initial Info without polling and keeps a draft through tabs, minimizat
   const input = await screen.findByRole('textbox', { name: 'Message' });
   fireEvent.change(input, { target: { value: 'Keep this draft' } });
   fireEvent.click(screen.getByRole('tab', { name: 'Info' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Minimize agent conversation' }));
-  const bubble = screen.getByRole('button', { name: 'Alice Open chat' });
-  expect(document.activeElement).toBe(bubble);
+  expect(screen.queryByRole('button', { name: 'Minimize agent conversation' })).toBeNull();
+  view.rerender(<Harness runtime={runtime} suspended />);
   expect(screen.queryByRole('dialog', { name: 'Agent conversation' })).toBeNull();
-  fireEvent.click(bubble);
+  view.rerender(<Harness runtime={runtime} />);
+  fireEvent.click(screen.getByRole('tab', { name: 'Chat' }));
   expect(screen.getByRole('textbox', { name: 'Message' })).toBe(input);
   expect(input).toHaveProperty('value', 'Keep this draft');
   fireEvent.click(screen.getByRole('button', { name: 'Close agent conversation' }));
@@ -94,7 +94,7 @@ it('requires explicit discard before changing a dirty target and keeps the origi
   expect(runtime.dispatch.send).not.toHaveBeenCalled();
 });
 
-it('aborts observation when closed or suspended, but not merely minimized', async () => {
+it('aborts observation when closed or suspended and resumes only when selected again', async () => {
   const runtime = fixture();
   let signal: AbortSignal | undefined;
   runtime.requests.list.mockImplementation((_query?: unknown, lifetime?: AbortSignal) => {
@@ -104,13 +104,10 @@ it('aborts observation when closed or suspended, but not merely minimized', asyn
   const view = render(<Harness runtime={runtime} />);
   fireEvent.click(screen.getByRole('button', { name: 'Open Alice' }));
   await waitFor(() => expect(signal).toBeDefined());
-  fireEvent.click(screen.getByRole('button', { name: 'Minimize agent conversation' }));
-  expect(signal?.aborted).toBe(false);
   view.rerender(<Harness runtime={runtime} suspended />);
   expect(signal?.aborted).toBe(true);
   view.rerender(<Harness runtime={runtime} />);
   expect(signal?.aborted).toBe(false);
-  fireEvent.click(screen.getByRole('button', { name: 'Alice Open chat' }));
   fireEvent.click(screen.getByRole('button', { name: 'Close agent conversation' }));
   expect(signal?.aborted).toBe(true);
   expect(runtime.dispatch.send).not.toHaveBeenCalled();

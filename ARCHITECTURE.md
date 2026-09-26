@@ -408,14 +408,16 @@ retirement does not erase stored placements or linked content.
 The local overview and identity deep links select the same whole-world loader,
 editor and mount-owned Pixi renderer. React owns browse panels independently of
 selection and the world draft. Selecting directory, area or object controls suspends
-the retained agent HUD. Chat/Info share one recipient/context; minimized chat
-observes replies, while closing pauses observation without cancelling work.
-The existing scene camera projects the selected actor anchor; an absent/offscreen
-actor uses a viewport fallback. Hidden details retain unsaved appearance edits;
+the retained agent session. Chat/Info share one recipient/context; closing or
+selecting layout content pauses observation without cancelling work. `WorldTools`
+owns the shared right-hand inspector slot, while `use-agent-conversation` owns
+draft retention and request recovery, independent of camera position. There is
+no floating or minimized agent window. Hidden details retain unsaved appearance edits;
 changing panels never resizes the canvas. The HUD uses one viewport overlay
 grid for the header and a right-hand inspector with auto-apply status and Undo/Redo.
 There is no layout edit mode or manual Save/Cancel. Selection reveals contextual
-controls; no selection reveals the furniture library. Creation cards measure the inspector's viewport
+controls; agent selection replaces layout controls with Info/Chat, and no selection
+reveals the furniture library. Creation cards measure the inspector's viewport
 boundary rather than reserving a bottom save bar. Directory and room management
 use a collapsed Office menu. Camera controls remain
 owned by the mounted canvas and portal into one stable top-line dock.

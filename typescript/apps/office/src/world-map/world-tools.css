@@ -27,6 +27,7 @@
   pointer-events: auto;
 }
 .world-editor-hud {
+  width: min(322px, 100%);
   grid-column: 1;
   grid-row: 2;
   justify-self: end;
@@ -36,6 +37,9 @@
   flex-direction: column;
   gap: 12px;
   align-items: flex-end;
+}
+.world-editor-hud [hidden] {
+  display: none;
 }
 .world-camera-dock {
   z-index: 3;
@@ -124,6 +128,12 @@
 }
 .world-build-content {
   padding: 16px;
+}
+.world-build-inspector[data-agent='true'] {
+  flex: 1 1 0;
+  display: flex;
+  overflow: hidden;
+  padding: 0;
 }
 .world-build-inspector h2 {
   margin-top: 0;
@@ -216,9 +226,9 @@
   color: var(--hud-text);
   color-scheme: dark;
 }
-.world-build-inspector section,
-.world-build-inspector details,
-.world-build-inspector form {
+.world-build-content section,
+.world-build-content details,
+.world-build-content form {
   border-top: 1px solid var(--hud-border);
   padding: 12px 0;
 }

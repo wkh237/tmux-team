@@ -24,8 +24,6 @@ export function OfficeCanvas({
   activate,
   focusedComponentId,
   furnitureActions,
-  agentTarget,
-  agentOverlay,
   officeOverlay,
   meetingOverlay,
   createMeeting,
@@ -39,8 +37,6 @@ export function OfficeCanvas({
   activate?: (id: string) => void;
   focusedComponentId?: string;
   furnitureActions?: FurnitureActions;
-  agentTarget?: Extract<OfficeSelection, { kind: 'agent' }>;
-  agentOverlay?(anchor?: SelectionAnchor): ReactNode;
   officeOverlay?(anchor?: SelectionTarget): ReactNode;
   meetingOverlay?(anchor?: SelectionTarget): ReactNode;
   createMeeting?(slot: MeetingSlot): void;
@@ -56,14 +52,12 @@ export function OfficeCanvas({
     editor,
     activate,
     focusedComponentId,
-    agentTarget,
     createMeeting,
   });
   const synchronize = useRef(() => {});
   const [ready, setReady] = useState(false);
   const [error, setError] = useState(false);
   const [anchor, setAnchor] = useState<SelectionAnchor>();
-  const [agentAnchor, setAgentAnchor] = useState<SelectionAnchor>();
   const [officeAnchor, setOfficeAnchor] = useState<SelectionTarget>();
   const [meetingAnchor, setMeetingAnchor] = useState<SelectionTarget>();
   useEffect(() => {
@@ -74,11 +68,10 @@ export function OfficeCanvas({
       editor,
       activate,
       focusedComponentId,
-      agentTarget,
       createMeeting,
     };
     synchronize.current();
-  }, [model, selection, select, editor, activate, focusedComponentId, agentTarget, createMeeting]);
+  }, [model, selection, select, editor, activate, focusedComponentId, createMeeting]);
   useEffect(() => {
     const element = host.current;
     if (!element) return;
@@ -92,7 +85,6 @@ export function OfficeCanvas({
       setReady(false);
       setError(true);
       setAnchor(undefined);
-      setAgentAnchor(undefined);
     }
     function flush() {
       const current = scene.current;
@@ -104,8 +96,6 @@ export function OfficeCanvas({
         if (!applied || applied.editor !== next.editor) current.editing(next.editor);
         if (!applied || applied.focusedComponentId !== next.focusedComponentId)
           current.interaction(next.focusedComponentId);
-        if (!applied || applied.agentTarget !== next.agentTarget)
-          current.anchorActor(next.agentTarget);
         applied = next;
         setReady(true);
       } catch {
@@ -129,12 +119,6 @@ export function OfficeCanvas({
           selectedAnchor: (next) => {
             if (!controller.signal.aborted)
               setAnchor((previous) =>
-                previous?.x === next?.x && previous?.y === next?.y ? previous : next
-              );
-          },
-          actorAnchor: (next) => {
-            if (!controller.signal.aborted)
-              setAgentAnchor((previous) =>
                 previous?.x === next?.x && previous?.y === next?.y ? previous : next
               );
           },
@@ -208,7 +192,6 @@ export function OfficeCanvas({
       {ready && editor && anchor && furnitureActions && (
         <FurnitureToolbar actions={furnitureActions} anchor={anchor} />
       )}
-      {agentOverlay?.(agentAnchor)}
       {ready && officeOverlay?.(officeAnchor)}
       {ready && meetingOverlay?.(meetingAnchor)}
     </div>

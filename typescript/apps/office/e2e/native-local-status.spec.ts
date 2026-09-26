@@ -150,8 +150,8 @@ test('canonical CLI status drives live actor cues and Info, expires without a re
             exchange: { prompt: { message: string }; reply: { receipt: string } };
           }>(['x', 'show', requestId, '--incoming', '--identity', 'Alice']);
           expect(incoming.exchange.prompt.message).toBe('Review the current layout.');
-          await chat.getByRole('button', { name: 'Minimize agent conversation' }).click();
-          await expect(page.getByRole('button', { name: 'Alice Awaiting reply' })).toBeVisible();
+          await chat.getByRole('button', { name: 'Close agent conversation' }).click();
+          await expect(page.getByRole('heading', { name: 'Furniture & devices' })).toBeVisible();
           await cli([
             'reply',
             requestId,
@@ -160,15 +160,12 @@ test('canonical CLI status drives live actor cues and Info, expires without a re
             '--message',
             'The layout is ready.',
           ]);
-          await expect(page.getByRole('button', { name: 'Alice Reply ready' })).toBeVisible();
-          const cue = page.getByRole('button', { name: 'Alice Reply ready' });
-          const box = (await cue.boundingBox())!;
-          const anchorX = await cue
-            .locator('..')
-            .evaluate((element) =>
-              Number.parseFloat((element as HTMLElement).style.getPropertyValue('--agent-x'))
-            );
-          expect(Math.abs(box.x + box.width / 2 - anchorX)).toBeLessThan(1);
+          await openAgentDetails(page, 'Alice');
+          await page.getByRole('button', { name: 'Message Alice', exact: true }).click();
+          await expect(chat.locator('.conversation-reply')).toHaveText('The layout is ready.');
+          const inspector = page.getByRole('complementary', { name: 'Agent inspector' });
+          const box = (await inspector.boundingBox())!;
+          expect(box.x + box.width).toBeLessThanOrEqual(1440);
           expect(box.y + box.height).toBeLessThan(1000);
           await page.screenshot({ path: info.outputPath('status-reply-priority.png') });
           expect(
@@ -183,7 +180,6 @@ test('canonical CLI status drives live actor cues and Info, expires without a re
             ).status
           ).toEqual(renewed.status);
           expect(stored(sandbox.database).requests).toBe(1);
-          await page.getByRole('button', { name: 'Alice Reply ready' }).click();
           await expect(chat.locator('.conversation-reply')).toHaveText('The layout is ready.');
           expect(renderErrors).toEqual([]);
           await office(['stop']);

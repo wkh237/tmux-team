@@ -1,10 +1,10 @@
 .agent-hud-host {
-  --agent-hud-top: clamp(84px, var(--agent-y, 116px), calc(100dvh - 568px));
-  position: absolute;
-  left: clamp(12px, calc(var(--agent-x, 100vw) + 20px), calc(100vw - 388px));
-  top: var(--agent-hud-top);
-  z-index: 45;
-  width: min(368px, calc(100vw - 24px));
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
   color: var(--hud-text);
   color-scheme: dark;
   font:
@@ -18,28 +18,31 @@
 .agent-hud {
   display: flex;
   flex-direction: column;
-  max-height: calc(100dvh - var(--agent-hud-top) - 12px);
-  overflow: hidden;
-  border: 1px solid var(--hud-border);
-  border-radius: 12px;
-  background: var(--hud-panel);
-  box-shadow: var(--hud-shadow);
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+}
+.agent-hud-host > aside {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
 }
 .agent-hud-header {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 4px;
+  padding: 10px 8px;
   background: var(--hud-control);
   border-bottom: 1px solid var(--hud-border);
 }
-.agent-hud-header > div {
+.agent-hud-name {
   min-width: 0;
   flex: 1;
   overflow-wrap: anywhere;
 }
-.agent-hud-header h2 {
+.agent-hud .agent-hud-name h2 {
   display: block;
   margin: 0;
   font-size: 15px;
@@ -52,30 +55,33 @@
   cursor: pointer;
   min-height: 44px;
 }
-.agent-hud-header button {
-  width: 44px;
-  height: 44px;
+.agent-hud .agent-hud-header button {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  flex-shrink: 0;
   padding: 0;
   border: 0;
   border-radius: 5px;
   color: var(--hud-text);
   background: var(--hud-control);
-  font-size: 22px;
+  font-size: 20px;
 }
 .agent-hud-portrait {
-  width: 40px;
-  height: 40px;
-  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
   image-rendering: pixelated;
 }
 .agent-hud-tabs {
   flex-shrink: 0;
   display: flex;
-  gap: 4px;
-  padding: 8px 12px;
+  gap: 2px;
+  padding: 0;
 }
 .agent-hud-tabs button {
-  flex: 1;
+  flex: none;
   border: 1px solid var(--hud-border);
   border-radius: 5px;
   padding: 6px;
@@ -87,15 +93,28 @@
   background: var(--hud-selected);
   color: var(--hud-control);
 }
+.agent-hud-tabs svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  vertical-align: middle;
+}
+.agent-hud-header > span {
+  display: flex;
+}
 .agent-hud [role='tabpanel'][aria-label='Info'],
 .agent-hud-confirm {
   padding: 12px;
 }
 .agent-hud > [role='tabpanel'] {
+  flex: 1;
   min-height: 0;
   overflow: auto;
 }
 .agent-hud [role='tabpanel'][aria-label='Info'] > button {
+  margin: 4px 4px 0 0;
   padding: 8px 10px;
   border: 1px solid var(--hud-border);
   border-radius: 6px;
@@ -110,10 +129,12 @@
   color: var(--hud-control);
 }
 .agent-hud-confirm {
+  overflow: auto;
   background: var(--hud-control);
 }
 .agent-hud .agent-conversation {
-  height: min(440px, calc(100dvh - 224px));
+  height: 100%;
+  min-height: 0;
 }
 .agent-self-status {
   margin-block: 12px;
@@ -135,11 +156,7 @@
   display: block;
   color: var(--hud-muted);
 }
-.agent-hud .agent-conversation[data-empty='true'] {
-  height: auto;
-}
 .agent-hud .agent-conversation[data-empty='true'] .chat-feed {
-  flex: none;
   min-height: 0;
   padding: 8px 12px;
 }
@@ -173,6 +190,7 @@
   margin-bottom: 14px;
 }
 .agent-hud .conversation-compose {
+  flex-shrink: 0;
   padding: 8px 12px;
 }
 .agent-hud .conversation-compose textarea {
@@ -194,47 +212,7 @@
 .agent-hud .chat-compose-actions {
   gap: 6px;
 }
-.agent-hud :focus-visible,
-.agent-reply-cue:focus-visible {
+.agent-hud :focus-visible {
   outline: 3px solid var(--hud-focus);
   outline-offset: 2px;
-}
-.agent-reply-cue {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-width: 250px;
-  padding: 8px 16px;
-  border: 2px solid var(--hud-border);
-  border-radius: 16px;
-  background: var(--hud-panel);
-  color: var(--hud-text);
-  box-shadow: var(--hud-shadow);
-  cursor: pointer;
-  font: inherit;
-  overflow-wrap: anywhere;
-}
-.agent-hud-host[data-mode='minimized'] {
-  left: clamp(137px, var(--agent-x, calc(100vw - 137px)), calc(100vw - 137px));
-  top: clamp(84px, var(--agent-y, 116px), calc(100dvh - 96px));
-  width: max-content;
-  max-width: min(250px, calc(100vw - 24px));
-  transform: translateX(-50%);
-}
-.agent-reply-cue span {
-  font-size: 11px;
-}
-.agent-reply-cue[data-kind='reply'] {
-  color: var(--hud-control);
-  background: var(--hud-selected);
-  border-color: var(--hud-selected);
-}
-.agent-reply-cue[data-kind='notice'] {
-  border-color: var(--hud-warning);
-}
-@media (max-width: 600px) {
-  .agent-hud-host {
-    left: 12px;
-    top: 84px;
-  }
 }
