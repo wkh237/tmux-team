@@ -182,7 +182,15 @@ test('renders saved terrain and real furniture beneath floating HUD on desktop a
   );
   await page.getByRole('button', { name: 'Message Alice', exact: true }).click();
   const message = inspector.getByRole('textbox', { name: 'Message', exact: true });
+  await expect(
+    inspector.getByText('Start a conversation with Alice.', { exact: true })
+  ).toBeVisible();
+  const emptyComposer = await inspector.locator('.conversation-compose').boundingBox();
+  const emptyFeed = await inspector.getByRole('log').boundingBox();
   await message.fill('Keep this draft while I inspect the room.');
+  await expect(inspector.getByRole('button', { name: 'Discard draft' })).toHaveCount(0);
+  expect(await inspector.locator('.conversation-compose').boundingBox()).toEqual(emptyComposer);
+  expect(await inspector.getByRole('log').boundingBox()).toEqual(emptyFeed);
   await expect(message).toBeInViewport();
   expect(await inspector.boundingBox()).toEqual(narrow);
   const composer = (await inspector.locator('.conversation-compose').boundingBox())!;

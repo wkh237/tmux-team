@@ -353,6 +353,7 @@ function ConversationSession({
           )}
         </div>
         {dirty &&
+          (composition.review || composition.recoveryBlocked) &&
           !composition.busy &&
           (confirmDiscard ? (
             <div className="chat-discard" role="group" aria-label="Discard message confirmation">

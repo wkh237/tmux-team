@@ -234,9 +234,42 @@ it('sends from the chat input, keeps Shift+Enter for new lines and preserves ina
   expect(dirty).toHaveBeenLastCalledWith(false);
   expect(screen.queryByRole('button', { name: 'Review request' })).toBeNull();
   fireEvent.change(textbox, { target: { value: 'Do not lose this silently.' } });
+  expect(screen.queryByRole('button', { name: 'Discard draft' })).toBeNull();
+  expect(textbox.value).toBe('Do not lose this silently.');
+});
+
+it('retains explicit confirmed recovery discard after an uncertain send', async () => {
+  const runtime = fixture();
+  runtime.dispatch.send.mockRejectedValue(new Error('Response lost'));
+  render(<AgentConversation target={target} runtime={runtime} active />);
+  await screen.findByText('Acknowledged');
+  const textbox = screen.getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement;
+  fireEvent.change(textbox, { target: { value: 'Do not lose this silently.' } });
+  expect(screen.queryByRole('button', { name: 'Discard draft' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await screen.findByRole('button', { name: 'Retry' });
   fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }));
   expect(textbox.value).toBe('Do not lose this silently.');
   fireEvent.click(screen.getByRole('button', { name: 'Confirm discard' }));
+  expect(textbox.value).toBe('');
+});
+
+it('can release a frozen unsent message when browser journaling fails', async () => {
+  const runtime = fixture();
+  render(<AgentConversation target={target} runtime={runtime} active />);
+  await screen.findByText('Acknowledged');
+  vi.spyOn(Object.getPrototypeOf(sessionStorage) as Storage, 'setItem').mockImplementation(() => {
+    throw new DOMException('Full', 'QuotaExceededError');
+  });
+  const textbox = screen.getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement;
+  fireEvent.change(textbox, { target: { value: 'Not sent' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+  await screen.findByText(/Could not preserve this pending request/);
+  expect(runtime.dispatch.send).not.toHaveBeenCalled();
+  expect(textbox.readOnly).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm discard' }));
+  expect(textbox.readOnly).toBe(false);
   expect(textbox.value).toBe('');
 });
 
