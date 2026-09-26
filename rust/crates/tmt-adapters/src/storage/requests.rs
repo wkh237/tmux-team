@@ -11,7 +11,7 @@ mod rows;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use tmt_core::request::{
     AttemptStatus, FinalResponse, RawRequestContext, RequestAttempt, RequestEndpoint,
-    RequestRecords, RequestRepository, RequestRoute, StoredPrompt,
+    RequestRecords, RequestRepository, RequestRoute, StoredPrompt, WakeState,
 };
 
 use super::{
@@ -196,6 +196,47 @@ impl RequestRecords for RequestRows<'_> {
             )
             .optional()
             .map_err(|error| classify(error, "Find request"))
+    }
+
+    fn wake_state(&self, request_id: &str) -> Result<Option<WakeState>, Self::Error> {
+        self.0
+            .query_row(
+                "SELECT wake_state FROM request_attempts WHERE request_id = ?",
+                [request_id],
+                |row| match row.get::<_, String>(0)?.as_str() {
+                    "not_attempted" => Ok(WakeState::NotAttempted),
+                    "claimed" => Ok(WakeState::Claimed),
+                    "sent" => Ok(WakeState::Sent),
+                    "unavailable" => Ok(WakeState::Unavailable),
+                    "uncertain" => Ok(WakeState::Uncertain),
+                    _ => Err(rusqlite::Error::InvalidQuery),
+                },
+            )
+            .optional()
+            .map_err(|error| classify(error, "Read request wake state"))
+    }
+
+    fn claim_wake(&mut self, request_id: &str) -> Result<bool, Self::Error> {
+        self.0
+            .execute(
+                "UPDATE request_attempts SET wake_state = 'claimed'
+                 WHERE request_id = ? AND route_kind = 'inbox' AND status = 'queued'
+                   AND request_kind = 'request' AND wake_state = 'not_attempted'",
+                [request_id],
+            )
+            .map(|count| count == 1)
+            .map_err(|error| classify(error, "Claim request wake"))
+    }
+
+    fn settle_wake(&mut self, request_id: &str, state: WakeState) -> Result<bool, Self::Error> {
+        self.0
+            .execute(
+                "UPDATE request_attempts SET wake_state = ?
+                 WHERE request_id = ? AND wake_state = 'claimed'",
+                params![state.as_str(), request_id],
+            )
+            .map(|count| count == 1)
+            .map_err(|error| classify(error, "Settle request wake"))
     }
 
     fn find_context(&self, request_id: &str) -> Result<Option<RawRequestContext>, Self::Error> {

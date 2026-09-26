@@ -5,6 +5,7 @@ mod attention;
 mod history;
 mod lifecycle;
 mod responses;
+mod wake;
 
 use super::*;
 use crate::{exact_text::validate_exact_text, limits::MAX_JS_SAFE_INTEGER, retention::*};

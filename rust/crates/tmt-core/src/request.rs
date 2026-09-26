@@ -71,6 +71,34 @@ pub enum Settlement {
     DefinitelyFailed,
 }
 
+/// Advisory pane notification is independent of the inbox delivery state.
+/// Claimed means input may have happened if the caller disappeared before settlement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WakeState {
+    NotAttempted,
+    Claimed,
+    Sent,
+    Unavailable,
+    Uncertain,
+}
+
+impl WakeState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NotAttempted => "not_attempted",
+            Self::Claimed => "claimed",
+            Self::Sent => "sent",
+            Self::Unavailable => "unavailable",
+            Self::Uncertain => "uncertain",
+        }
+    }
+}
+
+pub struct WakeClaim {
+    pub state: WakeState,
+    pub claimed: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Originator {
     Unknown,
@@ -287,6 +315,9 @@ pub trait RequestRecords {
     ) -> Result<u64, Self::Error>;
     fn find_attempt(&self, attempt_id: &str) -> Result<Option<RequestAttempt>, Self::Error>;
     fn find_request(&self, request_id: &str) -> Result<Option<RequestAttempt>, Self::Error>;
+    fn wake_state(&self, request_id: &str) -> Result<Option<WakeState>, Self::Error>;
+    fn claim_wake(&mut self, request_id: &str) -> Result<bool, Self::Error>;
+    fn settle_wake(&mut self, request_id: &str, state: WakeState) -> Result<bool, Self::Error>;
     fn find_context(&self, request_id: &str) -> Result<Option<RawRequestContext>, Self::Error>;
     fn find_response(&self, request_id: &str) -> Result<Option<FinalResponse>, Self::Error>;
     fn find_active_request(&self, route: &RequestRoute) -> Result<Option<String>, Self::Error>;

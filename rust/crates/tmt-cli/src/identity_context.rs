@@ -10,6 +10,7 @@ use tmt_adapters::{
 };
 use tmt_core::{
     binding,
+    dispatch::canonical_id,
     identity::{Identity, IdentityReader},
     names::normalize_name,
 };
@@ -70,14 +71,29 @@ fn selected(
     selector: Selector,
 ) -> Result<Option<Identity>, Failure> {
     match selector {
-        Selector::Explicit(name) => storage
-            .find_identity(&normalize_name(&name))
-            .map_err(|error| {
-                Failure::new("IDENTITY_ERROR", "Could not read identity storage.", 1)
-                    .caused_by(error)
-            })?
-            .ok_or_else(|| missing(&name))
-            .map(Some),
+        Selector::Explicit(name) => {
+            // A canonical UUID identifies the accepted recipient even if a
+            // different identity later takes a UUID-shaped display name.
+            // Unknown or retired IDs retain the existing name lookup.
+            let by_id = if canonical_id(&name) {
+                storage.find_active_identity_by_id(&name).map_err(|error| {
+                    Failure::new("IDENTITY_ERROR", "Could not read identity storage.", 1)
+                        .caused_by(error)
+                })?
+            } else {
+                None
+            };
+            let selected = match by_id {
+                Some(identity) => Some(identity),
+                None => storage
+                    .find_identity(&normalize_name(&name))
+                    .map_err(|error| {
+                        Failure::new("IDENTITY_ERROR", "Could not read identity storage.", 1)
+                            .caused_by(error)
+                    })?,
+            };
+            selected.ok_or_else(|| missing(&name)).map(Some)
+        }
         Selector::Pane(pane) => {
             let observed = binding::pane_presence(storage, &mut BindingSession::new(tmux), &pane)
                 .map_err(binding_failure)?;

@@ -547,6 +547,11 @@ fixture: draft retention, target-switch confirmation, inbox delivery, real CLI
 reply, browser display, and reload recovery after the host accepts a send but its
 HTTP response is dropped. Independent SQLite counts prove recovery creates no
 duplicate requests and reading the chat does not acknowledge incoming work.
+`native-local-direct-wake.spec.ts` uses an isolated real tmux server and installed
+companion to prove a new direct request sends only a request-ID and explicit
+recipient-UUID instruction to
+the verified pane, replay sends no second notification even after uncertain
+paste, and an offline recipient keeps durable inbox acceptance without pane input.
 The transport-fault case forwards to the real host before aborting the browser
 response; it never fabricates acceptance. It captures desktop/narrow screenshots
 and asserts service shutdown. State tests separately cover bounded page/body

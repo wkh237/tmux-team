@@ -1,7 +1,8 @@
 //! Strict owner JSON admission and shared composition receipts/intent hashing.
 
 use serde::{Deserialize, Serialize};
-use tmt_core::request::RequestKind;
+use serde_json::{Value, json};
+use tmt_core::request::{RequestKind, WakeState};
 
 use tmt_core::{
     dispatch::{
@@ -177,6 +178,28 @@ pub fn encode_receipt(receipt: &DispatchReceipt) -> Vec<u8> {
             .collect(),
     })
     .expect("string-only receipt")
+}
+
+/// HTTP may report the advisory wake separately; the stored acceptance receipt
+/// remains immutable and contains no notification outcome.
+pub fn encode_receipt_with_wake(receipt: &DispatchReceipt, wake: Option<WakeState>) -> Vec<u8> {
+    let mut document: Value =
+        serde_json::from_slice(&encode_receipt(receipt)).expect("receipt JSON");
+    if let Some(state) = wake {
+        let (status, pane_attempted) = match state {
+            WakeState::NotAttempted => ("notAttempted", Some(false)),
+            WakeState::Claimed => ("unknown", None),
+            WakeState::Sent => ("sent", Some(true)),
+            WakeState::Unavailable => ("unavailable", Some(false)),
+            WakeState::Uncertain => ("uncertain", Some(true)),
+        };
+        document["wake"] = json!({
+            "status": status,
+            "paneAttempted": pane_attempted,
+            "agentProcessed": Value::Null,
+        });
+    }
+    serde_json::to_vec(&document).expect("receipt JSON")
 }
 
 pub(crate) fn decode_receipt(bytes: &[u8]) -> Option<DispatchReceipt> {

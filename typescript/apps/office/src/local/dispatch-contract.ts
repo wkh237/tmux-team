@@ -41,6 +41,12 @@ export interface DispatchReceipt {
   operationId: string;
   createdAtMs: number;
   items: DispatchItem[];
+  /** Advisory pane notification; absence carries no wake evidence, including on replay. */
+  wake?: {
+    status: 'notAttempted' | 'unknown' | 'sent' | 'unavailable' | 'uncertain';
+    paneAttempted: boolean | null;
+    agentProcessed: null;
+  };
 }
 export interface DispatchPort {
   send(input: DispatchInput, signal?: AbortSignal): Promise<DispatchReceipt>;
@@ -122,7 +128,12 @@ export function decodeDispatchInput(value: unknown): DispatchInput {
 }
 
 export function decodeDispatchReceipt(value: unknown): DispatchReceipt {
-  const receipt = exactRecord(value, ['operationId', 'createdAtMs', 'items'], 'dispatch receipt');
+  const hasWake = Boolean(value && typeof value === 'object' && Object.hasOwn(value, 'wake'));
+  const receipt = exactRecord(
+    value,
+    ['operationId', 'createdAtMs', 'items', ...(hasWake ? ['wake'] : [])],
+    'dispatch receipt'
+  );
   if (
     !Number.isSafeInteger(receipt.createdAtMs) ||
     (receipt.createdAtMs as number) < 1 ||
@@ -143,9 +154,28 @@ export function decodeDispatchReceipt(value: unknown): DispatchReceipt {
   });
   if (items.some((item, index) => index > 0 && items[index - 1]!.recipientId >= item.recipientId))
     throw new Error('Invalid dispatch audience.');
+  let wake: DispatchReceipt['wake'];
+  if (hasWake) {
+    const value = exactRecord(receipt.wake, ['status', 'paneAttempted', 'agentProcessed'], 'wake');
+    if (
+      !['notAttempted', 'unknown', 'sent', 'unavailable', 'uncertain'].includes(
+        value.status as string
+      ) ||
+      value.agentProcessed !== null ||
+      value.paneAttempted !==
+        (value.status === 'sent' || value.status === 'uncertain'
+          ? true
+          : value.status === 'unknown'
+            ? null
+            : false)
+    )
+      throw new Error('Invalid wake outcome.');
+    wake = value as DispatchReceipt['wake'];
+  }
   return {
     operationId: identifier(receipt.operationId),
     createdAtMs: receipt.createdAtMs as number,
     items,
+    ...(wake ? { wake } : {}),
   };
 }

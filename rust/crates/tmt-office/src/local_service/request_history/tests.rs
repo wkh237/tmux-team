@@ -100,7 +100,13 @@ fn browser_dispatch_native_reply_and_reopened_history_share_canonical_requests()
     assert_eq!(response_value(&pending)["final"]["status"], "not_submitted");
     assert_eq!(response_value(&pending)["recipientAcknowledged"], false);
     let recovered = fixture.call(request(RECEIPT, json!({"operationId":OPERATION})));
-    assert_eq!(response_value(&recovered), receipt);
+    assert_eq!(
+        receipt["wake"],
+        json!({"status":"unavailable","paneAttempted":false,"agentProcessed":null})
+    );
+    let mut immutable_receipt = receipt.clone();
+    immutable_receipt.as_object_mut().unwrap().remove("wake");
+    assert_eq!(response_value(&recovered), immutable_receipt);
 
     let mut storage = Storage::open(&fixture.paths.database).unwrap();
     let mut service = RequestService::new(&mut storage, wall_time_ms);

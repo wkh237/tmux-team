@@ -69,10 +69,20 @@ returns its original receipt before checking potentially changed membership.
 ```
 
 One operation receipt and all canonical request writes commit in one transaction.
-There is no tmux wake-up or pane requirement: acceptance means a durable inbox
-entry, not that an agent has received, read or completed work. Receivers use the
-existing `x listen` and `x show --incoming` flow. Requests additionally provide
-the `reply` flow, and `result <requestId>` reads the canonical final. An owner
+Acceptance means a durable inbox entry, not that an agent has received, read or
+completed work. For a newly accepted single-recipient request, including direct
+room context, the host may attempt one advisory pane notification after commit.
+The notification requires the recipient's currently active, explicitly bound
+identity and verified server/socket, pane PID and identity marker. It contains
+only the validated request ID and accepted recipient UUID, with an instruction
+to use `tmt x show <requestId> --incoming --identity <recipientUuid> --json`;
+the request body stays in the inbox. The explicit selector resolves an active
+canonical UUID before normalized-name fallback. A retired UUID cannot restore
+the retired identity, and `x show --incoming` checks exact recipient ownership
+even when another active identity has a UUID-shaped name.
+Announcements and roster sends remain queued without pane notification.
+Receivers use the existing `x listen` and `x show --incoming` flow. Requests
+additionally provide the `reply` flow, and `result <requestId>` reads the canonical final. An owner
 composition has unknown sender identity rather than a
 synthetic agent, while preserving the exact request text.
 
@@ -104,6 +114,19 @@ intent digest and receipt (at most 16 KiB), not another message body or response
 Receipts currently remain as replay tombstones after request expiry. No cleanup
 may remove them without a policy that prevents old operation IDs creating work
 again. Normal request retention remains owned by the existing settings/service.
+
+The HTTP response may add an optional independent `wake` object for a newly
+accepted single-recipient request: `{status,paneAttempted,agentProcessed}`.
+`status` is `notAttempted`, `unknown`, `sent`, `unavailable` or `uncertain`;
+`paneAttempted` is respectively false, null, true, false or true, and
+`agentProcessed` is always null. These fields are advisory transport evidence,
+not delivery, reading or processing evidence. A claimed wake survives process
+loss as `unknown`; it is never automatically resent because pane input may have
+occurred. Failure to wake never changes the queued request or its receipt.
+Replay and `/dispatch/show` recover original acceptance only: they omit `wake`,
+do not report the recorded notification outcome and make no new wake attempt.
+Schema 32 stores the one-shot claim on the canonical request
+attempt; it adds no second request or replay ledger.
 
 Malformed JSON or dispatch values are HTTP 400 `DISPATCH_INVALID`. HTTP framing
 errors, including a body above the endpoint budget, retain the shared HTTP 400
