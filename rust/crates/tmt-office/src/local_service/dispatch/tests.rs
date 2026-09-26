@@ -72,10 +72,11 @@ fn direct_room_http_enqueues_one_member_and_reports_membership_rejection_without
         .change_meeting_membership(room_id, &alice.id, MembershipChange::Leave)
         .unwrap();
     storage.close().unwrap();
-    assert_eq!(
-        response_value(&fixture.call(request(body.clone()))),
-        receipt
-    );
+    let replay = response_value(&fixture.call(request(body.clone())));
+    assert_eq!(replay["items"], receipt["items"]);
+    assert_eq!(replay["operationId"], receipt["operationId"]);
+    assert_eq!(replay["createdAtMs"], receipt["createdAtMs"]);
+    assert!(replay.get("wake").is_none());
     let rejected_id = "44444444-4444-4444-8444-444444444444";
     body["operationId"] = json!(rejected_id);
     let rejected = fixture.call(request(body));
@@ -87,6 +88,39 @@ fn direct_room_http_enqueues_one_member_and_reports_membership_rejection_without
     let mut storage = Storage::open(&fixture.paths.database).unwrap();
     assert_eq!(storage.dispatch_receipt(rejected_id).unwrap(), None);
     storage.close().unwrap();
+}
+
+#[test]
+fn one_member_roster_and_announcement_stay_inbox_only() {
+    use tmt_core::room::{RoomRepository, RoomWrite};
+    let fixture = Fixture::new();
+    let mut storage = Storage::open(&fixture.paths.database).unwrap();
+    let alice = create_or_resolve(&mut storage, "Alice", Lifetime::Saved)
+        .unwrap()
+        .identity;
+    let room_id = "33333333-3333-4333-8333-333333333333";
+    storage
+        .save_meeting_room(
+            room_id,
+            RoomWrite {
+                expected_revision: 0,
+                name: "Design".into(),
+                member_ids: vec![alice.id.clone()],
+            },
+        )
+        .unwrap();
+    storage.close().unwrap();
+    let mut roster = input(&alice.id);
+    roster["room"] = json!({"kind":"roster","roomId":room_id,"revision":1});
+    let accepted = response_value(&fixture.call(request(roster)));
+    assert_eq!(accepted["items"][0]["acceptance"], "queued");
+    assert!(accepted.get("wake").is_none());
+    let mut announcement = input(&alice.id);
+    announcement["operationId"] = json!("44444444-4444-4444-8444-444444444444");
+    announcement["kind"] = json!("announcement");
+    let accepted = response_value(&fixture.call(request(announcement)));
+    assert_eq!(accepted["items"][0]["acceptance"], "queued");
+    assert!(accepted.get("wake").is_none());
 }
 
 #[test]
@@ -125,7 +159,15 @@ fn owner_dispatch_and_retry_use_the_existing_inbox_without_an_identity_or_pane()
     assert!(response.starts_with("HTTP/1.1 200"), "{response}");
     let receipt = response_value(&response);
     assert_eq!(receipt["items"][0]["acceptance"], "queued");
-    assert_eq!(fixture.call(request(body)), response);
+    assert_eq!(
+        receipt["wake"],
+        json!({"status":"unavailable","paneAttempted":false,"agentProcessed":null})
+    );
+    let replay = response_value(&fixture.call(request(body)));
+    assert_eq!(replay["items"], receipt["items"]);
+    assert_eq!(replay["operationId"], receipt["operationId"]);
+    assert_eq!(replay["createdAtMs"], receipt["createdAtMs"]);
+    assert!(replay.get("wake").is_none());
     let mut changed = input(&receiver.id);
     changed["message"] = json!("Different request");
     assert!(fixture.call(request(changed)).starts_with("HTTP/1.1 409"));

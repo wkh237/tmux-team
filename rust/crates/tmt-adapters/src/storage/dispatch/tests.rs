@@ -1,10 +1,161 @@
 use super::*;
 use crate::test_support::TestDirectory;
 use rusqlite::Connection;
-use tmt_core::identity::{Lifetime, create_or_resolve};
+use tmt_core::{
+    identity::{Lifetime, create_or_resolve},
+    request::WakeState,
+};
 
 const NOW: u64 = 1_700_000_000_000;
 const OPERATION: &str = "11111111-1111-4111-8111-111111111111";
+
+#[test]
+fn only_first_dispatch_creation_can_schedule_a_wake_even_after_attempt_retention() {
+    let mut fixture = Fixture::new();
+    let input = fixture.input();
+    let (receipt, created) = fixture
+        .storage
+        .dispatch_request_with_creation(input.clone(), 7, || NOW)
+        .unwrap();
+    assert!(created);
+    let (replayed, created) = fixture
+        .storage
+        .dispatch_request_with_creation(input.clone(), 7, || panic!("replay clock"))
+        .unwrap();
+    assert_eq!(replayed, receipt);
+    assert!(!created);
+    fixture
+        .oracle()
+        .execute("DELETE FROM request_attempts", [])
+        .unwrap();
+    let (replayed, created) = fixture
+        .storage
+        .dispatch_request_with_creation(input, 7, || panic!("retained replay clock"))
+        .unwrap();
+    assert_eq!(replayed, receipt);
+    assert!(!created);
+}
+
+#[test]
+fn concurrent_wake_claims_are_at_most_once_and_leave_inbox_acceptance_unchanged() {
+    use std::sync::{Arc, Barrier};
+    let mut fixture = Fixture::new();
+    let mut input = fixture.input();
+    input.recipient_ids.truncate(1);
+    let receipt = fixture.storage.dispatch_request(input, 7, || NOW).unwrap();
+    let request_id = receipt.items[0].request_id.clone();
+    let database = fixture.storage.path.clone();
+    let barrier = Arc::new(Barrier::new(2));
+    let workers: Vec<_> = (0..2)
+        .map(|_| {
+            let database = database.clone();
+            let request_id = request_id.clone();
+            let barrier = Arc::clone(&barrier);
+            std::thread::spawn(move || {
+                let mut storage = Storage::open(database).unwrap();
+                barrier.wait();
+                RequestService::new(&mut storage, || NOW)
+                    .claim_wake(&request_id)
+                    .unwrap()
+            })
+        })
+        .collect();
+    let claims: Vec<_> = workers
+        .into_iter()
+        .map(|worker| worker.join().unwrap())
+        .collect();
+    assert_eq!(claims.iter().filter(|claim| claim.claimed).count(), 1);
+    assert!(claims.iter().all(|claim| claim.state == WakeState::Claimed));
+    assert_eq!(
+        fixture.storage.dispatch_receipt(OPERATION).unwrap(),
+        Some(receipt)
+    );
+    let row: (String, String) = fixture
+        .oracle()
+        .query_row(
+            "SELECT route_kind,status FROM request_attempts WHERE request_id=?",
+            [&request_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(row, ("inbox".into(), "queued".into()));
+    let mut service = RequestService::new(&mut fixture.storage, || NOW);
+    service
+        .settle_wake(&request_id, WakeState::Uncertain)
+        .unwrap();
+    let replay = service.claim_wake(&request_id).unwrap();
+    assert!(!replay.claimed);
+    assert_eq!(replay.state, WakeState::Uncertain);
+}
+
+#[test]
+fn unclosed_claim_remains_unknown_after_reopen_and_never_replays_pane_input() {
+    let mut fixture = Fixture::new();
+    let mut input = fixture.input();
+    input.recipient_ids.truncate(1);
+    let receipt = fixture.storage.dispatch_request(input, 7, || NOW).unwrap();
+    let request_id = &receipt.items[0].request_id;
+    assert!(
+        RequestService::new(&mut fixture.storage, || NOW)
+            .claim_wake(request_id)
+            .unwrap()
+            .claimed
+    );
+    let mut reopened = Storage::open(&fixture.storage.path).unwrap();
+    let claim = RequestService::new(&mut reopened, || NOW)
+        .claim_wake(request_id)
+        .unwrap();
+    assert!(!claim.claimed);
+    assert_eq!(claim.state, WakeState::Claimed);
+    assert_eq!(reopened.dispatch_receipt(OPERATION).unwrap(), Some(receipt));
+}
+
+#[test]
+fn direct_room_wake_fence_rechecks_membership_after_claim() {
+    use tmt_core::room::{MembershipChange, RoomRepository, RoomWrite};
+    let mut fixture = Fixture::new();
+    let recipient = fixture.recipients[0].clone();
+    let room = "33333333-3333-4333-8333-333333333333";
+    fixture
+        .storage
+        .save_meeting_room(
+            room,
+            RoomWrite {
+                expected_revision: 0,
+                name: "Design".into(),
+                member_ids: vec![recipient.clone()],
+            },
+        )
+        .unwrap();
+    let mut input = fixture.input();
+    input.recipient_ids = vec![recipient.clone()];
+    input.room = Some(DispatchRoom::Direct {
+        room_id: room.into(),
+    });
+    let receipt = fixture.storage.dispatch_request(input, 7, || NOW).unwrap();
+    let request_id = &receipt.items[0].request_id;
+    let mut service = RequestService::new(&mut fixture.storage, || NOW);
+    assert!(service.claim_wake(request_id).unwrap().claimed);
+    assert!(
+        service
+            .wake_recipient_is_eligible(request_id, &recipient)
+            .unwrap()
+    );
+    fixture
+        .storage
+        .change_meeting_membership(room, &recipient, MembershipChange::Leave)
+        .unwrap();
+    let mut service = RequestService::new(&mut fixture.storage, || NOW);
+    assert!(
+        !service
+            .wake_recipient_is_eligible(request_id, &recipient)
+            .unwrap()
+    );
+    assert_eq!(
+        fixture.storage.dispatch_receipt(OPERATION).unwrap(),
+        Some(receipt)
+    );
+}
 
 #[test]
 fn dispatch_lookup_recovers_acceptance_without_replaying_or_requiring_live_requests() {

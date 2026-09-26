@@ -86,6 +86,13 @@ there is no nested transaction or parallel request SQL/state. One operation and
 all accepted/failed recipient attempts commit together. The HTTP adapter retains
 the existing browser authority and settings/connection owners. `LocalRuntime.dispatch`
 uses the shared authenticated transport and validates receipt operation/audience.
+New single-recipient requests can claim one advisory wake on the canonical inbox
+attempt after durable acceptance. The loopback adapter verifies the recipient's
+active binding and endpoint through the existing tmux evidence owner before
+sending only a request-ID and accepted-recipient-UUID instruction. The claim
+prevents automatic replay after uncertain pane input; wake metadata never
+changes the immutable receipt or queued delivery state. Roster sends and
+announcements do not wake panes.
 The shared `local/dispatch-composer-state` owns frozen message/audience intent and
 explicit retries. Whiteboard `snapshot-send-state` adds immutable reference/message
 formatting; the broadcaster selects announcement semantics. Capture/image state

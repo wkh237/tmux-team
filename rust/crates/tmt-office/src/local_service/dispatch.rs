@@ -1,16 +1,94 @@
 //! Authenticated owner request composition; never a shell/CLI execution endpoint.
 
 use super::{Request, require_json_origin, response};
-use std::{io, net::TcpStream};
+use std::{io, net::TcpStream, time::Duration};
 use tmt_adapters::{
     config::{ConfigFiles, ConfigPaths},
-    dispatch::{decode_input, encode_receipt},
+    dispatch::{decode_input, encode_receipt_with_wake},
     office_service::ServiceReceipt,
-    request_runtime::wall_time_ms,
+    request_runtime::{valid_request_id, wall_time_ms},
     storage::{DispatchError, Storage},
+    tmux::{BindingSession, Tmux},
+};
+use tmt_core::{
+    binding::{self, Presence},
+    dispatch::{Acceptance, DispatchReceipt, DispatchRoom, canonical_id},
+    request::{RequestKind, RequestService, WakeState},
+    settings::Settings,
 };
 
 pub(super) const PATH: &str = "/api/v1/local/dispatch";
+
+/// A wake is advisory to the already-queued request. In particular, a claimed
+/// wake is never retried after process loss because pane input may have occurred.
+fn wake_direct_request(
+    storage: &mut Storage,
+    accepted: &DispatchReceipt,
+    settings: &Settings,
+) -> Option<WakeState> {
+    let [item] = accepted.items.as_slice() else {
+        return None;
+    };
+    if item.acceptance != Acceptance::Queued
+        || !canonical_id(&item.recipient_id)
+        || !valid_request_id(&item.request_id)
+    {
+        return None;
+    }
+    let claim = match RequestService::new(storage, wall_time_ms).claim_wake(&item.request_id) {
+        Ok(claim) => claim,
+        Err(_) => return Some(WakeState::Claimed),
+    };
+    if !claim.claimed {
+        return Some(claim.state);
+    }
+    let tmux = Tmux::default();
+    let binding = storage
+        .find_identity_by_id(&item.recipient_id)
+        .ok()
+        .flatten()
+        .and_then(|identity| {
+            let mut endpoint = BindingSession::new(&tmux);
+            binding::name_presence(storage, &mut endpoint, &identity.name)
+                .ok()
+                .filter(|presence| {
+                    presence.identity.id == item.recipient_id
+                        && presence.presence == Presence::Active
+                })
+                .and_then(|presence| presence.binding)
+        });
+    let eligible = binding.is_some()
+        && RequestService::new(storage, wall_time_ms)
+            .wake_recipient_is_eligible(&item.request_id, &item.recipient_id)
+            .unwrap_or(false);
+    let state = if let Some(binding) = binding.filter(|_| eligible) {
+        let notification = format!(
+            "Office request {} is queued. Read it with: tmt x show {} --incoming --identity {} --json",
+            item.request_id, item.request_id, item.recipient_id
+        );
+        let delay = Duration::from_secs_f64(settings.paste_enter_delay_ms.min(500.0) / 1000.0);
+        match tmux.send_on(
+            &binding.server.socket_path,
+            &binding.pane_id,
+            &notification,
+            delay,
+        ) {
+            Ok(()) => WakeState::Sent,
+            Err(error) if error.uncertain() => WakeState::Uncertain,
+            Err(_) => WakeState::Unavailable,
+        }
+    } else {
+        WakeState::Unavailable
+    };
+    if RequestService::new(storage, wall_time_ms)
+        .settle_wake(&item.request_id, state)
+        .is_err()
+    {
+        Some(WakeState::Claimed)
+    } else {
+        Some(state)
+    }
+}
 
 #[cfg(test)]
 mod tests;
@@ -68,12 +146,24 @@ pub(super) fn api(
             );
         }
     };
-    let result = storage.dispatch_request(input, settings.retention_days, wall_time_ms);
+    let direct_request = input.kind == RequestKind::Request
+        && input.recipient_ids.len() == 1
+        && !matches!(input.room.as_ref(), Some(DispatchRoom::Roster { .. }));
+    let result =
+        storage.dispatch_request_with_creation(input, settings.retention_days, wall_time_ms);
+    let wake = result.as_ref().ok().and_then(|(accepted, created)| {
+        (direct_request && *created)
+            .then(|| wake_direct_request(&mut storage, accepted, &settings))
+            .flatten()
+    });
     let closed = storage.close();
     match result {
-        Ok(receipt) if closed.is_ok() => {
-            response(stream, 200, "application/json", &encode_receipt(&receipt))
-        }
+        Ok((receipt, _)) if closed.is_ok() => response(
+            stream,
+            200,
+            "application/json",
+            &encode_receipt_with_wake(&receipt, wake),
+        ),
         Ok(_) => response(
             stream,
             500,

@@ -170,6 +170,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "retain retired meeting rooms without accepting new work",
         sql: include_str!("schema/031.sql"),
     },
+    Migration {
+        name: "track advisory wake attempts on durable inbox requests",
+        sql: include_str!("schema/032.sql"),
+    },
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

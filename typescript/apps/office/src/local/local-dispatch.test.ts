@@ -64,6 +64,31 @@ it('rejects malformed, duplicate or unsorted receipt items and unknown fields', 
     expect(() => decodeDispatchReceipt({ ...receipt, ...patch })).toThrow();
 });
 
+it('decodes optional wake truth separately from immutable inbox acceptance', () => {
+  for (const [status, paneAttempted] of [
+    ['notAttempted', false],
+    ['unknown', null],
+    ['sent', true],
+    ['unavailable', false],
+    ['uncertain', true],
+  ] as const) {
+    const withWake = { ...receipt, wake: { status, paneAttempted, agentProcessed: null } };
+    expect(decodeDispatchReceipt(withWake)).toEqual(withWake);
+    expect(() =>
+      decodeDispatchReceipt({
+        ...withWake,
+        wake: { ...withWake.wake, paneAttempted: !paneAttempted },
+      })
+    ).toThrow();
+  }
+  expect(() =>
+    decodeDispatchReceipt({
+      ...receipt,
+      wake: { status: 'processed', paneAttempted: true, agentProcessed: true },
+    })
+  ).toThrow();
+});
+
 it('distinguishes direct room context from an explicit full-roster fence', () => {
   const direct = { kind: 'direct', roomId: otherId };
   const roster = { kind: 'roster', roomId: otherId, revision: 2 };

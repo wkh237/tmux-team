@@ -80,6 +80,7 @@ function expectNativeSchema(
     { version: 29, name: 'add identity-owned expiring self-reported status' },
     { version: 30, name: 'extend shared Office discussions with room scopes' },
     { version: 31, name: 'retain retired meeting rooms without accepting new work' },
+    { version: 32, name: 'track advisory wake attempts on durable inbox requests' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -314,11 +315,19 @@ function expectNativeSchema(
       route_kind: 'pane',
       recipient_attention_revision: 0,
       recipient_attention_acknowledged_revision: 0,
+      wake_state: 'not_attempted',
     }))
   );
   expect(newAttempts.columns.map(({ name }) => name)).toContain('route_kind');
   expect(newAttempts.columns.map(({ name }) => name)).toContain('request_kind');
   expect(newAttempts.columns.map(({ name }) => name)).toContain('room_id');
+  expect(newAttempts.columns.find(({ name }) => name === 'wake_state')).toMatchObject({
+    name: 'wake_state',
+    type: 'TEXT',
+    notnull: 1,
+    dflt_value: "'not_attempted'",
+    pk: 0,
+  });
   for (const name of [
     'request_attempts_room_recipient_attention',
     'request_attempts_room_response_attention',

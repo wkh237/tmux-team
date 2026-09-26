@@ -85,6 +85,18 @@ impl Storage {
         retention_days: u64,
         clock: impl Fn() -> u64,
     ) -> Result<DispatchReceipt, DispatchError> {
+        self.dispatch_request_with_creation(input, retention_days, clock)
+            .map(|(receipt, _)| receipt)
+    }
+
+    /// Whether this call made the immutable receipt. Replays must not create a
+    /// new side effect after a prior response or an expired inbox attempt.
+    pub fn dispatch_request_with_creation(
+        &mut self,
+        input: DispatchInput,
+        retention_days: u64,
+        clock: impl Fn() -> u64,
+    ) -> Result<(DispatchReceipt, bool), DispatchError> {
         let input = input.normalize().ok_or(DispatchError::Invalid)?;
         if !valid_retention_days(retention_days) {
             return Err(DispatchError::Invalid);
@@ -109,7 +121,7 @@ impl Storage {
                     )
                     .into());
                 }
-                return Ok(receipt);
+                return Ok((receipt, false));
             }
             if let Some(DispatchRoom::Roster { room_id, revision }) = &input.room {
                 let room = super::room::read_room(transaction, room_id)?;
@@ -166,7 +178,7 @@ impl Storage {
                 "INSERT INTO office_dispatch_operations (operation_id,intent_digest,receipt) VALUES (?,?,?)",
                 params![receipt.operation_id,digest,encoded],
             ).map_err(|error| classify(error, "Store Office dispatch receipt"))?;
-            Ok(receipt)
+            Ok((receipt, true))
         })
     }
 }

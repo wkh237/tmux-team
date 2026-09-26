@@ -529,6 +529,12 @@ share conformance vectors; copying references submits no request. The
 now composes explicit UUID recipients over the native request service, with one
 transaction for inbox writes and its immutable operation receipt. `LocalRuntime.dispatch`
 admits input and checks returned operation/audience over shared auth and cancellation.
+For a new single-recipient request, native dispatch separately claims one
+advisory pane wake and checks the active binding and tmux endpoint immediately
+before sending a request-ID and explicit-recipient-UUID `x show --incoming`
+instruction. The inbox receipt remains authoritative; an absent, failed or
+uncertain wake does not change acceptance or trigger an automatic retry.
+Announcements and roster sends remain inbox-only.
 `local/dispatch-composer-state` owns frozen message/identity intent and explicit
 retries for requests and announcements. `local/dispatch-composer` owns audience
 selection, review and acceptance display without mirroring request state.

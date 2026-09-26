@@ -20,6 +20,33 @@ fn receipt_lookup_admits_only_one_bounded_operation_id() {
 }
 use serde_json::json;
 
+#[test]
+fn advisory_wake_does_not_change_the_stored_receipt_envelope() {
+    use tmt_core::dispatch::{Acceptance, DispatchItem, DispatchReceipt};
+    let receipt = DispatchReceipt {
+        operation_id: "11111111-1111-4111-8111-111111111111".into(),
+        created_at_ms: 1,
+        items: vec![DispatchItem {
+            recipient_id: "22222222-2222-4222-8222-222222222222".into(),
+            request_id: "req_33333333-3333-4333-8333-333333333333".into(),
+            acceptance: Acceptance::Queued,
+        }],
+    };
+    let original = encode_receipt(&receipt);
+    let shown: serde_json::Value = serde_json::from_slice(&encode_receipt_with_wake(
+        &receipt,
+        Some(WakeState::Claimed),
+    ))
+    .unwrap();
+    assert_eq!(
+        shown["wake"],
+        json!({"status":"unknown","paneAttempted":null,"agentProcessed":null})
+    );
+    assert_eq!(decode_receipt(&original), Some(receipt.clone()));
+    assert!(decode_receipt(&encode_receipt_with_wake(&receipt, Some(WakeState::Sent))).is_none());
+    assert_eq!(encode_receipt(&receipt), original);
+}
+
 fn valid() -> serde_json::Value {
     json!({"operationId":"11111111-1111-4111-8111-111111111111","recipientIds":["22222222-2222-4222-8222-222222222222"],"message":"Review this."})
 }
