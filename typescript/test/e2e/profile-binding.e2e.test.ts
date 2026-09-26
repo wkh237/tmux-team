@@ -14,6 +14,11 @@ describe.sequential('profile ownership across binding transitions', () => {
       });
       const identityId = named.json!.id;
 
+      expect(await fixture.runJsonCli(['identity', 'show'])).toMatchObject({
+        code: 0,
+        json: { identity: { id: identityId, name: 'Alice', lifetime: 'temporary' } },
+      });
+
       expect(await fixture.runJsonCli(['identity', 'meta', 'set', 'project', 'tmt'])).toMatchObject(
         {
           code: 0,
@@ -49,6 +54,15 @@ describe.sequential('profile ownership across binding transitions', () => {
         code: 1,
         json: { error: { code: 'IDENTITY_REQUIRED' } },
       });
+      const rejectedShow = await fixture.runJsonCli<{ error: { message: string } }>([
+        'identity',
+        'show',
+      ]);
+      expect(rejectedShow).toMatchObject({
+        code: 1,
+        json: { error: { code: 'IDENTITY_REQUIRED' } },
+      });
+      expect(rejectedShow.json?.error?.message).toContain('identity show <name>');
       expect(durableState(fixture)).toMatchObject({
         identities: [expect.objectContaining({ id: identityId, lifetime: 'temporary' })],
         metadata: [{ identity_id: identityId, key: 'project', value: 'tmt' }],
@@ -71,12 +85,28 @@ describe.sequential('profile ownership across binding transitions', () => {
       expect(await fixture.runJsonCli(['identity', 'create', 'Offline'])).toMatchObject({
         code: 0,
       });
+      const offline = await fixture.runJsonCli(['identity', 'show', 'Offline'], {
+        withoutTmux: true,
+      });
+      expect(offline).toMatchObject({
+        code: 0,
+        json: { identity: { name: 'Offline', lifetime: 'saved' } },
+      });
+      expect(await fixture.runJsonCli(['identity', 'show', 'Offline'])).toEqual(offline);
+      expect(await fixture.runJsonCli(['identity', 'show'])).toMatchObject({
+        code: 0,
+        json: { identity: { name: 'Alice', lifetime: 'saved' } },
+      });
       expect(
         await fixture.runJsonCli(['role', 'set', 'offline role', '--identity', 'Offline'])
       ).toMatchObject({ code: 0, json: { identity: { name: 'Offline' } } });
       expect(fixture.paneMetadata()).toBe(metadata);
       expect((await fixture.runJsonCli(['role', 'show'])).json).toEqual(initial.json);
       expect(await fixture.runJsonCli(['unbind'])).toMatchObject({ code: 0 });
+      expect(await fixture.runJsonCli(['identity', 'show'])).toMatchObject({
+        code: 1,
+        json: { error: { code: 'IDENTITY_REQUIRED' } },
+      });
       expect(await fixture.runJsonCli(['role', 'set', 'must not write'])).toMatchObject({
         code: 1,
         json: { error: { code: 'IDENTITY_REQUIRED' } },

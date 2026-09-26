@@ -17,7 +17,7 @@ describe('native configuration process boundary', () => {
         sandbox.globalConfig,
         JSON.stringify({
           preambleMode: 'disabled',
-          defaults: { preambleEvery: 7 },
+          defaults: { preambleEvery: 7, timeout: 30 },
           exchange: { retentionDays: 365 },
           ui: { paneBadge: 'on' },
         })
@@ -29,31 +29,56 @@ describe('native configuration process boundary', () => {
       expect(result.status).toBe(0);
       expect(result.stderr).toBe('');
       expect(result.stdout).toContain('ℹ Current configuration:\n');
+      const rows = result.stdout
+        .split('\n')
+        .filter(
+          (line) =>
+            line.startsWith('Key') ||
+            line.startsWith('preamble') ||
+            line.startsWith('pasteEnter') ||
+            line.startsWith('defaults.') ||
+            line.startsWith('exchange.') ||
+            line.startsWith('ui.')
+        )
+        .map((line) => line.trim().split(/\s{2,}/));
+      expect(rows).toEqual([
+        ['Key', 'Value', 'Source', 'Changes', 'Accepted values'],
+        ['preambleMode', 'disabled', '(global)', 'local/global CLI', "'always' or 'disabled'"],
+        ['preambleEvery', '0', '(local)', 'local/global CLI', 'a safe non-negative integer'],
+        [
+          'pasteEnterDelayMs',
+          '500',
+          '(default)',
+          'local/global CLI',
+          'a finite number from 0 through 2147483647',
+        ],
+        [
+          'defaults.timeout',
+          '30',
+          '(global)',
+          'global file only',
+          'a finite positive number no greater than 86400',
+        ],
+        ['defaults.pollInterval', '1', '(default)', 'global file only', 'a finite positive number'],
+        [
+          'defaults.captureLines',
+          '100',
+          '(default)',
+          'global file only',
+          'an integer from 0 through 2147483647',
+        ],
+        [
+          'exchange.retentionDays',
+          '365',
+          '(global)',
+          'global CLI',
+          'an integer from 1 through 3650',
+        ],
+        ['ui.paneBadge', 'on', '(global)', 'global CLI', "'on' or 'off'"],
+      ]);
       expect(result.stdout).toContain(
-        'Key                     Value     Source\n' +
-          'preambleMode            disabled  (global)\n' +
-          'preambleEvery           0         (local)\n' +
-          'pasteEnterDelayMs       500       (default)\n' +
-          'defaults.timeout        180       (global)\n' +
-          'defaults.pollInterval   1         (global)\n' +
-          'defaults.captureLines   100       (global)\n' +
-          'exchange.retentionDays  365       (global)\n' +
-          'ui.paneBadge            on        (global)\n'
+        'ℹ CLI numeric writes use unsigned decimal integers; config clear removes local overrides only.\n'
       );
-      for (const [key, value, source] of [
-        ['preambleMode', 'disabled', 'global'],
-        ['preambleEvery', '0', 'local'],
-        ['pasteEnterDelayMs', '500', 'default'],
-        ['defaults.timeout', '180', 'global'],
-        ['defaults.pollInterval', '1', 'global'],
-        ['defaults.captureLines', '100', 'global'],
-        ['exchange.retentionDays', '365', 'global'],
-        ['ui.paneBadge', 'on', 'global'],
-      ]) {
-        expect(result.stdout).toMatch(
-          new RegExp(`^${key.replace('.', '\\.')}\\s+${value}\\s+\\(${source}\\)[ \\t]*$`, 'm')
-        );
-      }
       expect(result.stdout).toContain('ℹ \nPaths:\n');
       expect(result.stdout).toContain(`ℹ   Global: ${sandbox.globalConfig}\n`);
       expect(result.stdout).toContain(`ℹ   Local:  ${fs.realpathSync(sandbox.localConfig)}\n`);
@@ -386,6 +411,9 @@ describe('native configuration process boundary', () => {
         { key: 'pasteEnterDelayMs', value: '2147483648', global: true },
         { key: 'exchange.retentionDays', value: '0', global: true },
         { key: 'exchange.retentionDays', value: '3651', global: true },
+        { key: 'defaults.timeout', value: '60', global: true },
+        { key: 'defaults.pollInterval', value: '2', global: true },
+        { key: 'defaults.captureLines', value: '20', global: true },
         { key: 'futureKey', value: '1' },
         { key: 'futureKey', value: '1', global: true },
       ];
@@ -398,6 +426,12 @@ describe('native configuration process boundary', () => {
         expect(result.status, `${invalid.key}=${invalid.value}`).toBe(1);
         expectError(result, 'ERROR');
         expect(fileSnapshot(sandbox.root), `${invalid.key}=${invalid.value}`).toEqual(before);
+      }
+      for (const key of ['defaults.timeout', 'defaults.pollInterval', 'defaults.captureLines']) {
+        const cleared = await runCli(sandbox, ['config', 'clear', key, '--json']);
+        expect(cleared.status).toBe(1);
+        expectError(cleared, 'ERROR');
+        expect(fileSnapshot(sandbox.root)).toEqual(before);
       }
       expect(fs.existsSync(sandbox.database)).toBe(false);
     });

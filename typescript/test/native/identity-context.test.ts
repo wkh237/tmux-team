@@ -9,6 +9,7 @@ describe('required identity preflight', () => {
       ['role', 'show'],
       ['role', 'set', 'must not write'],
       ['role', 'clear'],
+      ['identity', 'show'],
       ['x', 'list'],
       ['x', 'show', 'missing-request'],
       ['x', 'ack', 'missing-request', '--revision', '1'],
@@ -21,6 +22,16 @@ describe('required identity preflight', () => {
       const result = await runCli(sandbox, [...args, '--json']);
       expect(result.status).toBe(1);
       expectError(result, 'IDENTITY_REQUIRED');
+      if (args.join(' ') === 'identity show') {
+        expect(result.stdout).toContain('identity show <name>');
+        expect(result.stdout).not.toContain('--identity');
+        const human = await runCli(sandbox, args);
+        expect(human.status).toBe(1);
+        expect(human.stdout).toBe('');
+        expect(human.stderr).toBe(
+          'An identity is required; use identity show <name> or run from a verified bound pane.\n'
+        );
+      }
       expect(existsSync(sandbox.database)).toBe(false);
       expect(existsSync(`${sandbox.database}-wal`)).toBe(false);
       expect(existsSync(`${sandbox.database}-shm`)).toBe(false);

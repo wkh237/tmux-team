@@ -79,6 +79,11 @@ tmt identity show coordinator --json
 tmt identity list --json
 ```
 
+`identity show <name>` reads that exact stored identity without tmux. Inside a
+verified bound pane, `identity show` may omit the name to inspect its caller;
+outside that context, supply the name. `identity list` still lists all stored
+identities, and bare `preamble show` still lists all stored preambles.
+
 Creation is idempotent for a canonical-equivalent name. Creation alone does not
 bind a pane, authenticate a caller, queue work, or perform delivery. The active
 identity is eligible for a later explicit local `talk --inbox` request.
@@ -304,7 +309,12 @@ tmt config set exchange.retentionDays 90 --global
 | `exchange.retentionDays` | `90`     | Global only; new requests, integer days `1..3650`    |
 | `ui.paneBadge`           | `off`    | Global only; `on` / `off`                            |
 
-`config show --json` reports resolved values, sources, and actual file paths.
+Human `config show` identifies each value's actual source, accepted values and
+whether the setting is CLI-editable locally/globally or global-file-only.
+`defaults.timeout`, `defaults.pollInterval` and `defaults.captureLines` are
+global-file-only; `config set` and `config clear` do not edit them. Numeric CLI
+writes use unsigned decimal integer tokens. `config show --json` retains the
+resolved values, sources and actual file paths.
 Global settings normally live in `~/.config/tmux-team/config.json`; local
 overrides live in `./tmux-team.json`. Use the reported paths when a custom home
 or configuration root is in use. Global-only settings cannot be set or cleared

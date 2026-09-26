@@ -167,6 +167,33 @@ describe('native grammar process contract', () => {
     });
   });
 
+  it('gives scoped corrective usage for a rejected placement option in both output modes', async () => {
+    await withSandbox(async (sandbox) => {
+      const tripwire = await calibrateTmuxTripwire(sandbox);
+      const before = fileSnapshot(sandbox.root);
+      const tmuxBaseline = readFileSync(tripwire, 'utf8');
+      const human = await runCli(sandbox, ['role', 'show', '--timeout', '1s']);
+      expect(human.status).toBe(1);
+      expect(human.stdout).toBe('');
+      expect(human.stderr).toContain('Usage: tmt role show');
+      expect(human.stderr).toContain('tmt help role show');
+
+      const machine = await runCli(sandbox, ['role', 'show', '--timeout', '1s', '--json']);
+      expect(machine.status).toBe(1);
+      expect(machine.stderr).toBe('');
+      const error = expectError(machine, 'USAGE_ERROR');
+      expect(error).toMatchObject({
+        error: { message: expect.stringContaining('Usage: tmt role show') },
+      });
+      expect(error).toMatchObject({
+        error: { message: expect.stringContaining('tmt help role show') },
+      });
+      expect(fileSnapshot(sandbox.root)).toEqual(before);
+      expect(existsSync(sandbox.database)).toBe(false);
+      expect(readFileSync(tripwire, 'utf8')).toBe(tmuxBaseline);
+    });
+  });
+
   it('rejects former no-op output flags before effects without confusing version or literal values', async () => {
     await withSandbox(async (sandbox) => {
       const tripwire = await calibrateTmuxTripwire(sandbox);

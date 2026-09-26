@@ -58,6 +58,18 @@ fn unavailable(error: impl Error + 'static) -> Failure {
     .caused_by(error)
 }
 
+fn show_selection_failure(error: Failure) -> Failure {
+    if error.code == "IDENTITY_REQUIRED" {
+        Failure::new(
+            "IDENTITY_REQUIRED",
+            "An identity is required; use identity show <name> or run from a verified bound pane.",
+            1,
+        )
+    } else {
+        error
+    }
+}
+
 fn identity_failure(error: IdentityError<StorageError>) -> Failure {
     match error {
         IdentityError::InvalidName(error) => {
@@ -85,11 +97,13 @@ fn metadata_failure(error: MetadataError<StorageError>) -> Failure {
 }
 
 fn run(request: IdentityRequest) -> Result<Report, Failure> {
-    // Metadata may use the established verified-caller resolver. Explicit
-    // identity operations remain storage-only and do not probe tmux.
+    // Explicit named identity operations remain storage-only and do not probe tmux.
     let selector = match &request {
         IdentityRequest::Metadata { identity, .. } | IdentityRequest::Status { identity, .. } => {
             Some(identity_context::required(identity.as_deref())?)
+        }
+        IdentityRequest::Show(None) => {
+            Some(identity_context::required(None).map_err(show_selection_failure)?)
         }
         _ => None,
     };
@@ -117,7 +131,7 @@ fn operation(
                 .map(Report::Created)
                 .map_err(identity_failure)
         }
-        IdentityRequest::Show(name) => identity::find_by_name(storage, &name)
+        IdentityRequest::Show(Some(name)) => identity::find_by_name(storage, &name)
             .map_err(identity_failure)?
             .map(Report::Shown)
             .ok_or_else(|| {
@@ -127,6 +141,11 @@ fn operation(
                     3,
                 )
             }),
+        IdentityRequest::Show(None) => {
+            identity_context::resolve(storage, selector.expect("unnamed show resolved a selector"))
+                .map(Report::Shown)
+                .map_err(show_selection_failure)
+        }
         IdentityRequest::List(filters) => {
             if filters.is_empty() {
                 return storage

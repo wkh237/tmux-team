@@ -319,7 +319,7 @@ pub enum ConfigRequest {
 #[derive(Debug, Clone, PartialEq)]
 pub enum IdentityRequest {
     Create(String),
-    Show(String),
+    Show(Option<String>),
     List(Vec<IdentityFilterRequest>),
     Metadata {
         identity: Option<String>,
