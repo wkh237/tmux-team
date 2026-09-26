@@ -221,12 +221,7 @@ function ConversationSession({
       </header>
       <div
         className="chat-toolbar"
-        hidden={
-          Boolean(refreshHost) &&
-          !snapshot.page?.nextBefore &&
-          !snapshot.before &&
-          !snapshot.loading
-        }
+        hidden={Boolean(refreshHost) && !snapshot.page?.nextBefore && !snapshot.before}
       >
         {snapshot.page?.nextBefore && (
           <button
@@ -266,7 +261,6 @@ function ConversationSession({
             Refresh
           </button>
         )}
-        {snapshot.loading && <span role="status">Updating…</span>}
       </div>
       {snapshot.error && (
         <p className="chat-notice" role="alert">

@@ -4,6 +4,7 @@ import { furnishedOfficeFixture } from '../furnished-office-fixture.js';
 import { fitWorldCoordinates } from '../world-editor-gesture.js';
 import { DIRECTIONAL_WORKSTATION_DIGEST } from '../../src/props/prop-contract.js';
 import type { WorldDocument } from '../../src/world-map/world-contract.js';
+import { worldGeometry } from '../../src/rendering/world-geometry.js';
 
 const lobby = '10000000-0000-4000-8000-000000000001';
 const office = '10000000-0000-4000-8000-000000000002';
@@ -52,8 +53,35 @@ const layout: WorldDocument = {
   ],
 };
 
-async function openScene(page: Page) {
+async function openScene(page: Page, withActor = false) {
   const fixture = await furnishedOfficeFixture(page);
+  if (withActor)
+    await page.route('**/api/v1/local/requests/list', (route) =>
+      route.fulfill({ json: { items: [], nextBefore: null } })
+    );
+  const sceneLayout: WorldDocument =
+    withActor && layout.map.version === 8
+      ? {
+          ...layout,
+          map: {
+            ...layout.map,
+            modules: layout.map.modules.map((module) =>
+              module.area.id === office
+                ? {
+                    ...module,
+                    area: {
+                      ...module.area,
+                      binding: {
+                        type: 'personal' as const,
+                        identityId: fixture.profiles[0]!.identityId,
+                      },
+                    },
+                  }
+                : module
+            ),
+          },
+        }
+      : layout;
   const unexpectedWrites: string[] = [];
   // Reuse the existing local HTTP fixture; override only this scenario's world.
   // No mock save can masquerade as native admission or durability evidence.
@@ -63,7 +91,7 @@ async function openScene(page: Page) {
       await route.fulfill({ status: 400, json: { error: 'VISUAL_FIXTURE_READ_ONLY' } });
       return;
     }
-    await route.fulfill({ json: { ...fixture.read(), layout } });
+    await route.fulfill({ json: { ...fixture.read(), layout: sceneLayout } });
   });
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -74,6 +102,7 @@ async function openScene(page: Page) {
   const point = await fitWorldCoordinates(page, { x: -4, y: -60, width: 128, height: 159 });
   return {
     point,
+    sceneLayout,
     verify: () => {
       expect(errors).toEqual([]);
       expect(unexpectedWrites).toEqual([]);
@@ -82,6 +111,31 @@ async function openScene(page: Page) {
     },
   };
 }
+
+test('selection accents identify area use and stay behind overlapping art and agent labels', async ({
+  page,
+}) => {
+  const { point, sceneLayout, verify } = await openScene(page, true);
+  for (const [name, x, y] of [
+    ['Office', 30, -40],
+    ['Planning', 100, -40],
+    ['Lobby', 30, 30],
+  ] as const) {
+    const floor = point(x, y);
+    await page.mouse.click(floor.x, floor.y);
+    await expect(page.getByLabel('Area name', { exact: true })).toHaveValue(name);
+    await expect(page).toHaveScreenshot(`selection-${name.toLowerCase()}.png`);
+  }
+  const geometry = worldGeometry(sceneLayout);
+  const actor = geometry.projection.projectUpright(geometry.actorSlots(office)[0]!);
+  const target = point(actor.x + actor.width / 2, actor.y + actor.height / 2);
+  await page.mouse.click(target.x, target.y);
+  await expect(page.getByRole('heading', { name: 'Alice', exact: true })).toBeVisible();
+  await expect(page).toHaveScreenshot('selection-agent.png');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: 'Furniture & devices' })).toBeVisible();
+  verify();
+});
 
 test('accepted platforms, rim overhang and held rotation remain visually stable', async ({
   page,

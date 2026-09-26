@@ -155,8 +155,11 @@ export async function createOfficeScene(
     );
   }
   const preview = new Graphics(),
+    groundHighlight = new Graphics(),
     highlight = new Graphics();
   const catalogGhost = new Container();
+  groundHighlight.label = 'ground-selection';
+  highlight.label = 'object-selection';
   const catalogTextures = createSceneTextures();
   const canvas = application.canvas;
   canvas.style.touchAction = 'none';
@@ -174,25 +177,48 @@ export async function createOfficeScene(
   }
   function selection(value?: OfficeSelection) {
     selected = value;
+    groundHighlight.clear();
     highlight.clear();
     if (!model || !geometry) return;
     const view = viewport();
-    if (model.world.map.version >= 6 && model.world.map.version !== 1) {
+    const area =
+      value?.kind === 'area'
+        ? mapGeometry(model.world.map).areas.find((area) => area.id === value.areaId)
+        : undefined;
+    const color =
+      area?.binding.type === 'meeting'
+        ? '#d8b0ff'
+        : area?.binding.type === 'lobby'
+          ? '#ffe2a0'
+          : '#9bffe3';
+    if (area && model.world.map.version >= 6 && model.world.map.version !== 1) {
       const module = model.world.map.modules.find((item) => item.area.id === value?.areaId);
       if (module) {
         const contour = platformContour(
           geometry.projection.projectModuleFloor(moduleBounds(module, model.world.map.version))
         );
-        highlight.poly(contour).fill({ color: '#70ddc6', alpha: 0.035 });
-        highlight.poly(contour).stroke({ color: '#70ffdb', width: 1.1, alpha: 0.15 });
-        highlight.poly(contour).stroke({ color: '#9bffe3', width: 0.3 });
+        groundHighlight.poly(contour).fill({ color, alpha: 0.035 });
+        groundHighlight.poly(contour).stroke({ color, width: 1.1, alpha: 0.15 });
+        groundHighlight.poly(contour).stroke({ color, width: 0.3 });
       }
     }
-    for (const floor of value?.areaId ? geometry.visible(view).floors : [])
+    for (const floor of area ? geometry.visible(view).floors : [])
       if (model.world.map.version < 6 && floor.areaId === value?.areaId && intersects(view, floor))
-        highlight
+        groundHighlight
           .rect(floor.x, floor.y, floor.width, floor.height)
-          .fill({ color: '#70ddc6', alpha: 0.12 });
+          .fill({ color, alpha: 0.12 });
+    if (value?.kind === 'agent') {
+      const instance = actors.find(
+        ({ actor }) => actor.identityId === value.identityId && actor.areaId === value.areaId
+      );
+      if (instance) {
+        const bounds = instance.bounds;
+        groundHighlight
+          .ellipse(bounds.x + bounds.width / 2, bounds.y + bounds.height, 3.2, 0.9)
+          .fill({ color: '#9bffe3', alpha: 0.15 })
+          .stroke({ color: '#9bffe3', width: 0.25 });
+      }
+    }
     const object =
       pointer?.rotationPreview ?? model.world.objects.find((item) => item.id === editor?.selected);
     const rect = object && geometry.objectRect(object);
@@ -282,7 +308,7 @@ export async function createOfficeScene(
     if (!model || !geometry || !materials) return;
     bridgePulse.setLights([]);
     bridgeLights = [];
-    root.removeChild(preview, highlight, catalogGhost);
+    root.removeChild(preview, groundHighlight, highlight, catalogGhost);
     for (const child of root.removeChildren()) child.destroy({ children: true });
     objectLayers.clear();
     textures.begin();
@@ -376,6 +402,9 @@ export async function createOfficeScene(
     // Platforms support upright content; their thin rims are not occluding walls.
     // Retained cutaway maps still interleave their walls with objects and actors.
     if (model.world.map.version >= 6) paintLayers();
+    // Area and actor selection sits on the platform, beneath all upright content.
+    // Object handles remain a separate foreground interaction layer.
+    root.addChild(groundHighlight);
     const components = new Map(model.components.map((component) => [component.id, component]));
     const functional: SceneComponent[] = [];
     for (const index of part.objects) {
@@ -387,6 +416,7 @@ export async function createOfficeScene(
       }
       const group = new Container();
       const layer = new Container();
+      layer.label = 'world-object';
       objectLayers.set(object.id, layer);
       layer.visible = !(pointer?.moved && pointer.rotating?.id === object.id);
       if (object.kind === 'wallLight') {
@@ -434,6 +464,7 @@ export async function createOfficeScene(
       sprite.width = bounds.width;
       sprite.height = bounds.height;
       const layer = new Container();
+      layer.label = 'world-actor';
       layers.push({ depth: bounds.y + bounds.height, node: layer });
       layer.addChild(
         new Graphics()

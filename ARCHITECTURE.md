@@ -426,7 +426,9 @@ neither docking nor error feedback rebuilds the scene or reserves physical canva
 V6 platform shells use a shared fixed-scale mechanical sprite kit, owned by
 `platform-art` and `scene-platform`. Repeated hardware and selection contours are
 derived presentation; module topology, bridge openings and persistence remain
-owned by the existing map geometry. See the Office architecture for texture lifetime.
+owned by the existing map geometry. The renderer separates ground-level area/actor
+selection from foreground object handles so selection never repaints over upright
+art or nameplates. See the Office architecture for texture lifetime and selection accents.
 Bridge decking uses a fixed metal-panel scale, not the room floor's wood repeat;
 `platform-projection` expands short empty bands to the single 24-unit connector
 span while preserving room interiors and the Lobby origin. The invertible display

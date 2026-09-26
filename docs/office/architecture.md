@@ -441,6 +441,12 @@ Selection owns catalog visibility, including Pixel workshop additions. There
 is no separate placement tool; unavailable objects remain selectable repair targets.
 Modular room plaques anchor to the projected rear wall header; actor/floor anchors
 remain unchanged. The shared nameplate painter keeps text legible across zoom levels.
+Area and exact-instance agent selection is painted on the platform, below all upright
+props, actors and nameplates; object outlines and rotation handles retain their separate
+foreground layer. Area accents follow usage: teal personal offices, purple meeting
+spaces and warm gold lobbies. An agent's room context does not select its floor.
+Background conversation refresh preserves the feed/composer geometry: its existing
+header refresh control reports busy state without inserting a transient toolbar row.
 Object room context derives from `object-area`, shared with extension discovery;
 choosing a room clears object selection, and removing a placement returns to that room.
 Object coordinates and surface controls are collapsed under Precise placement;

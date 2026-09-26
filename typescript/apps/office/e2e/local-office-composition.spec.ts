@@ -187,6 +187,29 @@ test('renders saved terrain and real furniture beneath floating HUD on desktop a
   expect(await inspector.boundingBox()).toEqual(narrow);
   const composer = (await inspector.locator('.conversation-compose').boundingBox())!;
   expect(composer.y + composer.height).toBeCloseTo(narrow.y + narrow.height - 1, 0);
+  // Hold the next real background history poll, not a synthetic loading flag.
+  // Refresh must neither insert a toolbar row nor move the focused composer.
+  let releaseRefresh!: () => void;
+  const refreshGate = new Promise<void>((resolve) => {
+    releaseRefresh = resolve;
+  });
+  await page.route('**/api/v1/local/requests/list', async (route) => {
+    await refreshGate;
+    await route.fulfill({ json: { items: [], nextBefore: null } });
+  });
+  const feedBounds = await inspector.getByRole('log').boundingBox();
+  await page.waitForRequest('**/api/v1/local/requests/list');
+  await expect(inspector.getByRole('button', { name: 'Refresh', exact: true })).toBeDisabled();
+  expect(await inspector.boundingBox()).toEqual(narrow);
+  expect(await inspector.locator('.conversation-compose').boundingBox()).toEqual(composer);
+  expect(await inspector.getByRole('log').boundingBox()).toEqual(feedBounds);
+  await expect(message).toBeFocused();
+  await expect(message).toHaveValue('Keep this draft while I inspect the room.');
+  await expect(inspector.getByText('Updating…', { exact: true })).toHaveCount(0);
+  releaseRefresh();
+  await expect(inspector.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled();
+  expect(await inspector.locator('.conversation-compose').boundingBox()).toEqual(composer);
+  await expect(message).toBeFocused();
   await page.screenshot({ path: info.outputPath('world-agent-chat-narrow.png') });
   await message.press('Escape');
   await expect(page.getByRole('heading', { name: 'Furniture & devices' })).toBeVisible();

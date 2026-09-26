@@ -46,6 +46,60 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it('keeps docked refresh out of the toolbar layout and preserves focused drafts and loaded messages', async () => {
+  const runtime = fixture();
+  const host = document.createElement('div');
+  document.body.append(host);
+  const view = render(
+    <AgentConversation target={target} runtime={runtime} active refreshHost={host} />
+  );
+  try {
+    await screen.findByText('Acknowledged');
+    const input = screen.getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'Keep this draft' } });
+    input.focus();
+    const toolbar = view.container.querySelector('.chat-toolbar') as HTMLElement;
+    expect(toolbar.hidden).toBe(true);
+    let finish!: (page: HistoryPage) => void;
+    runtime.requests.list.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        })
+    );
+    fireEvent.click(within(host).getByRole('button', { name: 'Refresh' }));
+    expect(
+      (within(host).getByRole('button', { name: 'Refresh' }) as HTMLButtonElement).disabled
+    ).toBe(true);
+    expect(toolbar.hidden).toBe(true);
+    expect(screen.queryByText('Updating…')).toBeNull();
+    expect(screen.getByText('Acknowledged')).toBeDefined();
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe('Keep this draft');
+    await act(async () =>
+      finish({
+        items: [{ ...detail, final: { status: 'not_submitted' }, preview: 'Question' }],
+        nextBefore: null,
+      })
+    );
+    await waitFor(() =>
+      expect(
+        (within(host).getByRole('button', { name: 'Refresh' }) as HTMLButtonElement).disabled
+      ).toBe(false)
+    );
+    expect(toolbar.hidden).toBe(true);
+    expect(document.activeElement).toBe(input);
+    expect(input.value).toBe('Keep this draft');
+    runtime.requests.list.mockRejectedValueOnce(new Error('Offline'));
+    fireEvent.click(within(host).getByRole('button', { name: 'Refresh' }));
+    await screen.findByRole('alert');
+    expect(input.value).toBe('Keep this draft');
+  } finally {
+    view.unmount();
+    host.remove();
+  }
+});
+
 it('sends directly to one member and scopes history to the selected room without a fan-out preview', async () => {
   const runtime = fixture();
   runtime.requests.list.mockResolvedValue({ items: [], nextBefore: null });
