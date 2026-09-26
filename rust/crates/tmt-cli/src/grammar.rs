@@ -221,7 +221,7 @@ pub fn grammar() -> Command {
         )
         .subcommand_required(true)
         .subcommand(storage("create", "Create or save an identity").arg(operand("name", true)))
-        .subcommand(storage("show", "Show an identity").arg(operand("name", true)))
+        .subcommand(storage("show", "Show a named identity or the verified caller").arg(operand("name", false)))
         .subcommand(with_options(
             storage("list", "List non-retired identities"),
             &["where", "has"],

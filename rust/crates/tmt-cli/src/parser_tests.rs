@@ -1687,6 +1687,26 @@ fn retired_wait_and_team_paths_have_distinct_errors() {
 }
 
 #[test]
+fn identity_show_selects_a_name_or_the_verified_caller() {
+    assert_eq!(
+        parsed(&["identity", "show"]).invocation,
+        Invocation::Identity(IdentityRequest::Show(None))
+    );
+    assert_eq!(
+        parsed(&["identity", "show", "Alice"]).invocation,
+        Invocation::Identity(IdentityRequest::Show(Some("Alice".into())))
+    );
+}
+
+#[test]
+fn rejected_placement_option_reports_public_usage() {
+    let rejected_option = parse_error(&["role", "show", "--timeout", "1s"]);
+    assert_eq!(rejected_option.code, "USAGE_ERROR");
+    assert!(rejected_option.message.contains("Usage: tmt role show"));
+    assert!(rejected_option.message.contains("tmt help role show"));
+}
+
+#[test]
 fn identity_metadata_and_repeated_filters_have_typed_requests() {
     assert_eq!(
         parsed(&[

@@ -250,7 +250,10 @@ tmt identity show coordinator --json
 tmt identity list --json
 ```
 
-These commands use only local storage, without tmux or unrelated configuration.
+These named and collection commands use only local storage, without tmux or
+unrelated configuration. `tmt identity show` without a name instead inspects
+only a verified bound caller; otherwise use `tmt identity show <name>`. It does
+not select from the working directory, active pane or sole stored identity.
 Create is idempotent for canonical-equivalent names: it preserves the existing
 UUID, original display name, profiles and any pane binding. It never logs in,
 binds a pane or takes over another caller's identity. Multiple local callers
@@ -283,10 +286,12 @@ not save a temporary identity. Keys are 1–64 ASCII bytes matching
 controls, and each identity has at most 64 entries. Omit `--identity` only when
 caller resolution can prove the active bound identity.
 
-Names are required for create/show; omission never selects the current pane.
-Invalid names return `INVALID_NAME` (exit 1); valid missing show names return
-`NAME_NOT_FOUND` (exit 3). Creation does not alter anonymous talk or request-ID
-result access. Use `rm <name>` for removal; no identity rename exists.
+Create requires a name. Explicit create/show names return `INVALID_NAME`
+(exit 1) when invalid; valid missing show names return `NAME_NOT_FOUND`
+(exit 3). Omitting the show name uses only the verified bound caller described
+above, never an active-pane or sole-identity fallback. Creation does not alter
+anonymous talk or request-ID result access. Use `rm <name>` for removal; no
+identity rename exists.
 
 ## Self-reported activity and mood
 
@@ -603,6 +608,10 @@ installation state and retry only the stated selection.
 ## Configuration safety
 
 Use `tmt config show --json` to inspect resolved settings and file paths.
+Human `config show` also labels actual value source, accepted values and whether
+each key is CLI-editable locally/globally or global-file-only. The three
+`defaults.timeout`, `defaults.pollInterval` and `defaults.captureLines` keys
+are global-file-only and cannot be changed by `config set` or `config clear`.
 `config set` supports `preambleMode`, `preambleEvery`, and
 `pasteEnterDelayMs`; add `--global` for the global file, otherwise it writes
 a local override. Numeric writes require decimal digits only: no suffixes,

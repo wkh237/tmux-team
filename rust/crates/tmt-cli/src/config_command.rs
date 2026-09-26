@@ -6,7 +6,7 @@ use crate::output::Failure;
 use serde_json::json;
 use std::io::{self, Write};
 use tmt_adapters::config::{ConfigError, ConfigFiles, ConfigPaths, Scope};
-use tmt_core::settings::{LocalClear, ResolvedSettings, Setting, SettingKey};
+use tmt_core::settings::{EDITABLE_KEYS, LocalClear, ResolvedSettings, Setting, SettingKey};
 
 impl From<ConfigError> for Failure {
     fn from(error: ConfigError) -> Self {
@@ -121,48 +121,70 @@ fn show_text(
     let settings = &loaded.settings;
     let rows = [
         (
+            SettingKey::PreambleMode,
             "preambleMode",
             settings.preamble_mode.as_str().to_string(),
-            loaded.source(SettingKey::PreambleMode),
         ),
         (
+            SettingKey::PreambleEvery,
             "preambleEvery",
             settings.preamble_every.to_string(),
-            loaded.source(SettingKey::PreambleEvery),
         ),
         (
+            SettingKey::PasteEnterDelayMs,
             "pasteEnterDelayMs",
             settings.paste_enter_delay_ms.to_string(),
-            loaded.source(SettingKey::PasteEnterDelayMs),
         ),
-        ("defaults.timeout", settings.timeout.to_string(), "global"),
         (
+            SettingKey::Timeout,
+            "defaults.timeout",
+            settings.timeout.to_string(),
+        ),
+        (
+            SettingKey::PollInterval,
             "defaults.pollInterval",
             settings.poll_interval.to_string(),
-            "global",
         ),
         (
+            SettingKey::CaptureLines,
             "defaults.captureLines",
             settings.capture_lines.to_string(),
-            "global",
         ),
         (
+            SettingKey::RetentionDays,
             "exchange.retentionDays",
             settings.retention_days.to_string(),
-            loaded.source(SettingKey::RetentionDays),
         ),
         (
+            SettingKey::PaneBadge,
             "ui.paneBadge",
             settings.pane_badge.as_str().to_string(),
-            loaded.source(SettingKey::PaneBadge),
         ),
     ];
     writeln!(output, "ℹ Current configuration:\n")?;
     crate::output::table::write(
         output,
-        ["Key", "Value", "Source"],
-        rows.into_iter()
-            .map(|(key, value, source)| [key.to_owned(), value, format!("({source})")]),
+        ["Key", "Value", "Source", "Changes", "Accepted values"],
+        rows.into_iter().map(|(key, name, value)| {
+            let changes = if !EDITABLE_KEYS.contains(&key) {
+                "global file only"
+            } else if key.global_only() {
+                "global CLI"
+            } else {
+                "local/global CLI"
+            };
+            [
+                name.to_owned(),
+                value,
+                format!("({})", loaded.source(key)),
+                changes.to_owned(),
+                key.expected().to_owned(),
+            ]
+        }),
+    )?;
+    writeln!(
+        output,
+        "ℹ CLI numeric writes use unsigned decimal integers; config clear removes local overrides only."
     )?;
     writeln!(output, "ℹ \nPaths:")?;
     writeln!(output, "ℹ   Global: {}", paths.global_config.display())?;

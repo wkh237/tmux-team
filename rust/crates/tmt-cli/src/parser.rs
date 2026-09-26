@@ -55,7 +55,7 @@ pub fn parse(argv: &[OsString]) -> Result<Parsed, ParseError> {
     if supplied(leaf, "wait") {
         return Err(fail("The --wait option is retired. talk waits for a durable reply by default; use --timeout or --detach.".into()));
     }
-    validate_options(command, &chain, path.is_empty()).map_err(fail)?;
+    validate_options(command, &chain, &path).map_err(fail)?;
     if path.first() == Some(&"team") || text(leaf, "team").is_some() {
         return Err(ParseError {
             code: "UNSUPPORTED_TEAM",
@@ -86,13 +86,13 @@ fn finish_parse(invocation: Invocation, mode: OutputMode) -> Result<Parsed, Pars
     Ok(Parsed { invocation, mode })
 }
 
-fn validate_options(command: &Command, chain: &[&ArgMatches], root: bool) -> Result<(), String> {
+fn validate_options(command: &Command, chain: &[&ArgMatches], path: &[&str]) -> Result<(), String> {
     for matches in chain {
         for id in matches.ids() {
             if !supplied(matches, id.as_str()) {
                 continue;
             }
-            let allowed = if root {
+            let allowed = if path.is_empty() {
                 crate::grammar::root_allowed(id.as_str())
             } else {
                 command.get_arguments().any(|arg| arg.get_id() == id)
@@ -100,10 +100,26 @@ fn validate_options(command: &Command, chain: &[&ArgMatches], root: bool) -> Res
             };
             // Parent subcommand IDs are not options.
             if !allowed && matches.subcommand_name() != Some(id.as_str()) {
-                return Err(format!(
+                let selected = path
+                    .iter()
+                    .map(|name| (*name).to_owned())
+                    .collect::<Vec<_>>();
+                let message = format!(
                     "Unknown option or argument '{id}' for {}.",
                     command.get_name()
-                ));
+                );
+                if let Ok(mut public) = crate::grammar::help_command(&selected) {
+                    let example = if path.is_empty() {
+                        "tmt help".to_owned()
+                    } else {
+                        format!("tmt help {}", path.join(" "))
+                    };
+                    return Err(format!(
+                        "{message}\n{}\nTry `{example}` for supported options.",
+                        public.render_usage()
+                    ));
+                }
+                return Err(message);
             }
         }
     }
@@ -589,7 +605,7 @@ fn translate(path: &[&str], m: &ArgMatches) -> Result<Invocation, String> {
         ["identity", "create"] => {
             Invocation::Identity(IdentityRequest::Create(required(m, "name")))
         }
-        ["identity", "show"] => Invocation::Identity(IdentityRequest::Show(required(m, "name"))),
+        ["identity", "show"] => Invocation::Identity(IdentityRequest::Show(text(m, "name"))),
         ["identity", "list"] => {
             let mut filters = Vec::new();
             for expression in texts(m, "where") {

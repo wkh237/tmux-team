@@ -687,6 +687,10 @@ The maintained public surface is:
 The grammar owns option placement and rejection. Handlers do not search raw
 argv, create competing option parsers, or reinterpret payload text as flags.
 JSON and human output use the same typed result and status contracts.
+`identity show <name>` remains a storage-only named read. Without a name it
+uses the shared verified-caller selector before opening storage; an unavailable
+or unbound caller does not fall back to a working directory, active pane or sole
+stored identity. `identity list` and bare `preamble show` remain collection reads.
 `OutputMode` contains only the supported JSON selection. Unsupported
 `--verbose`/`-v` and `--debug` flags are absent from the grammar and fail with
 `USAGE_ERROR` before effects; literal message/option-value text is unchanged.
@@ -802,6 +806,10 @@ changes, and no garbage collector is implied.
 `config::document` preserves unknown JSON fields and validates known settings
 through `tmt-core::settings`. `init` exclusively creates the selected local
 file as `{}\n`; it neither loads configuration nor opens SQLite or tmux.
+Human `config show` derives the effective source and CLI capability from the
+resolved settings and editable-key policy. The three `defaults.*` settings are
+global-file-only; showing them does not make them CLI-editable. JSON projection
+and targeted write validation remain unchanged.
 Existing files, directories and links are refused without mutation.
 Configuration errors retain their stable public codes and useful paths only at
 the adapter boundary.
