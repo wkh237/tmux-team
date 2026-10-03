@@ -138,7 +138,7 @@ select toolchain and binaries; launch failures never skip an engine.
 three-engine pass. The advisory `Colab browser verification` workflow runs Chromium
 on scoped PRs and all engines weekly or manual; `COLAB_HARNESS_ROOTS` and
 `COLAB_HARNESS_INPUTS` in `ci-scope.mjs` own its selection
-([CI selection](../../../ARCHITECTURE.md#ci-selection-and-worker-model)).
+([CI selection](../../../../ARCHITECTURE.md#ci-selection-and-worker-model)).
 
 ## Packaging and archives
 
@@ -148,7 +148,7 @@ and `dist = false` in its Cargo package, so publication is refused until the inf
 lead activates it after a supporting CLI alpha is published and real archive
 acceptance passes. Core registers Colab with the shared installer
 (`EXTENSION_RELEASE_UNAVAILABLE` until an archive exists; see the registration
-commands in [tmt-remote](../tmt-remote/SKILL.md#installer-registration), which cover
+commands in [tmt-remote](../../tmt-remote/SKILL.md#installer-registration), which cover
 both products).
 
 `scripts/build-native-artifact.sh <target> colab` installs frozen dependencies with
