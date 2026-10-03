@@ -21,7 +21,7 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
 ## Release-cut shadow migration
 
 Follow the [architecture's shadow contract](../../../ARCHITECTURE.md#release-cut-shadow)
-and [verification procedure](../../../DEVELOPMENT.md#release-cut-shadow-verification)
+and [verification procedure](reference/native-release.md#release-cut-shadow)
 for #1399. Shadow computation and the read-only native injection check confer no
 publication, release/tag mutation, owner-hold override or workflow-dispatch
 authorization. Preserve the active release path and its gates until the separately
@@ -42,7 +42,7 @@ The generator requires
 reviewed consumption declarations for all external production workspace links of a declared consumer,
 using its existing Cargo metadata graph, including transitive dependencies.
 Keep its pinned API shape verified by tooling tests loading the release job's isolated install.
-Follow DEVELOPMENT's generator and real-candidate checks before changing this consumption rule
+Follow the [generator and real-candidate checks](reference/native-release.md#tooling-prerequisites) before changing this consumption rule
 or upgrading release-please. This does not change publication authorization or private-leaf version ownership.
 
 ## Release PR safety
@@ -60,7 +60,7 @@ keeps existing locked Cargo workers selected for earlier pending release changes
 A visible matching manifest draft without its git tag holds only that component’s
 release PR candidate; unheld components regenerate normally. Only all-held
 manifest paths skip `release-pr`; `github-release` and draft processing continue. Missing or inconsistent evidence
-fails closed. [DEVELOPMENT's safety gates](../../../DEVELOPMENT.md#release-pr-safety-gates)
+fails closed. [The release PR gate notes](reference/native-release.md#release-pr-gates-queue-and-stall-monitor)
 own draft-token visibility, bounded REST discovery, fixtures and recovery procedures. Neither gate
 authorizes manual tagging, release editing or publication.
 
@@ -89,7 +89,7 @@ Keep `always-update` for conflict recovery and the pinned update wrapper's uncha
 release-content comparison for CI continuity. BEHIND alone does not require a branch
 refresh: the merge queue runs required checks against current main's merged result.
 Changed release content still needs fresh checks; no queue priority jump is used.
-[DEVELOPMENT's queue section](../../../DEVELOPMENT.md#queued-release-pull-requests)
+[The queue notes](reference/native-release.md#release-pr-gates-queue-and-stall-monitor)
 owns request bounds, failure and recovery details. Tooling tests must cover pagination,
 single-active selection, queued covered/stale notes against main HEAD, dequeue-before-refresh ordering,
 failed dequeue after completed github-release and suppressed queue enabling, identity/head races, dry-run non-mutation, unchanged generated files and original conflict/update behavior.
@@ -103,8 +103,8 @@ in its separate job; its REST uses `github.token`. Only the existing
 release-job App reader sees drafts, passing metadata rather than credentials.
 Distinguish historical anonymous-smoke infrastructure issues from current check failures;
 a rate-limit issue recommends retrying smoke, never publication. Preserve zero-failure behavior,
-visible summary warnings and fixture-only REST tests. [DEVELOPMENT’s monitor
-section](../../../DEVELOPMENT.md#release-stall-monitoring) owns thresholds,
+visible summary warnings and fixture-only REST tests. [The monitor
+notes](reference/native-release.md#release-pr-gates-queue-and-stall-monitor) owns thresholds,
 credentials, bounded discovery and the single-issue recovery lifecycle.
 
 ## Conventional PR titles
@@ -113,7 +113,7 @@ Merge groups report conventional squash-title syntax through the shared safety
 owner. The report-only phase writes findings and unavailable evidence to job
 output/summary and always exits zero; it does not enforce titles yet. Do not add
 an `edited` trigger to full CI or compare ordinary queued subjects against mutable
-REST titles. [DEVELOPMENT's rollout](../../../DEVELOPMENT.md#conventional-pr-title-rollout)
+REST titles. [The rollout notes](reference/native-release.md#release-pr-gates-queue-and-stall-monitor)
 owns the observation day and the separate explicit UTC cutover, 24 hours after
 the report-only PR merges. Keep release-please as the release attribution and
 changelog owner.
@@ -128,20 +128,20 @@ Every sweep is authoritative for eligible issues, including recovery from built-
 status workflow writes. Exclude epic trackers from both fields; their owning lead
 retains the acceptance/dogfood gate, and the summary lists them as skipped. The post-publication dispatch waits for read-back and smoke completion;
 authenticated acquisition errors remain failures, with the daily sweep retaining publication reconciliation.
-Retain the daily safety net. Follow [DEVELOPMENT's Project release tracking
-procedure](../../../DEVELOPMENT.md#project-release-tracking) for full dry-run table
+Retain the daily safety net. Follow [Project release tracking
+procedure](reference/native-release.md#project-release-tracking) for full dry-run table
 review, request and GraphQL point-cost reporting, exact verification commands and
 activation evidence.
 A tracking dispatch never authorizes publication or a publishing-workflow replay.
 
 ## Promotion and prerelease checks
 
-Read the complete [native release verification section](../../../DEVELOPMENT.md#native-release-verification)
+Read the complete [native release verification reference](reference/native-release.md)
 before archive, installer, upgrade, bootstrap or publication work. It owns the
-procedures referenced below; DEVELOPMENT owns ordinary native checks.
+procedures referenced below; [DEVELOPMENT.md](../../../DEVELOPMENT.md) owns ordinary native checks.
 
-For packed verifier process-runner changes, follow DEVELOPMENT's
-[packed cleanup checks](../../../DEVELOPMENT.md#packed-verifier-process-cleanup).
+For packed verifier process-runner changes, follow the
+[packed cleanup checks](reference/native-release.md#packed-verifier-cleanup).
 Preserve its real absence and surviving-group controls; synthetic fixture success
 does not authorize publication or replace artifact acceptance.
 
@@ -153,8 +153,8 @@ does not authorize publication or replace artifact acceptance.
   bounded extraction, notices, linkage, skill installation and persisted state.
   Raw PR runtime checks do not establish release archive correctness. Do not enable a
   generated installer or publication workflow merely to obtain local archives.
-- Follow DEVELOPMENT's native runtime checks and the guide's archive verification for artifact changes.
-  For fixture-only archive-policy fixes, follow DEVELOPMENT's negative archive checks
+- Follow the native runtime checks and the reference's archive verification for artifact changes.
+  For fixture-only archive-policy fixes, follow the reference's negative archive checks
   for hard-link construction and rejection controls.
   Reuse the shared runtime proof for linkage, exact embedded skills and SQLite
   reopen behavior. Keep the independent archive inventory/checksum/notices and
@@ -180,7 +180,7 @@ does not authorize publication or replace artifact acceptance.
   its own publications). Do not equate a
   downloadable CI bundle with a published or accepted release.
 - Every CLI, extension or driver release also passes the guide's upgrade from the last
-  published release using the product-specific proof in DEVELOPMENT, not only a
+  published release using the product-specific proof in the reference, not only a
   fresh install. Old CLI/extension receipts must stay readable.
   The pre-publication CLI proof requires installation, migration and real-archive
   acceptance of the release's own adapter on all four hosts. Follow the guide's
@@ -188,7 +188,7 @@ does not authorize publication or replace artifact acceptance.
   older-source rerun applicability and separate public installer/upgrade smoke.
   A standalone driver uses previous/candidate archives and the current published
   CLI's path approval surface. Herdr remains parked until release cut (#1399)
-  activates it, as DEVELOPMENT documents.
+  activates it, as the reference documents.
 - For curl bootstrap, follow the guide's native curl bootstrap verification.
   Generate from final verified cargo-dist artifacts and invoke the existing
   native publisher; do not enable a competing stock installer. Test an actual
@@ -208,7 +208,7 @@ Colab's single-executable packaging route is prepared, with its app embedded by
 the Colab-owned `TMT_COLAB_APP_DIR` build boundary and frontend notices appended
 to Rust notices. Embedding (#1421) and core registration (#1423) are implemented.
 It remains parked: a published supporting CLI alpha and actual-archive acceptance
-precede separately authorized activation. Follow [Colab packaging verification](../../../DEVELOPMENT.md#colab-packaging-wiring-parked)
+precede separately authorized activation. Follow [Colab packaging verification](../tmt-colab/references/development.md#packaging-and-archives)
 for fixture-only proof versus real archive/public-install evidence; do not treat
 a tiny embedded-app fixture as delivery of the Colab product.
 
@@ -222,8 +222,8 @@ a tiny embedded-app fixture as delivery of the Colab product.
   product-neutral offline note without version numbers: user guidance belongs to the
   handbook, and the onboarding test runs the note's PATH block in Bash and Zsh.
 - Release targets are macOS x64/arm64 (build deployment target 11.0) and Linux
-  x64/arm64 with a static musl runtime. macOS x64 follows DEVELOPMENT's
-  [runtime acceptance policy](../../../DEVELOPMENT.md#runtime-smoke-matrix):
+  x64/arm64 with a static musl runtime. macOS x64 follows the
+  [runtime acceptance policy](../tmt-e2e/reference/runtime-smoke-matrix.md):
   cross-build on arm64, complete Rosetta verifier process trees with exact
   installed-byte architecture checks, plus weekly native Intel public
   installation and upgrade coverage. A deployment target is not testing on every
@@ -249,7 +249,7 @@ The owner chose a trunk-based alpha channel: there is no separate edge channel, 
 (the owner's decisions on #497). That choice is the owner's standing authorization for **the
 pipeline** to publish alpha releases from `main`; it is recorded here so that the written rule
 matches practice. The
-[native release verification section](../../../DEVELOPMENT.md#native-release-verification) owns the
+[native release verification reference](reference/native-release.md) owns the
 gates, the markers and the procedures; this section owns who may publish what.
 
 - Covered: an alpha draft of the CLI, Office or Squad (a version `X.Y.Z-alpha.N`, enforced by
