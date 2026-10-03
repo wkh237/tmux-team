@@ -1814,7 +1814,7 @@ For observed token usage, `board::rate`, `board::meter`, App projection and the
 view's backend recorder cover per-identity window boundaries, configurable
 1m–24h retention, bounded tab/member cleanup, no-data/zero/gap aging, current
 model attribution, key overrides/text inputs, easing and retargeting. Board-only
-usage projection leaves public `ls` JSON unchanged and invalidates only changed
+usage projection preserves public `ls` schema and keeps window values out of it and invalidates only changed
 row derivations. Verify summary-only animation coordinates, sampled member-cell
 updates and disabled buffer/ANSI equality through the normal renderer.
 Measure matched 60-second idle off/on/reduced-motion process CPU time with
