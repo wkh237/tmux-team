@@ -61,7 +61,7 @@ Release procedures belong to the
 - `rust/archive/NATIVE-INSTALL.md` is the short offline note that every release
   archive carries under the entry name `NATIVE-INSTALL.md`; the archive inventory
   is part of the installer contract, so the name stays. Runtime performance probes
-  are in [DEVELOPMENT](DEVELOPMENT.md#optional-performance-probes). No top-level
+  are in [the performance probes](.agents/skills/tmt-e2e/references/performance-probes.md). No top-level
   exception remains.
 
 The infra-owned Rust paths include `rust/crates/tmt-release-tool`, the private
@@ -117,8 +117,7 @@ and the Office skill sources live under `extensions/tmt-office/`; the proposed
 colab contract lives under `extensions/tmt-colab/contracts/` (see the
 [colab boundary](#colab-extension-proposal)). The Office SPA build must finish before building the embedded
 native companion, followed by installed-browser acceptance; ordinary CLI builds
-remain independent. [DEVELOPMENT.md](DEVELOPMENT.md#office-browser-verification)
-owns the direct commands and their order. Read
+remain independent. Office is frozen, so no guide owns these commands now. Read
 [Office architecture](extensions/tmt-office/docs/architecture.md) for current SPA ownership,
 the chosen React/Vite/TanStack/Jotai stack and the
 [Office design](extensions/tmt-office/docs/design.md) for planned trust/lifecycle semantics.
@@ -729,7 +728,7 @@ bootstrap, upgrade and public smoke checks. Node's architecture alone cannot
 establish executable identity. The advisory weekly/manual native Intel workflow
 retains native runtime and public installer/upgrade evidence; its PR self-test
 is scoped only to its own workflow path. DEVELOPMENT owns the
-[acceptance policy and commands](DEVELOPMENT.md#runtime-smoke-matrix). Advisory
+[acceptance policy and commands](.agents/skills/tmt-e2e/references/runtime-smoke-matrix.md). Advisory
 Office browser
 checks remain separate; the repository owner controls merge-queue rulesets.
 
@@ -757,14 +756,14 @@ three-engine harness, covering other shared inputs and engine drift. The job res
 saving, and restores Playwright binaries keyed by OS, architecture and pinned
 Playwright version. Only successful runs on the main ref save browser binaries; PRs only
 restore. Reports/logs are advisory L1 evidence, with commands owned by
-[Development](DEVELOPMENT.md#colab-browser-verification).
+[the Colab development reference](.agents/skills/tmt-colab/references/development.md#app-and-browser-client).
 
 The same component map feeds release attribution through the shared Cargo metadata
 owner and released-root lookup. CI selection, path ownership, production binary
 consumption and version inheritance remain separate contracts. Native version
 fixtures consume Cargo-resolved versions from that owner rather than parsing TOML
 again. The [release boundary](#release-boundary) owns cut and publication behavior;
-[Development](DEVELOPMENT.md#revive-office) owns parked-product revival.
+Parked-product revival needs maintainer approval.
 
 ## Browser add-on shell
 
@@ -4199,8 +4198,8 @@ Office's opt-in `playwright.visual.config.ts` reuses the local HTTP fixture and
 real browser renderer for reviewed platform/furniture/HUD pixel baselines. Its
 scenario-local read-only world is not a native admission or persistence oracle.
 The browser partition verifier keeps these tests separate from standard CI and
-capacity diagnostics; [Development](DEVELOPMENT.md#personal-office-milestone-acceptance)
-owns execution, platform-specific baselines and explicit visual-review updates.
+capacity diagnostics; the Office frozen-product tests
+own execution, platform-specific baselines and explicit visual-review updates.
 Geometry, gesture history and native durability retain their existing test owners.
 
 Retained tests are organized under `typescript/test/native/`, `typescript/test/e2e/`,
@@ -4387,7 +4386,7 @@ not a CI selector or queue controller. It owns bounded REST evidence collection,
 local cache reuse and metric calculation, using the existing bounded command
 process owner. Its tests own deterministic API/timeline fixtures; production
 job and step evidence stays in local report artifacts. The reporting definitions,
-limits and invocation belong to [DEVELOPMENT](DEVELOPMENT.md#merge-queue-metrics).
+limits and invocation belong to [the release reference](.agents/skills/tmt-release/references/native-release.md#merge-queue-metrics).
 It never changes workflows, rulesets or PR state; unknown causes/inclusion remain
 explicit rather than becoming inferred delivery decisions.
 
@@ -4572,7 +4571,7 @@ readback and public smoke gates remain required.
 `pr-title-check.mjs` independently reports conventional merge-group squash-title
 syntax through the bounded cumulative subject reader. Findings and unavailable
 evidence go to stdout and the job summary with zero exit status, including summary
-write failures. [Development](DEVELOPMENT.md#conventional-pr-title-rollout) owns the
+write failures. [The release reference](.agents/skills/tmt-release/references/native-release.md#conventional-pr-title-rollout) owns the
 separate enforcement cutover. Title reporting neither restarts ordinary PR CI nor
 owns release attribution.
 
