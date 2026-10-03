@@ -1810,16 +1810,18 @@ quotes strip list prefixes and truncate without changing durable source tags. Ch
 focused cursor and sent marker in `tmt`, `tmt-light` and `NO_COLOR`; notes keep
 the shared `Scrolls` viewport owner.
 
-For the completed-request meter, `board::rate`, `board::meter` and the view's
-backend recorder cover four-window bucket boundaries, bounded tab retention,
-no-data/zero/gap aging, key overrides/text inputs, easing and
-retargeting, meter-only emitted coordinates, and disabled buffer/ANSI equality.
-Verify both enabled/reduced-motion policies with the normal renderer. Measure
-matched 60-second idle off/on/reduced-motion process CPU time with isolated
-public-command fixtures; incremental usage must stay below 0.5 percentage point
-of one core. Record sampling child counts, emitted-cell coordinates and
-terminal dimensions with the PR's dark/light/NO_COLOR/narrow captures. Timing
-measurements are local evidence, not a flaky CI threshold.
+For observed token usage, `board::rate`, `board::meter`, App projection and the
+view's backend recorder cover per-identity window boundaries, configurable
+1m–24h retention, bounded tab/member cleanup, no-data/zero/gap aging, current
+model attribution, key overrides/text inputs, easing and retargeting. Board-only
+usage projection leaves public `ls` JSON unchanged and invalidates only changed
+row derivations. Verify summary-only animation coordinates, sampled member-cell
+updates and disabled buffer/ANSI equality through the normal renderer.
+Measure matched 60-second idle off/on/reduced-motion process CPU time with
+isolated public-command fixtures; incremental usage must stay below 0.5
+percentage point of one core. Record sampling child counts, emitted-cell
+coordinates and terminal dimensions with dark/light/NO_COLOR/narrow captures.
+Timing measurements are local evidence, not a flaky CI threshold.
 
 ### Provider setup and lifecycle verification
 
