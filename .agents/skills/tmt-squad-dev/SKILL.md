@@ -63,4 +63,4 @@ written down. A row JSON or SKILL.md row-doc change also runs the native
 `squad.test.ts`; give an optional row key its own bullet.
 
 Squad archive build and verification are in
-[tmt-release](../tmt-release/reference/native-release.md#squad-archives).
+[tmt-release](../tmt-release/references/native-release.md#squad-archives).

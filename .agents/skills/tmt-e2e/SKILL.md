@@ -54,7 +54,7 @@ Read the relevant files before changing behavior:
   `typescript/test/support/cli-executable.mjs`; never add a hard-coded Node launcher or
   silent TS fallback. Prove selection reaches nested replies and real descendants
   with causal results. Historical TypeScript worker/pack tests are retired;
-  use [scenario ownership](reference/e2e-scenarios.md#scenario-ownership) and
+  use [scenario ownership](references/e2e-scenarios.md#scenario-ownership) and
   [evidence boundaries](../../../ARCHITECTURE.md#testing-and-evidence-boundaries)
   to choose the maintained native coverage.
 - Keep retained native/E2E helpers under `typescript/test/support/`, independent of the old
@@ -63,7 +63,7 @@ Read the relevant files before changing behavior:
   checks and independent SQL assertions. Never use the native implementation to
   regenerate its own expected migration results. Keep stopped-schema public reply
   coverage on schema 8 rather than substituting an already-current database.
-- [Optional performance probes](reference/performance-probes.md) for optional runtime
+- [Optional performance probes](references/performance-probes.md) for optional runtime
   measurements. Use the same isolated fixture and causal assertions; keep timing
   samples out of ordinary CI thresholds and distinguish measured from unavailable
   process resources. A skipped benchmark is not native parity evidence.
@@ -82,7 +82,7 @@ Prefer the repository's documented E2E command through [`typescript/scripts/run-
 
 ## References
 
-- [reference/e2e-scenarios.md](reference/e2e-scenarios.md): scenario ownership table and harness rules.
-- [reference/runtime-smoke-matrix.md](reference/runtime-smoke-matrix.md): the six native smoke environments, Rosetta and Intel policy.
-- [reference/native-provider-checks.md](reference/native-provider-checks.md): provider contracts, setup/lifecycle, Herdr, context and inbox, load diagnostics.
-- [reference/performance-probes.md](reference/performance-probes.md): opt-in startup and latency probes.
+- [references/e2e-scenarios.md](references/e2e-scenarios.md): scenario ownership table and harness rules.
+- [references/runtime-smoke-matrix.md](references/runtime-smoke-matrix.md): the six native smoke environments, Rosetta and Intel policy.
+- [references/native-provider-checks.md](references/native-provider-checks.md): provider contracts, setup/lifecycle, Herdr, context and inbox, load diagnostics.
+- [references/performance-probes.md](references/performance-probes.md): opt-in startup and latency probes.

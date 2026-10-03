@@ -98,4 +98,4 @@ them into this skill.
 
 ## References
 
-- [reference/focused-checks.md](reference/focused-checks.md): model-free focused commands for Codex driver, reply-notice, request-ID, target, host and completion checks.
+- [references/focused-checks.md](references/focused-checks.md): model-free focused commands for Codex driver, reply-notice, request-ID, target, host and completion checks.

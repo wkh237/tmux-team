@@ -7,17 +7,17 @@ verification; it is not an npm product or a CLI fallback. Repository policy is i
 and style in [CONVENTIONS.md](CONVENTIONS.md). This guide holds the commands and
 gates every change shares; per-area procedures live in the skills below.
 
-| Working on                                                                     | Load                                                                       |
-| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
-| Release workflows, archives, installer, upgrade, release PRs, release tracking | [tmt-release](.agents/skills/tmt-release/SKILL.md)                         |
-| Docker E2E, native process fixtures, smoke matrix, provider and Herdr checks   | [tmt-e2e](.agents/skills/tmt-e2e/SKILL.md)                                 |
-| Driver, runtime, completion, request-ID and CLI-style focused checks           | [tmt-dev](.agents/skills/tmt-dev/SKILL.md) (`reference/focused-checks.md`) |
-| Squad extension and board                                                      | [tmt-squad-dev](.agents/skills/tmt-squad-dev/SKILL.md)                     |
-| Internal TUI markup (`tmt-tui`)                                                | [tmt-tui](.agents/skills/tmt-tui/SKILL.md)                                 |
-| Remote door and browser add-on                                                 | [tmt-remote](.agents/skills/tmt-remote/SKILL.md)                           |
-| Colab executable, app and browser client                                       | [tmt-colab](.agents/skills/tmt-colab/SKILL.md)                             |
-| Handbook site and translations                                                 | [tmt-design](.agents/skills/tmt-design/SKILL.md)                           |
-| Adding or moving files                                                         | [tmt-layout](.agents/skills/tmt-layout/SKILL.md)                           |
+| Working on                                                                     | Load                                                                        |
+| ------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| Release workflows, archives, installer, upgrade, release PRs, release tracking | [tmt-release](.agents/skills/tmt-release/SKILL.md)                          |
+| Docker E2E, native process fixtures, smoke matrix, provider and Herdr checks   | [tmt-e2e](.agents/skills/tmt-e2e/SKILL.md)                                  |
+| Driver, runtime, completion, request-ID and CLI-style focused checks           | [tmt-dev](.agents/skills/tmt-dev/SKILL.md) (`references/focused-checks.md`) |
+| Squad extension and board                                                      | [tmt-squad-dev](.agents/skills/tmt-squad-dev/SKILL.md)                      |
+| Internal TUI markup (`tmt-tui`)                                                | [tmt-tui](.agents/skills/tmt-tui/SKILL.md)                                  |
+| Remote door and browser add-on                                                 | [tmt-remote](.agents/skills/tmt-remote/SKILL.md)                            |
+| Colab executable, app and browser client                                       | [tmt-colab](.agents/skills/tmt-colab/SKILL.md)                              |
+| Handbook site and translations                                                 | [tmt-design](.agents/skills/tmt-design/SKILL.md)                            |
+| Adding or moving files                                                         | [tmt-layout](.agents/skills/tmt-layout/SKILL.md)                            |
 
 ## Setup
 
@@ -194,7 +194,7 @@ composition.
 
 The adapter `process::cleanup_policy_tests` must pass under both `cargo test` and
 nextest. Driver, runtime, completion and request-ID checks are in
-[tmt-dev's focused checks](.agents/skills/tmt-dev/reference/focused-checks.md).
+[tmt-dev's focused checks](.agents/skills/tmt-dev/references/focused-checks.md).
 
 ## Native process and shared tests
 

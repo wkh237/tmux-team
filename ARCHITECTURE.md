@@ -54,14 +54,14 @@ and `contracts/request-response-v1.md`; the Remote channel contract lives in
 `contracts/remote-channel-v1.md`. The local MCP wire is owned by
 `contracts/mcp-v1.md`. CLI style guidance lives in `design/cli-style.md`.
 Release-verification procedures belong to
-[DEVELOPMENT's release section](.agents/skills/tmt-release/reference/native-release.md).
+[DEVELOPMENT's release section](.agents/skills/tmt-release/references/native-release.md).
 
 - The handbook owns user guidance. Office documentation and art helpers live in
   `extensions/tmt-office/docs/` and `extensions/tmt-office/scripts/art/`.
 - `rust/archive/NATIVE-INSTALL.md` is the short offline note that every release
   archive carries under the entry name `NATIVE-INSTALL.md`; the archive inventory
   is part of the installer contract, so the name stays. Runtime performance probes
-  are in [DEVELOPMENT](.agents/skills/tmt-e2e/reference/performance-probes.md). No top-level
+  are in [DEVELOPMENT](.agents/skills/tmt-e2e/references/performance-probes.md). No top-level
   exception remains.
 
 New homes or exceptions require an infra-reviewed proposal with a component owner
@@ -727,7 +727,7 @@ bootstrap, upgrade and public smoke checks. Node's architecture alone cannot
 establish executable identity. The advisory weekly/manual native Intel workflow
 retains native runtime and public installer/upgrade evidence; its PR self-test
 is scoped only to its own workflow path. DEVELOPMENT owns the
-[acceptance policy and commands](.agents/skills/tmt-e2e/reference/runtime-smoke-matrix.md). Advisory
+[acceptance policy and commands](.agents/skills/tmt-e2e/references/runtime-smoke-matrix.md). Advisory
 Office browser
 checks remain separate; the repository owner controls merge-queue rulesets.
 
@@ -4321,7 +4321,7 @@ not a CI selector or queue controller. It owns bounded REST evidence collection,
 local cache reuse and metric calculation, using the existing bounded command
 process owner. Its tests own deterministic API/timeline fixtures; production
 job and step evidence stays in local report artifacts. The reporting definitions,
-limits and invocation belong to [DEVELOPMENT](.agents/skills/tmt-release/reference/native-release.md#merge-queue-metrics).
+limits and invocation belong to [DEVELOPMENT](.agents/skills/tmt-release/references/native-release.md#merge-queue-metrics).
 It never changes workflows, rulesets or PR state; unknown causes/inclusion remain
 explicit rather than becoming inferred delivery decisions.
 
@@ -4438,7 +4438,7 @@ uses ordinary tag/main ancestry. Those comparisons and one main-push shadow run
 gate the later switch, rather than new old-path publications. Live cut creation,
 production injection, fixed main development versions and old-path removal remain
 future migration phases. Procedures belong to
-[DEVELOPMENT](.agents/skills/tmt-release/reference/native-release.md#release-cut-shadow); authorization belongs
+[DEVELOPMENT](.agents/skills/tmt-release/references/native-release.md#release-cut-shadow); authorization belongs
 to the [release skill](.agents/skills/tmt-release/SKILL.md).
 
 ### Release-to-Project tracking
@@ -4529,7 +4529,7 @@ the oldest eligible same-repository main release PR is enabled with its observed
 SHA as a fence. Multiple already-active releases fail with reconciliation guidance.
 The owner does not update BEHIND branches: the queue verifies the merged result against
 current main. Query and release-please errors remain failures. Discovery is not atomic
-with external enqueues or a later branch update; [Development](.agents/skills/tmt-release/reference/native-release.md#release-pr-gates-queue-and-stall-monitor)
+with external enqueues or a later branch update; [Development](.agents/skills/tmt-release/references/native-release.md#release-pr-gates-queue-and-stall-monitor)
 owns bounds, token and recovery behavior.
 `release-pr-safety.mjs` owns the read-only release PR safety gates. `Code quality`
 checks PR notes on PR updates and merge groups: the compare base must be the
@@ -4579,7 +4579,7 @@ markers in comments suppress retry duplicates; healthy complete discovery closes
 the same issue. Uncertainty warns without closing, and dry runs only summarize.
 Its request/deadline budget and isolated workflow timeout keep all monitor failures
 advisory; existing release and publication gates retain their failure behavior.
-[Development](.agents/skills/tmt-release/reference/native-release.md#release-pr-gates-queue-and-stall-monitor) owns thresholds and bounds.
+[Development](.agents/skills/tmt-release/references/native-release.md#release-pr-gates-queue-and-stall-monitor) owns thresholds and bounds.
 
 The same safety owner provides `titles-report`, invoked only for merge groups.
 Notes and title feedback share the bounded cumulative squash-subject reader;
@@ -4588,7 +4588,7 @@ against mutable REST titles. It checks conventional title syntax only, leaving
 release attribution and changelog generation with release-please. Findings and
 unavailable evidence are reported to stdout and the job summary, with a zero exit
 status throughout the report-only phase, including summary-write failures.
-[Development](.agents/skills/tmt-release/reference/native-release.md#release-pr-gates-queue-and-stall-monitor) owns the observation
+[Development](.agents/skills/tmt-release/references/native-release.md#release-pr-gates-queue-and-stall-monitor) owns the observation
 window and the separate, explicit UTC enforcement cutover. No edit trigger or
 additional workflow restarts full PR CI for this feedback.
 

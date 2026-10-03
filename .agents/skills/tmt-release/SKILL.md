@@ -21,7 +21,7 @@ Use this skill for release-line maintenance, v4 compatibility fixes, v5 promotio
 ## Release-cut shadow migration
 
 Follow the [architecture's shadow contract](../../../ARCHITECTURE.md#release-cut-shadow)
-and [verification procedure](reference/native-release.md#release-cut-shadow)
+and [verification procedure](references/native-release.md#release-cut-shadow)
 for #1399. Shadow computation and the read-only native injection check confer no
 publication, release/tag mutation, owner-hold override or workflow-dispatch
 authorization. Preserve the active release path and its gates until the separately
@@ -42,7 +42,7 @@ The generator requires
 reviewed consumption declarations for all external production workspace links of a declared consumer,
 using its existing Cargo metadata graph, including transitive dependencies.
 Keep its pinned API shape verified by tooling tests loading the release job's isolated install.
-Follow the [generator and real-candidate checks](reference/native-release.md#tooling-prerequisites) before changing this consumption rule
+Follow the [generator and real-candidate checks](references/native-release.md#tooling-prerequisites) before changing this consumption rule
 or upgrading release-please. This does not change publication authorization or private-leaf version ownership.
 
 ## Release PR safety
@@ -60,7 +60,7 @@ keeps existing locked Cargo workers selected for earlier pending release changes
 A visible matching manifest draft without its git tag holds only that component’s
 release PR candidate; unheld components regenerate normally. Only all-held
 manifest paths skip `release-pr`; `github-release` and draft processing continue. Missing or inconsistent evidence
-fails closed. [The release PR gate notes](reference/native-release.md#release-pr-gates-queue-and-stall-monitor)
+fails closed. [The release PR gate notes](references/native-release.md#release-pr-gates-queue-and-stall-monitor)
 own draft-token visibility, bounded REST discovery, fixtures and recovery procedures. Neither gate
 authorizes manual tagging, release editing or publication.
 
@@ -89,7 +89,7 @@ Keep `always-update` for conflict recovery and the pinned update wrapper's uncha
 release-content comparison for CI continuity. BEHIND alone does not require a branch
 refresh: the merge queue runs required checks against current main's merged result.
 Changed release content still needs fresh checks; no queue priority jump is used.
-[The queue notes](reference/native-release.md#release-pr-gates-queue-and-stall-monitor)
+[The queue notes](references/native-release.md#release-pr-gates-queue-and-stall-monitor)
 owns request bounds, failure and recovery details. Tooling tests must cover pagination,
 single-active selection, queued covered/stale notes against main HEAD, dequeue-before-refresh ordering,
 failed dequeue after completed github-release and suppressed queue enabling, identity/head races, dry-run non-mutation, unchanged generated files and original conflict/update behavior.
@@ -104,7 +104,7 @@ release-job App reader sees drafts, passing metadata rather than credentials.
 Distinguish historical anonymous-smoke infrastructure issues from current check failures;
 a rate-limit issue recommends retrying smoke, never publication. Preserve zero-failure behavior,
 visible summary warnings and fixture-only REST tests. [The monitor
-notes](reference/native-release.md#release-pr-gates-queue-and-stall-monitor) owns thresholds,
+notes](references/native-release.md#release-pr-gates-queue-and-stall-monitor) owns thresholds,
 credentials, bounded discovery and the single-issue recovery lifecycle.
 
 ## Conventional PR titles
@@ -113,7 +113,7 @@ Merge groups report conventional squash-title syntax through the shared safety
 owner. The report-only phase writes findings and unavailable evidence to job
 output/summary and always exits zero; it does not enforce titles yet. Do not add
 an `edited` trigger to full CI or compare ordinary queued subjects against mutable
-REST titles. [The rollout notes](reference/native-release.md#release-pr-gates-queue-and-stall-monitor)
+REST titles. [The rollout notes](references/native-release.md#release-pr-gates-queue-and-stall-monitor)
 owns the observation day and the separate explicit UTC cutover, 24 hours after
 the report-only PR merges. Keep release-please as the release attribution and
 changelog owner.
@@ -129,19 +129,19 @@ status workflow writes. Exclude epic trackers from both fields; their owning lea
 retains the acceptance/dogfood gate, and the summary lists them as skipped. The post-publication dispatch waits for read-back and smoke completion;
 authenticated acquisition errors remain failures, with the daily sweep retaining publication reconciliation.
 Retain the daily safety net. Follow [Project release tracking
-procedure](reference/native-release.md#project-release-tracking) for full dry-run table
+procedure](references/native-release.md#project-release-tracking) for full dry-run table
 review, request and GraphQL point-cost reporting, exact verification commands and
 activation evidence.
 A tracking dispatch never authorizes publication or a publishing-workflow replay.
 
 ## Promotion and prerelease checks
 
-Read the complete [native release verification reference](reference/native-release.md)
+Read the complete [native release verification reference](references/native-release.md)
 before archive, installer, upgrade, bootstrap or publication work. It owns the
 procedures referenced below; [DEVELOPMENT.md](../../../DEVELOPMENT.md) owns ordinary native checks.
 
 For packed verifier process-runner changes, follow the
-[packed cleanup checks](reference/native-release.md#packed-verifier-cleanup).
+[packed cleanup checks](references/native-release.md#packed-verifier-cleanup).
 Preserve its real absence and surviving-group controls; synthetic fixture success
 does not authorize publication or replace artifact acceptance.
 
@@ -223,7 +223,7 @@ a tiny embedded-app fixture as delivery of the Colab product.
   handbook, and the onboarding test runs the note's PATH block in Bash and Zsh.
 - Release targets are macOS x64/arm64 (build deployment target 11.0) and Linux
   x64/arm64 with a static musl runtime. macOS x64 follows the
-  [runtime acceptance policy](../tmt-e2e/reference/runtime-smoke-matrix.md):
+  [runtime acceptance policy](../tmt-e2e/references/runtime-smoke-matrix.md):
   cross-build on arm64, complete Rosetta verifier process trees with exact
   installed-byte architecture checks, plus weekly native Intel public
   installation and upgrade coverage. A deployment target is not testing on every
@@ -249,7 +249,7 @@ The owner chose a trunk-based alpha channel: there is no separate edge channel, 
 (the owner's decisions on #497). That choice is the owner's standing authorization for **the
 pipeline** to publish alpha releases from `main`; it is recorded here so that the written rule
 matches practice. The
-[native release verification reference](reference/native-release.md) owns the
+[native release verification reference](references/native-release.md) owns the
 gates, the markers and the procedures; this section owns who may publish what.
 
 - Covered: an alpha draft of the CLI, Office or Squad (a version `X.Y.Z-alpha.N`, enforced by
