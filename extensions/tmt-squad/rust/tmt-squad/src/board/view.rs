@@ -707,7 +707,13 @@ fn render_meter(frame: &mut Frame, app: &App, summary: Rect) {
         return;
     };
     let meter = app.meter.as_ref().expect("visible meter");
-    let mut spans = vec![Span::raw(meter.digits().expect("visible digits"))];
+    let number = meter.digits();
+    let text = number.as_deref().unwrap_or_else(|| meter.empty_text());
+    let mut spans = vec![if number.is_some() {
+        Span::raw(text)
+    } else {
+        Span::styled(text, app.look().role(Role::Muted))
+    }];
     spans.push(Span::styled(layout.unit, app.look().role(Role::Muted)));
     if let Some(label) = layout.label {
         spans.push(Span::styled(

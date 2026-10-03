@@ -3536,10 +3536,14 @@ winning setting path for settings inspection. Built-in all/leads tabs omit the
 named-squad meter. The bindable `token-window` action (`w` in both host presets)
 cycles the summary through these windows outside text inputs. The meter shows
 observed totals and always labels the window, never divides by elapsed time.
+Window selection also sets the existing board notice, so feedback remains
+visible when the summary band cannot fit beside the lead/attention text.
 Incomplete uptime, gap evidence or unreported members prefix totals with `~`;
 unreported identities contribute no tokens. A baseline alone is not measured
-zero; usable intervals shorter than 10 s hide the summary. Member cells show
-`—` until usable observations exist.
+zero. Without reporting members the enabled meter shows `(no consumption data)`;
+reported counters without a usable covered interval show `(no covered consumption)`.
+Both retain the selected window label. Member cells show `–` until usable
+observations exist.
 
 `App::project_usage` derives a board-only row document from the immutable public
 status document, using the accepted meter receipts for model and three token
